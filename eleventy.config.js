@@ -2,7 +2,10 @@
  * MeteoHub · Eleventy (v3) 配置文件
  * ----------------------------------------------------------------------------
  *   - 输入根目录：src/
- *   - 输出根目录：_site/
+ *   - 输出根目录：
+ *       生产构建          → _site/
+ *       eleventy --serve  → _site_dev/
+ *     ⚠️ 两者必须分开，原因见下面 OUT_DIR 的注释。
  *   - passthrough copy：src/assets/ → /assets/
  *   - collections：portfolio / blog / papers
  *   - filters：date / readingTime / excerpt / year / tagList / status / head
@@ -12,6 +15,24 @@
 const { DateTime } = require("luxon");
 const fs = require("fs");
 const path = require("path");
+
+// ---------------------------------------------------------------------------
+// 输出目录：dev server 与生产构建必须写不同的目录
+// ---------------------------------------------------------------------------
+// 问题：serve 模式下 pathPrefix 被强制为 "/"（dev server 挂在根路径），
+// 而生产构建用 "/MeteoHub"（GitHub Pages 项目页）。两者产出的 HTML 里的
+// 资源路径完全不同——/assets/... 对 /MeteoHub/assets/...。
+//
+// 如果它们写同一个目录，就会出现：dev server 正在 8080 上跑着，你随手
+// 执行一次 `npm run build`，_site/ 被生产版覆盖，而 dev server 仍然按
+// 根路径提供文件 → 页面上**所有**图片与 CSS 一起 404，整站看起来像坏了。
+// 这个坑在开发期间已经踩了 4 次，每次都要重新排查一轮。
+//
+// 拆成两个目录后两种模式的产物互不干扰，build 与 serve 可以同时运行。
+// 判定只看 `--serve`，不看 NODE_ENV：NODE_ENV=production + --serve 仍然
+// 需要根路径预览（只是 CSS 用生产版），产物同样不能进 _site/。
+const IS_SERVE_MODE = process.argv.includes("--serve");
+const OUT_DIR = IS_SERVE_MODE ? "_site_dev" : "_site";
 
 // macOS Finder 会在 patch/write 时自动产生 ._<name> 资源叉备份，
 // 11ty 会把它当成模板加载并 SyntaxError。
@@ -83,7 +104,7 @@ module.exports = function (eleventyConfig) {
     // 早先这里只处理 papers，blog / portfolio 的封面永远进不了 _site。
     for (const section of ["papers", "blog", "portfolio"]) {
       const srcRoot = path.join(__dirname, "src/content", section);
-      const destRoot = path.join(__dirname, "_site", section);
+      const destRoot = path.join(__dirname, OUT_DIR, section);
       if (!fs.existsSync(srcRoot)) continue;
       for (const slug of fs.readdirSync(srcRoot)) {
         const contentDir = path.join(srcRoot, slug);
@@ -105,10 +126,10 @@ module.exports = function (eleventyConfig) {
 
   /* ---------- 1b. Phase 2B.5：components 拆分 → dev/prod 双模生成 ----------
      dev 模式（eleventy --serve）：
-       _site/assets/css/components.css  = @import hub，浏览器按需拉取 7 个 partial
+       <OUT_DIR>/assets/css/components.css = @import hub，浏览器按需拉取 7 个 partial
        每个 partial 独立缓存，IDE 跳转精准，修改某个组件无需重载整个文件。
      prod 模式（任何非 serve 的构建）：
-       _site/assets/css/components.css  = 7 个 partial 按顺序 concat 后的单文件
+       <OUT_DIR>/assets/css/components.css = 7 个 partial 按顺序 concat 后的单文件
        减少 HTTP 请求数（prod 单文件让浏览器一次请求拿全部内容）；
        线上 GitHub Pages 走的就是这条。
 
@@ -126,7 +147,7 @@ module.exports = function (eleventyConfig) {
 
   eleventyConfig.on("eleventy.after", () => {
     const compDir = path.join(__dirname, "src/assets/css/components");
-    const outFile = path.join(__dirname, "_site/assets/css/components.css");
+    const outFile = path.join(__dirname, OUT_DIR, "assets/css/components.css");
     const order = ["_nav", "_button", "_badge", "_card", "_list", "_paper", "_misc"];
 
     let body;
@@ -176,7 +197,7 @@ module.exports = function (eleventyConfig) {
     // 这里只清 _site/ 这一个纯产物目录（不碰 src、不碰任何用户数据），
     // 语义与 deploy.yml 里的 `find _site -name '._*' -type f -delete` 一致，
     // 让本地产物和 CI 上传的内容保持相同。
-    stripMacResourceForks(path.join(__dirname, "_site"));
+    stripMacResourceForks(path.join(__dirname, OUT_DIR));
   });
 
   /* ---------- 2. 监视：build 后页面刷新 ---------- */
@@ -358,7 +379,7 @@ module.exports = function (eleventyConfig) {
   return {
     dir: {
       input: "src",
-      output: "_site",
+      output: OUT_DIR,
       includes: "_includes",
       data: "_data",
     },
