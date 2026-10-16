@@ -77,16 +77,24 @@ module.exports = function (eleventyConfig) {
   // 对 src/content/ 子目录的 pass 有缺陷（assetGlobs 不递归 substring），用 eleventy.after
   // 钩子在 build 后手工 cp 到 _site，避免 11ty passthrough 的 path prefix 解析问题。
   const copyCovers = () => {
-    const srcRoot = path.join(__dirname, "src/content/papers");
-    const destRoot = path.join(__dirname, "_site/papers");
-    if (!fs.existsSync(srcRoot)) return;
-    for (const slug of fs.readdirSync(srcRoot)) {
-      for (const ext of ["svg", "png", "jpg", "jpeg", "webp"]) {
-        const src = path.join(srcRoot, slug, `cover.${ext}`);
-        const dest = path.join(destRoot, slug, `cover.${ext}`);
-        if (fs.existsSync(src)) {
-          fs.mkdirSync(path.dirname(dest), { recursive: true });
-          fs.copyFileSync(src, dest);
+    // 三个 section 的 permalink 都是 /<section>/<slug>/，slug 就是内容目录名
+    // （getSlugFromData 取的也是目录名），所以按 section 各自映射就能让封面图
+    // 落在与 index.html 同级的位置，模板用相对文件名引用即可命中。
+    // 早先这里只处理 papers，blog / portfolio 的封面永远进不了 _site。
+    for (const section of ["papers", "blog", "portfolio"]) {
+      const srcRoot = path.join(__dirname, "src/content", section);
+      const destRoot = path.join(__dirname, "_site", section);
+      if (!fs.existsSync(srcRoot)) continue;
+      for (const slug of fs.readdirSync(srcRoot)) {
+        const contentDir = path.join(srcRoot, slug);
+        if (!fs.statSync(contentDir).isDirectory()) continue;
+        for (const ext of ["svg", "png", "jpg", "jpeg", "webp"]) {
+          const src = path.join(contentDir, `cover.${ext}`);
+          const dest = path.join(destRoot, slug, `cover.${ext}`);
+          if (fs.existsSync(src)) {
+            fs.mkdirSync(path.dirname(dest), { recursive: true });
+            fs.copyFileSync(src, dest);
+          }
         }
       }
     }
@@ -183,9 +191,14 @@ module.exports = function (eleventyConfig) {
 
   /* ---------- 4. filters ---------- */
   // date：ISO 串 → "2026-09-12"
+  // zone 必须钉在 UTC：YAML front-matter 里 `date: 2026-09-12` 被解析成
+  // 2026-09-12T00:00:00Z，而 fromJSDate 默认换算到本地时区，在 UTC 以西的机器上
+  // 会退回前一天（显示 2026-09-11）。日期是内容作者写的日历日，不该随时区漂移。
   eleventyConfig.addFilter("date", (value, fmt = "yyyy-LL-dd") => {
     if (!value) return "";
-    const d = value instanceof Date ? DateTime.fromJSDate(value) : DateTime.fromISO(String(value));
+    const d = value instanceof Date
+      ? DateTime.fromJSDate(value, { zone: "utc" })
+      : DateTime.fromISO(String(value), { zone: "utc" });
     return d.isValid ? d.toFormat(fmt) : String(value);
   });
 

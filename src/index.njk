@@ -1,74 +1,74 @@
 ---
 layout: layouts/base.njk
-title: 首页
-description: 大气科学研究者，专注东亚季风变异与数据同化。本站汇集我的研究项目、博客长文与论文精读批注。
+title: Home
+# ⚠️ title / description 里**不能直接写 {{ }}**。Eleventy 的 front matter 是
+#    普通字符串，不会再过一遍模板引擎——上一版把 {{ site.author.name }} 写在
+#    title 里，渲染出来就是字面量 "<title>{{ site.author.name }} · ...</title>"，
+#    meta description 与 og:description 同样漏出去，等于把模板源码交给搜索引擎。
+#    要用数据就放 eleventyComputed，那个字段是会被渲染的。
+eleventyComputed:
+  title: "{{ site.author.name }} · {{ site.author.jobTitle }}"
+  description: "{{ site.author.bio }}"
 eleventyNavigation:
   key: Home
   order: 1
+editPaths:
+  - path: src/index.njk
+    label: "Edit this page"
 ---
 
-<article class="home-shell">
-  <section class="home-hero">
-    <div class="home-hero__copy">
-      <p class="home-eyebrow">ATMOSPHERIC SCIENCE / RESEARCH NOTES</p>
-      <h1 class="home-hero__title">Reading the atmosphere<br /><em>as a system.</em></h1>
-      <p class="home-hero__lede">Yihang Lv studies East Asian monsoon variability, subseasonal predictability, and the tools that make climate research reproducible.</p>
-      <div class="home-hero__actions">
-        <a class="btn btn--primary" href="{{ '/papers/' | url }}">Explore paper notes <span aria-hidden="true">↗</span></a>
-        <a class="btn btn--outline" href="{{ '/portfolio/' | url }}">View research projects</a>
-      </div>
-      {# ⚠️ Phase 2B.1：persona 单一来源 = site.author.jobTitle，不要再硬编码
-         "PhD Candidate" / "Postdoctoral researcher" / "博士后" 等字符串。
-         如要修改学术身份，改 src/_data/site.js → author.jobTitle 即可。 #}
-      <p class="home-hero__micro">{{ site.author.jobTitle }} · {{ site.author.affiliation }}</p>
-    </div>
+{# ============================================================================
+   index.njk · 首页
+   ----------------------------------------------------------------------------
+   结构只有两段：hero（是谁 + 在做什么）+ 论文（实际产出）。
+   上一版还有「三处入口」「Recently collected」「ACHIEVEMENTS 成果条」，它们都
+   依赖已经删掉的 /portfolio/、/papers/ 模板和空集合，现在要么渲染出空 DOM，
+   要么指向 404，所以整段拿掉了：
 
-    <aside class="home-signal" data-reveal aria-label="研究主题摘要">
-      <div class="home-signal__top"><span>FIELD NOTE / 01</span><span>2026—</span></div>
-      <div class="home-signal__orb" aria-hidden="true"><i></i><i></i><i></i><b></b></div>
-      <p class="home-signal__kicker">Current focus</p>
-      <h2>Monsoon systems<br />in motion.</h2>
-      <div class="home-signal__metrics">
-        <span><b>01</b> East Asian monsoon</span>
-        <span><b>02</b> Reanalysis pipelines</span>
-        <span><b>03</b> Predictability</span>
-      </div>
-      <div class="home-signal__foot"><span>QBO × MJO</span><span>ERA5 / JRA-3Q</span></div>
-    </aside>
-  </section>
+     · ACHIEVEMENTS 条 —— site.author.achievements 字段已从 site.js 删除，
+       partial 仍然读它，于是渲染出一个空的 <ul></ul> 外加一个悬空标题。
+       真实数字（被引数 / h 指数）本来也没有，宁可没有这一条。
+     · 三处入口 / Recently collected —— 链接指向 /portfolio/ 与 /papers/，
+       这两个模板上一轮已删；collections.blog / collections.papers 已空。
+
+   以后要加回版块，先确认目标路由真实存在，否则就是又一组死链接。
+   ========================================================================== #}
+
+<article class="home-shell">
+  {# hero 拆成 partial：人像 / FIELD NOTE 贴纸后续要在 about 等页复用同一套，
+     留在 index.njk 里会变成一大坨没法单独引用的内联结构。 #}
+  {% include "partials/hero.njk" %}
+
+  {# 论文区：紧接在 hero 之后。首页要回答的问题只有两个——"你是谁"和
+     "你产出过什么"，中间插一段自我介绍反而把答案隔开了。 #}
+  {% include "partials/publications.njk" %}
 
   <section class="home-intro" data-reveal>
     <p class="home-intro__label">A working archive</p>
     <div class="home-intro__body">
-      <p>我在中国科学院大气物理研究所做博士后研究，围绕东亚季风变异、平流层–对流层耦合与次季节尺度可预报性展开工作。</p>
-      <p>这个站点记录研究项目、长文思考，以及把论文原文与批注放在一起的精读。数据管线、可视化工具和合作手稿，则在 <a href="https://github.com/oldsixxiaolv/Manuscript_Lvyh" target="_blank" rel="noopener noreferrer">Manuscript_Lvyh</a> 中继续维护。</p>
+      <p>
+        {{ site.author.jobTitle }} at
+        <a href="{{ site.author.affiliationUrl }}" target="_blank" rel="noopener noreferrer">{{ site.author.affiliationEn }}</a>,
+        working on {{ site.author.researchEn | lower }}. Currently focused on
+        {{ site.author.currentFocusEn | lower }}.
+      </p>
+      <p>
+        Storm identification code and figure data are released openly —
+        the stage-identification tool is archived on
+        <a href="{{ site.author.zenodo }}" target="_blank" rel="noopener noreferrer">Zenodo</a>,
+        and the TRMM analysis pipeline lives in
+        <a href="https://github.com/oldsixxiaolv/Manuscript_Lvyh" target="_blank" rel="noopener noreferrer">Manuscript_Lvyh</a>.
+      </p>
     </div>
-    <div class="home-intro__links"><a href="mailto:yihang.lv@mail.iap.ac.cn">邮箱</a><a href="https://github.com/oldsixxiaolv" target="_blank" rel="noopener noreferrer">GitHub</a><a href="{{ '/feed.xml' | url }}">RSS</a></div>
-  </section>
-
-  <section class="home-pillars" aria-label="站点内容">
-    <a class="home-pillar" data-reveal href="{{ '/portfolio/' | url }}">
-      <span class="home-pillar__number">01</span><span class="home-pillar__tag">RESEARCH</span>
-      <h2>Research<br />projects</h2><p>数据管线、诊断工具与可复用的研究工程。</p><span class="home-pillar__arrow" aria-hidden="true">↗</span>
-    </a>
-    <a class="home-pillar" data-reveal data-reveal-delay="80" href="{{ '/blog/' | url }}">
-      <span class="home-pillar__number">02</span><span class="home-pillar__tag">NOTES</span>
-      <h2>Field<br />notes</h2><p>关于方法、资料和做研究时遇到的问题。</p><span class="home-pillar__arrow" aria-hidden="true">↗</span>
-    </a>
-    <a class="home-pillar home-pillar--accent" data-reveal data-reveal-delay="160" href="{{ '/papers/' | url }}">
-      <span class="home-pillar__number">03</span><span class="home-pillar__tag">READING</span>
-      <h2>Paper<br />reader</h2><p>原文、批注与问题并置的论文精读。</p><span class="home-pillar__arrow" aria-hidden="true">↗</span>
-    </a>
-  </section>
-
-  <section class="home-latest" data-reveal>
-    <div class="home-section-head"><div><p class="home-eyebrow">LATEST SIGNALS</p><h2>Recently collected</h2></div><a href="{{ '/blog/' | url }}">All notes <span aria-hidden="true">→</span></a></div>
-    <div class="home-latest__grid">
-      <div><p class="home-latest__label">Notes</p><ul class="list">{% for post in collections.blog | head(3) %}<li class="list__item"><a class="list__title" href="{{ post.url | url }}">{{ post.data.title }}</a><p class="list__meta"><time datetime="{{ post.date | date('yyyy-LL-dd') }}">{{ post.date | date('yyyy-MM-dd') }}</time></p></li>{% endfor %}</ul></div>
-      {# 状态字段名跟 paper.njk 对齐用 readingStatus：写 status 的话
-         holton（只有 readingStatus）会渲染出空的 "1987 · "，
-         microphysics（只有 status: published）会漏出未翻译的英文。 #}
-      <div><p class="home-latest__label">Papers</p><ul class="list">{% for paper in collections.papers | head(3) %}<li class="list__item"><a class="list__title" href="{{ paper.url | url }}">{{ paper.data.title }}</a><p class="list__meta">{% if paper.data.year %}{{ paper.data.year }}{% endif %}{% if paper.data.readingStatus %} · {{ paper.data.readingStatus | statusLabel }}{% endif %}</p></li>{% endfor %}</ul></div>
+    {# 联系方式直链：全用 site.author 里已确认的真实地址。
+       原来这里挂的是 /feed.xml，但 feed 模板上一轮已删，site.js 的 social 注释
+       也写明"站点已不再提供 RSS"——链接和注释互相打架，这里一并去掉。 #}
+    <div class="home-intro__links">
+      <a href="mailto:{{ site.author.email }}">Email</a>
+      <a href="{{ site.author.orcid }}" target="_blank" rel="noopener noreferrer">ORCID</a>
+      <a href="{{ site.author.github }}" target="_blank" rel="noopener noreferrer">GitHub</a>
+      <a href="{{ site.author.researchgate }}" target="_blank" rel="noopener noreferrer">ResearchGate</a>
+      <a href="{{ site.author.csdn }}" target="_blank" rel="noopener noreferrer">CSDN</a>
     </div>
   </section>
 </article>

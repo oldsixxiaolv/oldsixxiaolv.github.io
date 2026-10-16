@@ -1,10 +1,18 @@
 ---
 layout: layouts/page.njk
-title: 404 · 迷路了
+title: 404 · Page not found
 permalink: /404.html
-description: 你访问的页面不存在 — 回到首页或浏览作品集。
+description: The page you asked for does not exist.
 eleventyExcludeFromCollections: true
+editPaths:
+  - path: src/404.njk
+    label: "Edit this page"
 ---
+
+{# ⚠️ 这里只列**真实存在**的路由。原来这一页推荐 /portfolio/ 与 /papers/，
+   而这两个模板上一轮已随内容归档删除——404 页给的三条建议里有两条是死链，
+   比不给建议更糟（用户会以为是自己点错了，其实是我们自己的导航断了）。
+   以后加回版块时，记得同步往这个列表里补。 #}
 
 <section class="section wrap-b">
   <header class="section__head section__head--list">
@@ -23,10 +31,8 @@ eleventyExcludeFromCollections: true
       先 <a href="{{ '/' | url }}">回首页</a> 看看最新内容，或浏览下面这些：
     </p>
     <ul>
-      <li><a href="{{ '/portfolio/' | url }}">作品集</a> — 研究项目 / 数据管线 / 可视化</li>
-      <li><a href="{{ '/blog/' | url }}">博客</a> — 长文思考 / 学习笔记</li>
-      <li><a href="{{ '/papers/' | url }}">论文精读</a> — 双栏批注 + 锚点联动</li>
-      <li><a href="{{ '/about/' | url }}">关于</a> — 研究方向 / 联系方式</li>
+      <li><a href="{{ '/about/' | url }}">About</a> — 研究方向 / 单位 / 技术能力 / 联系方式</li>
+      <li><a href="{{ '/blog/' | url }}">Technical notes</a> — 方法与数据笔记（目前整理在 CSDN）</li>
     </ul>
   </div>
 </section>

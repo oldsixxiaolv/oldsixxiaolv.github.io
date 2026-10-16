@@ -1,0 +1,185 @@
+{# ============================================================================
+   publications.njk · 论文展示区（首页「Selected publications」）
+   ----------------------------------------------------------------------------
+   数据源唯一：site.author.publications（src/_data/site.js，**只读**）。
+   模板对多条目 / 空数组都成立：整个 section 包在 {% if pubs %} 里，
+   数组为空时连标题都不输出（不留空壳 DOM）。以后加第 2、3 条论文时
+   只需要往 site.js 里追加对象，本文件不用改。
+
+   —— 三条硬规则（学术诚信底线）——
+   1) **null 字段一个都不渲染**。year / doi / url / citations 目前都是 null，
+      所以这一版的期刊行后面没有年份、没有 DOI 徽标、没有"被引 N"，
+      页面上也不会出现 "N/A" / "0" / "待补充" 这类占位——学术主页上
+      一个印错的引用数比空着糟得多。字段判空统一走 {% if %}，Nunjucks 里
+      null 与 0 同为 falsy，将来真填上数字会自动出现。
+   2) **非 published 的条目必须带状态角标**，且角标排在标题**之前**：
+      读者自上而下扫，第一眼撞上的是"返修中"而不是刊名，避免把在审稿件
+      读成已发表。角标文字本身（不只颜色）就写明状态，色觉障碍读者同样
+      能读到。
+   3) **作者位次要写清楚**。role: "co" 单独一个"合作"太含糊，读者分不清
+      是一作还是挂名；所以 role 标签后面补一个从 authors 串里数出来的
+      序数（第二作者）。序数是**数出来的**不是写死的，见下面的 selfPos。
+
+   —— 作者高亮 ——
+   SELF 是站点主人在这份稿件署名里的写法。注意它和 site.author.name
+   （"Yihang Lv"）**不是同一个串**：稿件署名用拼音 Lyu，站点档案用姓氏
+   Lv，所以这里只能写死这一个 needle，没法从 site.author.name 推。
+   换一篇署名不同的论文时要同步改这一行（找不到就整条不高亮，其余照常）。
+   ========================================================================== #}
+
+{# ⚠️ 数据路径：publications 在 site.js 里是**顶层**字段（site.publications），
+   不是 author 下面的。上一版这里写的是 site.author.publications，取到 undefined，
+   于是 {% if pubs %} 整块不渲染——页面上看起来"还没有论文"，实际上数据就在
+   site.js 里躺着。以后往 author 里挪数据时记得同步改这一行。 #}
+{%- set pubs = site.publications -%}
+
+{%- if pubs and pubs.length -%}
+
+{# —— SELF：本人在作者串里的写法（唯一硬编码的人名，见上方注释）—— #}
+{%- set SELF = site.author.nameAsPublished or site.author.name -%}
+
+{# —— 状态角标表：status 值 → {英文标签, .badge 变体} ——
+   变体复用 components/_badge.css 已有的 badge--sage / --brand / --warning，
+   不新造一套徽标样式。四种状态里只有 published 走"绿=sage"，其余一律
+   走暖色/品牌色，一眼就和已发表的区分开。
+   ⚠️ 标签一律英文：整站首页已统一为英文，一处中文角标就会在英文版面上
+   戳出一个刺眼的杂色块（同理适用于下面的 role / ordinal 两张表）。 #}
+{%- set STATUS = {
+     "published":    { label: "Published",    tone: "sage"    },
+     "in-press":     { label: "In press",     tone: "brand"   },
+     "under-review": { label: "Under review", tone: "brand"   },
+     "revision":     { label: "In revision",  tone: "warning" }
+   } -%}
+
+{# —— 作者身份标签 —— role: first / co / corresponding ——
+   "co" 单独不够（见硬规则 3），所以标签后面会再拼序数。 #}
+{%- set ROLE = {
+     "first":         { label: "First-author paper", ordinal: false },
+     "co":            { label: "Co-authored paper", ordinal: true  },
+     "corresponding": { label: "Corresponding author", ordinal: false }
+   } -%}
+
+{# —— 序数词表：只覆盖一/二/三作者，第四作者往后走通用写法 ——
+   拿不到序数时宁可不显示，也不猜。 #}
+{%- set ORDINAL = { "1": "1st author", "2": "2nd author", "3": "3rd author" } -%}
+
+<section class="home-publications" id="publications" aria-labelledby="home-publications-title">
+  <div class="home-blockhead">
+    <p class="home-eyebrow">PUBLICATIONS</p>
+    <h2 class="home-blockhead__title" id="home-publications-title">Selected publications</h2>
+  </div>
+
+  <ol class="home-pub-list">
+    {%- for p in pubs %}
+
+      {# —— 逐条取字段，缺失即空 —— #}
+      {%- set st = STATUS[p.status] if p.status and p.status in STATUS else null -%}
+      {%- set roleInfo = ROLE[p.role] if p.role and p.role in ROLE else null -%}
+      {%- set names = p.authors.split(", ") if p.authors else [] -%}
+
+      {# —— 本人位次：数出来的，不是写死的 ——
+         Nunjucks 的 {% set %} 在 {% for %} 之后仍然可见（不像 Jinja2 的
+         块作用域），所以循环里第一次命中 SELF 时记下 loop.index。
+         `and not selfPos` 保证只记第一个命中项。作者串里没有本人时
+         selfPos 保持 0，序数不显示——不会凭空安一个位次。 #}
+      {%- set selfPos = 0 -%}
+      {%- for n in names -%}
+        {%- if n == SELF and not selfPos -%}{%- set selfPos = loop.index -%}{%- endif -%}
+      {%- endfor -%}
+
+      {%- set roleLabel = null -%}
+      {%- if roleInfo -%}
+        {%- if roleInfo.ordinal and selfPos -%}
+          {%- set ord = ORDINAL[selfPos | string] -%}
+          {# 四作者往后没有预置词条，退回通用写法（同样是数出来的） #}
+          {%- if not ord -%}{%- set ord = selfPos + "th author" -%}{%- endif -%}
+          {%- set roleLabel = roleInfo.label + " · " + ord -%}
+        {%- else -%}
+          {%- set roleLabel = roleInfo.label -%}
+        {%- endif -%}
+      {%- endif -%}
+
+    <li class="home-pub" data-reveal data-reveal-delay="{{ loop.index0 * 80 }}">
+      <div class="home-pub__text">
+        {# 角标行在标题之上：先读状态，再读标题（见硬规则 2） #}
+        <p class="home-pub__flags">
+          {%- if st %}<span class="badge badge--{{ st.tone }} home-pub__status">{{ st.label }}</span>{% endif -%}
+          {%- if roleLabel %}<span class="badge badge--quiet home-pub__role">{{ roleLabel }}</span>{% endif -%}
+          {%- if p.note %}<span class="home-pub__note">{{ p.note }}</span>{% endif -%}
+        </p>
+
+        <h3 class="home-pub__title">{{ p.title }}</h3>
+
+        {# 作者串：逐个渲染而不是整串输出，这样才能把本人挑出来高亮。
+           分隔符在前一位后面输出，最后一位不会拖尾逗号。 #}
+        {%- if names.length %}
+        <p class="home-pub__authors">
+          {%- for n in names -%}
+            {%- if not loop.first %}, {% endif -%}
+            {%- if n == SELF -%}<strong class="home-pub__self">{{ n }}</strong>{%- else -%}{{ n }}{%- endif -%}
+          {%- endfor -%}
+        </p>
+        {%- endif %}
+
+        {# 期刊 + 年份：两个字段各自判空，分隔点只在**两个都在**时才输出，
+           所以"有刊名无年份"（当前这版就是）不会出现孤零零一个 "·"。 #}
+        {%- if p.journal or p.year %}
+        <p class="home-pub__venue">
+          {%- if p.journal %}<cite class="home-pub__journal">{{ p.journal }}</cite>{% endif -%}
+          {%- if p.journal and p.year %}<span class="home-pub__sep" aria-hidden="true">·</span>{% endif -%}
+          {%- if p.year %}<span class="home-pub__year">{{ p.year }}</span>{% endif -%}
+        </p>
+        {%- endif %}
+
+        {%- if p.affiliation %}<p class="home-pub__aff">{{ p.affiliation }}</p>{% endif %}
+      </div>
+
+      {# —— 链接行 ——
+         每一项都判空：这一版稿件没有 url / doi，只有真实的代码仓与数据
+         DOI，所以页面上就只出现 Code / Data / Figure 三个链接，不摆空槽。
+         dataDoi / doi 存的是裸 DOI 串，链接交给 doi.org 解析。
+         p.url 可能是站内路径（/papers/...）也可能是站外绝对地址，
+         前者过 url filter 补 pathPrefix，后者原样输出。 #}
+      {%- if p.url or p.doi or p.code or p.dataDoi or p.figure %}
+      <p class="home-pub__links">
+        {%- if p.url %}
+          <a class="home-pub__link" href="{% if p.url[0] == '/' %}{{ p.url | url }}{% else %}{{ p.url }}{% endif %}" target="_blank" rel="noopener noreferrer">Paper <span aria-hidden="true">↗</span></a>
+        {%- endif -%}
+        {%- if p.doi %}<a class="home-pub__link" href="https://doi.org/{{ p.doi }}" target="_blank" rel="noopener noreferrer">DOI <span aria-hidden="true">↗</span></a>{% endif -%}
+        {%- if p.code %}<a class="home-pub__link" href="{{ p.code }}" target="_blank" rel="noopener noreferrer">Code <span aria-hidden="true">↗</span></a>{% endif -%}
+        {%- if p.dataDoi %}<a class="home-pub__link" href="https://doi.org/{{ p.dataDoi }}" target="_blank" rel="noopener noreferrer">Data <span aria-hidden="true">↗</span></a>{% endif -%}
+        {%- if p.figure and p.figure.src %}
+          <a class="home-pub__link" href="{{ p.figure.src | url }}" target="_blank" rel="noopener noreferrer">Figure <span aria-hidden="true">↗</span></a>
+        {%- endif -%}
+      </p>
+      {%- endif %}
+
+      {# —— 成果图 ——
+         loading="lazy"：本页 LCP 是 hero 人像（eager + fetchpriority=high），
+         论文区在成果条与介绍之后，图片根本不在首屏，抢 high 是浪费带宽。
+         width/height 走数据里的值：零 CLS，且以后换图不用改 CSS
+         （盒模型比例由属性决定，这里刻意不写死 aspect-ratio）。
+         配套的浅色衬底 + 细边框见 pages.css 的 .home-pub__figure-plate 注释。 #}
+      {%- if p.figure and p.figure.src %}
+      <figure class="home-pub__figure">
+        <div class="home-pub__figure-plate">
+          <img
+            class="home-pub__figure-img"
+            src="{{ p.figure.src | url }}"
+            {%- if p.figure.width and p.figure.height %} width="{{ p.figure.width }}" height="{{ p.figure.height }}"{% endif %}
+            alt="{{ p.figure.alt }}"
+            loading="lazy"
+            decoding="async" />
+        </div>
+        {%- if p.figure.caption %}
+        <figcaption class="home-pub__caption"><span class="home-pub__caption-tag">Figure</span><span>{{ p.figure.caption }}</span></figcaption>
+        {%- endif -%}
+      </figure>
+      {%- endif %}
+    </li>
+
+    {%- endfor %}
+  </ol>
+</section>
+
+{%- endif -%}

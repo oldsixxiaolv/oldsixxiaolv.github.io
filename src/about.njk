@@ -1,16 +1,513 @@
 ---
 layout: layouts/page.njk
-title: 关于
-description: 关于我 — 研究方向、教育背景、联系方式。
+title: "About"
+# 同 index.njk：front matter 不走模板引擎，要用数据必须放 eleventyComputed。
+# 上一版的 description 里写着 {{ site.author.name }}，渲染结果里 meta 与
+# og:description 都是原样的模板语法。
+# ⚠️ currentFocusEn 后面刻意**不加 | lower**：它是专有名词 "Extreme
+#    precipitation over North China"，lowercase 会把 North China 变成
+#    north china，正文句子读着像地名普查表。
+eleventyComputed:
+  description: "{{ site.author.name }} — {{ site.author.jobTitle }} at {{ site.author.affiliationEn }}. Research on {{ site.author.researchEn | lower }}, currently focused on {{ site.author.currentFocusEn }}. Affiliations, technical skills, selected output, and contact."
 eleventyNavigation:
   key: About
   order: 5
+# 关于页有两个可编辑的源：版式在 about.njk，正文散文在 content/about.md。
+# 只给一个入口的话，想改文字的人得先自己猜目录结构。
+editPaths:
+  - path: src/about.njk
+    label: "Edit layout"
+  - path: src/content/about.md
+    label: "Edit text"
 ---
 
-<article class="prose">
-  {# about.md 正文从 "## 我是谁" 起，最高级别只有 h2；没有 h1 的页面在
-     屏幕阅读器的 heading 导航 / 大纲里是空的，也拿不到 SEO 的主标题信号。
-     标题取 front-matter 的 title，与 base.njk 的 <title> 单一来源。 #}
-  <h1>{{ title or "关于" }}</h1>
-  {{ aboutHtml | safe }}
+{# ============================================================================
+   about.njk · 个人学术档案（h1 = 姓名，页内共 1 个 h1）
+   ----------------------------------------------------------------------------
+   分工原则（全站一致，见 src/_data/site.js 顶部的 single-source-of-truth 警告）：
+     · 身份 / 姓名 / 单位 / 技能 / 论文 / 联系方式 → 一律从 site.js 渲染
+     · 观点 / 取舍 / 关于站点的说明                → 留在 src/content/about.md
+
+   为什么这一版把「学术产出计数」整块去掉了：它原来读
+   site.author.achievements 的 citations / hIndex / papersRead，而该字段
+   上一轮已从 site.js 删除。模板靠 {% if s.v != null %} 挡掉了数字，却挡不住
+   容器本身——实测渲染出的是一个带标题的空网格。真实数字拿不到之前，
+   整块不渲染；下面「Selected output」直接列论文本身，信息量更高且全部可核。
+
+   skills 组同理：site.author.skills（4 组 19 项，源自本人简历）此前**全站一次
+   都没被引用过**，数据定义了却没有任何模板读它。现在在这里渲染出来。
+   ========================================================================== #}
+
+<style>
+/* ============================================================================
+   about 页样式
+   ----------------------------------------------------------------------------
+   为什么写在模板里而不是 pages.css：
+     pages.css 目前整份是 .home-* （首页专用），且首页正由另一条线并行改造；
+     把 .about-* 塞进去等于把两个页面的改动绑在同一个文件上，一改就撞。
+     .about-* 前缀本身也保证了两边不会互相覆盖选择器。
+   规则全部走 tokens.css 的语义变量，暗色模式由 [data-theme="dark"] 自动翻转，
+   本文件不需要任何 dark 分支，也不需要 !important。
+   ========================================================================== */
+
+/* —— 档案头：证件照 + 身份块 ——
+   整页收在 --container-base（960）这一档而不是 .wrap 的 1200：关于页是「读」
+   性质的页面，1200 那档是首页 / 论文三栏的画布宽，档案信息摊在 1200 上
+   两侧会空得很散。960 也就是 layout.css 给列表页 / 详情页定的阅读列。 —— */
+.about { max-width: var(--container-base); }
+.about-hero {
+  display: grid;
+  grid-template-columns: 208px minmax(0, 1fr);
+  gap: clamp(24px, 4vw, 48px);
+  align-items: start;
+  padding-bottom: var(--space-6);
+  border-bottom: 1px solid var(--border-default);
+}
+.about-hero__photo {
+  display: block;
+  width: 100%;
+  height: auto;
+  /* 源图就是 4:5，锁死比例：将来换图也不会把下面的文字块顶下去（CLS）。
+     <img> 上的 width/height 属性负责首屏前的比例预留，这条是换图后的兜底。 */
+  aspect-ratio: 4 / 5;
+  object-fit: cover;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  background: var(--bg-muted);
+}
+.about-eyebrow {
+  margin: 0 0 var(--space-2);
+  font: 600 11px/1 var(--font-mono);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--color-accent-600);
+}
+.about-hero__name {
+  margin: 0;
+  font-size: clamp(2rem, 4.2vw, 3rem);
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+}
+.about-hero__name span {
+  display: block;
+  margin-top: 6px;
+  font-family: var(--font-serif-en);
+  font-size: 0.44em;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+.about-hero__role {
+  margin: var(--space-4) 0 0;
+  font-size: var(--fs-body-lg);
+  color: var(--text-secondary);
+}
+.about-hero__role a {
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, currentColor 35%, transparent);
+  text-underline-offset: 4px;
+}
+.about-hero__role a:hover { text-decoration-color: currentColor; }
+.about-hero__focus {
+  margin: var(--space-2) 0 0;
+  font-size: 17px;
+  color: var(--text-primary);
+}
+.about-hero__bio {
+  margin: var(--space-4) 0 0;
+  max-width: 62ch;
+  font-size: var(--fs-small);
+  line-height: 1.7;
+  color: var(--text-muted);
+}
+
+/* —— 章节标题：档案块与正文散文共用同一档，避免散文 h2 反而比档案标题大 —— */
+.about h2 {
+  margin: var(--space-6) 0 var(--space-3);
+  font-size: clamp(1.2rem, 2.2vw, 1.45rem);
+  letter-spacing: -0.01em;
+}
+/* 区块之间的间距挂在这个相邻兄弟选择器上，而不是靠各块自己写 margin-top：
+   每个档案区的第一个子元素是 .about-eyebrow，而它的 margin-top 是 0，
+   所以 h2 的上边距根本落不到区块边界上——实测技能区、产出区会直接贴在
+   上一块底部，视觉上像同一个区块。写在这里，以后加新区块自动就有间距。 */
+.about > * + * { margin-top: var(--space-6); }
+
+/* —— 两栏档案块：研究关键词 / 单位 —— */
+.about-blocks {
+  display: grid;
+  grid-template-columns: 1.15fr 1fr;
+  gap: clamp(24px, 4vw, 48px);
+  margin-top: var(--space-6);
+}
+.about-block { min-width: 0; }
+/* 每个档案块的标题前面都有一行 eyebrow 标签，h2 自己的上边距会把两者撑开。
+   用相邻兄弟选择器一次性解决，比逐块写 .about-block > h2 更好维护。 */
+.about-eyebrow + h2 { margin-top: 0; }
+/* .tag-cloud 只定义了 flex + gap，没清列表符号：直接套 <li> 会让每个关键词
+   前面都挂一个圆点。这里补上 <ul> 的归零。 */
+.about-topics {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* —— 单位清单 ——
+   dl 两列而不是 ul：单位名和「在哪、是什么身份」是两件事，用 dl 分开比
+   在一串文字里加括号更易扫读。
+   padding/list-style 的归零不能省：.about-affils 覆写了 display:grid，但
+   <ul> 的默认 marker 仍然生效，不清的话每张卡片左边会挂一个圆点。 */
+.about-affils {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: var(--space-3);
+}
+.about-affil {
+  padding: var(--space-3);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+}
+.about-affil b {
+  display: block;
+  font-family: var(--font-serif-en);
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 1.25;
+}
+.about-affil span {
+  display: block;
+  margin-top: 4px;
+  font: 600 10px/1 var(--font-mono);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+/* —— 教育经历：左时间轴 / 右学位 + 学校 ——
+   学校名与院系分成两行：学校是"在哪"，院系是"在哪个学院"，同一行塞两句话
+   在窄屏上会挤成难读的长串。年份用等宽字形，扫一眼就知道时间轴方向。 */
+.about-edu {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: var(--space-4);
+  max-width: 62ch;
+}
+.about-edu__row {
+  display: grid;
+  grid-template-columns: 108px minmax(0, 1fr);
+  gap: var(--space-3);
+  padding-bottom: var(--space-4);
+  border-bottom: 1px solid var(--border-subtle);
+}
+.about-edu__row:last-child { padding-bottom: 0; border-bottom: 0; }
+.about-edu__period {
+  font: 600 var(--fs-caption)/1.6 var(--font-mono);
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  padding-top: 2px;
+}
+.about-edu__degree {
+  margin: 0;
+  font-family: var(--font-serif-en);
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+.about-edu__school {
+  margin: 4px 0 0;
+  font-size: var(--fs-small);
+  color: var(--text-secondary);
+}
+.about-edu__detail { display: block; color: var(--text-muted); font-size: var(--fs-caption); }
+
+/* —— 技术能力：四组平铺 ——
+   用 dl 而不是嵌套 ul：组名是「表头」，组内项目是「表项」，dl 的语义正好对上，
+   而且组名可以靠 CSS 单独做小字样式，不用再包一层 div。 */
+.about-skills {
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: clamp(16px, 3vw, 32px);
+}
+.about-skillgroup dt {
+  font: 600 11px/1.4 var(--font-mono);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--color-accent-600);
+  padding-bottom: var(--space-2);
+  border-bottom: 1px solid var(--border-subtle);
+}
+.about-skillgroup dd {
+  margin: var(--space-2) 0 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+/* 熟练度用色阶而不是进度条：进度条暗示"可量化的百分比"，简历里那不是测量值，
+   只是自评。圆点比进度条诚实，也省掉一整段 JS。 */
+.about-skill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: var(--fs-caption);
+  color: var(--text-secondary);
+}
+.about-skill::before {
+  content: "";
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--color-accent-500);
+}
+.about-skill--familiar::before { background: var(--border-strong); }
+
+/* —— Selected output：紧凑单条，不复用首页的 .home-pub 大版式 ——
+   关于页要的是"有什么、找哪里"，不是"读论文"；大图 + 成果图在这页是干扰。 */
+.about-output {
+  margin: 0;
+  padding: var(--space-4);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  list-style: none;
+}
+.about-output li + li { margin-top: var(--space-4); padding-top: var(--space-4); border-top: 1px solid var(--border-subtle); }
+.about-output__title {
+  margin: 0;
+  font-size: var(--fs-body);
+  font-weight: 600;
+  line-height: 1.4;
+}
+.about-output__meta {
+  margin: 6px 0 0;
+  font-size: var(--fs-caption);
+  color: var(--text-muted);
+}
+.about-output__meta a { color: var(--color-accent-600); }
+
+/* —— 联系方式：dl 两列 ——
+   单独成段而不是并进 .about-blocks：联系方式是全宽的一条清单，
+   塞进双栏会逼它去凑右栏的宽度。 —— */
+.about-contact-section { margin-top: var(--space-7); }
+.about-contact {
+  display: grid;
+  margin: 0;
+  border-top: 1px solid var(--border-subtle);
+}
+.about-contact__row {
+  display: grid;
+  grid-template-columns: 128px minmax(0, 1fr);
+  gap: var(--space-3);
+  padding: var(--space-3) 0;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.about-contact dt {
+  font: 600 var(--fs-caption)/1.7 var(--font-mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.about-contact dd {
+  margin: 0;
+  font-size: var(--fs-small);
+  overflow-wrap: anywhere;
+}
+
+/* —— 正文散文：与档案块之间用一条横线断开 —— */
+.about-prose {
+  max-width: 72ch;
+  margin-top: var(--space-7);
+  padding-top: var(--space-5);
+  border-top: 1px solid var(--border-default);
+}
+.about-prose > h2:first-child { margin-top: 0; }
+
+/* —— 窄屏：照片上移、双栏并单栏 —— */
+@media (max-width: 860px) {
+  .about-hero { grid-template-columns: 1fr; }
+  .about-hero__photo { width: 180px; }
+  .about-blocks { grid-template-columns: 1fr; }
+  .about-contact__row { grid-template-columns: 1fr; gap: var(--space-1); }
+  /* 年份窄屏改到上一行：108px 的固定列在 390px 视口下会把学位名挤成两三行 */
+  .about-edu__row { grid-template-columns: 1fr; gap: var(--space-1); }
+  .about-edu__period { padding-top: 0; }
+}
+</style>
+
+<article class="about">
+
+  {# —— 1. 档案头：这一屏内回答「你是谁、干什么的」——
+     身份三件套（姓名 / 职位 / 单位）全部来自 site.author，
+     正文的 about.md 里不再出现任何身份词，两处不会打架。 #}
+  <header class="about-hero" data-reveal>
+    <img
+      class="about-hero__photo"
+      src="{{ site.author.photo.portrait | url }}"
+      srcset="{{ site.author.photo.portraitSmall | url }} 300w, {{ site.author.photo.portrait | url }} 600w"
+      sizes="(max-width: 860px) 180px, 208px"
+      width="{{ site.author.photo.portraitSize.width }}"
+      height="{{ site.author.photo.portraitSize.height }}"
+      alt="{{ site.author.photo.alt }}证件照 · {{ site.author.affiliation }}"
+      decoding="async"
+    />
+    <div class="about-hero__id">
+      <p class="about-eyebrow">ACADEMIC PROFILE</p>
+      <h1 class="about-hero__name">{{ site.author.fullName }}<span>{{ site.author.name }}</span></h1>
+      <p class="about-hero__role">
+        {{ site.author.jobTitle }} ·
+        <a href="{{ site.author.affiliationUrl }}" target="_blank" rel="noopener noreferrer">{{ site.author.affiliationEn }}</a>
+      </p>
+      <p class="about-hero__focus">{{ site.author.researchEn }}</p>
+      <p class="about-hero__bio">{{ site.author.bio }}</p>
+    </div>
+  </header>
+
+  {# —— 2. 两栏：研究关键词 / 单位 —— #}
+  <div class="about-blocks" data-reveal>
+    <section class="about-block" aria-labelledby="about-topics-title">
+      <p class="about-eyebrow">RESEARCH TOPICS</p>
+      <h2 id="about-topics-title">Research topics</h2>
+      <ul class="tag-cloud about-topics">
+        {% for topic in site.author.knowsAbout %}
+          <li><span class="badge">{{ topic }}</span></li>
+        {% endfor %}
+      </ul>
+    </section>
+
+    <section class="about-block" aria-labelledby="about-affils-title">
+      <p class="about-eyebrow">AFFILIATIONS</p>
+      <h2 id="about-affils-title">Affiliations</h2>
+      <ul class="about-affils">
+        {% for aff in site.author.affiliations %}
+        <li class="about-affil">
+          <b>{{ aff.en }}</b>
+          <span>{{ aff.short }}</span>
+        </li>
+        {% endfor %}
+      </ul>
+    </section>
+  </div>
+
+  {# —— 3. 教育经历 ——
+     数据源 site.author.education。时间轴用 dl（term / 定义）而不是表格：
+     两列就够，表格在这个信息量下会显得像成绩单。整组判空。 #}
+  {% if site.author.education %}
+  <section aria-labelledby="about-edu-title" data-reveal>
+    <p class="about-eyebrow">EDUCATION</p>
+    <h2 id="about-edu-title">Education</h2>
+    <ol class="about-edu">
+      {% for e in site.author.education %}
+      <li class="about-edu__row">
+        <span class="about-edu__period">{{ e.period }}</span>
+        <div class="about-edu__body">
+          <p class="about-edu__degree">{{ e.degree }} · {{ e.field }}</p>
+          <p class="about-edu__school">
+            {{ e.institution }}
+            {%- if e.detail %}<span class="about-edu__detail">{{ e.detail }}</span>{% endif -%}
+          </p>
+        </div>
+      </li>
+      {% endfor %}
+    </ol>
+  </section>
+  {% endif %}
+
+  {# —— 4. 技术能力 ——
+     数据源 site.author.skills。整组判空：数组不存在时不输出 section，
+     不留一个空标题在页面上。 #}
+  {% if site.author.skills %}
+  <section aria-labelledby="about-skills-title" data-reveal>
+    <p class="about-eyebrow">TECHNICAL SKILLS</p>
+    <h2 id="about-skills-title">What I work with</h2>
+    <dl class="about-skills">
+      {% for group in site.author.skills %}
+      <div class="about-skillgroup">
+        <dt>{{ group.group }}</dt>
+        <dd>
+          {% for item in group.items %}
+          <span class="about-skill{% if item.level == 'familiar' %} about-skill--familiar{% endif %}">{{ item.name }}</span>
+          {% endfor %}
+        </dd>
+      </div>
+      {% endfor %}
+    </dl>
+  </section>
+  {% endif %}
+
+  {# —— 4. Selected output ——
+     直接列 site.publications（顶层字段，注意不是 author 下面的）。
+     字段逐个判空：没有 DOI 就不印 DOI 徽标，没有年份就不印年份。 #}
+  {% if site.publications and site.publications.length %}
+  <section aria-labelledby="about-output-title" data-reveal>
+    <p class="about-eyebrow">SELECTED OUTPUT</p>
+    <h2 id="about-output-title">Selected output</h2>
+    <ul class="about-output">
+      {% for p in site.publications %}
+      <li>
+        <p class="about-output__title">{{ p.title }}</p>
+        <p class="about-output__meta">
+          <cite>{{ p.shortJournal or p.journal }}</cite>{% if p.volume %} {{ p.volume }}{% if p.issue %}({{ p.issue }}){% endif %}{% endif %}{% if p.articleNumber %}, {{ p.articleNumber }}{% endif %}{% if p.year %} · {{ p.year }}{% endif %}
+          {% if p.doi %} · <a href="https://doi.org/{{ p.doi }}" target="_blank" rel="noopener noreferrer">doi:{{ p.doi }}</a>{% endif %}
+        </p>
+        {% if p.software %}
+        <p class="about-output__meta">Code: <a href="{{ p.software.url }}" target="_blank" rel="noopener noreferrer">{{ p.software.label }}</a> ({{ p.software.author }})</p>
+        {% endif %}
+      </li>
+      {% endfor %}
+    </ul>
+  </section>
+  {% endif %}
+
+  {# —— 5. 联系方式 ——
+     全部是 site.author 里已确认可访问的真实地址。原来的 RSS 行指向的
+     /feed.xml 模板已删除；Scholar / ORCID 的「待补」占位逻辑也一并去掉了：
+     ORCID 早就填了真实 ID（0009-0005-3511-0546），占位判据还在走"待补"分支；
+     而 Scholar 根本没有对应的 site.author.scholar 字段，属于纯装饰。 #}
+  <section class="about-contact-section" aria-labelledby="about-contact-title">
+    <p class="about-eyebrow">CONTACT</p>
+    <h2 id="about-contact-title">Contact</h2>
+    <dl class="about-contact">
+      <div class="about-contact__row">
+        <dt>Email</dt>
+        <dd><a href="mailto:{{ site.author.email }}">{{ site.author.email }}</a></dd>
+      </div>
+      <div class="about-contact__row">
+        <dt>GitHub</dt>
+        <dd><a href="{{ site.author.github }}" target="_blank" rel="noopener noreferrer me">{{ site.author.github | replace("https://", "") }}</a></dd>
+      </div>
+      <div class="about-contact__row">
+        <dt>ORCID</dt>
+        <dd><a href="{{ site.author.orcid }}" target="_blank" rel="noopener noreferrer me">{{ site.author.orcid | replace("https://", "") }}</a></dd>
+      </div>
+      <div class="about-contact__row">
+        <dt>ResearchGate</dt>
+        <dd><a href="{{ site.author.researchgate }}" target="_blank" rel="noopener noreferrer me">{{ site.author.researchgate | replace("https://", "") }}</a></dd>
+      </div>
+      <div class="about-contact__row">
+        <dt>CSDN</dt>
+        <dd><a href="{{ site.author.csdn }}" target="_blank" rel="noopener noreferrer me">{{ site.author.csdn | replace("https://", "") }}</a></dd>
+      </div>
+      <div class="about-contact__row">
+        <dt>Software</dt>
+        <dd><a href="{{ site.author.zenodo }}" target="_blank" rel="noopener noreferrer me">Zenodo · doi:10.5281/zenodo.18041880</a></dd>
+      </div>
+    </dl>
+  </section>
+
+  {# —— 6. 正文散文 ——
+     about.md 从 "##" 起，h2 落在 .about-prose 内，与上面的档案块标题同级，
+     全页 h1 恰好一个（姓名），无标题跳级。
+     不挂 data-reveal：正文很长，IntersectionObserver 的阈值要滚到很深
+     才触发，截图与锚点跳转都会看到一段空白。 #}
+  <div class="about-prose prose">
+    {{ aboutHtml | safe }}
+  </div>
+
 </article>

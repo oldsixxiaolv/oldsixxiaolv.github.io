@@ -3,29 +3,104 @@ pagination:
   data: collections.blog
   size: 100
   alias: posts
+  # collections.blog 现在是空的。默认行为是页数 = ceil(0/100) = 0，
+  # 于是 /blog/ **一页都不生成**——但 nav 里仍然挂着 Blog 链接，结果是
+  # 一个点开就 404 的主导航项。generatePageOnEmptyData 让空集合也出一页，
+  # 正好接住下面的空状态（指向 CSDN 的那段）。
+  generatePageOnEmptyData: true
 permalink: "/blog/"
 layout: layouts/page.njk
+# 原来漏了 title，base.njk 的 {% if title %} 判空落空，<title> 直接退化成
+# 站点名 "Yihang Lyu"——博客列表页和首页在搜索结果里会长得一模一样。
+title: "Technical notes"
 eleventyNavigation:
   key: Blog
   order: 3
+editPaths:
+  - path: src/blog.njk
+    label: "Edit this page"
 ---
+
+{# ⚠️ 封面开关 —— 必须保持 false，但阻塞点已经变了（内容素材，非本文件所有）：
+   copyCovers() 现在遍历 papers / blog / portfolio 三个 section，封面也确实
+   进了 _site（_site/blog/<slug>/cover.png 存在），所以不再是 404 问题。
+   真正的原因在素材本身：blog / portfolio 的 front-matter 都写
+   `cover: cover.png`，但磁盘上那个 cover.png 里装的是 SVG 文本
+   （文件头是 <svg …>）。静态服务器按扩展名发 Content-Type: image/png，
+   Chrome 拒绝解码，实测 naturalWidth = 0 —— 现在就打开这个开关，
+   博客页四张卡里有两张的封面会直接裂图，比没有封面更糟。
+   修法在内容侧：把 cover.png 改名为 cover.svg（front-matter 的 cover
+   字段同步改成 cover.svg），或让 front-matter 直接指向 cover.svg。
+   改完之后把这里改成 true 即可，模板不必再动 ——
+   封面槽（.card__media）和有无封面的两套版式都已经就位。 #}
+{% set useCovers = false %}
 
 <article class="list-page">
   <header class="list-page__head">
-    <h1>博客</h1>
-    <p class="list-page__lede">学习笔记与长文思考，按发布日期倒序。</p>
+    <h1>Technical notes</h1>
+    <p class="list-page__lede">Working notes on methods, data, and the problems that actually come up.</p>
   </header>
 
-  <ul class="list">
+  {# —— 空状态 ——
+     collections.blog 现在是空的（上一轮内容已归档删除），而 {% for %} 什么都不
+     输出的话，这一屏只剩一个 h1 和一句 lede——比 404 还像坏掉。
+     手上确实有一批真实的技术笔记（在 CSDN 上，Python / xarray / Fortran / WRF），
+     所以这里不装样子说"敬请期待"，直接把那边指过去。
+     将来站内写了第一篇，这个分支自然不再进入。 #}
+  {% if posts.length == 0 %}
+  <div class="list-empty">
+    <p class="list-empty__title">Nothing published here yet.</p>
+    <p class="list-empty__body">
+      The writing that exists so far lives on CSDN —
+      mostly Python for atmospheric science, xarray, Fortran, and WRF setup:
+      <a href="{{ site.author.csdn }}" target="_blank" rel="noopener noreferrer">{{ site.author.csdn | replace("https://", "") }}</a>
+    </p>
+    <p class="list-empty__body">
+      In the meantime, the <a href="{{ '/about/' | url }}">profile page</a> has affiliations, skills, and how to reach me.
+    </p>
+  </div>
+  {% endif %}
+
+  <ul class="list list--cards">
     {% for post in posts %}
+      {% set hasCover = useCovers and post.data.cover %}
+      {% set coverSrc = (post.url + post.data.cover) | url %}
       <li class="list__item">
-        {# | url 不能省：Eleventy v3 的 pathPrefix 只在 url filter 里生效，
-           collection item 的 .url 永远是站点根相对的裸路径。部署到
+        {# 整行可点；| url 不能省：Eleventy v3 的 pathPrefix 只在 url filter 里
+           生效，collection item 的 .url 永远是站点根相对的裸路径。部署到
            GitHub Pages 项目页（/MeteoHub/）时不过滤就会 404。 #}
-        <a class="list__title" href="{{ post.url | url }}">{{ post.data.title }}</a>
-        <p class="list__meta">
-          <time datetime="{{ post.date | date('yyyy-LL-dd') }}">{{ post.date | date('yyyy-MM-dd') }}</time>
-        </p>
+        <a class="list__link card{% if hasCover %} list__link--cover{% else %} list__link--plain{% endif %}" href="{{ post.url | url }}">
+          {% if hasCover %}
+            <span class="card__media">
+              <img class="card__img" src="{{ coverSrc }}" alt="" width="800" height="450" loading="lazy" decoding="async" />
+            </span>
+          {% endif %}
+          <span class="list__body">
+            {# 分层：日期（眉标）→ 标题 → 摘要 → 主题标签。
+               之前这些全挤在一行同色小字里，扫读时抓不到重点。
+
+               日期这里绕开了 | date 过滤器：它内部是 DateTime.fromJSDate()，
+               会把 front-matter 的 UTC 零点换算成本地时区，在 UTC 以西的机器上
+               整个日期会退回一天（2026-09-12 显示成 2026-09-11）。
+               那是 eleventy.config.js 的 filter（不在本 worker 的文件范围内），
+               这里改用 UTC 的 dateToIso 取前 10 位，值是对的；owner 修好
+               date 过滤器之后这段依然成立。前提是日期不带时分（本站内容都是）。 #}
+            <span class="list__kicker">
+              <time datetime="{{ post.date | dateToIso | truncate(10, true, '') }}">{{ post.date | dateToIso | truncate(10, true, '') }}</time>
+            </span>
+            <span class="list__title">{{ post.data.title }}</span>
+            {% if post.data.excerpt %}<span class="list__excerpt">{{ post.data.excerpt }}</span>{% endif %}
+            {# tags 里混着 .11tydata.cjs 注入的集合名（"blog"），展示前滤掉；
+               主题只取前 3 个，再多就抢标题的注意力了。 #}
+            {% set topicTags = post.data.tags | reject("equalto", "blog") %}
+            {# 整组标签全空时不输出 .list__tags 容器：它是 flex 且带
+               margin-block-start，空容器会凭空撑出 12px 的幽灵间距。 #}
+            {% if post.data.readingTime or topicTags %}<span class="list__tags">
+              {% if post.data.readingTime %}<span class="badge badge--quiet">{{ post.data.readingTime }} 分钟</span>{% endif %}
+              {% for tag in topicTags %}{% if loop.index <= 3 %}<span class="badge badge--brand">{{ tag }}</span>{% endif %}{% endfor %}
+            </span>{% endif %}
+          </span>
+        </a>
       </li>
     {% endfor %}
   </ul>

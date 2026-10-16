@@ -105,16 +105,24 @@
                   （论文页用 paper-specific 封面；保持社交平台覆盖简单可预测）
        --------------------------------------------------------------------- #}
   {% if cover %}
-    {# 绝对 URL (http/https) 原样保留；相对路径 → 拼 site.url + 路径。
-       site.url 是 https://oldsixxiaolv.github.io/MeteoHub（无尾斜杠），
-       cover 通常是 "/content/papers/.../cover.svg"（带前导斜杠），自然拼成完整 URL。
-       没有前导斜杠的话强制补一个避免 MeteoHubcover.svg 这种拼接。 #}
+    {# ---------------------------------------------------------------------
+         cover 解析（og:image 与 twitter:image 共用同一个 coverUrl）
+         解析顺序：
+           1) http(s):// 开头        → 已是绝对 URL，原样使用
+           2) / 开头                 → 站点根相对，拼 site.url + cover
+           3) 其余（裸文件名）        → 页面同级，拼 site.url + page.url + cover
+         第 3 条是内容侧的写法：src/content/<section>/<slug>/ 里写
+         `cover: "cover.svg"`，而 permalink 是 /<section>/<slug>/、封面就拷在
+         index.html 同级，所以要拿 page.url 补出 section/slug 段。
+         早先这里按站点根拼，产出过 https://.../MeteoHub/cover.svg（少一段），
+         所有论文/博客/作品的社交分享图都是 404。
+         page.url 对这三个 section 恒以 / 结尾，直接拼接即可。 #}
     {% if cover.startsWith('http') %}
       {% set coverUrl = cover %}
     {% elif cover.startsWith('/') %}
       {% set coverUrl = site.url + cover %}
     {% else %}
-      {% set coverUrl = site.url + '/' + cover %}
+      {% set coverUrl = site.url + page.url + cover %}
     {% endif %}
     <meta property="og:image" content="{{ coverUrl }}" />
     <meta property="og:image:secure_url" content="{{ coverUrl }}" />
@@ -158,14 +166,7 @@
   <meta name="twitter:title" content="{{ ogTitle }}" />
   <meta name="twitter:description" content="{{ ogDesc }}" />
   {% if cover %}
-    {% if cover.startsWith('http') %}
-      {% set twitterCoverUrl = cover %}
-    {% elif cover.startsWith('/') %}
-      {% set twitterCoverUrl = site.url + cover %}
-    {% else %}
-      {% set twitterCoverUrl = site.url + '/' + cover %}
-    {% endif %}
-    <meta name="twitter:image" content="{{ twitterCoverUrl }}" />
+    <meta name="twitter:image" content="{{ coverUrl }}" />
     <meta name="twitter:image:alt" content="{{ ogTitle }} · {{ site.author.name }}, {{ site.author.jobTitle }}" />
   {% else %}
     <meta name="twitter:image" content="{{ site.url }}/assets/img/og/og-1200x630.png" />
@@ -183,6 +184,7 @@
     "@context": "https://schema.org",
     "@type": "Person",
     "name": "{{ site.author.name }}",
+    "image": "{{ site.url }}{{ site.author.photo.portrait }}",
     "alternateName": "{{ site.author.alternateName or site.author.fullName or '' }}",
     "givenName": "{{ site.author.givenName or '' }}",
     "familyName": "{{ site.author.familyName or '' }}",

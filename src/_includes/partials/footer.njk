@@ -2,10 +2,30 @@
   <div class="wrap foot__inner">
     <span>© {{ buildYear }} {{ site.author.name }}</span>
     <span class="foot__links">
-      {% if site.author.email %}<a href="mailto:{{ site.author.email }}">邮箱</a>{% endif %}
+      {% if site.author.email %}<a href="mailto:{{ site.author.email }}">Email</a>{% endif %}
       {% if site.author.github %}<a href="{{ site.author.github }}" target="_blank" rel="noopener noreferrer">GitHub</a>{% endif %}
-      <a href="{{ '/feed.xml' | url }}">RSS</a>
+      {% if site.author.orcid %}<a href="{{ site.author.orcid }}" target="_blank" rel="noopener noreferrer">ORCID</a>{% endif %}
+      {# RSS 原先挂在这里，但 feed.njk 已随内容归档一起删除，站点也不再提供
+         feed（site.js 的 social 注释写明过这一点）。留着就是个死链。
+         将来要恢复订阅，重新加 feed.njk 并在这里加回一行即可。
+         注意：本项目的 Nunjucks 没注册 comment 标签，全站注释一律用这种
+         花括号井号写法，写成百分号 comment 会报 unknown block tag。 #}
       <a href="{{ '/sitemap.xml' | url }}">Sitemap</a>
+
+      {# —— Edit on GitHub ——
+         静态站没有后端，也就没有自建登录这一说。这条链接把「改内容」这件事
+         落到 GitHub 自己的网页编辑器上：点开就是对应源文件的编辑界面，改完
+         直接提交，CI 重新构建上线；没有推送权限的人点开也只能看不能提。
+         路径不是猜的——各模板在自己的 front matter 里用 editPaths 显式声明
+         （渲染后的 URL 和源文件不是一回事，猜必然错）。
+         数组为空（repo 没配、或页面没声明）时整块不输出，不留空壳。 #}
+      {%- if editPaths and site.author.repo and site.author.repoBranch %}
+        {%- for e in editPaths %}
+      <a href="{{ site.author.repo }}/edit/{{ site.author.repoBranch }}/{{ e.path }}"
+         target="_blank" rel="noopener noreferrer"
+         title="在 GitHub 上编辑 {{ e.path }}">{{ e.label or "Edit on GitHub" }}</a>
+        {%- endfor %}
+      {%- endif %}
     </span>
   </div>
 </footer>

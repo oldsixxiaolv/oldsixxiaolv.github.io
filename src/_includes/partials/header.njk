@@ -1,8 +1,10 @@
 {# ============================================================================
   header.njk · 简化版 topbar（简约高级）
   ----------------------------------------------------------------------------
-  - 左侧站名（MeteoHub），无 logo
-  - 右侧 4 个文字链接
+  - 左侧站名锁定块：等压线标记（内联 SVG，与首页 FIELD NOTE 卡的同心椭圆
+    同一套视觉母题）+ 文字站名。SVG 自绘，不引第三方图标库。
+  - 右侧文字导航，末位用 1px 竖线把主题切换按钮和导航项分开——这是全站
+    唯一需要"层次"的地方，其余靠 hairline 就够了。
   - 高度 56px，hairline border-bottom
   ========================================================================== #}
 {% set navItems = site.nav %}
@@ -11,7 +13,17 @@
 <header class="topbar">
   <div class="wrap topbar__inner">
     <a class="topbar__brand" href="{{ '/' | url }}"
-       {% if page.url == "/" or page.url == "/MeteoHub/" %}aria-current="page"{% endif %}>{{ site.shortTitle }}</a>
+       {% if page.url == "/" or page.url == "/MeteoHub/" %}aria-current="page"{% endif %}>
+      {# 内联 SVG 不引外部资源：等压线同心环 + 中心低压点，和首页橙色卡片的
+         同心椭圆是同一套母题。aria-hidden 让读屏只念文字站名。 #}
+      <svg class="topbar__mark" width="21" height="21" viewBox="0 0 24 24" fill="none"
+           stroke="currentColor" stroke-width="1.5" aria-hidden="true" focusable="false">
+        <circle cx="12" cy="12" r="9.25" opacity=".3"></circle>
+        <circle cx="12" cy="12" r="5.5"></circle>
+        <circle cx="12" cy="12" r="1.5" fill="currentColor" stroke="none"></circle>
+      </svg>
+      <span class="topbar__wordmark">{{ site.shortTitle }}</span>
+    </a>
 
     <nav class="topbar__nav" aria-label="主导航">
       {% for item in navItems %}
@@ -26,6 +38,7 @@
            href="{{ href | url }}"
            {% if isCurrent %}aria-current="page"{% endif %}>{{ item.label }}</a>
       {% endfor %}
+      <span class="topbar__sep" role="presentation" aria-hidden="true"></span>
       <button class="topbar__theme" type="button" data-theme-toggle aria-label="切换主题" aria-pressed="false">
         <svg class="icon-sun" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <circle cx="12" cy="12" r="4"></circle>

@@ -1,0 +1,81 @@
+{# ============================================================================
+  hero.njk · 首页 hero（个人学术主页）
+  ----------------------------------------------------------------------------
+  改造要点（Phase 2C.1）：
+    · 右侧槽位从"橙色 FIELD NOTE 卡"换成**人像**。用户明确要求"照片作为封面"，
+      而照片和那张卡原本抢的是同一个槽位、视觉权重也相当，两者只能留一个当主锚。
+    · FIELD NOTE 卡不删，改成左栏底部的**紧凑贴纸**（见 pages.css 的
+      .home-signal 注释）：它答的是"现在在做什么"，照片答的是"是谁"，
+      两件事都需要，压缩后各占一个栏位，谁也不压过谁。
+    · 身份字样一律读 site.author（single source of truth，见 _data/site.js
+      顶部的警告注释）。模板里不再出现任何硬编码的姓名 / 学位 / 单位。
+    · 照片是首屏 LCP 候选：写死 width/height（零 CLS）、loading="eager" +
+      fetchpriority="high"、小图走 srcset/sizes，alt 用 site.author.photo.alt。
+  ========================================================================== #}
+
+<section class="home-hero">
+  <div class="home-hero__copy">
+    <p class="home-eyebrow">ATMOSPHERIC SCIENCE / RESEARCH NOTES</p>
+    <h1 class="home-hero__title">Thunderstorms, lightning,<br /><em>extreme precipitation.</em></h1>
+    {# 自我介绍直接用 site.author.bio：改一句身份/研究方向只动 site.js 一处，
+       不会再出现"模板写 PhD Candidate、about 页写博士后"这种分叉。 #}
+    <p class="home-hero__lede">{{ site.author.bio }}</p>
+    <div class="home-hero__actions">
+      <a class="btn btn--primary" href="{{ '/about/' | url }}">About me <span aria-hidden="true">↗</span></a>
+      <a class="btn btn--outline" href="{{ '/blog/' | url }}">Technical notes</a>
+    </div>
+
+    {# —— FIELD NOTE 贴纸（紧凑版）——
+       原来它是 526px 高的右栏大卡，和照片同槽位；现在压成左栏底部的一条。
+       保留全部签名元素：暖橙底、等压椭圆 ::before/::after、1.5° 贴纸倾斜、
+       品牌蓝偏移投影。原来那圈 .home-signal__orb（<i><i><i><b>）全站没有任何
+       CSS 规则（grep 过 components/ + pages.css），从来就没显示过，一并去掉。
+       hero 不挂 data-reveal：照片是 LCP，hero 不该有入场动画。
+
+       文案全部读 site.author（currentFocusEn / focusPillars / focusTools）——
+       这一块曾经写死「Monsoon systems in motion / East Asian monsoon /
+       QBO × MJO / ERA5-JRA-3Q」，那是站点改成雷电方向之前的旧人设。学术主页
+       上留着一段跟研究方向矛盾的自我介绍，比没有更伤。 #}
+    <aside class="home-signal" aria-label="Current research focus">
+      <div class="home-signal__top"><span>FIELD NOTE / 01</span><span>2026—</span></div>
+      <div class="home-signal__head">
+        <p class="home-signal__kicker">Current focus</p>
+        <h2>{{ site.author.currentFocusEn }}</h2>
+      </div>
+      <div class="home-signal__metrics">
+        {%- for pillar in site.author.focusPillars -%}
+        {# 序号补零到两位：Nunjucks 没有 padStart 过滤器（那是 JS 的
+           String.prototype 方法），这里用内联判断，避免为一个两位数序号
+           去 eleventy.config.js 里加一个全局过滤器。 #}
+        <span><b>{% if loop.index < 10 %}0{% endif %}{{ loop.index }}</b> {{ pillar }}</span>
+        {%- endfor -%}
+      </div>
+      <div class="home-signal__foot">
+        {%- for tool in site.author.focusTools -%}<span>{{ tool }}</span>{%- endfor -%}
+      </div>
+    </aside>
+  </div>
+
+  {# —— 人像卡 ——
+     4:5 竖版当 hero 主图，600w/300w 两档走 srcset；height 由 width/height
+     属性 + CSS aspect-ratio 双重锁死，图片解码前后盒子尺寸不变（CLS = 0）。
+     图下方的姓名牌承担"这是谁"：姓名用衬线体呼应大标题，身份行用 12px
+     次要色（原来的 .home-hero__micro 就是这个角色，搬到这里更贴合语义）。 #}
+  <figure class="home-portrait">
+    <img
+      class="home-portrait__img"
+      src="{{ site.author.photo.portrait | url }}"
+      srcset="{{ site.author.photo.portraitSmall | url }} 300w, {{ site.author.photo.portrait | url }} 600w"
+      sizes="(max-width: 640px) 280px, (max-width: 820px) 340px, 420px"
+      width="{{ site.author.photo.portraitSize.width }}"
+      height="{{ site.author.photo.portraitSize.height }}"
+      alt="{{ site.author.photo.alt }}"
+      loading="eager"
+      fetchpriority="high"
+      decoding="async" />
+    <figcaption class="home-portrait__plate">
+      <span class="home-portrait__name">{{ site.author.name }}</span>
+      <span class="home-portrait__role">{{ site.author.jobTitle }} · {{ site.author.affiliation }}</span>
+    </figcaption>
+  </figure>
+</section>

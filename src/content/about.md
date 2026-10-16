@@ -1,38 +1,43 @@
 ---
-title: 关于
-updated: 2026-09-24
+title: About
+updated: 2026-10-16
 ---
 
-## 我是谁
+<!--
+  ⚠️ 本文件由 eleventy.config.js 里的 markdown-it 直接渲染，不过 Nunjucks
+     （aboutHtml 走 md.render），所以模板语法在这里无效，写 {# #} 会被当正文显示。
+  编写约定：
+     ① 身份词（PhD Student / 博士生）与姓名一律不写死，由 about.njk 从 site.js
+        渲染；
+     ② 事实性清单（关键词 / 单位 / 技能 / 论文 / 链接）全部交给模板，两处不打架；
+     ③ 这里只留"为什么有��站"和"怎么找我"这类可核实的话。
+  上一版这一整节写的是东亚季风 / QBO / 平流层-对流层耦合的人设，并且断言
+  "博士：北京，中国科学院大气物理研究所"——与 site.js 的 affiliations（兰大 →
+  现中科院大气所）直接冲突。学术主页上自相矛盾的履历比留空糟得多，所以整段清掉。
+-->
 
-我是**吕奕航**，大气科学研究者，目前在**中国科学院大气物理研究所**（IAP, CAS）做博士后。研究 + 工程都想做一点。
+## About this site
 
-## 研究方向
+This is a plain static site — [Eleventy](https://www.11ty.dev/), Markdown and
+JSON, no front-end framework and no tracking. Source lives in
+[github.com/oldsixxiaolv/MeteoHub](https://github.com/oldsixxiaolv/MeteoHub).
 
-- **东亚季风变率与可预报性**：关注夏季风推进/撤退的次季节尺度信号，重点是
-  ISO（季节内振荡）与欧亚大陆热力异常之间的相互作用。
-- **平流层-对流层动力耦合**：从 QBO、MJO 到 SSW，研究上对流层如何"听到"
-  平流层的过程，反过来又是怎样把信号投下来的。
-- **再分析与模式数据同化**：长期使用 ERA5、JRA-3Q、CMA-CPS，也折腾过
-  WRF-DA、LETKF 类集合滤波，做一些本地化的改进实验。
-- **技能栈**：数据 `xarray` · `Dask` · `cfgrib` · `NetCDF` · `Zarr`；
-  模式 WRF · CESM2 · SPEEDY（教学用）；
-  可视化 `Cartopy` · `Matplotlib` · `Leaflet`；
-  工程 Python · Git · Docker · GitHub Actions · 一点 Fortran；
-  写作 Obsidian · Pandoc · Markdown · LaTeX。
+Everything on the profile page above is rendered from a single data file
+(`src/_data/site.js`). If a number is not verifiable it is left out entirely
+rather than shown as zero or as a placeholder — there is deliberately no
+citation count or h-index on this site yet.
 
-**现阶段在做的事**：把 ERA5 流水线扩展到 CMA-MESO 与 HRCLDAS（单位强校验的可移植性）；把台风路径可视化工具的 SVG 渲染切到 WebGL 以容纳 > 1000 路径的大样本；同时整理 QBO 周期变长与海温背景态变化的工作笔记，希望把"复述机制"过渡到"可被复现的诊断脚本"。
+## Where to find the work
 
-## 教育背景
+- **Papers** — the selected output section links to the publisher and the DOI.
+- **Code** — the stage-identification tool for thunderstorms is archived on
+  [Zenodo](https://doi.org/10.5281/zenodo.18041880) so it gets a DOI and stays
+  citable; the analysis pipeline for the TRMM work is on GitHub.
+- **Technical notes** — the writing that exists so far (Python for atmospheric
+  science, xarray, Fortran, WRF) is on
+  [CSDN](https://blog.csdn.net/lvyihang200411).
 
-- **本科 / 硕士**：南京信息工程大学（NUIST），大气科学
-- **博士**：北京，中国科学院大气物理研究所（IAP, CAS）
-- **当前**：IAP 博士后，继续围绕东亚季风变异与平流层-对流层耦合两条主线
+## Corrections
 
-## 联系方式
-
-- **Email**：yihang.lv [at] mail.iap.ac.cn
-- **GitHub**：[github.com/oldsixxiaolv](https://github.com/oldsixxiaolv)
-- **ORCID**：[0000-0002-XXXX-XXXX](https://orcid.org/)
-- **RSS**：[/feed.xml](https://oldsixxiaolv.github.io/MeteoHub/feed.xml)
-- 源码：[github.com/oldsixxiaolv/MeteoHub](https://github.com/oldsixxiaolv/MeteoHub)（Eleventy 静态生成，Markdown / JSON）。
+If something here is wrong, open an issue or send an email — the address is on
+the profile page. Direct correction beats polite disagreement on social media.

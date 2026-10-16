@@ -36,7 +36,7 @@ layout: layouts/base.njk
     {% if authors and authors.length %}
       {% for a in authorList %}
         {% set aname = a.name or a %}
-        {% set isMe = (aname == site.author.name) or (aname == site.author.alternateName) or (aname == 'Yihang Lv') or (aname == 'Yihang Lyu') %}
+        {% set isMe = (aname == site.author.name) or (aname == site.author.alternateName) or (aname == 'Yihang Lv') or (aname == site.author.nameAsPublished) %}
         {
           "@type": "Person",
           "name": {{ aname | dump | safe }}
@@ -109,20 +109,28 @@ layout: layouts/base.njk
   <div class="reading-progress" data-reading-progress aria-hidden="true"></div>
   <header class="paper-head">
     <h1>{{ title }}</h1>
-    <p class="paper-head__meta">
-      {# authors 可能是字符串也可能是数组，见 papers.njk 同一处的说明。
-         Nunjucks 直接输出数组会变成 "A,B,C"（逗号后无空格），必须显式 join。 #}
-      {% if authors %}<span>{% if authors is string %}{{ authors }}{% else %}{{ authors | join(", ") }}{% endif %}</span>{% endif %}
-      {% if venue %}<span> · {{ venue }}</span>{% endif %}
-      {% if year %}<span> · {{ year }}</span>{% endif %}
-      {% if readingStatus %} · <span class="status--{{ readingStatus }}">{{ readingStatus | statusLabel }}</span>{% endif %}
-    </p>
-    {% if doi or pdf %}
-    <p class="paper-head__links">
-      {% if doi %}<a href="https://doi.org/{{ doi }}" target="_blank" rel="noopener noreferrer">DOI</a>{% endif %}
-      {% if pdf %}<a href="{{ pdf }}" target="_blank" rel="noopener noreferrer">PDF</a>{% endif %}
-    </p>
+    {# 元信息分三层：作者 / 出处+状态 / 链接。
+       原来把 7 个作者 + 期刊 + 年份 + 状态挤在同一行 14px 灰字里，
+       作者和出处同字号同色，谁也认不出来；这里拆开之后「谁写的」和
+       「登在哪」各自成行，中间那栏正文才是页面上最重的一层。 #}
+    {% if authors %}
+    <p class="paper-head__authors">{% if authors is string %}{{ authors }}{% else %}{{ authors | join(", ") }}{% endif %}</p>
     {% endif %}
+    <p class="paper-head__meta">
+      {# frontmatter 里写的是 journal（三篇论文都是），模板原来只读 venue，
+         结果期刊名一次都没渲染出来 —— 上面 JSON-LD 用的是 journal or venue，
+         这里对齐成同一个顺序。 #}
+      {% if journal or venue %}<span class="paper-head__venue">{{ journal or venue }}</span>{% endif %}
+      {% if year %}<span class="dot" aria-hidden="true">·</span><span>{{ year }}</span>{% endif %}
+      {% if readingStatus %}<span class="dot" aria-hidden="true">·</span><span class="paper-head__status status--{{ readingStatus }}">{{ readingStatus | statusLabel }}</span>{% endif %}
+      {% if doi or pdf %}
+      <span class="dot" aria-hidden="true">·</span>
+      <span class="paper-head__links">
+        {% if doi %}<a href="https://doi.org/{{ doi }}" target="_blank" rel="noopener noreferrer">DOI</a>{% endif %}
+        {% if pdf %}<a href="{{ pdf }}" target="_blank" rel="noopener noreferrer">PDF</a>{% endif %}
+      </span>
+      {% endif %}
+    </p>
   </header>
 
   <div class="paper-body">
