@@ -25,7 +25,12 @@ module.exports = {
   //
   // 域名分工：根目录放网盘，/MeteoHub/ 放学术主页，两者互不干扰。
   url: "https://github.lvyihang.xyz/MeteoHub",
-  locale: "zh-CN",
+  // 页面语言标记。整站已统一为英文（正文、标签、导航、页面文案），
+  // 但这里曾一直是 zh-CN —— 后果有两个：屏幕阅读器会用中文发音规则去念
+  // 英文（每个词都念得很怪），搜索引擎会把英文查询的相关性判断往下压。
+  // ⚠️ 改成 en **不代表**中文身份信息消失：alternateName 仍是「吕亦航」，
+  //    照常写进 Person JSON-LD，那正是它该待的地方。
+  locale: "en",
   buildYear: new Date().getFullYear(),
 
   // —— 网盘入口 ——
@@ -138,12 +143,16 @@ module.exports = {
     // sameAs：Google 用它做实体消歧。⚠️ 只放**真实可访问**的 URL——
     // 占位符不会显示在页面上，但会被 dump 进 Person JSON-LD，等于主动告诉
     // 搜索引擎一个假身份。这里全部是已确认的真实链接。
+    // ⚠️ sameAs 只放**可访问的身份标识 URL**。之前这里混了一个
+    // mailto:lvyihang26@mails.ucas.ac.cn —— schema.org 的 sameAs 语义是
+    // "同一个人的其他身份主页"，邮箱不是主页，而且它已经在 Person 的
+    // email 字段里了。搜索引擎解析 sameAs 时对非 http(s) 方案的容错很差，
+    // 留着只会稀释这条属性的可信度。
     sameAs: [
       "https://orcid.org/0009-0005-3511-0546",
       "https://github.com/oldsixxiaolv",
       "https://www.researchgate.net/profile/Yihang-Lyu",
       "https://blog.csdn.net/lvyihang200411",
-      "mailto:lvyihang26@mails.ucas.ac.cn",
     ],
 
     // 页面可见的关键词标签。**保持纯英文**——之前这里中英混排（雷暴雷电 /

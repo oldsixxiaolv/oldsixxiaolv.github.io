@@ -90,6 +90,10 @@
        ===================================================================== #}
   {% set ogTitle = title or site.title %}
   {% set ogDesc = description or site.description %}
+  {# og:image:alt 描述的是**图本身**（姓名 / 职位 / 单位 / 研究方向），
+     不是 og:title 的复述。页面标题由 og:title 单独承担，alt 再抄一遍就会
+     出现 "Yihang Lyu · PhD Student · Yihang Lyu, PhD Student" 这种重复。 #}
+  {% set ogCardAlt = "MeteoHub — " + site.author.name + ", " + site.author.jobTitle + " at " + site.author.affiliationShort %}
 
   <meta property="og:type" content="{% if page.url == '/' %}website{% else %}article{% endif %}" />
   <meta property="og:site_name" content="{{ site.title }}" />
@@ -127,7 +131,7 @@
     <meta property="og:image" content="{{ coverUrl }}" />
     <meta property="og:image:secure_url" content="{{ coverUrl }}" />
     <meta property="og:image:type" content="image/png" />
-    <meta property="og:image:alt" content="{{ ogTitle }} · {{ site.author.name }}, {{ site.author.jobTitle }}" />
+    <meta property="og:image:alt" content="{{ ogCardAlt }}" />
   {% else %}
     {# 多尺寸 og:image（默认 fallback；社交平台按 slot 尺寸自动选图）：
          1. 1200×630  — FB / LinkedIn / Twitter summary_large_image 默认
@@ -140,21 +144,21 @@
     <meta property="og:image:type" content="image/png" />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
-    <meta property="og:image:alt" content="{{ ogTitle }} · {{ site.author.name }}, {{ site.author.jobTitle }}" />
+    <meta property="og:image:alt" content="{{ ogCardAlt }}" />
 
     <meta property="og:image" content="{{ site.url }}/assets/img/og/og-1080x1080.png" />
     <meta property="og:image:secure_url" content="{{ site.url }}/assets/img/og/og-1080x1080.png" />
     <meta property="og:image:type" content="image/png" />
     <meta property="og:image:width" content="1080" />
     <meta property="og:image:height" content="1080" />
-    <meta property="og:image:alt" content="{{ ogTitle }} · {{ site.author.name }}, {{ site.author.jobTitle }} (square)" />
+    <meta property="og:image:alt" content="{{ ogCardAlt }} (square)" />
 
     <meta property="og:image" content="{{ site.url }}/assets/img/og/og-1500x500.png" />
     <meta property="og:image:secure_url" content="{{ site.url }}/assets/img/og/og-1500x500.png" />
     <meta property="og:image:type" content="image/png" />
     <meta property="og:image:width" content="1500" />
     <meta property="og:image:height" content="500" />
-    <meta property="og:image:alt" content="{{ ogTitle }} · {{ site.author.name }}, {{ site.author.jobTitle }} (wide)" />
+    <meta property="og:image:alt" content="{{ ogCardAlt }} (wide)" />
   {% endif %}
 
   {# =====================================================================
@@ -195,9 +199,24 @@
     "knowsAbout": {{ site.author.knowsAbout | dump | safe }},
     "affiliation": {
       "@type": "Organization",
-      "name": "{{ site.author.affiliation }}",
+      {# 用英文全称（affiliationEn）而不是中文简称：全站已统一英文，
+         而 schema.org 的 Organization name 是给跨语言检索做实体消歧的，
+         英文写法匹配面更广。中文名保留在 alternateName 与页面正文里。 #}
+      "name": "{{ site.author.affiliationEn or site.author.affiliation }}",
       "url": "{{ site.author.affiliationUrl or '' }}"
     },
+    {# 教育经历：2022–2026 兰州大学大气科学学院本科。alumniOf 是 Person 的
+       标准属性，用来把学位授予机构也纳入实体识别——尤其是当你已经和该校的
+       研究者合作发表过论文时（2026 JGR 的 affiliation 就是 Lanzhou University），
+       这条能把两个身份线索串起来。 #}
+    {%- for e in site.author.education %}
+    {%- if e.institutionShort == 'LZU' %}
+    "alumniOf": {
+      "@type": "CollegeOrUniversity",
+      "name": "{{ e.institution }}"
+    },
+    {%- endif %}
+    {%- endfor %}
     "email": "{{ site.author.email or '' }}",
     "workLocation": {
       "@type": "Place",

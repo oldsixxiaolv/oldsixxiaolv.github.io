@@ -38,19 +38,27 @@ jobs:
       - name: Strip macOS resource forks from _site/
         run: find _site -name '._*' -type f -delete || true
 
-      # 复制仓库根的 CNAME 到 _site/（如果有自定义域名）
+      # 复制仓库根的 CNAME 到 _site/（声明式、便于自文档化）
+      # ⚠️ 但要知道：**CNAME 文件本身不会设置自定义域名**。官方文档明确写着
+      #    "A CNAME file in your repository file does not automatically add or
+      #    remove a custom domain. Instead, you must configure the custom domain
+      #    through your repository settings or through the API."
+      #    真正起作用的机制是：用户主页仓库 oldsixxiaolv.github.io 已配
+      #    CNAME = github.lvyihang.xyz，**项目站自动继承**该域名并挂在
+      #    /MeteoHub/ 下（见 About custom domains → Using a custom domain
+      #    across multiple repositories）。
+      #    这里的 cp 只是把这个事实写进产物，行为上不依赖它。
       - name: Copy CNAME into _site/
         run: |
           if [ -f CNAME ]; then cp CNAME _site/CNAME; fi
 
+      # 没有 enablement: true —— 官方 action.yml 写明该选项
+      # "requires a token other than GITHUB_TOKEN"，用默认 token 无效。
+      # 开启 Pages 是一次性的手动操作：Settings → Pages → Source → GitHub Actions。
+      # configure-pages 的 base_path 输出会告诉我们实际的挂载路径，
+      # 正常应为 /MeteoHub——与 eleventy.config.js 的 pathPrefix 一致。
       - name: Configure Pages
         uses: actions/configure-pages@v5
-        with:
-          # enablement: true —— Pages 未开启时自动开启，否则整个 deploy 会在
-          # "Get Pages site failed" 上失败，而这个失败只能靠人去 Settings →
-          # Pages 里手动改。开启后就是纯粹的「push 即部署」。
-          # 需要 token 具备 pages: write（本 workflow 顶部已声明）。
-          enablement: true
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
