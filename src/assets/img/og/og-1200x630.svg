@@ -74,12 +74,12 @@
     <text x="80" y="346" font-size="34" fill="#0b3a5b" font-weight="400" letter-spacing="6">吕亦航</text>
 
     <!-- Discipline -->
-    <text x="80" y="396" font-size="22" fill="#0b3a5b" fill-opacity="0.78" letter-spacing="0.5">Atmospheric Sciences · PhD Candidate</text>
+    <text x="80" y="396" font-size="22" fill="#0b3a5b" fill-opacity="0.78" letter-spacing="0.5">Atmospheric Sciences · PhD Student</text>
 
     <!-- Tagline rule + tagline -->
     <line x1="80" y1="448" x2="180" y2="448" stroke="#c2691f" stroke-width="2"/>
     <text x="80" y="488" font-size="22" fill="#0b3a5b" font-weight="400" letter-spacing="2">以大气之名，写下可被验证的东西。</text>
-    <text x="80" y="518" font-size="13" fill="#0b3a5b" fill-opacity="0.55" letter-spacing="1.5" font-style="italic">East Asian monsoon variability · data assimilation · ML bias correction</text>
+    <text x="80" y="518" font-size="13" fill="#0b3a5b" fill-opacity="0.55" letter-spacing="1.5" font-style="italic">Thunderstorm lightning · data assimilation · extreme precipitation</text>
   </g>
 
   <!-- ============================================================
@@ -121,7 +121,7 @@
        ============================================================ -->
   <line x1="80" y1="552" x2="1120" y2="552" stroke="#0b3a5b" stroke-opacity="0.12" stroke-width="1"/>
   <g font-family="'Source Serif 4', 'Noto Serif SC', 'Times New Roman', Georgia, serif" fill="#0b3a5b">
-    <text x="80" y="578" font-size="13" fill-opacity="0.7" letter-spacing="1">meteohub · yihang lv's notes on weather, climate &amp; data</text>
-    <text x="1120" y="578" font-size="13" fill-opacity="0.7" letter-spacing="1" text-anchor="end">meteohub.org · @lyuyihang</text>
+    <text x="80" y="578" font-size="13" fill-opacity="0.7" letter-spacing="1">meteohub · yihang lyu's notes on weather, climate &amp; data</text>
+    <text x="1120" y="578" font-size="13" fill-opacity="0.7" letter-spacing="1" text-anchor="end">github.com/oldsixxiaolv/MeteoHub</text>
   </g>
 </svg>
