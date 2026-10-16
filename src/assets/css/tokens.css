@@ -155,6 +155,12 @@
   --font-body:      var(--font-sans-cn), var(--font-sans-en);
   --font-editorial: var(--font-serif-cn), var(--font-serif-en);
   --font-code:      var(--font-mono);
+  /* --font-serif 是历史写法：_list.css / _paper.css / paper-reader.css 里的标题
+     一律写 var(--font-serif)，但这个变量一直没在 tokens 里定义过。CSS 变量未定义
+     时整条声明作废，于是那 7 处 font-family 被浏览器丢弃、标题静默回落到继承的
+     无衬线字体——列表页 h1 因此和首页的衬线大标题对不上。这里补回定义，语义取
+     中英混排的编辑体衬线（与 --font-editorial 同源）。 */
+  --font-serif:     var(--font-editorial);
 
   --fs-display:  3.815rem;
   --fs-h1:       2.488rem;

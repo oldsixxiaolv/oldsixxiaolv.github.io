@@ -53,158 +53,16 @@
 
 
 /* ---------- Detail page (portfolio / blog) ---------- */
-/* ---------- Detail page (portfolio / blog) ---------- */
-.detail {
-  max-width: var(--container-base);
-  margin-inline: auto;
-}
-.detail__head {
-  margin-bottom: var(--space-5);
-}
-.detail__head h1 {
-  margin: var(--space-2) 0 var(--space-3);
-  font-size: var(--fs-h1);
-  line-height: 1.15;
-  letter-spacing: -0.02em;
-}
-.detail__meta {
-  list-style: none;
-  padding: 0;
-  margin: var(--space-4) 0;
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-  gap: var(--space-3) var(--space-4);
-  border-block: 1px solid var(--border-subtle);
-  padding-block: var(--space-3);
-}
-.detail__meta li {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  font-size: var(--fs-small);
-}
-.detail__meta .muted {
-  color: var(--text-muted);
-  font-size: var(--fs-caption);
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-}
-.detail__meta strong {
-  color: var(--text-primary);
-  font-weight: 600;
-}
-.detail__meta a {
-  color: var(--link-color);
-  text-decoration: none;
-  word-break: break-all;
-}
-.detail__meta a:hover {
-  text-decoration: underline;
-}
-.detail__meta-stack {
-  grid-column: 1 / -1;
-}
-.detail__meta-stack > span:last-child {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-}
-.detail__post-meta {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 6px var(--space-3);
-  color: var(--text-muted);
-  font-size: var(--fs-small);
-  margin-block: var(--space-3) var(--space-4);
-}
-.detail__post-meta time { font-variant-numeric: tabular-nums; }
-.detail__post-meta .dot { opacity: 0.5; }
-.detail__body {
-  font-size: var(--fs-body-lg);
-  line-height: var(--lh-loose);
-  color: var(--text-primary);
-}
-.detail__body :is(h2, h3) {
-  margin-block: var(--space-6) var(--space-3);
-  letter-spacing: -0.01em;
-}
-.detail__body h2 { font-size: var(--fs-h2); }
-.detail__body h3 { font-size: var(--fs-h3); }
-.detail__body p { margin-block: var(--space-3); }
-.detail__body ul, .detail__body ol {
-  margin-block: var(--space-3);
-  padding-inline-start: var(--space-5);
-}
-.detail__body li { line-height: var(--lh-base); }
-.detail__body :is(pre, code) {
-  font-family: var(--font-mono);
-  font-size: var(--fs-small);
-}
-.detail__body pre {
-  background: var(--bg-muted);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-md);
-  padding: var(--space-3);
-  overflow-x: auto;
-}
-.detail__body :not(pre) > code {
-  background: var(--bg-muted);
-  padding: 1px 6px;
-  border-radius: var(--radius-sm);
-}
-.detail__body blockquote {
-  margin-block: var(--space-3);
-  padding-inline-start: var(--space-4);
-  border-inline-start: 3px solid var(--color-accent-400);
-  color: var(--text-secondary);
-}
-.detail__pager {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: var(--space-3);
-  margin-block: var(--space-6) var(--space-3);
-  padding-block: var(--space-3);
-  border-block: 1px solid var(--border-subtle);
-}
-.detail__pager a {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  text-decoration: none;
-  color: var(--text-secondary);
-  padding: var(--space-2);
-  border-radius: var(--radius-md);
-  transition: background-color var(--dur-base) var(--ease-out);
-}
-.detail__pager a:hover {
-  background: var(--bg-subtle);
-  color: var(--text-primary);
-  text-decoration: none;
-}
-.detail__pager-prev { text-align: start; }
-.detail__pager-next { text-align: end; }
-.detail__pager .muted {
-  color: var(--text-muted);
-  font-size: var(--fs-caption);
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-}
-.detail__pager strong {
-  color: var(--text-primary);
-  font-weight: 600;
-  font-size: var(--fs-small);
-}
-.detail__back {
-  text-align: center;
-  margin-top: var(--space-5);
-  font-size: var(--fs-small);
-}
-.detail__back a {
-  color: var(--text-secondary);
-  text-decoration: none;
-}
-.detail__back a:hover { color: var(--text-primary); text-decoration: underline; }
+/* 旧的两套 .detail* 定义（display:grid 的 .detail__meta + border-block、
+   .detail__pager 的 flex/grid 变体）已整体删除：它们和下面 Stage 6 的
+   新版 .detail* 逐条重复，且因为源码在前、grid / border-block 这些
+   属性新版没重新声明，导致 <p class="detail__meta"> 被 auto-fit 网格 +
+   上下细线渲染，与"单行 meta"的意图不符。
+   删除前已核对：detail.njk 只用 .detail__head / .detail__meta /
+   .detail__body / .detail__pager-link / .detail__back，
+   旧块里的 .detail__post-meta / .detail__meta-stack /
+   .detail__meta li|strong|a|.muted 在模板与 src/assets/js 里零引用。 */
+
 
 /* ============================================================================
  * MeteoHub · 简约高级版（Stage 6）
@@ -254,7 +112,11 @@
 /* ---------- List page header (portfolio / blog / papers) ---------- */
 /* ---------- 5. 列表页（portfolio / blog / papers） ---------- */
 .list-page {
-  padding: 64px 0 32px;
+  /* 只有上内边距。页面末尾的留白按 layout.css 里写明的规矩统一交给
+     .foot { margin-top: var(--space-7) }，section 自己再压一层下内边距
+     会和它叠成一段没来由的死白（原来这里是 64px 0 32px，末尾实测 96px）。
+     顶部 64px 换成 token 写法，数值不变。 */
+  padding: var(--space-7) 0 0;
 }
 .list-page__head {
   margin-bottom: var(--space-7);
@@ -272,6 +134,33 @@
   color: var(--text-muted);
   margin: 0;
 }
+
+/* ---------- 列表为空时的状态块 ----------
+   collections 为空时 Eleventy 会照常生成这一页（generatePageOnEmptyData），
+   剩下光秃秃一个 h1 和一句 lede，看上去像页面加载坏了。所以给它一块明确的
+   "还没有内容"说明，并指向内容实际所在的地方。 */
+.list-empty {
+  max-width: 62ch;
+  padding: var(--space-5);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+}
+.list-empty__title {
+  margin: 0 0 var(--space-2);
+  font-family: var(--font-serif);
+  font-size: 19px;
+  font-weight: 600;
+}
+/* 三段之间必须有间距：这几个 p 没有任何默认 margin 的话会连成三行，
+   读起来像一句被硬换行的话。 */
+.list-empty__body {
+  margin: 0 0 var(--space-2);
+  font-size: var(--fs-small);
+  line-height: 1.7;
+  color: var(--text-secondary);
+}
+.list-empty__body:last-child { margin-bottom: 0; }
 
 
 /* ---------- Text list (core) ---------- */
@@ -324,10 +213,148 @@
 }
 
 
+/* ============================================================================
+ * 列表页 · 封面卡列表（.list--cards）
+ * ----------------------------------------------------------------------------
+ * 上面那套 .list__* 是首页 .home-latest 在用的纯文字行，保持原样不动。
+ * 下面这套是 papers / blog / portfolio 三个列表页专用：
+ *   · 整行可点（<a class="list__link card">），不再只有标题能点
+ *   · 左侧封面槽由 _card.css 的 .card__media 提供几何与裁切
+ *   · 元信息分三层：标题 → meta（人 / 年） → 标签（期刊 / 批注 / 技术栈）
+ * 列宽收在 --container-narrow：封面一进来，1200px 的整行文字会显得很散。
+ * ========================================================================== */
+.list--cards {
+  display: grid;
+  gap: var(--space-3);
+  max-width: var(--container-narrow);
+  margin-block-start: var(--space-2);
+}
+/* 卡之间靠间距分隔，不再叠一条整宽细线（那会让每张卡看起来像表格行）。 */
+.list--cards .list__item {
+  padding: 0;
+  border-bottom: none;
+}
+
+/* ---------- Row ---------- */
+.list__link {
+  display: grid;
+  grid-template-columns: 168px 1fr;
+  align-items: start;
+  gap: var(--space-4);
+  padding: var(--space-3);
+}
+/* ---------- 无封面变体 · 整行文字的排法 ----------
+   blog / portfolio 当前走这一支（模板里的 useCovers 仍是 false，原因见那两个
+   .njk 顶部的说明：cover.png 里装的是 SVG 文本，浏览器按 image/png 拒收）。
+   去掉左列，宽度全给文字，视觉锚点改由 kicker 承担。 */
+.list__link--plain {
+  grid-template-columns: 1fr;
+}
+.list__body {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  /* grid / flex 子项默认 min-width:auto，长 URL 或长英文词会把行撑破，
+     0 让长内容在容器内换行而不是溢出。 */
+  min-width: 0;
+  gap: var(--space-2);
+}
+
+.list--cards .list__title {
+  /* 整行已经是链接，44px 的 touch target 由整张卡承担，
+     标题退回普通块级文本，不再撑高度。 */
+  display: block;
+  min-height: 0;
+  font-size: var(--fs-h5);
+  line-height: 1.35;
+}
+.list--cards .list__title:hover {
+  /* 悬停反馈已经由 .card 的底色 + 强调条 + 封面推近承担，
+     标题再叠一层下划线会过重。 */
+  text-decoration: none;
+}
+
+.list--cards .list__meta {
+  margin: 0;
+  color: var(--text-secondary);
+  overflow-wrap: break-word;
+  /* 作者名单可能很长（TRMM 那篇 8 位），钳到 2 行保证各行高度接近。 */
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+}
+
+/* ---------- Kicker · 眉标 · 三个列表页的第一层信息 ----------
+   期刊目录式的眉标：等宽 + 拉开字距 + 大写，读起来是"期号 / 日期"而不是正文。
+   blog 用发布日期、portfolio 用"年份 · 角色"、papers 用年份 —— 三页
+   扫读时的第一眼落点一致，卡片的信息层次才是同一个系统。 */
+.list__kicker {
+  font-family: var(--font-mono);
+  font-size: var(--fs-caption);
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- Excerpt · 列表页的第三层信息 ---------- */
+.list__excerpt {
+  font-family: var(--font-sans-cn);
+  font-size: var(--fs-small);
+  line-height: 1.6;
+  color: var(--text-secondary);
+  max-width: 60ch;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+}
+
+/* ---------- Tags · 最底一层 ---------- */
+.list__tags {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1);
+  margin-block-start: var(--space-1);
+}
+
+/* ---------- 列表页头部收窄 ----------
+   和 .list--cards 同一个 measure，标题与列表共用左边界。 */
+.list-page__head {
+  max-width: var(--container-narrow);
+}
+
+/* ---------- 移动端 ----------
+   390px 宽下 168px 的封面列会把文字列压到 130px，标题几乎没法断行；
+   改成上下堆叠，封面横向铺满。比例仍保持 16:9 —— 试过 21:9 省一点竖向空间，
+   但那会把封面里的小字注释和图例裁掉，得不偿失。 */
+@media (max-width: 640px) {
+  .list__link {
+    grid-template-columns: 1fr;
+    gap: var(--space-3);
+  }
+  .list--cards .list__title {
+    font-size: var(--fs-body-lg);
+  }
+}
+
+
 /* ---------- Detail page (mobile / simplified) ---------- */
 /* ---------- 7. 详情页（portfolio / blog） ---------- */
 .detail {
-  padding: 64px 0 32px;
+  /* detail.njk 的 <article class="detail"> 直接挂在 <main id="main"> 下，
+     外面没有 .wrap，所以容器和左右留白必须由 .detail 自己提供。
+     旧块里的 max-width / margin-inline 随重复定义一起被删，这里补回来，
+     并补上 padding-inline —— 之前移动端正文会贴到屏幕边缘。 */
+  width: 100%;
+  max-width: var(--container-base);
+  margin-inline: auto;
+  padding: 64px var(--gutter) 32px;
 }
 .detail__head {
   margin-bottom: var(--space-7);
@@ -341,6 +368,9 @@
   margin: 0 0 var(--space-3);
 }
 .detail__meta {
+  /* 单行 meta：detail.njk 里是 <p> + 内联 <span>（"2026-09-12 · 8 分钟 · tag"），
+     保持普通流排版。这里绝不能再出现 display:grid —— 那正是旧块把它渲染成
+     auto-fit 网格 + 上下细线的原因，已随旧块删除。 */
   font-family: var(--font-sans-cn);
   font-size: 13px;
   color: var(--text-muted);

@@ -98,6 +98,17 @@ p {
   widows: 2;
 }
 
+/* ---------- 长 URL / 长英文串的断行兜底 ----------
+   论文正文里直接写了裸 URL（"…（https://github.com/xxx/yyy）"）。默认
+   overflow-wrap: normal 不允许在长串内部断行，于是一个 URL 就能把整行撑到
+   容器外——实测 trmm 论文页在 390px 视口下 scrollWidth 475px，整页横向可拖。
+   break-word 只在「确实放不下」时才断，不会影响正常段落的断行位置。
+   覆盖到 li / td / th / figcaption / blockquote 这些同样会出现长串的位置。 */
+p, li, dd, dt, td, th, figcaption, blockquote, pre, code, a {
+  overflow-wrap: break-word;
+}
+
+
 ul, ol {
   padding-left: var(--space-4);
 }

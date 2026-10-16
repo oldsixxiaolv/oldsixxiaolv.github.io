@@ -2,6 +2,13 @@
    MeteoHub · Layout (Wrap, Container, Section, Grid)
    ========================================================================= */
 
+/* —— 容器族 ——
+   全站只保留三档内容宽度，语义固定，不要随手加第四档：
+     wide  1200  画布：topbar / footer / 首页 / 论文精读三栏
+     base   960  阅读列：列表页 + 详情页正文（中文一行 50 字上下，行长可读）
+     narrow  720  窄栏：备用长文栏
+   三档统一 padding-inline: var(--gutter)，保证任何一档在 390px 窄屏下
+   都留得出边距——之前 .detail 完全没写水平内边距，移动端正文直接贴屏幕边。 */
 .wrap {
   width: 100%;
   max-width: var(--container-wide);
@@ -23,9 +30,27 @@
   padding-inline: var(--gutter);
 }
 
+/* —— 阅读页宽度协调 ——
+   列表页（.section.wrap 里的 .list-page）和详情页（.detail 直接挂在 <main> 下）
+   原本各走各的：列表页铺满 1200 画布，一行标题能拉到 1100px，行长远超可读长度；
+   详情页只有 max-width 没有水平内边距，移动端正文顶到屏幕边缘。
+   这里把两者收进同一档阅读列：页面外壳（topbar/footer）保持 1200 画布，
+   阅读页统一 960，左轴和 gutter 全站一致。
+   layout.css 在 components.css 之后加载，同 specificity 下天然覆盖
+   _list.css 的 .detail，不需要 !important。 */
+.list-page,
+.detail {
+  width: 100%;
+  max-width: var(--container-base);
+  margin-inline: auto;
+  padding-inline: var(--gutter);
+}
+
 /* —— Section (vertical rhythm) —— */
+/* 只留上边距：页尾留白统一由 .foot 的 margin-top 负责，否则 section 的
+   下边距会和 footer 的上边距叠成一段没来由的死白。 */
 .section {
-  margin-block: var(--space-7);
+  margin-block: var(--section-gap) 0;
 }
 .section__head {
   display: flex;
@@ -61,23 +86,12 @@
   .split { grid-template-columns: 1fr; gap: var(--space-5); }
 }
 
-/* —— Topbar —— */
-.topbar {
-  position: sticky;
-  top: 0;
-  z-index: 50;
-  height: 64px;
-  background: color-mix(in srgb, var(--bg-page) 88%, transparent);
-  -webkit-backdrop-filter: blur(10px) saturate(160%);
-  backdrop-filter: blur(10px) saturate(160%);
-  border-bottom: 1px solid var(--border-subtle);
-}
-
-.topbar__inner {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
+/* —— Topbar ——
+   注：topbar 的实际样式（高度 56px、背景、hairline、滚动态）全部由
+   components/_nav.css 负责，本文件不再重复声明。原来这里有一份
+   `.topbar { height: 64px }` + `.topbar__inner`，被 _nav.css 的
+   `html body .topbar` 更高 specificity 覆盖，属于纯死代码，留着只会让
+   下一个人以为改错地方能生效，故移除。 */
 
 /* —— Footer ——
    注：footer 的实际样式在 components/_nav.css（简化版 topbar/footer chrome）。

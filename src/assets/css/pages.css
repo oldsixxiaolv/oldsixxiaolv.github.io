@@ -14,13 +14,20 @@
   letter-spacing: .14em;
   text-transform: uppercase;
 }
+/* ===========================================================================
+   Hero（Phase 2C.1 · 个人学术主页：人像 + 成果）
+   =========================================================================== */
 .home-hero {
   display: grid;
   grid-template-columns: minmax(0, 1.14fr) minmax(300px, .86fr);
   gap: clamp(48px, 9vw, 140px);
+  /* end：左栏（标题 + 紧凑 FIELD NOTE 贴纸）比右栏人像高，两栏底边对齐，
+     顶边自然错开——这就是这套版式原本的错落节奏，不要改成 center。 */
   align-items: end;
-  min-height: min(680px, calc(100vh - 120px));
-  padding-bottom: clamp(72px, 10vw, 136px);
+  /* min-height 只作"首屏至少撑满一屏"的下限。padding-bottom 从 88px 收到 56px：
+     hero 下面紧跟成果条，两者之间不需要原来那么大的空档。 */
+  min-height: min(560px, calc(100vh - 160px));
+  padding-bottom: clamp(32px, 4vw, 56px);
 }
 .home-hero__title {
   max-width: 10ch;
@@ -32,6 +39,11 @@
   letter-spacing: -.065em;
   /* 首页主标题常跨 2-3 行，balance 让浏览器均匀分配字符、避免单字孤悬。 */
   text-wrap: balance;
+  /* 兜底：标题里的长单词（"Thunderstorms," 这类）不会自动断行，一旦字号
+     调大或换成更长的文案，它会直接把整页撑出横向滚动条——实测在 390px
+     视口下让 scrollWidth 从 390 涨到 413。字号本身已在窄屏媒体查询里收窄，
+     这里只保证"再坏也坏得优雅"：宁可断词，也不要整页横滚。 */
+  overflow-wrap: break-word;
 }
 .home-hero__title em { color: var(--color-brand-500); font-style: normal; }
 .home-hero__lede {
@@ -46,38 +58,234 @@
   widows: 2;
 }
 .home-hero__actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 36px; }
-.home-hero__micro { margin: 28px 0 0; color: var(--text-muted); font-size: 12px; }
 .btn--outline { color: var(--text-primary); border-color: var(--border-strong); background: transparent; }
 .btn--outline:hover { color: var(--text-primary); border-color: var(--text-primary); background: transparent; }
 
+/* —— 人像卡 ——
+   素材是一张室内生活照（浅色墙面、暖调），不是证件照，所以按"墙上贴着的一张
+   照片"来做，而不是按证件照框：
+   · 圆角 --radius-lg + 1px --border-subtle + --shadow-2：照片是浅色墙面，
+     页面底色也是浅暖灰（--bg-page ≈ #faf8f5），不描边的话图和纸几乎糊在一起；
+   · overflow:hidden 让下方姓名牌跟着父级圆角走，图和牌子是一张卡而不是两块；
+   · isolation:isolate 给下面的暗色薄纱 ::after 一个独立的层叠上下文。 */
+.home-portrait {
+  position: relative;
+  isolation: isolate;
+  margin: 0;
+  overflow: hidden;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-2);
+}
+.home-portrait__img {
+  display: block;
+  width: 100%;
+  /* aspect-ratio 与 <img> 的 width/height 属性同值（4:5），双保险：属性负责
+     图片解码完成前不跳（Cumulative Layout Shift），这条负责盒模型稳定。 */
+  aspect-ratio: 4 / 5;
+  height: auto;
+  object-fit: cover;
+  /* 素材本身就是 4:5，正常不裁切；写上位置是给以后换素材兜底——
+     换成竖幅更高的图时，视点落在人脸（约画面 40% 高处）而不是几何中心。 */
+  object-position: center 30%;
+}
+/* —— 暗色下的照片薄纱 ——
+   沿用 components/_card.css 给封面用的同一招（30% 纯黑 ::after）：这张照片是
+   浅色墙面 + 亮皮肤，而暗色页面底色是 #0f0e0c，两者亮度差接近一个量级，照片会
+   变成整页最亮的一块、视觉重量压过旁边所有文字。压 30% 之后照片仍保持室内照的
+   明亮感（不是"发黑的坏图"），但重量回到页面附近。
+   亮色不加：页面底色本来就是浅的，再压只会整体发灰。
+   两条暗色入口与 tokens.css 同构：系统偏好 + 手动切换（后者可覆盖前者）。 */
+.home-portrait::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  background: #000;
+  opacity: 0;
+  pointer-events: none;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .home-portrait::after { opacity: .3; }
+}
+:root[data-theme="dark"] .home-portrait::after { opacity: .3; }
+/* 姓名牌压在薄纱之上（z-index 2），否则暗色下牌子会被压暗一档、和照片糊在一起。 */
+.home-portrait__plate {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-1) var(--space-3);
+  padding: var(--space-3);
+  border-top: 1px solid var(--border-subtle);
+  background: var(--bg-surface);
+}
+.home-portrait__name {
+  font-family: var(--font-serif-en);
+  font-size: var(--fs-h5);
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: -.02em;
+  color: var(--text-primary);
+}
+/* 身份行用无衬线 12px 而不是等宽：内容是中英混排（中科院大气物理研究所），
+   等宽字体对 CJK 只能回落到兜底字形，标点宽度还会被拉齐。 */
+.home-portrait__role { color: var(--text-muted); font-size: 12px; line-height: 1.4; }
+
+/* —— FIELD NOTE 贴纸（紧凑版）——
+   它原本是右栏 526px 高的大卡，和人像抢同一个槽位。人像上位之后，这里降级成
+   左栏底部的一条紧凑贴纸：保留全部签名元素（暖橙底、等压椭圆、1.5° 倾斜、
+   品牌蓝偏移投影），但不再自己占一整栏。 */
 .home-signal {
   position: relative;
-  min-height: 420px;
-  /* 顶 24 / 左右 24 / 底 64：absolute 定位的 .home-signal__foot（高 26 + bottom:24
-     + 缓冲 14）需要在 flow 里预留位置，否则会盖住最后一个 metrics 行。
-     这就是 P2A.1 修的 "03 与 foot 重叠" bug。 */
-  padding: 24px 24px 64px 24px;
+  margin-top: clamp(32px, 4vw, 48px);
+  padding: var(--space-3) var(--space-4);
   overflow: hidden;
-  /* Always dark text on warm-orange accent bg (both themes) — gives ~5.5:1 contrast (WCAG AA).
-     var(--color-neutral-900) is light in dark mode and would only hit 2.03:1 on accent-400. */
-  color: var(--color-neutral-950);
-  --signal-text: var(--color-neutral-950);
+  /* —— 橙色底上的文字色 ——
+     原值 var(--color-neutral-950) 在 tokens.css 里**从来没有定义过**（tokens
+     的中性色阶只到 900）。未定义的 var() 会让整条 color 声明在计算值阶段作废
+     并回落到继承值：暗色下实测算出来是 rgb(245,242,234)（近白）压在
+     rgb(255,142,77) 的橙底上，对比度只有 2.06:1 —— 注释里写的 5.5:1 是假的，
+     而暗色下这张卡基本读不了字。
+     换成 accent-900 (#260e02 深暖褐)：tokens 的暗色段只重映射 accent-400/500，
+     800/900 两种模式下都是同一个深色值，正好满足"两种主题都用深色字"的要求，
+     而且落在既有色板内。实测对比度 亮色 6.72:1 / 暗色 7.49:1。 */
+  --signal-ink: var(--color-accent-900);
+  color: var(--signal-ink);
   background: var(--color-accent-400);
   border-radius: 2px;
   transform: rotate(1.5deg);
-  box-shadow: 14px 16px 0 color-mix(in srgb, var(--color-brand-400) 80%, transparent);
+  box-shadow: 8px 9px 0 color-mix(in srgb, var(--color-brand-400) 80%, transparent);
 }
+/* 等压椭圆：宽卡矮卡的形状和原来 330×190 / 260×130 的纵向大椭圆差太多，
+   改成按卡片高度居中的横向椭圆，尺寸走百分比，跟着卡片一起缩。 */
 .home-signal::before,
-.home-signal::after { content: ""; position: absolute; border: 1px solid color-mix(in srgb, var(--color-neutral-900) 35%, transparent); border-radius: 50%; pointer-events: none; }
-.home-signal::before { width: 330px; height: 190px; right: -95px; top: 118px; transform: rotate(-25deg); }
-.home-signal::after { width: 260px; height: 130px; right: -55px; top: 148px; transform: rotate(-25deg); }
-.home-signal__top, .home-signal__foot { display: flex; justify-content: space-between; position: relative; z-index: 1; font: 600 10px var(--font-mono); letter-spacing: .08em; color: var(--signal-text, var(--color-neutral-950)); opacity: .85; }
-.home-signal__kicker { position: relative; margin: 90px 0 12px; font: 600 12px var(--font-mono); text-transform: uppercase; }
-.home-signal h2 { position: relative; margin: 0; color: var(--signal-text, var(--color-neutral-950)); font-family: var(--font-serif-en); font-size: clamp(2.2rem, 4vw, 4rem); font-weight: 500; line-height: .95; letter-spacing: -.05em; text-wrap: balance; }
-.home-signal__metrics { position: relative; display: grid; gap: 10px; margin-top: 62px; font-size: 12px; }
-.home-signal__metrics span { display: flex; gap: 12px; align-items: center; }
+.home-signal::after {
+  content: "";
+  position: absolute;
+  border: 1px solid color-mix(in srgb, var(--signal-ink) 35%, transparent);
+  border-radius: 50%;
+  pointer-events: none;
+}
+.home-signal::before { width: 46%; height: 190%; top: -45%; right: -9%; transform: rotate(-18deg); }
+.home-signal::after { width: 30%; height: 130%; top: -15%; right: -1%; transform: rotate(-18deg); }
+.home-signal__top,
+.home-signal__foot {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-3);
+  color: var(--signal-ink);
+  font: 600 10px var(--font-mono);
+  letter-spacing: .08em;
+  opacity: .85;
+}
+.home-signal__head {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-1) var(--space-3);
+  margin-top: var(--space-3);
+}
+.home-signal__kicker {
+  margin: 0;
+  color: var(--signal-ink);
+  font: 600 11px var(--font-mono);
+  letter-spacing: .12em;
+  text-transform: uppercase;
+}
+.home-signal h2 {
+  margin: 0;
+  color: var(--signal-ink);
+  font-family: var(--font-serif-en);
+  font-size: clamp(1.4rem, 2.2vw, 2rem);
+  font-weight: 500;
+  line-height: 1.05;
+  letter-spacing: -.04em;
+  text-wrap: balance;
+}
+/* 三个主题从"三行竖排"改成"一行横排"：贴纸只有 ~150px 高，竖排放不下。 */
+.home-signal__metrics {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-4);
+  margin-top: var(--space-3);
+  color: var(--signal-ink);
+  font-size: 12px;
+}
+.home-signal__metrics span { display: flex; gap: 8px; align-items: baseline; }
 .home-signal__metrics b { font: 600 11px var(--font-mono); }
-.home-signal__foot { position: absolute; right: 24px; bottom: 24px; left: 24px; padding-top: 12px; border-top: 1px solid color-mix(in srgb, var(--color-neutral-900) 35%, transparent); }
+/* foot 回到文档流：原来靠 position:absolute + bottom:24px + 预留 64px 下内边距
+   定位，窄屏还得单独改成 static 兜底（那套平衡改一个字就会重新重叠）。
+   一律走流内，卡片高度永远跟着内容走。 */
+.home-signal__foot {
+  margin-top: var(--space-3);
+  padding-top: var(--space-2);
+  border-top: 1px solid color-mix(in srgb, var(--signal-ink) 35%, transparent);
+}
+
+/* —— 成果条 ——
+   位置：紧贴 hero 下方，跨整幅画布。上边框是它自己的，下边框直接借用
+   .home-intro 现成的 border-top —— 两条 hairline 把成果条夹成一个"版权页式"
+   的窄带，不用再单独画第三条线（原来那条 double rule 的方案会让两条线
+   相距 48px，读起来像画错了）。 */
+.home-achievements { border-top: 1px solid var(--border-default); padding-block: var(--space-4) var(--space-4); }
+.home-achievements__grid {
+  display: grid;
+  /* auto-fit + 最小列宽：4 项时桌面一行四列，手机自动折成 2×2，
+     以后 site.js 里补上 citations / hIndex / awards 变成 6~7 格也不用改 CSS。 */
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: var(--space-4) var(--space-3);
+  margin: var(--space-4) 0 0;
+  padding: 0;
+  list-style: none;
+}
+.home-achievement {
+  position: relative;
+  display: block;
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--border-subtle);
+  color: inherit;
+  text-decoration: none;
+}
+.home-achievement:hover { text-decoration: none; }
+/* ::after 铺满整格命中区（和 .home-latest__title 同一套做法）：一格只有
+   80px 高、150px 宽，不铺满的话触屏命中率会明显低于 44px 的最小目标。 */
+a.home-achievement::after { content: ""; position: absolute; inset: 0; }
+.home-achievement__value {
+  display: block;
+  font-family: var(--font-serif-en);
+  /* 落点 --fs-h2(33px) ~ --fs-h1(39.8px)：低于 hero 大标题（106px）一个量级，
+     又高于本区块的小节标题（27.7px），读作"数据"而不是又一个小标题。 */
+  font-size: clamp(var(--fs-h2), 2.6vw, var(--fs-h1));
+  font-weight: 500;
+  line-height: 1;
+  letter-spacing: -.04em;
+  /* 统计数字用等宽数位：补上 citations(三位数) / h-index(一位数) 之后，
+     数字的宽度一致，竖着扫过去才不会歪。 */
+  font-variant-numeric: tabular-nums;
+  color: var(--color-brand-500);
+  transition: color var(--dur-base) var(--ease-out);
+}
+a.home-achievement:hover .home-achievement__value { color: var(--color-brand-700); }
+.home-achievement__label {
+  display: block;
+  margin-top: var(--space-2);
+  color: var(--text-secondary);
+  font: 600 10px/1.3 var(--font-mono);
+  letter-spacing: .12em;
+  text-transform: uppercase;
+}
+/* 中文注脚：这层是给中文读者的直译（"一作论文"），省掉"先扫英文标签再翻译"这一步。 */
+.home-achievement__gloss { display: block; margin-top: 2px; color: var(--text-muted); font-size: 12px; line-height: 1.4; }
 
 .home-intro { display: grid; grid-template-columns: 1fr 2.2fr auto; gap: 32px; padding: 36px 0; border-top: 1px solid var(--border-default); border-bottom: 1px solid var(--border-default); }
 .home-intro__label { margin: 0; color: var(--color-accent-600); font: 600 11px var(--font-mono); text-transform: uppercase; letter-spacing: .12em; }   /* P1.4 · was accent-500 (3.26:1) */
@@ -90,24 +298,208 @@
 .home-intro__links a { color: var(--text-secondary); text-decoration: underline; text-decoration-color: color-mix(in srgb, var(--text-secondary) 40%, transparent); text-underline-offset: 3px; }
 .home-intro__links a:hover { text-decoration-color: var(--text-secondary); }
 
-.home-pillars { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; margin-top: clamp(72px, 10vw, 140px); background: var(--border-default); border: 1px solid var(--border-default); }
+/* —— 站点内容三栏 ——
+   间距从 clamp(72px,10vw,140px) 收到 clamp(64px, 7vw, 104px)：原来的最大值
+   140px 落在 --space-8(96px) 与 --space-9(128px) 之间，是个没有出处的新值，
+   三段区块的间距还各不相同（hero→intro 靠 padding，intro→pillars 和
+   pillars→latest 各走一个 clamp）。现在三段统一走 token 区间的 clamp。 */
+.home-index { margin-top: clamp(var(--space-7), 7vw, var(--space-8)); }
+.home-blockhead { margin-bottom: var(--space-4); }
+/* —— 首页小节标题的唯一尺度规则 ——
+   原来两个小节标题各写各的 clamp，结果是 "Recently collected" 43.2px
+   比它正上方的 "三处入口" 31.7px 还大：后出现的次级区块反而比上级区块
+   喊得更响，hero(106.6px) 之下第一眼就撞上的是 43px 的次级标题。
+   合成一条规则、两个选择器共用，尺度就不再可能各自漂移。
+   落点 clamp(--fs-h4 23px → --fs-h3 27.7px)：1440px 实测 27.7px，
+   正好是 tokens 里 h3 那一级，和站点正文内的 h2/h3 层级接得上；
+   27.7 → 17（列表标题）→ hero 106.6 三级递减，每级差距都读得出来。 */
+.home-blockhead__title,
+.home-section-head h2 {
+  font-family: var(--font-serif-en);
+  font-size: clamp(var(--fs-h4), 2.2vw, var(--fs-h3));
+  font-weight: 500;
+  line-height: 1.12;
+  letter-spacing: -.03em;
+  text-wrap: balance;
+}
+.home-blockhead__title { margin: 10px 0 0; }
+.home-pillars { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; background: var(--border-default); border: 1px solid var(--border-default); }
 .home-pillar { position: relative; min-height: 330px; padding: 24px; background: var(--bg-page); color: var(--text-primary); text-decoration: none; transition: background var(--dur-base) var(--ease-out), color var(--dur-base) var(--ease-out); }
 .home-pillar:hover { background: var(--color-brand-900); color: var(--color-neutral-0); text-decoration: none; }
 .home-pillar--accent { background: var(--color-brand-400); color: var(--text-on-brand); }
 .home-pillar--accent:hover { background: var(--color-brand-500); }
 .home-pillar__number { display: block; margin-bottom: 70px; font: 600 11px var(--font-mono); }
 .home-pillar__tag { color: currentColor; opacity: .65; }
-.home-pillar h2 { margin: 20px 0 14px; color: currentColor; font-family: var(--font-serif-en); font-size: clamp(2rem, 3vw, 3rem); font-weight: 500; line-height: .9; letter-spacing: -.045em; text-wrap: balance; }
+/* 卡片标题原本是 clamp(2rem, 3vw, 3rem)（实测 43.2px）——和小节标题当初是同一个
+   clamp，所以两者曾经一样大、看不出问题；小节标题退到 27.65px 之后，卡片标题
+   反而比它所属的小节还响，整块区域变成"卡片在喊、标题在说话"。这里压到
+   clamp(fs-h4, 2.4vw, 2rem)：仍高于小节标题（卡片是主要入口，保留分量），
+   但不再压过它，页面读起来更安静。 */
+.home-pillar h2 { margin: 20px 0 14px; color: currentColor; font-family: var(--font-serif-en); font-size: clamp(var(--fs-h4), 2.4vw, 2rem); font-weight: 500; line-height: 1.02; letter-spacing: -.03em; text-wrap: balance; }
+
 .home-pillar p { max-width: 22ch; margin: 0; color: currentColor; opacity: .7; font-size: 13px; }
 .home-pillar__arrow { position: absolute; right: 24px; bottom: 20px; font-size: 24px; }
-.home-latest { margin-top: clamp(72px, 10vw, 140px); }
-.home-section-head { display: flex; align-items: end; justify-content: space-between; gap: 24px; margin-bottom: 28px; }
-.home-section-head h2 { margin: 12px 0 0; font-family: var(--font-serif-en); font-size: clamp(2rem, 3vw, 3rem); font-weight: 500; letter-spacing: -.04em; text-wrap: balance; }
-.home-section-head a { color: var(--text-secondary); font-size: 13px; }
+.home-latest { margin-top: clamp(var(--space-7), 7vw, var(--space-8)); }
+.home-section-head { display: flex; align-items: end; justify-content: space-between; gap: 24px; margin-bottom: var(--space-4); }
+.home-section-head h2 { margin: 12px 0 0; }
+.home-section-head a { color: var(--text-secondary); font-size: 13px; text-decoration: none; }
+/* "All notes →" 的悬停态：箭头右移 + 文字加深，两处变化一起给，
+   纯位移在 hover 时容易被读成"卡了一下"。 */
+.home-section-head a:hover { color: var(--text-primary); text-decoration: underline; text-underline-offset: 4px; }
+.home-section-head a span { display: inline-block; transition: transform var(--dur-base) var(--ease-out); }
+.home-section-head a:hover span { transform: translateX(4px); }
 .home-latest__grid { display: grid; grid-template-columns: 1fr 1fr; gap: clamp(32px, 8vw, 120px); }
-.home-latest__label { padding-bottom: 12px; border-bottom: 1px solid var(--border-default); }
-.home-latest .list__item { padding: 18px 0; }
-.home-latest .list__title { font-size: 17px; }
+.home-latest__label { padding-bottom: var(--space-2); border-bottom: 1px solid var(--border-default); }
+/* —— 列表密度：单项 106.5px → 78.6px（1440px 实测，2 行标题的 111.2px → 100.7px）——
+   松散不是内容造成的，是两处盒子模型：
+   1) 上下 18px 内边距不是 token，还比 --space-3(16px) 大，回落到 token。
+   2) 更主要的是 _list.css 给 .list__title 兜了 min-height:44px（触屏目标），
+      单行标题本来只有 23.8px，被硬撑到 44px，每行凭空多出 20px 空气。
+      这里把它去掉，改成"整行可点"：::after 铺满 li 的 padding box。
+      命中区从 44px 变成整行（78~120px 高 × 满栏宽），触屏目标不降反升，
+      悬停时整行都会点亮标题下划线，不需要 JS、也不用改模板。
+   3) 标题行高 1.4 → 1.35：3 行标题的项各省下 2.4px，1.35 对 17px 中英
+      混排仍不挤。
+   4) display:inline-block → block：inline-block 会跟 li 继承来的 strut 撑出一个
+      匿名行盒，底下凭空多出约 6px 下沉空隙（_list.css 的 .list--cards 也是用
+      display:block 解决同一个问题）。改成 block 后标题占满整行，::after 命中区
+      也从"文字宽度"变成整行满宽。 */
+.home-latest .list__item { position: relative; padding: var(--space-3) 0; }
+.home-latest .list__title { display: block; font-size: 17px; line-height: 1.35; min-height: 0; }
+.home-latest .list__title::after { content: ""; position: absolute; inset: 0; }
+
+/* ===========================================================================
+   论文区（partials/publications.njk）
+   ---------------------------------------------------------------------------
+   位置：介绍段之后、SITE INDEX 之前。版式延续成果条的语言——条目之间
+   只用一道 hairline，不给每条套卡片底色/阴影：这一屏要读的是论文本身，
+   壳越少越好。字号层级刻意压在 .home-blockhead__title（clamp 23→27.7px）
+   之下，理由见 .home-pub__title 注释。
+   =========================================================================== */
+.home-publications { margin-top: clamp(var(--space-7), 7vw, var(--space-8)); }
+.home-pub-list { margin: 0; padding: 0; list-style: none; }
+.home-pub { padding-block: var(--space-5); border-top: 1px solid var(--border-default); }
+/* 末条不补下内边距：区块下边界交给下一段（.home-index）的上间距，
+   免得同一段距离里再多出一截空白。 */
+.home-pub:last-child { padding-bottom: 0; }
+/* 正文列封顶 --measure(72ch)，但成果图与链接行不封顶：
+   论文图是 1400×745 的横向多联图，缩到 72ch 宽坐标轴刻度就糊了，
+   它应该吃掉整幅画布的宽度。 */
+.home-pub__text { max-width: var(--measure); }
+
+.home-pub__flags { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-2); margin: 0 0 var(--space-3); }
+/* 状态角标前的小圆点：.badge 本身只有 12px 小字，在余光里容易被跳过；
+   圆点让它在扫视时也能被抓住。颜色之外还有形状 + 文字（"返修中"）
+   两重信号，色觉障碍读者不依赖颜色也能读出状态。 */
+.home-pub__status::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  margin-right: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.home-pub__note { color: var(--text-muted); font-size: 12px; line-height: 1.4; }
+.home-pub__title {
+  margin: 0;
+  color: var(--text-primary);
+  font-family: var(--font-serif);
+  /* 落点 clamp(fs-body-lg 18px → fs-h5 19.2px)：明确小于小节标题。
+     pages.css 顶部已经因为"次级标题比上级标题还大"返工过一次，
+     论文标题是三级信息，不能再往上顶。 */
+  font-size: clamp(var(--fs-body-lg), 1.5vw, var(--fs-h5));
+  font-weight: 500;
+  line-height: 1.32;
+  letter-spacing: -.015em;
+  text-wrap: pretty;
+}
+.home-pub__authors { margin: var(--space-2) 0 0; color: var(--text-secondary); font-size: 14px; line-height: 1.6; }
+/* 本人高亮三重线索：品牌蓝 + 字重 + 暖橙下划线。去掉任一项仍认得出是谁。
+   用品牌蓝而不是强调橙：橙色留给"在审"这类状态语义，两者不抢。 */
+.home-pub__self {
+  color: var(--color-brand-500);
+  font-weight: 600;
+  text-decoration: underline;
+  text-decoration-color: var(--color-accent-400);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+.home-pub__venue { margin: var(--space-1) 0 0; line-height: 1.5; }
+/* 刊名按学术惯例用衬线斜体：一眼区分"刊名"与前面的作者/位次。 */
+.home-pub__journal { font-family: var(--font-serif); font-style: italic; color: var(--text-primary); }
+.home-pub__sep { margin: 0 6px; color: var(--text-muted); }
+.home-pub__year { font-family: var(--font-mono); font-size: var(--fs-caption); color: var(--text-muted); }
+.home-pub__aff { margin: var(--space-1) 0 0; color: var(--text-muted); font-size: 12px; line-height: 1.5; }
+
+.home-pub__links { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-4); margin: var(--space-3) 0 0; padding-top: var(--space-2); border-top: 1px solid var(--border-subtle); }
+/* 链接用等宽全大写小字，与 .home-achievement__label / .home-eyebrow 同一套
+   "机器读的元信息"语气；悬停除变色外加下划线（WCAG 1.4.1 不只靠颜色）。 */
+.home-pub__link {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  color: var(--text-secondary);
+  font: 600 10px/1.3 var(--font-mono);
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  text-decoration: none;
+}
+.home-pub__link:hover { color: var(--color-brand-500); text-decoration: underline; text-underline-offset: 4px; }
+
+/* —— 成果图 ——
+   素材是从论文原稿里抽出的白底浅色线稿，图里的颜色是有物理含义的：
+   绿/黄/红 = 20/30/40 dBZ 分层，蓝/红 = FlRate / FD40 两条不同的量。
+   所以两种主题下都**不**加 invert / filter / mix-blend：任何反色都会把
+   颜色和物理量的对应关系毁掉，读者读到的就是假数据。
+   改成给图一张写死的白纸衬底 + 1px 细边框：暗色页面上它读作"摊在桌上
+   的一张图"，而不是硬贴上去的一块发光矩形。
+   白纸写死 #ffffff 而不是 var(--bg-surface)——后者在暗色下是 #1d1c19，
+   深色衬底会和图本身的白底之间裂出一圈发灰的接缝。 */
+.home-pub__figure { margin: var(--space-4) 0 0; }
+.home-pub__figure-plate {
+  overflow: hidden;
+  background: #ffffff;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+}
+/* 比例交给 <img> 的 width/height 属性：以后换图不用改 CSS（CLS 同样为 0）。 */
+.home-pub__figure-img { display: block; width: 100%; height: auto; background: #ffffff; }
+.home-pub__caption {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-1) var(--space-2);
+  /* base.css 有一条全局 `figcaption { text-align: center }`（为博客正文里的
+     居中图注写的）。图注在这里是一段多行英文说明，居中会让折行后的末行
+     悬在中间、读起来像排版事故，所以显式压回左对齐。 */
+  text-align: left;
+}
+.home-pub__caption-tag { font: 600 10px/1.4 var(--font-mono); letter-spacing: .12em; text-transform: uppercase; color: var(--text-secondary); }
+
+/* 暗色下白纸是整页最亮的一块，hairline 单独框不住它——补一档阴影把它
+   "抬"到纸面之上。亮色不加：页面底色本来就是浅的，再加阴影只会发灰。
+   两条暗色入口与 tokens.css / 上文人像薄纱同构：系统偏好 + 手动切换。 */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .home-pub__figure-plate {
+    box-shadow: var(--shadow-2);
+    border-color: var(--color-neutral-400);
+  }
+}
+:root[data-theme="dark"] .home-pub__figure-plate {
+  box-shadow: var(--shadow-2);
+  border-color: var(--color-neutral-400);
+}
+
+/* 1400px 宽的图在 390px 手机上被压到 0.26 倍，坐标轴刻度只剩 5px 高，
+   数值根本读不出来——那这张图就白挂了。窄屏改成"可横向滑动"：图按
+   680px 最小宽度渲染，触屏原生可滑，右侧被裁掉的那一截本身就是"还能
+   往右"的提示。680 是按断点处的内容宽（760 − 2×gutter ≈ 699px）选的，
+   断点与最小宽度之间不会突然多出一条没必要的滚动条。
+   不用遮罩渐隐做提示：那层 mask 会连同圆角边框一起糊掉边缘。 */
+@media (max-width: 760px) {
+  .home-pub__figure-plate { overflow-x: auto; }
+  .home-pub__figure-img { min-width: 680px; }
+}
 
 @media (prefers-reduced-motion: no-preference) {
   .home-signal { transition: transform 700ms var(--ease-out); }
@@ -116,17 +508,28 @@
   .home-pillar:hover { transform: translateY(-4px); }
 }
 @media (max-width: 820px) {
-  .home-hero { grid-template-columns: 1fr; min-height: 0; gap: 56px; }
-  .home-signal { max-width: 500px; width: 90%; margin-left: auto; }
+  .home-hero { grid-template-columns: 1fr; min-height: 0; gap: 40px; align-items: start; }
+  /* 单栏后人像排到最前面：它现在是 hero 的主视觉，压在标题前面才符合
+     "封面"的位置感；否则 390px 手机上要划过整段文案才看到照片。 */
+  .home-portrait { order: 1; max-width: 340px; }
+  .home-hero__copy { order: 2; }
+  .home-signal { max-width: 560px; }
   .home-intro { grid-template-columns: 1fr; }
   .home-intro__links { flex-direction: row; align-items: start; }
 }
 @media (max-width: 640px) {
   .home-shell { padding-top: 40px; }
-  .home-hero__title { font-size: clamp(3.1rem, 15vw, 5rem); }
+  /* 15vw 在 390px 视口下是 58.5px，"Thunderstorms," 这种 13 字符长词已经
+     放不下（实测溢出 23px）。降到 12.4vw → 48px。
+     max-width 必须在这里一并放开：它是 ch 单位，字号一小它也跟着缩——
+     48px 下 10ch 只有 ~240px，比 "Thunderstorms," 本身（约 290px）还窄，
+     于是配合 overflow-wrap 把标题断成 "Thunderstor / ms," 这种烂断行。
+     10ch 这条规则是为桌面大字号（7.8rem）设计的，窄屏直接不设上限。 */
+  .home-hero__title { font-size: clamp(2.6rem, 12.4vw, 5rem); max-width: none; }
   .home-hero__actions .btn { width: 100%; }
-  .home-signal { width: 100%; min-height: 360px; padding: 20px; box-shadow: 8px 9px 0 color-mix(in srgb, var(--color-brand-400) 80%, transparent); }
-  .home-signal__kicker { margin-top: 70px; }
+  .home-portrait { max-width: 280px; }
+  .home-signal { padding: var(--space-3); box-shadow: 6px 7px 0 color-mix(in srgb, var(--color-brand-400) 80%, transparent); }
+  .home-achievements__grid { grid-template-columns: 1fr 1fr; }
   .home-intro__body, .home-pillars, .home-latest__grid { grid-template-columns: 1fr; }
   .home-pillars { gap: 1px; }
   .home-pillar { min-height: 250px; }

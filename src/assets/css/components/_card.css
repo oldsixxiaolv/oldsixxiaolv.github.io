@@ -1,6 +1,120 @@
 /* ===========================================================================
-   MeteoHub · _card.css (Phase 2B.5)
-   Card 组件占位 — 当前 MeteoHub 没有通用 .card 类
-   内容列表用 .list__item，paper 详情用 .paper-head
-   未来若引入媒体卡片 / 特性卡片 / portfolio card，在此添加。
+   MeteoHub · _card.css
+   媒体卡片（封面图 + 文字）的"卡片"部分：外壳 / 封面槽 / 悬停反馈。
+   职责边界：这里只管几何与反馈（边框、圆角、背景、hover），
+   条目内部的文字层次（标题 / meta / 标签）仍在 _list.css。
+   列表页通过 `<a class="list__link card">` 把两者组合在同一个元素上。
    ========================================================================= */
+
+/* ---------- Card shell ----------
+   静息态就是一张有细边框的卡（不是"悬停才出现"）：
+   列表页之前的纯文字行看不出哪里能点，先把可点区域本身画出来。 */
+.card {
+  position: relative;
+  display: block;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  color: inherit;
+  text-decoration: none;
+  transition: background-color var(--dur-base) var(--ease-out),
+              border-color var(--dur-base) var(--ease-out);
+}
+
+/* 悬停态：底色换成 brand 淡染（--bg-subtle），边框加一档。
+   亮色是 #eaf3ff 淡蓝，暗色是 #1a2336 深蓝，都不抢正文的对比度。 */
+.card:hover,
+.card:focus-visible {
+  background: var(--bg-subtle);
+  border-color: var(--border-default);
+  color: inherit;
+  text-decoration: none;
+}
+
+/* 左侧强调条：静息态不可见，悬停时从顶部展开。
+   用 scaleY 而非改 height，展开过程不触发布局重排。 */
+.card::before {
+  content: "";
+  position: absolute;
+  inset-block: var(--space-3);
+  inset-inline-start: 0;
+  width: 2px;
+  border-radius: var(--radius-pill);
+  background: var(--color-accent-400);
+  transform: scaleY(0);
+  transform-origin: top;
+  transition: transform var(--dur-base) var(--ease-out);
+}
+.card:hover::before,
+.card:focus-visible::before {
+  transform: scaleY(1);
+}
+
+/* ---------- Cover media ----------
+   三张论文封面的源规格并不一致（200×110 / 800×450 / 1500×600），
+   槽位必须锁死 16:9 才能让列表左列对齐；源图比例差异交给
+   object-fit（填满裁切）+ object-position（裁哪一侧）两步处理。 */
+.card__media {
+  position: relative;
+  display: block;
+  overflow: hidden;
+  aspect-ratio: 16 / 9;
+  background: var(--bg-muted);
+  /* 槽位自己的细线：浅底封面（TRMM 是 #FBF8F3 奶油底）几乎和卡片白底同色，
+     少了这条线它在亮色下会读成一个"挖空的白洞"而不是一张封面。 */
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+}
+.card__img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center;
+  transition: transform var(--dur-slow) var(--ease-out);
+}
+
+/* 超宽横幅封面的锚点修正：object-fit:cover 在 2.5:1 → 16:9 时只吃中间
+   约 71% 的宽度（1500px 里取 1067px），居中会把左右两端切掉。
+   trmm-lyu-2026 的识别信息——眉标、主标题、副标题、出处——全部左对齐在
+   x≈140..580，居中裁会整块切没，卡片里只剩一片空白奶油底；
+   贴左锚定后唯一被牺牲的是右下角三行统计数字（和卡片 meta 重复，可丢）。
+   这条是素材侧的版式判断，CSS 无法从图像本身推断，所以由 papers.njk
+   显式挂这个修饰类；新增超宽封面时同样要在模板里补一条。 */
+.card__img--left {
+  object-position: left center;
+}
+
+/* 暗色下的薄纱：只有暗色需要。三张封面并排时，奶油底那张的亮度
+   比深蓝底高出一个量级，在近黑页面上像一块发光的白板，视觉重量也压过
+   另外两张。这里给所有封面槽压一层纯黑（30%）——深色封面本来就暗，
+   不受影响，浅色封面被拉回页面附近的亮度档，三张的"重量"就对齐了。
+   亮色模式不加：页面底色本来就是浅的，再压只会让封面整体发灰。
+   纯色无渐变，不引入 SaaS 卡片墙那套质感。 */
+/* 薄纱浓度是量出来的，不是估的：把三个封面槽分别截下来，取中心 60% 区域
+   的平均相对亮度，最亮/最暗封面之比在亮色下（不压）是 10.8:1。
+   暗色下 14% 只能收到 8.7:1 —— 页面上那块奶油底仍然是整页最亮的东西，
+   读起来还是"白板"，没有兑现上面那句"重量对齐"；
+   30% 收到 6.4:1，三张的视觉重量明显拉平，且图版内部的主标题、
+   三阶段圆和非洲轮廓都还认得出来；
+   再往上到 40%，奶油底开始发脏、浅蓝细线开始消失，反而更像"褪色的坏图"，
+   所以停在 30%。以后换封面素材，用同样的取样方法重测这一档即可。 */
+.card__media::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: #000;
+  opacity: 0;
+  /* 纯装饰层：不吃掉卡片的 hover / 点击，也不参与 .card__img 的缩放。 */
+  pointer-events: none;
+}
+/* 暗色的两条入口与 tokens.css 同构：系统偏好 + 手动切换（后者可覆盖前者）。 */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .card__media::after { opacity: .3; }
+}
+:root[data-theme="dark"] .card__media::after { opacity: .3; }
+/* 悬停时极轻微的推近：只做"活着"的提示，不做缩放特效。 */
+.card:hover .card__img,
+.card:focus-visible .card__img {
+  transform: scale(1.04);
+}

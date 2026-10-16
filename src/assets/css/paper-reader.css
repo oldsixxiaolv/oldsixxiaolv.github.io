@@ -1,21 +1,25 @@
 /* ============================================================================
- * MeteoHub · paper-reader.css（Stage 7 简约版）
+ * MeteoHub · paper-reader.css（Stage 8 精读页）
  * ----------------------------------------------------------------------------
- * 双栏精读布局，与 Stage 6 minimalist 主题对齐。
- *   - 桌面 ≥1024px：左 7 / 右 5；右侧 sticky
- *   - ≤1024px：上下堆叠
- *   - ≤768px：单栏；侧栏折叠为手风琴式 section
+ * 三栏精读布局（论文精读页专用，本文件由 paper.njk 以 inline <style> 注入）：
+ *   - 桌面 ≥1025px：左 TOC / 中 正文 / 右 批注面板，两侧 sticky
+ *   - ≤1024px：单栏，批注面板收进底部抽屉（.annot-toggle）
+ *   - ≤768px：批注面板变 bottom sheet，.annot-toggle 常驻
  *
- * v1.1 kind→color 五色（功能性）保留；视觉装饰层简化：
- *   - 段落边条 4px → 2px
- *   - 段落 hover 背景移除（仅保留边条）
- *   - 段落徽章常驻 → 仅 hover 时显示
- *   - 闪烁动画 1400ms → 800ms
- *   - 批注卡 box-shadow 移除、border-radius → 0，仅留 hairline
- *   - 批注卡字号收紧
- *   - kind chip 背景淡化
- *   - 筛选输入框边框 → hairline neutral-300
- *   - 侧栏标题去掉 accent
+ * kind→颜色不在这里定义，统一消费 _paper.css 里的 --kind-* 调色板
+ * （唯一真源，避免两边各维护一份色表再次漂移）。
+ *
+ * Stage 8 视觉调整（相对 Stage 7）：
+ *   - 去掉小节标题下的整栏宽蓝带：那是 _paper.css 的 [data-annotation-ids]
+ *     渐变画在块级锚点上（trmm 的锚点全落在 <h2 id="p-001"> 上），已改成
+ *     只给行内标记用；块级目标改由左边条 + 计数徽章表达。
+ *   - 标题层级改用字号 / 字重 / 颜色三级差，不再靠色块：
+ *     h2 21px/700/primary，h3 16.5px/600/secondary。
+ *   - 批注卡入场动画从 view() 时间线摘掉：.annot-item 在 .annot-pane 这个
+ *     独立滚动容器里，view() 进度取决于面板自己的滚动偏移，卡片会长期
+ *     停在 opacity .45，看起来像"对比度坏了"而不是入场动效。
+ *   - 筛选 chip 改成分段控件；批注列表改"账本式"（去 gap，用 hairline 分隔）。
+ *   - 段落行高 1.7 → 1.78，段距改 em 制，中文长文读起来更松。
  *
  * 禁止裸 HEX，全部走 design-system tokens。
  * ========================================================================== */
@@ -23,15 +27,16 @@
 /* ---------- Premium reading motion ---------- */
 @media (prefers-reduced-motion: no-preference) {
   .paper-reader h2[id],
-  .paper-reader h3[id],
-  .annot-item {
+  .paper-reader h3[id] {
     transition: opacity 500ms var(--ease-out), transform 500ms var(--ease-out), background-color var(--dur-base) var(--ease-out);
   }
   .paper-reader h2[id], .paper-reader h3[id] { animation: reader-section-in linear both; animation-timeline: view(); animation-range: entry 0% cover 20%; }
-  .annot-item { animation: reader-card-in linear both; animation-timeline: view(); animation-range: entry 0% cover 18%; }
+  .annot-item {
+    transition: opacity 500ms var(--ease-out), background-color var(--dur-base) var(--ease-out),
+                border-color var(--dur-base) var(--ease-out), color var(--dur-base) var(--ease-out);
+  }
 }
-@keyframes reader-section-in { from { opacity: .35; transform: translateY(12px); } to { opacity: 1; transform: none; } }
-@keyframes reader-card-in { from { opacity: .45; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+@keyframes reader-section-in { from { opacity: .5; transform: translateY(10px); } to { opacity: 1; transform: none; } }
 
 
 /* 三栏：TOC (左侧) · paper 正文 (中) · annot-pane (右侧) */
@@ -52,28 +57,47 @@
 }
 
 /* ---------- 2. 正文容器（衬线 + 节标题） ---------- */
+/* 行宽：这里不写死 ch，而是交给三栏 grid 的中栏宽度控制。
+   1280px 视口下中栏实测 ~596px，17px 衬线体 ≈ 35 个汉字 / ~70 个拉丁字符，
+   两侧都落在中文 30~40 字、英文 65~75 字符的舒适区间，不需要再套 --measure
+   （套上去只会在栏内多出一截死白）。--measure 仍然留给页头作者行。 */
 .paper-reader {
   font-family: var(--font-editorial);
   font-size: 17px;
-  line-height: 1.7;
+  /* 中文衬线（Songti / Noto Serif SC）字面框比拉丁小，行高要比纯拉丁正文
+     再松一档，否则整段看起来像挤在一起的一堵字墙。 */
+  line-height: 1.78;
   color: var(--text-primary);
   min-width: 0;
 }
+/* 标题层级：三级差（字号 / 字重 / 颜色），不再用色块。
+   h3 特意降到 secondary 色 —— 学术小节标题是"次级信息"，
+   跟 h2 用同一个 primary 黑会让整篇的层级塌成一片。 */
 .paper-reader h2[id],
 .paper-reader h3[id] {
-  margin-top: var(--space-7);
   margin-bottom: var(--space-3);
   font-weight: 700;
-  letter-spacing: -0.015em;
+  letter-spacing: -0.01em;
   color: var(--text-primary);
-  scroll-margin-top: 96px;
+  scroll-margin-top: 88px;   /* topbar 56px + 32px，点目录后标题不被顶栏压住 */
   /* paper h2/h3 多为学术小节标题，长度跨 2 行常见；balance 避免单字末尾。 */
   text-wrap: balance;
 }
-.paper-reader h2[id] { font-size: 22px; line-height: 1.25; }
-.paper-reader h3[id] { font-size: 18px; line-height: 1.3; }
+.paper-reader h2[id] { margin-top: 56px; font-size: 21px; line-height: 1.3; }
+.paper-reader h3[id] { margin-top: 40px; font-size: 16.5px; line-height: 1.4; font-weight: 600; color: var(--text-secondary); }
+/* 第一个标题不需要 56px 的顶部留白，那会把页头和正文推得更远。 */
+.paper-reader > h2[id]:first-child,
+.paper-reader > h3[id]:first-child { margin-top: 0; }
 .paper-reader p {
-  margin-block: var(--space-3);
+  /* line-height 必须写在 p 上而不是只写在 .paper-reader 上：base.css 有
+     `p { line-height: var(--lh-base) }`（1.7），直接命中元素会盖掉继承值
+     —— 之前 .paper-reader 里的 1.7 正好和它同值，所以没人发现这条其实没生效。 */
+  line-height: 1.78;
+  /* 段距用 em 而不是 --space-3：改字号时节奏自动跟着变。
+     只留 margin-block-start，让相邻段落的 margin 折叠成 0.95em 一份，
+     两边都给 16px 的话实际间距是按折叠算的、容易和预期对不上。 */
+  margin-block: 0;
+  margin-block-start: 0.95em;
   /* paper 正文段落密集学术叙事，pretty 防止段末单词/单字孤悬，
      orphans/widows 保证段首/段尾不单行。 */
   text-wrap: pretty;
@@ -82,10 +106,19 @@
   /* paper 内容常含年份/公式编号，tabular 让对齐更稳。 */
   font-variant-numeric: tabular-nums;
 }
+/* 标题后紧跟的段落不需要额外的 0.95em，否则标题和正文之间会空一块。 */
+.paper-reader :is(h2, h3, blockquote, ul, ol, pre, figure) + p { margin-block-start: 0; }
+.paper-reader p + :is(ul, ol, blockquote, pre, figure) { margin-block-start: 0.95em; }
+.paper-reader :is(ul, ol) { margin-block: 0.95em; padding-inline-start: var(--space-5); }
+.paper-reader li { line-height: 1.78; margin-block: 0.3em; }
 .paper-reader blockquote {
-  margin-block: var(--space-3);
+  margin-block: 0.95em;
   padding-inline-start: var(--space-4);
   border-inline-start: 2px solid var(--color-accent-400);
+  /* base.css 给 blockquote 铺了 --bg-muted + 圆角，在正文流里会变成一块
+     灰砖，把连续阅读打断；这里退回成纯粹的引文缩进。 */
+  background: transparent;
+  border-radius: 0;
   color: var(--text-secondary);
   font-style: italic;
   /* blockquote 已在 base.css 走 pretty+orphans/widows，这里二次声明保持一致。 */
@@ -93,16 +126,21 @@
   orphans: 2;
   widows: 2;
 }
+.paper-reader pre {
+  margin-block: 0.95em;
+  line-height: 1.6;
+}
 
 /* ---------- 3. 段落锚点（2px 边条，仅 hover 时显示徽章） ---------- */
 .paper-anchor {
   position: relative;
   padding-inline-start: var(--space-3);
   margin-inline-start: calc(-1 * var(--space-3));
-  border-inline-start: 2px solid transparent;
+  border-inline-start: 2px var(--kind-edge-style, solid) transparent;
   border-radius: 0;
   transition:
-    border-color var(--dur-base) var(--ease-out);
+    border-color var(--dur-base) var(--ease-out),
+    background-color var(--dur-base) var(--ease-out);
 }
 /* 移除 hover 背景高亮（lead 要求 #2） */
 .paper-anchor:hover { background-color: transparent; }
@@ -111,21 +149,25 @@
   box-shadow: var(--shadow-focus);
 }
 
-/* v1.1 kind→color 映射（5 类基础 + typo 红）—— 颜色不变 */
-.paper-anchor--question { border-inline-start-color: var(--color-brand-400); }
-.paper-anchor--insight  { border-inline-start-color: var(--color-accent-400); }
-.paper-anchor--critique { border-inline-start-color: var(--color-warning); }
-.paper-anchor--figure   { border-inline-start-color: var(--color-brand-300); }
-.paper-anchor--link     { border-inline-start-color: var(--color-sage-500); }
-.paper-anchor--typo     { border-inline-start-color: var(--color-danger); }
+/* 段落锚点是 class 驱动（annotations.js 加 paper-anchor--{kind}），
+   这里只把 kind 接到 _paper.css 的调色板上；
+   勘误沿用虚线边条，与橙 / 红的暖色三兄弟拉开形状差异。 */
+.paper-anchor--question { --kind-edge: var(--kind-question-edge); --kind-ink: var(--kind-question-ink); }
+.paper-anchor--insight  { --kind-edge: var(--kind-insight-edge);  --kind-ink: var(--kind-insight-ink); }
+.paper-anchor--critique { --kind-edge: var(--kind-critique-edge); --kind-ink: var(--kind-critique-ink); }
+.paper-anchor--figure   { --kind-edge: var(--kind-figure-edge);   --kind-ink: var(--kind-figure-ink); }
+.paper-anchor--link     { --kind-edge: var(--kind-link-edge);     --kind-ink: var(--kind-link-ink); }
+.paper-anchor--typo     { --kind-edge: var(--kind-typo-edge);     --kind-ink: var(--kind-typo-ink); --kind-edge-style: dashed; }
+.paper-anchor { border-inline-start-color: var(--kind-edge, transparent); }
 
-/* active 态：仅边框颜色保留（lead 要求去 hover 高亮，去 background） */
+/* active 态：底色交给 _paper.css 的 [data-annotation-ids].is-active（整块淡底），
+   这里只负责把左边条点亮成 3px，让"当前这条批注"一眼可见。 */
 .paper-anchor.is-active {
   background-color: transparent;
-  border-inline-start-width: 2px;  /* 不再加粗 */
+  border-inline-start-width: 3px;
 }
 
-/* 段落徽章（count）—— 仅 hover 时显示（lead 要求 #3） */
+/* 段落徽章（count）—— 仅 hover / 聚焦 / 激活时显示 */
 .paper-anchor__count {
   position: absolute;
   top: -8px;
@@ -138,7 +180,9 @@
   border-radius: 999px;
   background: var(--bg-page);
   border: 1px solid currentColor;
-  color: var(--color-brand-500);
+  /* 徽章颜色跟随 kind 的文字级色（--kind-ink），和边条同族但更深一档，
+     20px 圆点上的 11px 数字需要 4.5:1 才能读清。 */
+  color: var(--kind-ink, var(--color-brand-500));
   font: 600 11px/1 var(--font-sans-en);
   letter-spacing: 0;
   opacity: 0;
@@ -156,13 +200,6 @@
   opacity: 1;
   transform: scale(1);
 }
-/* 徽章颜色随主 kind 变化（与边条同色系） */
-.paper-anchor--question .paper-anchor__count { color: var(--color-brand-500); }
-.paper-anchor--insight  .paper-anchor__count { color: var(--color-accent-600); }   /* P1.4 · was accent-500 (3.26:1 on bg-page) */
-.paper-anchor--critique .paper-anchor__count { color: var(--color-warning); }
-.paper-anchor--figure   .paper-anchor__count { color: var(--color-brand-400); }
-.paper-anchor--link     .paper-anchor__count { color: var(--color-sage-500); }
-.paper-anchor--typo     .paper-anchor__count { color: var(--color-danger); }
 
 /* ---------- 4. 闪烁动画（800ms，更克制） ---------- */
 @keyframes paper-reader-flash {
@@ -188,10 +225,12 @@
 /* ---------- 5. 批注侧栏（hairline 边界、0 圆角、字号收紧） ---------- */
 .annot-pane {
   position: sticky;
-  top: var(--space-5);
+  /* topbar 是 56px 的 sticky 导航，原来这里写 32px —— 一滚动面板头
+     （标题 + 计数徽章）就滑到顶栏底下被盖住。88px = 56 + 32 呼吸。 */
+  top: 88px;
   align-self: start;
   width: 100%;
-  max-height: calc(100vh - var(--space-7));
+  max-height: calc(100vh - 112px);
   overflow-y: auto;
   padding: var(--space-4);
   background: transparent;       /* 去 surface */
@@ -215,24 +254,59 @@
   padding-bottom: var(--space-3);
   border-bottom: 1px solid var(--border-subtle);
 }
-.annot-filters { display: flex; flex-wrap: wrap; gap: 6px; width: 100%; }
+.annot-filters {
+  display: flex;
+  flex-wrap: wrap;
+  width: 100%;
+  /* 分段控件：5~6 个独立药丸在 300px 宽的面板里互相抢注意力。
+     收进一条轨道后，未选中项只剩文字，选中项用一条 2px 下划色标 +
+     同色 8% 底 —— 一个控件、两个状态，不再是 5 个小圆角框。 */
+  border: 1px solid var(--border-subtle);
+  background: transparent;
+}
 .annot-filter {
-  min-height: 30px;
-  padding: 3px 8px;
-  border: 1px solid var(--border-default);
-  border-radius: 999px;
+  /* 显式 inline-flex：按钮内部的匿名 flex 容器会帮忙居中，但那是 UA 实现细节，
+     写出来才在各家浏览器里一致。 */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 32px;
+  padding: 4px 10px;
+  border: 0;
+  border-inline-start: 1px solid var(--border-subtle);
   background: transparent;
   color: var(--text-muted);
   font: 500 12px/1 var(--font-sans-cn);
   cursor: pointer;
+  transition: color var(--dur-base) var(--ease-out),
+              background-color var(--dur-base) var(--ease-out);
 }
-.annot-filter:hover, .annot-filter:focus-visible { color: var(--text-primary); border-color: var(--text-secondary); }
-.annot-filter.is-active { color: var(--color-brand-500); border-color: currentColor; background: var(--bg-muted); }
-.annot-filter--insight.is-active { color: var(--color-accent-600); }   /* P1.4 · was accent-500 */
-.annot-filter--critique.is-active { color: var(--color-warning); }
-.annot-filter--figure.is-active { color: var(--color-brand-400); }
-.annot-filter--link.is-active { color: var(--color-sage-500); }
-.annot-filter--typo.is-active { color: var(--color-danger); }
+.annot-filter:first-child { border-inline-start: 0; }
+.annot-filter:hover { color: var(--text-primary); background: var(--bg-muted); }
+.annot-filter:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+  position: relative;
+  z-index: 1;
+}
+/* 选中态同时认 .is-active 和 aria-pressed：
+   highlight.js 的 clearActive() 会把 wrap 内所有 .is-active 统统摘掉
+   （wrap.querySelectorAll('.is-active')），筛选 chip 也在里面，于是点任意一张
+   批注卡之后"全部"的选中态就没了。aria-pressed 由 annotations.js 单独维护、
+   不受 clearActive 影响，用它兜住选中态。（可分性问题，非本文件引入。） */
+.annot-filter.is-active,
+.annot-filter[aria-pressed="true"] {
+  /* --kind-ink 由 _paper.css 的 .annot-filter[data-kind] 注入；
+     "全部"（data-kind="all"）没有映射，落到调色板里的兜底品牌蓝。 */
+  color: var(--kind-ink);
+  background: color-mix(in srgb, var(--kind-ink) 8%, transparent);
+  box-shadow: inset 0 -2px 0 currentColor;
+}
+/* 没带 color-mix 的老浏览器退回纯文字色，选中状态仍由下划线标出 */
+@supports not (background: color-mix(in srgb, red, blue)) {
+  .annot-filter.is-active,
+  .annot-filter[aria-pressed="true"] { background: transparent; }
+}
 .annot-pane .paper-toc { position: static; max-height: none; padding: 0 0 var(--space-4); margin-bottom: var(--space-4); border-bottom: 1px solid var(--border-subtle); }
 .annot-pane .paper-toc h2 { margin-bottom: var(--space-2); }
 .annot-pane .paper-toc a { text-decoration: none; }
@@ -276,7 +350,10 @@
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: var(--space-2);            /* 间距收紧 */
+  /* 账本式：去掉卡片间距，靠 1px hairline 分隔行。
+     原来 8px gap + hairline 分隔线是重复的，而且每张卡自带 16px 内边距，
+     面板因此被拉得很长。 */
+  gap: 0;
 }
 
   .annot-pane__head {
@@ -306,7 +383,8 @@
   position: relative;
   padding: var(--space-3);
   border-radius: 0;              /* 去圆角（lead #5） */
-  border-inline-start: 2px solid var(--color-brand-400);
+  /* 线型也走 --kind-*：勘误是虚线，暖色族里靠形状再分一档 */
+  border-inline-start: 2px var(--kind-edge-style, solid) var(--kind-edge, var(--color-brand-400));
   border-bottom: 0;
   background: transparent;
   cursor: pointer;
@@ -323,7 +401,10 @@
   box-shadow: var(--shadow-focus);
 }
 .annot-card.is-active > .annot-card__head {
+  /* 激活底色带一点 kind 色相：滚动联动高亮时，"当前这条是哪种批注"
+     不再只靠左边 2px 细条去猜。老浏览器退回 --bg-subtle。 */
   background: var(--bg-subtle);
+  background: color-mix(in srgb, var(--kind-ink) 8%, transparent);
   border-inline-start-width: 2px;
 }
 .annot-card__body {
@@ -331,7 +412,7 @@
   border-inline-start: 2px solid transparent;
 }
 .annot-card__head[aria-expanded="true"] + .annot-card__body {
-  border-inline-start-color: var(--kind-edge, var(--color-brand-400));
+  border-inline-start-color: var(--kind-edge);
 }
 
 /* Legacy .annot-item class kept on inner button for highlight.js back-compat */
@@ -343,18 +424,12 @@
   outline: none;
   box-shadow: var(--shadow-focus);
 }
+/* highlight.js 滚动联动时给上一张卡加的 is-active；必须命中
+   .annot-item 本身（它就是那个 <button>），否则高亮清不掉。 */
 .annot-item.is-active {
   background: var(--bg-subtle);
+  background: color-mix(in srgb, var(--kind-ink) 8%, transparent);
 }
-
-/* v1.1 kind→color 边条（保留 5 色） */
-.annot-card--question { --kind-edge: var(--color-brand-400); }
-.annot-card--insight  { --kind-edge: var(--color-accent-400); }
-.annot-card--critique { --kind-edge: var(--color-warning); }
-.annot-card--figure   { --kind-edge: var(--color-brand-300); }
-.annot-card--link     { --kind-edge: var(--color-sage-500); }
-.annot-card--typo     { --kind-edge: var(--color-danger); }
-.annot-card__head { border-inline-start-color: var(--kind-edge, var(--color-brand-400)); }
 
 .annot-meta {
   display: flex;
@@ -375,33 +450,20 @@
   font-weight: 500;
   font-size: 11px;                /* 字号收紧 */
   letter-spacing: 0.06em;
-  text-transform: uppercase;
   line-height: 1.6;
   border: 1px solid currentColor;
   background: transparent;        /* 背景淡化（lead #6） */
 }
-/* v1.1 kind chip 配色（保留 token，但 chip 背景淡化） */
-.annot-kind--question {
-  color: var(--color-brand-500);
+/* kind chip 颜色同样来自调色板：--kind-ink 由 _paper.css 的
+   `.annot-card[data-kind] .annot-kind` 注入，这里不再逐类写死色值。
+   描边用同色淡一档，比 currentColor 全强度收敛。 */
+.annot-card[data-kind] .annot-kind {
+  color: var(--kind-ink);
+  border-color: color-mix(in srgb, var(--kind-ink) 34%, transparent);
 }
-.annot-kind--insight {
-  color: var(--color-accent-600);   /* P1.4 · was accent-500 */
-}
-.annot-kind--critique {
-  color: var(--color-warning);
-}
-.annot-kind--figure {
-  color: var(--color-brand-400);
-}
-.annot-kind--link {
-  color: var(--color-sage-500);
-}
-.annot-kind--typo {
-  color: var(--color-danger);
-}
-/* 老旧浏览器没 color-mix 仍走透明 */
+/* 老旧浏览器没 color-mix 仍走全强度描边 */
 @supports not (background: color-mix(in srgb, red, blue)) {
-  .annot-kind { background: transparent; }
+  .annot-card[data-kind] .annot-kind { border-color: currentColor; }
 }
 
 .annot-title {
@@ -513,10 +575,9 @@
   .annot-pane { transition: none; }
 }
 
-
-@media (prefers-color-scheme: dark) {
-  [data-theme="dark"] .paper-anchor.is-active,
-  [data-theme="dark"] .annot-item.is-active {
-    background: var(--bg-muted);
-  }
-}
+/* 原来文件末尾有一条 `@media (prefers-color-scheme: dark) { [data-theme="dark"]
+   .paper-anchor.is-active, [data-theme="dark"] .annot-item.is-active }`：
+   它只覆盖"用户手动切暗色"这一条路径（系统暗色自动跟随根本不进这个 media
+   query 里的 [data-theme="dark"] 选择器），于是同一种状态在两种暗色入口下
+   画出两种底色。删掉：激活态底色改由 kind 色相统一推导，两条路径都走
+   --kind-ink + color-mix，对比度在两种模式下都已实算过。 */
