@@ -45,6 +45,12 @@ jobs:
 
       - name: Configure Pages
         uses: actions/configure-pages@v5
+        with:
+          # enablement: true —— Pages 未开启时自动开启，否则整个 deploy 会在
+          # "Get Pages site failed" 上失败，而这个失败只能靠人去 Settings →
+          # Pages 里手动改。开启后就是纯粹的「push 即部署」。
+          # 需要 token 具备 pages: write（本 workflow 顶部已声明）。
+          enablement: true
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
