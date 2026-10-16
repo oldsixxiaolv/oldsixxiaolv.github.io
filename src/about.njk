@@ -494,6 +494,15 @@ editPaths:
         <dt>Software</dt>
         <dd><a href="{{ site.author.zenodo }}" target="_blank" rel="noopener noreferrer me">Zenodo · doi:10.5281/zenodo.18041880</a></dd>
       </div>
+      {# 网盘入口：与页脚同一个数据源。url 为 null 时这一行不渲染。
+          放在 Contact 末尾而不是单独开一节——它不是学术身份的一部分，
+          只是"还能从这儿找到我"的一个去处。 #}
+      {%- if site.drive and site.drive.url %}
+      <div class="about-contact__row">
+        <dt>{{ site.drive.label or "Cloud drive" }}</dt>
+        <dd><a href="{{ site.drive.url }}" target="_blank" rel="noopener noreferrer">{{ site.drive.url }}</a></dd>
+      </div>
+      {%- endif %}
     </dl>
   </section>
 

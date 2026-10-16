@@ -13,9 +13,29 @@ module.exports = {
   description:
     "PhD student at the Institute of Atmospheric Physics, Chinese Academy of Sciences. Notes on thunderstorm lightning, data assimilation, and extreme precipitation.",
 
-  url: "https://oldsixxiaolv.github.io/MeteoHub",
+  // 站点公开地址。这是全站**唯一**的绝对地址来源：canonical / hreflang /
+  // og:url / og:image / JSON-LD 的 url 与 image / sitemap 全部由它派生，
+  // 不要在模板里另写域名。
+  //
+  // 为什么不是 oldsixxiaolv.github.io：用户主页仓库 oldsixxiaolv.github.io
+  // 配了 CNAME = github.lvyihang.xyz，整个 oldsixxiaolv.github.io 域会被
+  // GitHub 301 到那个自定义域名去。而项目仓库没有自己的 CNAME 时，
+  // 目标域下的 /MeteoHub/ 并不存在——实测站内 404，站点完全不可达。
+  // 仓库根的 CNAME 文件（已提交）+ deploy.yml 里的拷贝步骤解决了这一点。
+  //
+  // 域名分工：根目录放网盘，/MeteoHub/ 放学术主页，两者互不干扰。
+  url: "https://github.lvyihang.xyz/MeteoHub",
   locale: "zh-CN",
   buildYear: new Date().getFullYear(),
+
+  // —— 网盘入口 ——
+  // ⚠️ url 目前是 null：还没有确定链到哪个网盘。模板对 null 判空后整块
+  // 不渲染，所以页面上不会出现一个点开是空白的"Cloud drive"。
+  // 填上真实地址即可，无需改任何模板。
+  drive: {
+    label: "Cloud drive",
+    url: null,
+  },
 
   // —— 主导航 ——
   // 只保留站点真正存在的版块。论文精读 / 作品集 曾是独立页面，现改为
