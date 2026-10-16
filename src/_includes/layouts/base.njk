@@ -50,13 +50,13 @@
 
   {# —— Non-critical CSS：components / layout / pages 异步加载
      preload + onload swap + <noscript> 同步 fallback —— #}
-  <link rel="preload" as="style" href="{{ '/assets/css/components.css' | url }}" onload="this.onload=null;this.rel='stylesheet'" />
-  <link rel="preload" as="style" href="{{ '/assets/css/layout.css' | url }}" onload="this.onload=null;this.rel='stylesheet'" />
-  <link rel="preload" as="style" href="{{ '/assets/css/pages.css' | url }}" onload="this.onload=null;this.rel='stylesheet'" />
+  <link rel="preload" as="style" href="{{ '/assets/css/components.css' | relUrl }}" onload="this.onload=null;this.rel='stylesheet'" />
+  <link rel="preload" as="style" href="{{ '/assets/css/layout.css' | relUrl }}" onload="this.onload=null;this.rel='stylesheet'" />
+  <link rel="preload" as="style" href="{{ '/assets/css/pages.css' | relUrl }}" onload="this.onload=null;this.rel='stylesheet'" />
   <noscript>
-    <link rel="stylesheet" href="{{ '/assets/css/components.css' | url }}" />
-    <link rel="stylesheet" href="{{ '/assets/css/layout.css' | url }}" />
-    <link rel="stylesheet" href="{{ '/assets/css/pages.css' | url }}" />
+    <link rel="stylesheet" href="{{ '/assets/css/components.css' | relUrl }}" />
+    <link rel="stylesheet" href="{{ '/assets/css/layout.css' | relUrl }}" />
+    <link rel="stylesheet" href="{{ '/assets/css/pages.css' | relUrl }}" />
   </noscript>
 
   {# —— a11y.css (Phase 2A.3)：与其余非关键 CSS 一起异步加载 ——
@@ -69,15 +69,15 @@
             只能和 tokens.css 竞争，而 tokens.css 是内联在 head 更靠前的 <style>，
             异步样式表总是追加到 head 末尾，永远排在其后。
        所以把它放最后只是保持可读性，真正让它安全的是上面两条。 —— #}
-  <link rel="preload" as="style" href="{{ '/assets/css/a11y.css' | url }}" onload="this.onload=null;this.rel='stylesheet'" />
+  <link rel="preload" as="style" href="{{ '/assets/css/a11y.css' | relUrl }}" onload="this.onload=null;this.rel='stylesheet'" />
   <noscript>
-    <link rel="stylesheet" href="{{ '/assets/css/a11y.css' | url }}" />
+    <link rel="stylesheet" href="{{ '/assets/css/a11y.css' | relUrl }}" />
   </noscript>
 
   {% block extraHead %}{% endblock %}
 
   {# —— Favicon —— #}
-  <link rel="icon" type="image/svg+xml" href="{{ '/assets/favicon.svg' | url }}" />
+  <link rel="icon" type="image/svg+xml" href="{{ '/assets/favicon.svg' | relUrl }}" />
 
   {# —— canonical link（GH Pages 子路径下由 pathPrefix 自动处理 page.url） —— #}
   <link rel="canonical" href="{{ site.url }}{{ page.url }}" />
@@ -255,6 +255,6 @@
   {% include "partials/footer.njk" %}
 
   {# —— 主脚本：theme + nav + reading progress —— #}
-  <script type="module" src="{{ '/assets/js/main.js' | url }}"></script>
+  <script type="module" src="{{ '/assets/js/main.js' | relUrl }}"></script>
 </body>
 </html>

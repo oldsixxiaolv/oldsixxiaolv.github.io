@@ -25,8 +25,8 @@
        不会再出现"模板写 PhD Candidate、about 页写博士后"这种分叉。 #}
     <p class="home-hero__lede">{{ site.author.bio }}</p>
     <div class="home-hero__actions">
-      <a class="btn btn--primary" href="{{ '/about/' | url }}">About me <span aria-hidden="true">↗</span></a>
-      <a class="btn btn--outline" href="{{ '/blog/' | url }}">Technical notes</a>
+      <a class="btn btn--primary" href="{{ '/about/' | relUrl }}">About me <span aria-hidden="true">↗</span></a>
+      <a class="btn btn--outline" href="{{ '/blog/' | relUrl }}">Technical notes</a>
     </div>
 
     {# —— FIELD NOTE 贴纸（紧凑版）——
@@ -68,8 +68,8 @@
   <figure class="home-portrait">
     <img
       class="home-portrait__img"
-      src="{{ site.author.photo.portrait | url }}"
-      srcset="{{ site.author.photo.portraitSmall | url }} 300w, {{ site.author.photo.portrait | url }} 600w"
+      src="{{ site.author.photo.portrait | relUrl }}"
+      srcset="{{ site.author.photo.portraitSmall | relUrl }} 300w, {{ site.author.photo.portrait | relUrl }} 600w"
       sizes="(max-width: 640px) 280px, (max-width: 820px) 340px, 420px"
       width="{{ site.author.photo.portraitSize.width }}"
       height="{{ site.author.photo.portraitSize.height }}"

@@ -12,7 +12,7 @@
 
 <header class="topbar">
   <div class="wrap topbar__inner">
-    <a class="topbar__brand" href="{{ '/' | url }}"
+    <a class="topbar__brand" href="{{ '/' | relUrl }}"
        {% if page.url == "/" or page.url == "/MeteoHub/" %}aria-current="page"{% endif %}>
       {# 内联 SVG 不引外部资源：等压线同心环 + 中心低压点，和首页橙色卡片的
          同心椭圆是同一套母题。aria-hidden 让读屏只念文字站名。 #}
@@ -35,7 +35,7 @@
              ((currentUrl == href) or
               (href != "/" and currentUrl and currentUrl.indexOf(href) == 0)) %}
         <a class="topbar__link"
-           href="{{ href | url }}"
+           href="{{ href | relUrl }}"
            {% if isCurrent %}aria-current="page"{% endif %}>{{ item.label }}</a>
       {% endfor %}
       <span class="topbar__sep" role="presentation" aria-hidden="true"></span>

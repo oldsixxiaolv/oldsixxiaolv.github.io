@@ -342,8 +342,8 @@ editPaths:
   <header class="about-hero" data-reveal>
     <img
       class="about-hero__photo"
-      src="{{ site.author.photo.portrait | url }}"
-      srcset="{{ site.author.photo.portraitSmall | url }} 300w, {{ site.author.photo.portrait | url }} 600w"
+      src="{{ site.author.photo.portrait | relUrl }}"
+      srcset="{{ site.author.photo.portraitSmall | relUrl }} 300w, {{ site.author.photo.portrait | relUrl }} 600w"
       sizes="(max-width: 860px) 180px, 208px"
       width="{{ site.author.photo.portraitSize.width }}"
       height="{{ site.author.photo.portraitSize.height }}"

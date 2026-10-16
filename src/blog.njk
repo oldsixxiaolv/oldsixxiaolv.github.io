@@ -56,7 +56,7 @@ editPaths:
       <a href="{{ site.author.csdn }}" target="_blank" rel="noopener noreferrer">{{ site.author.csdn | replace("https://", "") }}</a>
     </p>
     <p class="list-empty__body">
-      In the meantime, the <a href="{{ '/about/' | url }}">profile page</a> has affiliations, skills, and how to reach me.
+      In the meantime, the <a href="{{ '/about/' | relUrl }}">profile page</a> has affiliations, skills, and how to reach me.
     </p>
   </div>
   {% endif %}
@@ -64,12 +64,12 @@ editPaths:
   <ul class="list list--cards">
     {% for post in posts %}
       {% set hasCover = useCovers and post.data.cover %}
-      {% set coverSrc = (post.url + post.data.cover) | url %}
+      {% set coverSrc = (post.url + post.data.cover) | relUrl %}
       <li class="list__item">
-        {# 整行可点；| url 不能省：Eleventy v3 的 pathPrefix 只在 url filter 里
+        {# 整行可点；| relUrl 不能省：Eleventy v3 的 pathPrefix 只在 url filter 里
            生效，collection item 的 .url 永远是站点根相对的裸路径。部署到
            GitHub Pages 项目页（/MeteoHub/）时不过滤就会 404。 #}
-        <a class="list__link card{% if hasCover %} list__link--cover{% else %} list__link--plain{% endif %}" href="{{ post.url | url }}">
+        <a class="list__link card{% if hasCover %} list__link--cover{% else %} list__link--plain{% endif %}" href="{{ post.url | relUrl }}">
           {% if hasCover %}
             <span class="card__media">
               <img class="card__img" src="{{ coverSrc }}" alt="" width="800" height="450" loading="lazy" decoding="async" />

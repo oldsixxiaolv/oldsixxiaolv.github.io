@@ -49,10 +49,10 @@ layout: layouts/base.njk
   {% if prev or next %}
   {# prev/next 是 collection item，.url 不带 pathPrefix，必须过 url filter。 #}
   <nav class="detail__pager" aria-label="上一篇 / 下一篇">
-    {% if prev %}<a class="detail__pager-link" href="{{ prev.url | url }}"><span>← 上一篇</span> <span class="detail__pager-title">{{ prev.data.title }}</span></a>{% endif %}
-    {% if next %}<a class="detail__pager-link detail__pager-link--right" href="{{ next.url | url }}"><span>下一篇 →</span> <span class="detail__pager-title">{{ next.data.title }}</span></a>{% endif %}
+    {% if prev %}<a class="detail__pager-link" href="{{ prev.url | relUrl }}"><span>← 上一篇</span> <span class="detail__pager-title">{{ prev.data.title }}</span></a>{% endif %}
+    {% if next %}<a class="detail__pager-link detail__pager-link--right" href="{{ next.url | relUrl }}"><span>下一篇 →</span> <span class="detail__pager-title">{{ next.data.title }}</span></a>{% endif %}
   </nav>
   {% endif %}
 
-  <p class="detail__back"><a href="{{ listHref | url }}">← 回到{{ listLabel }}</a></p>
+  <p class="detail__back"><a href="{{ listHref | relUrl }}">← 回到{{ listLabel }}</a></p>
 </article>

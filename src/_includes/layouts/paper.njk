@@ -137,7 +137,7 @@ layout: layouts/base.njk
     {{ content | safe }}
   </div>
 
-  <p class="paper-footer"><a href="{{ '/papers/' | url }}">← 回到论文精读列表</a></p>
+  <p class="paper-footer"><a href="{{ '/papers/' | relUrl }}">← 回到论文精读列表</a></p>
 </article>
 </div>
 
@@ -155,10 +155,10 @@ layout: layouts/base.njk
 <script type="module">
   const paperRoot = document.querySelector("article.paper");
   if (paperRoot) {
-    const { initPaperReader } = await import("{{ '/assets/js/paper-reader/main.js' | url }}");
+    const { initPaperReader } = await import("{{ '/assets/js/paper-reader/main.js' | relUrl }}");
     initPaperReader({
       paperRoot,
-      annotationsUrl: "{{ '/content/papers/' | url }}{{ slug or page.fileSlugStem }}/annotations.json",
+      annotationsUrl: "{{ '/content/papers/' | relUrl }}{{ slug or page.fileSlugStem }}/annotations.json",
     });
   }
 </script>

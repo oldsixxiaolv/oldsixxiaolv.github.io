@@ -17,7 +17,7 @@
          将来要恢复订阅，重新加 feed.njk 并在这里加回一行即可。
          注意：本项目的 Nunjucks 没注册 comment 标签，全站注释一律用这种
          花括号井号写法，写成百分号 comment 会报 unknown block tag。 #}
-      <a href="{{ '/sitemap.xml' | url }}">Sitemap</a>
+      <a href="{{ '/sitemap.xml' | relUrl }}">Sitemap</a>
 
       {# —— Edit on GitHub ——
          静态站没有后端，也就没有自建登录这一说。这条链接把「改内容」这件事

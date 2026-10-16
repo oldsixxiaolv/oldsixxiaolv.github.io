@@ -61,6 +61,23 @@ function stripMacResourceForks(rootDir) {
 }
 stripMacResourceForks(path.join(__dirname, "src"));
 
+/**
+ * 构建前清空输出目录。
+ * Eleventy **不会**删除输出目录里的旧文件——只覆盖本次会写出的那部分。
+ * 于是上一版残留的东西会一直躺在 _site/ 里：被删掉的版块留下的空目录、
+ * 改名前的图片、旧的 sitemap……本地预览时看不出问题，但一旦把整个目录
+ * 当作产物上传（手动部署、或本地 http-server 验证），垃圾文件就一起发了出去。
+ * 产物目录是纯可再生的，删干净最省心。
+ */
+function cleanOutputDir(dirName) {
+  const dir = path.join(__dirname, dirName);
+  if (!fs.existsSync(dir)) return;
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    fs.rmSync(path.join(dir, entry.name), { recursive: true, force: true });
+  }
+}
+cleanOutputDir(OUT_DIR);
+
 module.exports = function (eleventyConfig) {
   /* ---------- 1. passthrough copy ---------- */
   // 整个 assets/ 目录：CSS / JS / fonts / 项目封面图 全部直拷
@@ -355,26 +372,67 @@ module.exports = function (eleventyConfig) {
   */
   eleventyConfig.ignores.add("src/content/about.md");
   eleventyConfig.ignores.add("src/content/papers/*/index.md");
+  /* ---------- 路径：全部相对，不绑死挂载点 ----------
+     目标：`_site/` 这个文件夹**扔到哪都能跑** —— GitHub Pages 项目页的
+     /MeteoHub/、自定义域的根、Netlify / Vercel / nginx，甚至直接双击本地
+     文件打开。为此：
+       pathPrefix  = "/"           模板里的 {{ '/assets/...' | url }} 先产出
+                                      /assets/... 这种根相对写法
+       htmlBaseUrl = "relative"    11ty 的 transform 随后按**每页自身所在目录**
+                                      把它改写成 ../../assets/... 这种真正相对
+                                      的路径（首页是 assets/...，/about/ 页是
+                                      ../assets/...）
 
-  /* ---------- pathPrefix：从 src/_data/site.js 的 url 自动派生 ----------
-     部署到 GitHub Pages 项目页（如 oldsixxiaolv.github.io/MeteoHub/）时，
-     /assets/... 这种根绝对路径会 404。设了 pathPrefix 后 11ty 会自动把
-     模板里所有 /assets/... 重写成 /MeteoHub/assets/...；{{ site.url }}
-     已经是 site.js 写死的完整 URL，不受 pathPrefix 影响，两者分工明确。
+     之前靠 pathPrefix="/MeteoHub" 硬编码挂载点，产物只在挂在 /MeteoHub/
+     时可用，换任何托管方式都会整站 404 —— 这正是「文件夹不对」的根本原因。
+     相对路径与挂载点无关，是可移植静态站的标准做法。
+
+     ⚠️ htmlBaseUrl 只改写 HTML 的 href / src 属性，**不动**
+        <link rel="canonical">、og:url、og:image、JSON-LD 的 url ——
+        那些必须是完整绝对地址，搜索引擎靠它们定位页面。
+        site.url 仍由 src/_data/site.js 提供，不受相对化影响。
+     ⚠️ 仍可用 PATH_PREFIX 环境变量强制覆盖（确实要产出 /MeteoHub/ 这种
+        带前缀的版本时）。默认不给前缀。
   -------------------------------------------------------------------------- */
-  let _siteUrl = "";
-  try { _siteUrl = require("./src/_data/site.js").url || ""; } catch (_) {}
-  let _pathPrefix = "/";
-  try {
-    const _u = new URL(_siteUrl);
-    if (_u.pathname && _u.pathname !== "/") {
-      _pathPrefix = _u.pathname.replace(/\/$/, "");
-    }
-  } catch (_) {}
-  // Keep local development at the root; production builds retain the Pages prefix.
-  const _serveMode = process.argv.includes("--serve");
   const _configuredPrefix = process.env.PATH_PREFIX;
-  const _effectivePathPrefix = _configuredPrefix || (_serveMode ? "/" : _pathPrefix);
+
+  /* ---------- relUrl：把站内路径渲染成「相对于当前页面」的路径 ----------
+     为什么不用 Eleventy 自带的路子：
+       · pathPrefix="/MeteoHub"  —— 产物只在挂在 /MeteoHub/ 时可用，换托管
+         方式就整站 404，且和「换个域名根目录部署」直接冲突。
+       · HtmlBasePlugin —— Eleventy 3 已把顶层 htmlBaseUrl 键废弃，
+         插件内部在 baseHref === "/" 时**整体禁用**（源码：
+         enabled: () => Boolean(context.baseHref) || opts.baseHref !== "/"），
+         所以设 htmlBaseUrl: "relative" 什么都不会发生。
+
+     这个过滤器做最朴素也最可控的事：数出当前 page.url 有几层目录，
+     就在前面补几个 ../。
+        page.url = "/"        → ""          → assets/css/x.css
+        page.url = "/about/"  → "../"       → ../assets/css/x.css
+        page.url = "/a/b/"    → "../../"    → ../../assets/css/x.css
+
+     结果：`_site/` 整个文件夹扔到任何挂载点都能跑 —— GitHub Pages 项目页
+     的 /MeteoHub/、自定义域根目录、Netlify / Vercel / nginx 都行。
+
+     ⚠️ 只用于**页面内的 href / src**。canonical / og:url / og:image /
+        JSON-LD 里的 url 必须保持完整绝对地址（搜索引擎靠它们定位页面），
+        那些位置继续用 {{ site.url }} 直接拼，不经过这个过滤器。
+  -------------------------------------------------------------------------- */
+  eleventyConfig.addFilter("relUrl", function (url, pageUrl) {
+    const target = String(url);
+    // 外部地址、带协议、带锚点或查询串的，一律原样返回（不处理）
+    if (/^[a-z][a-z0-9+.-]*:/i.test(target) || target.startsWith("//") ||
+        target.startsWith("#") || target.startsWith("?")) {
+      return target;
+    }
+    // 当前页路径：优先用传入值，其次用模板上下文里的 page.url
+    const here = pageUrl || (this && this.page && this.page.url) || "/";
+    // 目录深度 = 去掉所有非斜杠字符后，斜杠的个数减 1
+    //   "/" → 1 个斜杠 → 0 层；"/about/" → 2 个 → 1 层；"/a/b/" → 3 个 → 2 层
+    const depth = Math.max(0, here.replace(/[^/]/g, "").length - 1);
+    const clean = target.replace(/^\/+/, "");
+    return "../".repeat(depth) + clean;
+  });
 
   return {
     dir: {
@@ -389,8 +447,7 @@ module.exports = function (eleventyConfig) {
     markdownTemplateEngine: false,
     // html / xml / 11ty.js 文件 → njk 模板引擎
     htmlTemplateEngine: "njk",
-    // 部署到 GitHub Pages 项目页时所有 {{ '/path' | url }} 自动加 /MeteoHub 前缀
-    pathPrefix: _effectivePathPrefix,
+    pathPrefix: _configuredPrefix || "/",
     // 忽略 macOS Finder 创建的 ._* 资源叉备份（避免被当成模板加载）
     ignores: ["**/._*", "**/_archive/**"],
   };

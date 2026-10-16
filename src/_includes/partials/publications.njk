@@ -143,13 +143,13 @@
       {%- if p.url or p.doi or p.code or p.dataDoi or p.figure %}
       <p class="home-pub__links">
         {%- if p.url %}
-          <a class="home-pub__link" href="{% if p.url[0] == '/' %}{{ p.url | url }}{% else %}{{ p.url }}{% endif %}" target="_blank" rel="noopener noreferrer">Paper <span aria-hidden="true">↗</span></a>
+          <a class="home-pub__link" href="{% if p.url[0] == '/' %}{{ p.url | relUrl }}{% else %}{{ p.url }}{% endif %}" target="_blank" rel="noopener noreferrer">Paper <span aria-hidden="true">↗</span></a>
         {%- endif -%}
         {%- if p.doi %}<a class="home-pub__link" href="https://doi.org/{{ p.doi }}" target="_blank" rel="noopener noreferrer">DOI <span aria-hidden="true">↗</span></a>{% endif -%}
         {%- if p.code %}<a class="home-pub__link" href="{{ p.code }}" target="_blank" rel="noopener noreferrer">Code <span aria-hidden="true">↗</span></a>{% endif -%}
         {%- if p.dataDoi %}<a class="home-pub__link" href="https://doi.org/{{ p.dataDoi }}" target="_blank" rel="noopener noreferrer">Data <span aria-hidden="true">↗</span></a>{% endif -%}
         {%- if p.figure and p.figure.src %}
-          <a class="home-pub__link" href="{{ p.figure.src | url }}" target="_blank" rel="noopener noreferrer">Figure <span aria-hidden="true">↗</span></a>
+          <a class="home-pub__link" href="{{ p.figure.src | relUrl }}" target="_blank" rel="noopener noreferrer">Figure <span aria-hidden="true">↗</span></a>
         {%- endif -%}
       </p>
       {%- endif %}
@@ -165,7 +165,7 @@
         <div class="home-pub__figure-plate">
           <img
             class="home-pub__figure-img"
-            src="{{ p.figure.src | url }}"
+            src="{{ p.figure.src | relUrl }}"
             {%- if p.figure.width and p.figure.height %} width="{{ p.figure.width }}" height="{{ p.figure.height }}"{% endif %}
             alt="{{ p.figure.alt }}"
             loading="lazy"
