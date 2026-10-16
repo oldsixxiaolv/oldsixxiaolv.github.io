@@ -16,7 +16,11 @@
 <section class="home-hero">
   <div class="home-hero__copy">
     <p class="home-eyebrow">ATMOSPHERIC SCIENCE / RESEARCH NOTES</p>
-    <h1 class="home-hero__title">Thunderstorms, lightning,<br /><em>extreme precipitation.</em></h1>
+    {# 三个主题各占一行：原来是 "Thunderstorms, lightning," + <br> + "extreme
+       precipitation."，靠浏览器自己折行，结果在不同视口下会把
+       "Thunderstorms," 劈成 "Thunderstorm" + "s, lightning,"（实测 2560px）。
+       改成每行一个词组并显式 <br>，断行从此由模板决定，不交给排版引擎猜。 #}
+    <h1 class="home-hero__title">Thunderstorms<br />Lightning<br /><em>Extreme precipitation</em></h1>
     {# 自我介绍直接用 site.author.bio：改一句身份/研究方向只动 site.js 一处，
        不会再出现"模板写 PhD Candidate、about 页写博士后"这种分叉。 #}
     <p class="home-hero__lede">{{ site.author.bio }}</p>
@@ -75,7 +79,9 @@
       decoding="async" />
     <figcaption class="home-portrait__plate">
       <span class="home-portrait__name">{{ site.author.name }}</span>
-      <span class="home-portrait__role">{{ site.author.jobTitle }} · {{ site.author.affiliation }}</span>
+      {# 用 affiliationShort（IAP-CAS）而不是中文全称：这块牌子宽度有限，
+         中文全称在英文版面上既突兀又挤。 #}
+      <span class="home-portrait__role">{{ site.author.jobTitle }} · {{ site.author.affiliationShort }}</span>
     </figcaption>
   </figure>
 </section>

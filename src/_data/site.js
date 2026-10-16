@@ -84,7 +84,7 @@ module.exports = {
     github: "https://github.com/oldsixxiaolv",
     orcid: "https://orcid.org/0009-0005-3511-0546",
     csdn: "https://blog.csdn.net/lvyihang200411",
-    researchgate: "https://www.researchgate.net/profile/Yihang-Lv-4",
+    researchgate: "https://www.researchgate.net/profile/Yihang-Lyu",
     zenodo: "https://doi.org/10.5281/zenodo.18041880",
 
     // 源码仓库。页脚的「Edit on GitHub」用它拼 /edit/<branch>/<path> 直达
@@ -121,11 +121,15 @@ module.exports = {
     sameAs: [
       "https://orcid.org/0009-0005-3511-0546",
       "https://github.com/oldsixxiaolv",
-      "https://www.researchgate.net/profile/Yihang-Lv-4",
+      "https://www.researchgate.net/profile/Yihang-Lyu",
       "https://blog.csdn.net/lvyihang200411",
       "mailto:lvyihang26@mails.ucas.ac.cn",
     ],
 
+    // 页面可见的关键词标签。**保持纯英文**——之前这里中英混排（雷暴雷电 /
+    // 数据同化 / 机器学习…），在已经全英文的关于页上会戳出刺眼的中文块。
+    // 中文名与中文单位仍保留在 alternateName / affiliationZh / education 里，
+    // 供 JSON-LD 与将来的中文版使用，不混进英文标签。
     knowsAbout: [
       "Thunderstorm Lightning",
       "Data Assimilation",
@@ -133,12 +137,8 @@ module.exports = {
       "Extreme Precipitation",
       "Radar Remote Sensing",
       "Severe Convection",
-      "Atmospheric Science",
-      "雷暴雷电",
-      "数据同化",
-      "机器学习",
-      "极端降水",
-      "强对流天气",
+      "Atmospheric Dynamics",
+      "Satellite Precipitation Retrieval",
     ],
 
     // —— 照片（首页人像卡 / 关于页 / Person JSON-LD 共用）——
@@ -252,7 +252,7 @@ module.exports = {
   social: [
     { label: "GitHub", href: "https://github.com/oldsixxiaolv" },
     { label: "ORCID", href: "https://orcid.org/0009-0005-3511-0546" },
-    { label: "ResearchGate", href: "https://www.researchgate.net/profile/Yihang-Lv-4" },
+    { label: "ResearchGate", href: "https://www.researchgate.net/profile/Yihang-Lyu" },
     { label: "CSDN", href: "https://blog.csdn.net/lvyihang200411" },
     { label: "Email", href: "mailto:lvyihang26@mails.ucas.ac.cn" },
   ],

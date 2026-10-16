@@ -25,7 +25,7 @@
       <span class="topbar__wordmark">{{ site.shortTitle }}</span>
     </a>
 
-    <nav class="topbar__nav" aria-label="主导航">
+    <nav class="topbar__nav" aria-label="Main navigation">
       {% for item in navItems %}
         {% set href = item.href %}
         {# 只有站内根相对路径才可能是"当前页"。早期版本这里先算一个
@@ -39,7 +39,7 @@
            {% if isCurrent %}aria-current="page"{% endif %}>{{ item.label }}</a>
       {% endfor %}
       <span class="topbar__sep" role="presentation" aria-hidden="true"></span>
-      <button class="topbar__theme" type="button" data-theme-toggle aria-label="切换主题" aria-pressed="false">
+      <button class="topbar__theme" type="button" data-theme-toggle aria-label="Switch theme" aria-pressed="false">
         <svg class="icon-sun" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <circle cx="12" cy="12" r="4"></circle>
           <path d="M12 2v2"></path><path d="M12 20v2"></path>

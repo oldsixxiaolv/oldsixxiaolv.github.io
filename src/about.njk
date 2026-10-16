@@ -88,15 +88,8 @@ editPaths:
   line-height: 1.1;
   letter-spacing: -0.02em;
 }
-.about-hero__name span {
-  display: block;
-  margin-top: 6px;
-  font-family: var(--font-serif-en);
-  font-size: 0.44em;
-  font-weight: 500;
-  letter-spacing: 0.06em;
-  color: var(--text-muted);
-}
+/* 原来这里还有一条 .about-hero__name span（渲染中文名的第二行）。
+   姓名改为纯英文、单行呈现后已无对应元素，整条删除——留着就是死 CSS。 */
 .about-hero__role {
   margin: var(--space-4) 0 0;
   font-size: var(--fs-body-lg);
@@ -354,12 +347,15 @@ editPaths:
       sizes="(max-width: 860px) 180px, 208px"
       width="{{ site.author.photo.portraitSize.width }}"
       height="{{ site.author.photo.portraitSize.height }}"
-      alt="{{ site.author.photo.alt }}证件照 · {{ site.author.affiliation }}"
+      alt="Portrait of {{ site.author.name }}"
       decoding="async"
     />
     <div class="about-hero__id">
       <p class="about-eyebrow">ACADEMIC PROFILE</p>
-      <h1 class="about-hero__name">{{ site.author.fullName }}<span>{{ site.author.name }}</span></h1>
+      {# 全英文档案：中文名不进页面。alternateName 仍保留在 site.js 与
+     Person JSON-LD 里（alternateName 正是为跨语言实体消歧准备的），
+     只是不作为可见文字渲染。 #}
+      <h1 class="about-hero__name">{{ site.author.name }}</h1>
       <p class="about-hero__role">
         {{ site.author.jobTitle }} ·
         <a href="{{ site.author.affiliationUrl }}" target="_blank" rel="noopener noreferrer">{{ site.author.affiliationEn }}</a>

@@ -4,8 +4,9 @@
   "description": "MeteoHub · 个人学术站点 (作品集 + 博客 + 论文精读)",
   "private": true,
   "scripts": {
-    "serve": "eleventy --serve --quiet --port=8080",
-    "build": "eleventy"
+    "check:css": "node scripts/check-css-braces.cjs",
+    "build": "npm run check:css && eleventy",
+    "serve": "eleventy --serve --quiet --port=8080"
   },
   "engines": {
     "node": ">=18"

@@ -23,7 +23,7 @@
         {%- for e in editPaths %}
       <a href="{{ site.author.repo }}/edit/{{ site.author.repoBranch }}/{{ e.path }}"
          target="_blank" rel="noopener noreferrer"
-         title="在 GitHub 上编辑 {{ e.path }}">{{ e.label or "Edit on GitHub" }}</a>
+         title="Edit {{ e.path }} on GitHub">{{ e.label or "Edit on GitHub" }}</a>
         {%- endfor %}
       {%- endif %}
     </span>

@@ -29,21 +29,33 @@
   min-height: min(560px, calc(100vh - 160px));
   padding-bottom: clamp(32px, 4vw, 56px);
 }
+/* 字号必须跟**左栏实际宽度**走，不能跟视口走。
+   原因：这是一个两栏网格（minmax(0,1.14fr) + 人像栏 + 最多 140px 的 gap），
+   左栏宽度并不随视口线性增长——实测 1280px 时 564px、1440px 时反而缩到
+   555px。而 vw 是视口驱动的：1280 → 94.7px 尚可，1440 → 106.6px 就
+   已经超过栏宽。更宽的视口上 clamp 顶到上限，栏宽却还是 ~555px，必然破版。
+
+   所以把左栏设为查询容器，标题用 cqi 跟着**可用栏宽**缩放。系数 10.2 的
+   由来：标题被显式 <br> 切成三行，最长的一行是 "Extreme precipitation"，
+   实测 **9.31em**（用 nowrap 副本量的真实宽度，不是估算）。要让它保持单行
+   不折断，字号必须 ≤ 栏宽 / 9.31 ≈ 10.7cqi；取 10.2 留一点余量。
+
+   代价是这个布局下标题的上限就在 60px 上下（栏宽 564px 时 57.5px）——
+   三行等分 + 第三行特别长，几何上就是这个结果。想让标题更大，就得让它横跨
+   整个 hero 宽度而不是挤在左栏，那是另一套版式，不在本次改动范围内。
+
+   这样断行完全由模板的 <br> 决定，每行都完整，在任何视口上都不会出现半个单词。 */
+.home-hero__copy { container-type: inline-size; }
 .home-hero__title {
-  max-width: 10ch;
   margin: 22px 0 28px;
   font-family: var(--font-serif-en);
-  font-size: clamp(3.6rem, 7.4vw, 7.8rem);
+  font-size: clamp(1.9rem, 10.2cqi, 6.4rem);
   font-weight: 500;
-  line-height: .91;
-  letter-spacing: -.065em;
-  /* 首页主标题常跨 2-3 行，balance 让浏览器均匀分配字符、避免单字孤悬。 */
-  text-wrap: balance;
-  /* 兜底：标题里的长单词（"Thunderstorms," 这类）不会自动断行，一旦字号
-     调大或换成更长的文案，它会直接把整页撑出横向滚动条——实测在 390px
-     视口下让 scrollWidth 从 390 涨到 413。字号本身已在窄屏媒体查询里收窄，
-     这里只保证"再坏也坏得优雅"：宁可断词，也不要整页横滚。 */
-  overflow-wrap: break-word;
+  line-height: .95;
+  letter-spacing: -.055em;
+  /* 三行长度很不均匀（Extreme precipitation ≈ 9.31em，Lightning ≈ 2.1em），
+     balance 在这种结构下没有可均衡的余地，反而可能为了拉平行长去拆词。
+     实测它会把 "Thunderstorms," 变成 "Thunderstorm" + "s,"。所以不用。 */
 }
 .home-hero__title em { color: var(--color-brand-500); font-style: normal; }
 .home-hero__lede {
@@ -519,13 +531,9 @@ a.home-achievement:hover .home-achievement__value { color: var(--color-brand-700
 }
 @media (max-width: 640px) {
   .home-shell { padding-top: 40px; }
-  /* 15vw 在 390px 视口下是 58.5px，"Thunderstorms," 这种 13 字符长词已经
-     放不下（实测溢出 23px）。降到 12.4vw → 48px。
-     max-width 必须在这里一并放开：它是 ch 单位，字号一小它也跟着缩——
-     48px 下 10ch 只有 ~240px，比 "Thunderstorms," 本身（约 290px）还窄，
-     于是配合 overflow-wrap 把标题断成 "Thunderstor / ms," 这种烂断行。
-     10ch 这条规则是为桌面大字号（7.8rem）设计的，窄屏直接不设上限。 */
-  .home-hero__title { font-size: clamp(2.6rem, 12.4vw, 5rem); max-width: none; }
+  /* 窄屏不再单独收字号：container-type 在单栏下同样成立，左栏就是整幅宽度，
+     10.2cqi 在 390px 上给出 36.5px，第三行需 340px < 358px，仍然放得下。
+     之前这条覆写用 vw，与上面的 cqi 体系打架，两套规则互相覆盖很难排查。 */
   .home-hero__actions .btn { width: 100%; }
   .home-portrait { max-width: 280px; }
   .home-signal { padding: var(--space-3); box-shadow: 6px 7px 0 color-mix(in srgb, var(--color-brand-400) 80%, transparent); }
