@@ -10,7 +10,27 @@
 
 ## 一、一次性设置（只需做一次）
 
-### 1. 开启 GitHub Pages
+### 1. 仓库必须是 public（除非你开的是 GitHub Pro）
+
+官方文档写明：
+
+> GitHub Pages is available in **public repositories** with GitHub Free and GitHub Free for
+> organizations, and in public and private repositories with GitHub Pro, GitHub Team,
+> GitHub Enterprise Cloud, and GitHub Enterprise Server.
+
+**GitHub Free 的个人账号只能给公开仓库开 Pages。** 私有库 + Free 账号，`deploy-pages`
+会直接失败，报 `Get Pages site failed` 或 403。这是新手最容易卡住的一条。
+
+两条路二选一：
+
+- **把仓库改成 public**（免费）。站点本来就是公开的学术主页，仓库里也没有密钥——
+  `data/`、`secret.key`、`_site/`、QA 产物都已在 `.gitignore` 里。
+- **升级 GitHub Pro**（保留私有库）。
+
+> 用户主页仓库 `oldsixxiaolv.github.io` 同样受这条限制——它也得能开 Pages，
+> 域名继承才成立。
+
+### 2. 开启 GitHub Pages
 
 仓库 **Settings → Pages → Build and deployment → Source → 选 `GitHub Actions`** → Save。
 
@@ -19,15 +39,22 @@
 > "requires a token other than `GITHUB_TOKEN`"，用默认 token 无效。
 > 要让它自动开启就得额外配一个 PAT secret，为了省一次鼠标点击去管理密钥不划算。
 
-### 2. Actions 权限
+### 3. Actions 权限（**不用动**）
 
-仓库 **Settings → Actions → General → Workflow permissions** 选
-**Read and write permissions**。
+`deploy.yml` 顶部已经声明了自己的权限：
 
-默认的只读权限会让 `deploy-pages` 报 `403 Resource not accessible by integration`，
-这是最常见的部署失败原因。
+```yaml
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+```
 
-### 3. 自定义域名（已经配好了，不用再动）
+工作流里显式声明的 `permissions:` **会覆盖仓库级的默认值**，所以不需要去
+Settings → Actions → General 把 "Read and write permissions" 打开。
+`id-token: write` 是 `deploy-pages` 换取 OIDC token 的前提，也已经在了。
+
+### 4. 自定义域名（用户站那边配，本仓库不用动）
 
 - 用户主页仓库 `oldsixxiaolv.github.io` 的 `CNAME` = `github.lvyihang.xyz`
 - DNS：`github.lvyihang.xyz` CNAME → `oldsixxiaolv.github.io`（已生效，实测可解析）
@@ -40,10 +67,18 @@
 > used for all project sites owned by the same account. […] the GitHub Pages site for that
 > repository will be available at `www.octocat.com/octo-project`.
 
-项目站**自动继承**用户站的域名并挂在 `/MeteoHub/` 下。仓库根的 `CNAME` 文件只是把这件事
-写进产物做自文档化，不承担实际作用——官方文档也说明 CNAME 文件本身不会设置域名：
+项目站**自动继承**用户站的域名并挂在 `/MeteoHub/` 下，本仓库不需要任何 CNAME。
 
-> A `CNAME` file in your repository file does not automatically add or remove a custom domain.
+不但不需要，**产物里带 CNAME 反而会让部署失败**：一个自定义域名只能属于一个站点，
+官方文档写明冲突时报域名被占用：
+
+> If you get an error about a custom domain being taken, you may need to remove the custom domain
+> from another repository.
+>
+> — [Managing a custom domain for your GitHub Pages site](https://docs.github.com/en/pages/configuring-a-custom-domain-for-your-github-pages-site/managing-a-custom-domain-for-your-github-pages-site)
+
+因此仓库根的 `CNAME` 已删除，`deploy.yml` 里也加了一道断言：产物里只要出现
+`_site/CNAME` 就让构建直接失败，避免以后不小心把线上域名搞挂。
 
 域名分工：`github.lvyihang.xyz/` 根目录放网盘，`/MeteoHub/` 放学术主页。
 

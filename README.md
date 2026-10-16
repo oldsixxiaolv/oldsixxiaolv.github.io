@@ -91,7 +91,7 @@ Cloudflare Pages、Nginx 等任意静态服务。详细运行 / 调试见 `HOW_T
 ├── scripts/               # 本地 QA 工具（screenshot / lighthouse / slow3g / contrast check）
 ├── HOW_TO_RUN.md          # 详细运行 / 调试 / 部署前 checklist
 ├── README.md
-├── CNAME.example          # 自定义域名占位示例（需要时复制为根目录 CNAME）
+├── CNAME.example          # 自定义域名占位示例（本项目站不需要，见 docs/DEPLOY.md）
 ├── LICENSE                 # Apache License 2.0
 ├── _archive/               # 旧平台归档（不回溯，不参与构建）
 ├── docs/                   # 设计 / 信息架构 / 论文交互 / 部署 / 验收报告

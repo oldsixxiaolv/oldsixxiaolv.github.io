@@ -38,19 +38,24 @@ jobs:
       - name: Strip macOS resource forks from _site/
         run: find _site -name '._*' -type f -delete || true
 
-      # 复制仓库根的 CNAME 到 _site/（声明式、便于自文档化）
-      # ⚠️ 但要知道：**CNAME 文件本身不会设置自定义域名**。官方文档明确写着
-      #    "A CNAME file in your repository file does not automatically add or
-      #    remove a custom domain. Instead, you must configure the custom domain
-      #    through your repository settings or through the API."
-      #    真正起作用的机制是：用户主页仓库 oldsixxiaolv.github.io 已配
-      #    CNAME = github.lvyihang.xyz，**项目站自动继承**该域名并挂在
-      #    /MeteoHub/ 下（见 About custom domains → Using a custom domain
-      #    across multiple repositories）。
-      #    这里的 cp 只是把这个事实写进产物，行为上不依赖它。
-      - name: Copy CNAME into _site/
+      # ⚠️ 产物里**绝对不能**有 CNAME 文件。
+      # 本项目是**项目站**（oldsixxiaolv.github.io 下的 /MeteoHub/），
+      # 域名 github.lvyihang.xyz 由**用户站** oldsixxiaolv.github.io 持有，
+      # 项目站自动继承。一个自定义域名只能属于一个站点——若产物里再放一份
+      # CNAME，官方文档写明会报域名被占用：
+      #   "If you get an error about a custom domain being taken, you may need
+      #    to remove the custom domain from another repository."
+      #   (Managing a custom domain for your GitHub Pages site)
+      # 站点根由 Settings → Pages 的 Custom domain 字段决定，不靠 CNAME 文件；
+      # 用户站那边配好后，项目站无需任何 CNAME 即可挂在 /MeteoHub/。
+      # 这里做成硬断言：万一以后有人往 src/ 里塞了 CNAME，构建立刻失败，
+      # 而不是安静地把线上域名搞挂。
+      - name: Assert no CNAME in artifact
         run: |
-          if [ -f CNAME ]; then cp CNAME _site/CNAME; fi
+          if [ -e _site/CNAME ]; then
+            echo "::error::_site/CNAME 不应存在：项目站继承用户站域名，自带 CNAME 会造成域名占用冲突"
+            exit 1
+          fi
 
       # 没有 enablement: true —— 官方 action.yml 写明该选项
       # "requires a token other than GITHUB_TOKEN"，用默认 token 无效。

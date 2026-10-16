@@ -18,10 +18,12 @@ module.exports = {
   // 不要在模板里另写域名。
   //
   // 为什么不是 oldsixxiaolv.github.io：用户主页仓库 oldsixxiaolv.github.io
-  // 配了 CNAME = github.lvyihang.xyz，整个 oldsixxiaolv.github.io 域会被
-  // GitHub 301 到那个自定义域名去。而项目仓库没有自己的 CNAME 时，
-  // 目标域下的 /MeteoHub/ 并不存在——实测站内 404，站点完全不可达。
-  // 仓库根的 CNAME 文件（已提交）+ deploy.yml 里的拷贝步骤解决了这一点。
+  // 持有自定义域名 github.lvyihang.xyz，GitHub 会把整个 oldsixxiaolv.github.io
+  // 域 301 到那里。而项目站按官方规则自动挂到该域名下的 /MeteoHub/
+  // （Using a custom domain across multiple repositories）。
+  // 项目站**不需要也不能**自己再声明 CNAME——一个自定义域名只能属于一个站点，
+  // 产物里带 CNAME 会被 GitHub 判为"域名被别的仓库占用"而部署失败。
+  // deploy.yml 里的断言就是为了防止有人不小心把 CNAME 混进产物。
   //
   // 域名分工：根目录放网盘，/MeteoHub/ 放学术主页，两者互不干扰。
   url: "https://github.lvyihang.xyz/MeteoHub",

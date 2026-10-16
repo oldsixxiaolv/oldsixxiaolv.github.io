@@ -1,16 +1,18 @@
 # 这是 CNAME 文件的占位示例。
 #
-# 本项目实际部署到 https://oldsixxiaolv.github.io/MeteoHub/ （项目页子路径）。
-# 默认 username.github.io / 仓库子路径即可，不需要自定义域——下面这行仅作示例。
+# ⚠️ 本项目站**当前不需要 CNAME**。
+#    域名 github.lvyihang.xyz 由用户主页仓库 oldsixxiaolv.github.io 持有，
+#    项目站自动继承并挂在 /MeteoHub/ 下。把本文件复制成仓库根的 CNAME，
+#    或让 CNAME 混进构建产物，都会因为「一个自定义域名只能属于一个站点」
+#    而让 deploy-pages 报域名被占用、直接部署失败。详见 docs/DEPLOY.md 第一节。
 #
-# GitHub Pages 自定义域名配置（如果未来要切自定义域）：
-# 1. 复制本文件为 CNAME（无扩展名）放在仓库根
-#    cp CNAME.example CNAME
-# 2. 把下面这行替换成你的真实域名
-#    例如：meteohub.oldsixxiaolv.com
-# 3. 在域名 DNS 服务商添加 CNAME 记录指向 <owner>.github.io
-# 4. 在 src/_data/site.js 的 url 字段同步改为新域名
+# 将来若要给**本项目站单独**换一个域名（例如 meteohub.example.com）：
+# 1. 在 DNS 服务商添加 CNAME 记录  meteohub.example.com → oldsixxiaolv.github.io
+# 2. 仓库 Settings → Pages → Custom domain 填入新域名并 Save
+#    （**用设置项，不要用 CNAME 文件**——Actions 发布模式下 CNAME 文件不生效）
+# 3. 同步改 src/_data/site.js 的 url 字段，canonical / og:url / sitemap 随之更新
+# 4. 等 DNS 解析与 TLS 证书生效（最长 24 小时）
 #
 # 详细部署步骤见 docs/DEPLOY.md。
 
-meteohub.oldsixxiaolv.com
+meteohub.example.com
