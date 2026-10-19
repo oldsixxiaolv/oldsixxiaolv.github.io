@@ -35,7 +35,7 @@
  *   修法（就在本文件里）：**期望集必须是本判据自己的、独立于数据源的写死清单**
  *   （ORACLE_SAMEAS）；数据源那份只用来做**漂移核对**（I2d）。
  *
- * 四条判据：
+ * 五条判据：
  *   I1 产物侧全集 —— 全站 @id == site.url + "/#person" 的 Person 节点，
  *                    sameAs 归一化集合必须**等于**本文件内置的独立期望集
  *                    ORACLE_SAMEAS：缺项红（丢信息才是坏事）。
@@ -46,11 +46,37 @@
  *        I2c 期望集的 sha256 == ORACLE_SET_SHA256（期望集**自己**被改动也要红）
  *        I2d 共享模块 scripts/lib/identity.cjs 的清单必须与期望集**逐项一致**
  *            （漂移核对：数据源改了而期望集没改 → 判红，逼人把两处一起改）
+ *        **锚失守即短路**：I2a / I2b / I2c 任一判红 → 期望集**自身**已不可信，
+ *        此时**不再**拿它去比产物（I1 / I5 本轮跳过）——拿一把自己坏掉的尺子
+ *        去量产物，报出来的"产物缺 X"是假阳性，而且会把人引到改错的地方。
+ *        I2d 判红**不**触发短路：哈希锚绿就证明期望集逐字未变，被改的是数据源，
+ *        产物确实跟着错了 → I1 / I5 必须继续跑（那两条红因是真阳性）。
  *   I3 口径 —— 字段缺失（没有 sameAs 字段 / 显式 null）**不算缺失、不算冲突**，
  *              沿用门禁 31 的口径；这种形态由门禁 23 兜（带 canonical @id 的
  *              节点必须带本人 ORCID）。
  *   I4 自证存活 —— 本人节点组 ≥ 2 个，且本条至少比过一处 sameAs，
  *              否则判红（"没报错"和"没问题"长得一模一样）。
+ *   I5 人读路径 —— site.author 里**页面上看得见**的身份链接，必须与登记
+ *              期望集**逐项一致**（少一条、多一条、指向别的账号 → 判红）。
+ *              这条守的是"人读的那条边"：I1–I4 全都只看**机读**路径
+ *              （JSON-LD 的 sameAs），而页面上给人看的链接此前是**另一份
+ *              字面量**，改它不会有任何门禁叫（实测见下）。
+ *
+ * ⚠️ I5 要守的洞（一次具体的实测漏洞，不是假想）：
+ *   I1–I4 查的全是 JSON-LD 里的 sameAs；**页面上可见**的 author.github /
+ *   author.csdn / author.researchgate / social[] 此前各自写了一份字面量，
+ *   与 sameAs 互不相干。实测（隔离克隆 + 源码级注入 + 全量重建）：
+ *     只把 site.js 里**可见的** GitHub 链接换成 https://github.com/impersonator
+ *     （sameAs 一字未动）→ **整条 build 链 exit 0**，零道门禁判红。
+ *   后果：页面上写着"这是我的 GitHub"，结构化数据里却是另一个账号——
+ *   机器读的那条有人看守，人读的那条没人管，两条路径对不上。
+ *   修法两层：① site.js 的可见链接**从身份清单派生**（结构上不可能漂移）；
+ *   ② 本条把"人读路径"也纳入守卫（有人绕过派生直接写死字面量 → 判红）。
+ *
+ * ⚠️ I5 刻意**只扫 site.author**（"本人"这一个实体的数据源），不扫产物里的
+ *   全部链接：论文页会合法地链到**同行**的 ORCID，而同行的 ORCID 与本人的
+ *   在 URL 形态上**完全一样**（一段式）——全站扫就必须去区分"本人 / 他人"，
+ *   那是另一条判据该管的事，不该混进这条。
  *
  * ⚠️ 为什么要留两份清单（共享模块 + 本文件的独立期望集）：
  *   仓库的规矩是"判据两处各抄一份 → 改一处忘另一处"，但那条规矩治的是
@@ -151,9 +177,16 @@ const setDiff = (a, b) => [...a].filter((x) => !b.has(x));
 const fmt = (arr) => (arr.length ? arr.join(" / ") : "（无）");
 
 /* ---------- I2：锚与独立期望集（四条互不依赖的检查） ---------- */
+/* 锚是否可信：I2a / I2b / I2c 任一判红 → 期望集**自身**失守，
+   此刻的 expectedSet 不能再当判据去比产物——拿一把自己坏掉的尺子去量
+   产物，报出来的"产物缺 X"是**假阳性**，而且会把人引到改错的地方
+   （红因指错责任方，比没有红因更坏）。此时只报锚自身的红因，
+   产物侧判定（I1 / I5）本轮跳过，等期望集修好再重跑。 */
+let anchorTrustworthy = true;
 {
   /* I2a 条数锚：期望集被改短 / 改长 → 判红 */
   if (expectedSet.size !== EXPECTED_COUNT) {
+    anchorTrustworthy = false;
     fail(
       `独立期望集有 ${expectedSet.size} 条，与本判据锚定的 ${EXPECTED_COUNT} 条不符` +
         `——期望集被改短（或改长）时，判据就跟着变，红不了了。` +
@@ -162,6 +195,7 @@ const fmt = (arr) => (arr.length ? arr.join(" / ") : "（无）");
   }
   /* I2b ORCID 锚：期望集里必须有这条权威标识 */
   if (!expectedSet.has(ANCHOR_ORCID)) {
+    anchorTrustworthy = false;
     fail(
       `独立期望集里没有本人 ORCID（${ANCHOR_ORCID}）——` +
         `期望集里必须有这条权威标识，否则"本人"在结构化数据里就没有锚。`
@@ -173,13 +207,18 @@ const fmt = (arr) => (arr.length ? arr.join(" / ") : "（无）");
     .update([...ORACLE_SAMEAS].sort().join("\n"))
     .digest("hex");
   if (computedOracleHash !== ORACLE_SET_SHA256) {
+    anchorTrustworthy = false;
     fail(
       `独立期望集的哈希锚对不上：现在算出来是 ${computedOracleHash}，` +
         `本文件锚着 ${ORACLE_SET_SHA256}——期望集被改过而哈希锚没同步` +
         `（改清单是合法操作，但要把上面这串新哈希贴回 ORACLE_SET_SHA256）。`
     );
   }
-  /* I2d 漂移核对：数据源那份清单必须与独立期望集逐项一致 */
+  /* I2d 漂移核对：数据源那份清单必须与独立期望集逐项一致
+     ⚠️ 这一条判红**不**翻转 anchorTrustworthy：漂移核对只说明"两份对不上"，
+        单看它判不出是哪一份被改了。但哈希锚（I2c）能判：哈希绿 → oracle
+        逐字未变 → 被改的是数据源 → 产物确实跟着错了 → 产物侧判定（I1/I5）
+        **必须继续跑**，那两条红因是真阳性。所以这里只判红，不短路。 */
   if (IDENTITY_SAMEAS) {
     const sourceSet = new Set(IDENTITY_SAMEAS);
     if (sourceSet.size !== IDENTITY_SAMEAS.length) {
@@ -192,13 +231,28 @@ const fmt = (arr) => (arr.length ? arr.join(" / ") : "（无）");
     const extra = setDiff(sourceSet, expectedSet);
     const missing = setDiff(expectedSet, sourceSet);
     if (extra.length || missing.length) {
-      fail(
-        `共享模块 scripts/lib/identity.cjs 的清单与本判据的独立期望集不一致：` +
-          `模块多出 ${fmt(extra)}／模块少了 ${fmt(missing)}——` +
-          `两份清单是"逐字核对"的关系（这里就是那条核对）：` +
-          `改模块时必须同步改本文件的 ORACLE_SAMEAS` +
-          `（以及 EXPECTED_COUNT / ORACLE_SET_SHA256）。`
-      );
+      if (!anchorTrustworthy) {
+        /* 锚自身已判红 → 这处不一致**判不出是谁被改的**，不能断言"模块被改了"。
+           （16:4x 场次实测：锚被改短时，这条文案会去指责数据源，
+             而实际是锚被改短——红因指错责任方，比没有红因更坏。） */
+        fail(
+          `共享模块 scripts/lib/identity.cjs 的清单与本判据的独立期望集不一致：` +
+            `模块多出 ${fmt(extra)}／模块少了 ${fmt(missing)}——` +
+            `但**期望集自身已判红**（上面那条锚判据），所以这处不一致` +
+            `**不能断定是谁被改了**（期望集被改、模块没同步；` +
+            `或模块被改、期望集没同步——两种都长这样）：` +
+            `先按上面哈希锚那条红因把期望集修好，再重跑本门禁——` +
+            `若漂移仍在，那才是模块这边的问题。`
+        );
+      } else {
+        fail(
+          `共享模块 scripts/lib/identity.cjs 的清单与本判据的独立期望集不一致：` +
+            `模块多出 ${fmt(extra)}／模块少了 ${fmt(missing)}——` +
+            `两份清单是"逐字核对"的关系（这里就是那条核对）：` +
+            `改模块时必须同步改本文件的 ORACLE_SAMEAS` +
+            `（以及 EXPECTED_COUNT / ORACLE_SET_SHA256）。`
+        );
+      }
     }
   }
 }
@@ -277,7 +331,7 @@ for (const file of htmlFiles) {
 }
 
 /* ---------- I1：产物侧的全集（逐节点） ---------- */
-{
+if (anchorTrustworthy) {
   /* 按"实际 sameAs 集合"归并，红因里成组报，不刷屏 */
   const bySet = new Map(); // setKey → { set, pages:Set, count }
   for (const { rel, node } of group) {
@@ -308,6 +362,103 @@ for (const file of htmlFiles) {
         `数据源那份在 scripts/lib/identity.cjs，两者由 I2d 逐字核对）`
     );
   }
+} else {
+  note(
+    `期望集自身失守（锚判据 I2a / I2b / I2c 已判红）→ 本轮**跳过**产物侧全集判定（I1）：` +
+      `此刻的期望集不可信，拿它去比产物，报出来的"产物缺 X"是**假阳性**，` +
+      `而且会把人引到改错的地方（真相是期望集被改了，责任方在判据这边）。` +
+      `先修好期望集（ORACLE_SAMEAS / EXPECTED_COUNT / ORACLE_SET_SHA256）再重跑本门禁，` +
+      `产物侧的问题会在下一轮显现。`
+  );
+}
+
+/* ---------- I5：人读路径（页面上看得见的身份链接）必须与登记清单一致 ---------- */
+let visibleIdentityCount = 0;
+let visibleIdentityChecked = false;
+if (anchorTrustworthy) {
+  /* 身份"主页形态"：某主机上**指向一个账号主页**的 URL 形态。
+     同一主机上的深层链接（github.com/<user>/<repo>、researchgate.net/publication/...）
+     是**内容链接**，不是"本人是哪个账号"，不该被这条判红。
+     · 一段式主机（github.com/<user>、orcid.org/<id>、blog.csdn.net/<user>、
+       openalex.org/<id>）：任何一段式路径都算主页形态；
+     · 两段式且首段是角色词的主机（researchgate.net/profile/<Name>）：
+       只有首段相同才算（/publication/... 是内容链接）。 */
+  const urlShape = (raw) => {
+    try {
+      const u = new URL(String(raw).trim());
+      return { host: u.host, segs: u.pathname.split("/").filter(Boolean) };
+    } catch {
+      return null;
+    }
+  };
+  const hostShape = new Map();
+  for (const u of ORACLE_SAMEAS) {
+    const s = urlShape(u);
+    if (!s) continue;
+    hostShape.set(s.host, {
+      segs: s.segs.length,
+      roleFirst: s.segs.length >= 2 ? s.segs[0] : null,
+    });
+  }
+  const isIdentityProfile = (raw) => {
+    const s = urlShape(raw);
+    if (!s) return false;
+    const shape = hostShape.get(s.host);
+    if (!shape) return false;
+    if (s.segs.length !== shape.segs) return false;
+    if (shape.roleFirst && s.segs[0] !== shape.roleFirst) return false;
+    return true;
+  };
+
+  /* 只看 site.author —— 那是"本人"这一个实体的数据源。
+     sameAs 跳过：机读路径由 I1 / I2 管，这里专管人读路径。 */
+  const visible = new Set();
+  let urlFields = 0;  for (const [key, value] of Object.entries(siteData.author || {})) {
+    if (key === "sameAs") continue;
+    const urls = Array.isArray(value)
+      ? value
+      : typeof value === "string"
+        ? [value]
+        : [];
+    for (const u of urls) {
+      const t = String(u || "").trim();
+      if (!t) continue;
+      urlFields++;
+      if (isIdentityProfile(t)) visible.add(t);
+    }
+  }
+
+  const missingVisible = setDiff(expectedSet, visible);
+  const extraVisible = setDiff(visible, expectedSet);
+  if (missingVisible.length) {
+    fail(
+      `site.author 里**页面上可见**的身份链接缺 ${fmt(missingVisible)}——` +
+        `登记清单里有、页面上没有（或指向别的账号）：人读路径与机读路径对不上，` +
+        `读者看到的身份和结构化数据里声明的身份不是一回事。`
+    );
+  }
+  if (extraVisible.length) {
+    fail(
+      `site.author 里**页面上可见**的身份链接多出 ${fmt(extraVisible)}——` +
+        `它们不在本判据的登记清单里：页面上露出来的身份没有登记，等于少一个锚。`
+    );
+  }
+  /* I5 自证存活：一个都没识别出来 = 判据失效（URL 形态规则坏了 / 数据源
+     改得面目全非），必须自己叫出来——"没报错"和"没问题"长得一模一样。 */
+  if (!visible.size) {
+    fail(
+      `site.author 里一个"身份主页形态"的链接都没识别出来` +
+        `（扫过 ${urlFields} 个链接字段）——本条没有生效。`
+    );
+  }
+  visibleIdentityCount = visible.size;
+  visibleIdentityChecked = true;
+} else {
+  note(
+    `期望集自身失守（锚判据已判红）→ 本轮**跳过**人读路径判定（I5）：` +
+      `理由同 I1——此刻的期望集不可信，` +
+      `"页面上少了谁 / 多出了谁"这种结论会顺着假阳性把人引到改错的地方。`
+  );
 }
 
 /* ---------- I4：自证存活 ---------- */
@@ -334,7 +485,10 @@ if (problems.length) {
 console.log(
   `身份句柄完整性门禁通过：本人（${OWNER_ID}）在 ${group.length} 个节点上被描述，` +
     `比过 ${compared} 处 sameAs，每处都等于本判据的独立期望集（${expectedSet.size} 条：` +
-    `${[...expectedSet].join(" / ")}）；数据源清单与期望集逐项一致。`
+    `${[...expectedSet].join(" / ")}）；数据源清单与期望集逐项一致；` +
+    (visibleIdentityChecked
+      ? `页面上可见的身份链接 ${visibleIdentityCount} 条，与登记清单一致。`
+      : `页面上可见的身份链接本轮未判定（期望集自身失守）`)
 );
 if (notes.length) {
   console.log("—");
