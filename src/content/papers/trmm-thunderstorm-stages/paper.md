@@ -2,6 +2,15 @@
 pubKey: trmm-stages
 date: 2026-06-01
 description: "Stage-dependent relationships between lightning and radar echo structure in TRMM thunderstorms over tropical Africa."
+# summary：给列表页卡片用的一句话摘要，**与上面的 description 不是一回事**。
+# description 是 SEO 用的 meta description，写的其实就是标题的改写（"Stage-dependent
+# relationships between…"），所以它一旦出现在标题正下方就是**复读标题**——读者看到
+# 的是同一句话说两遍。summary 反过来：只写标题里**没有**的信息（怎么做的、样本多大、
+# 结论是什么），一句话让人不点进去也知道这篇在做什么。
+# 内容取自本文自己的 "What this paper does" / "How the stage classification works"
+# 两节，不是从别处借的。摘要放在论文页的 front matter 而不是 site.js，是因为它
+# 描述的是**这篇论文**、跟着正文一起改才不会走样；列表页靠 pubKey 关联取它。
+summary: "A K-means classifier on radar echo structure splits 16 years of TRMM storms into Pre-Mature, Mature and Post-Mature; the lightning-intensity relation turns out to be stage-specific rather than one pooled trend."
 cover: "/assets/img/publications/trmm-fig10.jpg"
 coverWidth: 1400
 coverHeight: 745

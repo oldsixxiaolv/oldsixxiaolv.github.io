@@ -106,6 +106,15 @@ try {
 }
 
 const fail = (msg) => problems.push(msg);
+// note() 是给"检查通过但值得记一笔"的信息用的。⚠️ 但它有一条**必须守住**的纪律：
+// 凡是措辞里带**断言**（"…已一致""…双向绑定""…全站唯一"）的 note，
+// 必须由**这条门禁自己的判定结果**决定措辞 —— 判红时改写成
+// "存在问题（见上方报错）"，不许照抄通过时的句子。
+// 否则读日志的人先扫到"已一致"，再看下面的报错，就容易把报错当成别的问题
+// —— **判据指错方向**（本仓库一直在修的那一类）。
+// 实测过的例子：门禁 23 判红时仍打印
+// "本人 ORCID ↔ canonical @id 双向绑定（13 个节点带 ORCID / 8 个节点带 @id）"——
+// 数字是真的，断言是假的；门禁 19、24 同病。
 const note = (msg) => notes.push(msg);
 
 /* ---------- 收集产物文件 ---------- */
@@ -952,9 +961,11 @@ let identityOn404Raw = "(未读到)"; // 报错时引用**源文件里的字面�
 if (fs.existsSync(identity404SrcPath)) {
   const srcText = fs.readFileSync(identity404SrcPath, "utf8");
   // ⚠️ 只读 **front matter**（--- 包裹的那一段），与模板侧 gray-matter
-  //    的作用域**完全一致**：模板只解析 front matter，门禁若扫全文，
-  //    正文里任何以 `identityOn404:` 开头的字样（示例、说明）都可能被
-  //    当成开关 → 两边读的不是同一处 → 正是本条要防的"悄悄分叉"。
+  //    的作用域**完全一致**。实测差别（A/B，唯一变量=作用域，各 4 例）：
+  //    这一行**还在** front matter 里时，两种口径读到的都是它（首匹配在前），
+  //    没有差别；真正的差别在这一行**被删掉**、而正文里恰好有一行同名字样时——
+  //    扫全文的口径会**读到那行并全绿通过**，即一个"根本没有开关"的文件
+  //    过了门禁。收窄后这种情况直接判红（"front matter 里找不到开关"）。
   const fm = srcText.match(/^---\r?\n([\s\S]*?)\r?\n---/);
   if (!fm) {
     fail(
@@ -1169,6 +1180,9 @@ if (fs.existsSync(sitemapPath)) {
   }
 }
 const withLastmod = sitemapEntries.filter((e) => e.lastmod);
+// 逐页核对实际跑了多少页 —— 决定汇总句能不能说"已逐页核对"。
+// 声明提到下面的 if/else 链**之前**：汇总句在链外，作用域要够。
+let perPageChecked = 0;
 
 if (isShallow === "true") {
   // 规则 A：浅克隆 = 数据源被截断，lastmod 这个功能被**静默关掉**了。
@@ -1211,8 +1225,7 @@ if (isShallow === "true") {
       );
     }
   }
-  // 规则 D + E：逐页核对
-  let perPageChecked = 0;
+  // 规则 D + E：逐页核对（perPageChecked 声明在上面的 if/else 链之前）
   for (const e of sitemapEntries) {
     if (!e.source) {
       // 产物里没有源文件信息 → "逐页核对"这一整套判据被**静默关掉**了。
@@ -1267,12 +1280,14 @@ if (isShallow === "true") {
     }
   }
 }
+// 措辞必须与**实际跑过什么**一致：只有真的逐页核对过（perPageChecked > 0），
+// 才能说"已逐页核对"。判红之后仍照抄"已核对"，同样是把判据指错方向。
 note(
   "sitemap " + sitemapEntries.length + " 条 URL，其中 " + withLastmod.length +
     " 条带 lastmod" +
-    (inGitRepo && isShallow === "false"
+    (inGitRepo && isShallow === "false" && perPageChecked > 0
       ? "（已逐页与各自源文件的 git 提交时间核对）"
-      : "（非完整 git 历史，未核对提交时间）")
+      : "（未逐页核对，见上方报错）")
 );
 
 /* ---------- 19. 内容类实体的 @id 必须全站一致，且指向真实页面 ----------
@@ -1309,6 +1324,8 @@ try {
   /* 读不到就只查绝对性，不查站内路径 */
 }
 const idByWork = new Map(); // 作品标识 → Map(@id → 首次出现的页面)
+// 汇总措辞由它决定（见 note() 上面的纪律）：判红时不能照抄"全站唯一"。
+let workIssue = false;
 for (const { from, parsed } of ldRecords) {
   for (const node of collectNodes(parsed)) {
     // 一个节点可能带多个作品类型（["Dataset","SoftwareSourceCode"]），
@@ -1319,6 +1336,7 @@ for (const { from, parsed } of ldRecords) {
     const type = workTypes.join("/");
     const id = node["@id"];
     if (typeof id !== "string" || !id.trim()) {
+      workIssue = true;
       fail(
         from + ": JSON-LD 里有一个 " + type + " 实体没有 @id —— " +
           "没有 @id 就没有归并的抓手，同一件作品在站内会被读成多件"
@@ -1326,6 +1344,7 @@ for (const { from, parsed } of ldRecords) {
       continue;
     }
     if (!ABSOLUTE_URL.test(id.trim())) {
+      workIssue = true;
       fail(from + ": " + type + " 实体的 @id " + JSON.stringify(id) + " 不是绝对地址");
       continue;
     }
@@ -1350,6 +1369,7 @@ for (const { from, parsed } of ldRecords) {
         !sitemapPaths.has(p.replace(/\/$/, "")) &&
         !sitemapPaths.has(p + "/")
       ) {
+        workIssue = true;
         fail(
           from + ": " + type + " 实体的 @id " + JSON.stringify(id) +
             " 指向站内一个不存在的页面 —— 实体归并到一个空地址上，等于没有"
@@ -1361,13 +1381,19 @@ for (const { from, parsed } of ldRecords) {
 for (const [ident, seen] of idByWork) {
   if (seen.size > 1) {
     const list = [...seen.entries()].map(([id, from]) => id + "（" + from + "）").join(" / ");
+    workIssue = true;
     fail(
       '同一件作品 "' + ident + '" 在站内出现了 ' + seen.size + " 个不同的 @id：" +
         list + " —— 消费方按 @id 归并，同一件作品会被读成多件"
     );
   }
 }
-note("内容类实体 " + idByWork.size + " 件，每件的 @id 全站唯一且指向真实页面");
+note(
+  workIssue
+    ? "内容类实体 " + idByWork.size + " 件，存在 @id 缺失 / 非绝对地址 / 重复 / " +
+        "指向不存在页面的问题（见上方报错）"
+    : "内容类实体 " + idByWork.size + " 件，每件的 @id 全站唯一且指向真实页面"
+);
 
 /* ---------- 20. 订阅源的时间戳必须说真话，且格式符合 RSS 2.0 ----------
    feed.xml 的 <lastBuildDate> 此前取 `items[0].date`（最新条目的日期），
@@ -1616,6 +1642,8 @@ if (OWNER_ORCID && SITE_URL) {
   const OWNER_PERSON_ID = `${SITE_URL}/#person`;
   let withOrcid = 0;
   let withOwnerId = 0;
+  // 汇总措辞由它决定（见 note() 上面的纪律）：判红时不能照抄"双向绑定"。
+  let bindingIssue = false;
   for (const { from, parsed } of ldRecords) {
     for (const node of collectNodes(parsed)) {
       if (!typesOf(node).includes("Person")) continue;
@@ -1629,12 +1657,14 @@ if (OWNER_ORCID && SITE_URL) {
       if (hasOrcid) withOrcid++;
       if (isOwner) withOwnerId++;
       if (hasOrcid && !isOwner) {
+        bindingIssue = true;
         fail(
           `${from}: Person 节点的 sameAs 里含本人 ORCID，却没有 canonical @id ` +
             `（${OWNER_PERSON_ID}）—— 有本人标识却不指向本人实体`
         );
       }
       if (isOwner && !hasOrcid) {
+        bindingIssue = true;
         fail(
           `${from}: 带 canonical @id 的 Person 节点，sameAs 里没有本人 ORCID ` +
             `（${OWNER_ORCID}）—— 本人实体与自己的权威标识脱钩了`
@@ -1643,8 +1673,11 @@ if (OWNER_ORCID && SITE_URL) {
     }
   }
   note(
-    `本人 ORCID ${OWNER_ORCID} ↔ canonical @id 双向绑定（${withOrcid} 个节点带 ORCID / ` +
-      `${withOwnerId} 个节点带 @id）`
+    bindingIssue
+      ? `本人 ORCID ↔ canonical @id 有节点没绑上（见上方报错）（${withOrcid} 个节点带 ORCID / ` +
+          `${withOwnerId} 个节点带 @id）`
+      : `本人 ORCID ${OWNER_ORCID} ↔ canonical @id 双向绑定（${withOrcid} 个节点带 ORCID / ` +
+          `${withOwnerId} 个节点带 @id）`
   );
 }
 
@@ -1681,12 +1714,18 @@ const dupOf = (arr) => {
   }
   return [...dups];
 };
+// 这一段有三种失败（重复 / 清单与代码对不上 / 编号不连续）。
+// 记一个 flag：失败时**不能**再打印"一一对应且连续"这种断言式摘要 ——
+// 摘要若在判红之后仍说"一致"，读的人会先信摘要、再看报错，
+// 于是报错指的方向又被带偏（这正是本条存在的理由）。
+let registryOk = true;
 for (const [label, arr] of [
   ["文件头清单", headerNums],
   ["代码里的门禁段", codeNums],
 ]) {
   const dups = dupOf(arr);
   if (dups.length) {
+    registryOk = false;
     fail(`门禁编号在${label}里重复：${dups.join(", ")} —— 同一个号只能有一条门禁`);
   }
 }
@@ -1695,12 +1734,14 @@ const codeSet = new Set(codeNums);
 const onlyHeader = [...headerSet].filter((n) => !codeSet.has(n));
 const onlyCode = [...codeSet].filter((n) => !headerSet.has(n));
 if (onlyHeader.length) {
+  registryOk = false;
   fail(
     `文件头清单里登记了门禁 ${onlyHeader.join(", ")}，但代码里没有对应的门禁段 —— ` +
       `清单与代码对不上，按清单引用会引到不存在的号`
   );
 }
 if (onlyCode.length) {
+  registryOk = false;
   fail(
     `代码里有门禁 ${onlyCode.join(", ")}，但文件头清单里没有登记 —— ` +
       `新加的门禁忘了登记编号（清单只到 ${Math.max(
@@ -1724,12 +1765,14 @@ if (onlyCode.length) {
     if (!hasFamily(n)) missing.push(n);
   }
   if (missing.length) {
+    registryOk = false;
     fail(`门禁编号不连续，缺 ${missing.join(", ")}（最大号 ${maxInt}）—— 编号必须是连续的`);
   }
 }
 note(
-  `门禁编号：文件头清单 ${headerNums.length} 条 / 代码段 ${codeNums.length} 条，` +
-    `一一对应且连续`
+  registryOk
+    ? `门禁编号：文件头清单 ${headerNums.length} 条 / 代码段 ${codeNums.length} 条，一一对应且连续`
+    : `门禁编号：文件头清单 ${headerNums.length} 条 / 代码段 ${codeNums.length} 条 —— 不一致（见上方报错）`
 );
 
 /* ---------- 汇总 ---------- */
