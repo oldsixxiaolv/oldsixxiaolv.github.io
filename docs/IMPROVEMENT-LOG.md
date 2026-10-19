@@ -3090,6 +3090,18 @@ canonical）。**部署由本人决定。**
    - **落地纪律**：显式 `git add` 那**两个文件**，**不要 `git add -A`**
      （共享工作区有并发场次，会扫进他人半成品）。
    ⚠️ 旧补丁 `/tmp/mh_r9v2/gate18.patch` 基于旧版 `verify-site.cjs`，**不要 apply**。
+   - 🛑 **订正（2026-10-19 15:50–16:10 场次；本条已完成 —— 不再是"下一轮的活"）**：
+     **C2 已以 `f59fec4` 落地**（`fix(gate): 收窄 gitOut/gitRoot/lastCommitTime 三处裸 catch`），
+     在链上（`git merge-base --is-ancestor f59fec4 HEAD` exit 0）。
+     → 所以 `patch_C2.diff` 现在**不可套**（`git apply --check` 报
+     `patch failed: scripts/verify-site.cjs:1089`），**原因是"已经应用过了"**，不是"过时"：
+     那份补丁的作用就是**引入**窄判据 `(typeof e.status === "number" || e.code === "ENOENT")`，
+     而这个窄判据正是 `f59fec4` 带进来的。别再把它当"下一轮要打的补丁"找一遍。
+     - **真正还开着的是它的下一层**：窄判据**自身**漏判「git 被信号杀 / spawn 失败」这类
+       **真·进程失败**（`e.status` 是 `null`、`e.code` 不是 `"ENOENT"`）→ 被误判成"编程错误"
+       → rethrow → **构建崩栈**（该降级时崩了，属健壮性缺陷，不是假绿）。
+       正解是把判据放宽成 `"status" in e`（子进程错误必定带 `status` 属性，编程错误一个属性都没有）。
+       端到端证据与三份补丁对照见「15:50–16:10 场次」C/D/E 段。
 3. **「旧编号 → 新编号对照」表补行** —— ✅ **已关闭**（14:05 同伴现查 + 写者已落地）。
    - 真相：对照表止于「→ 新 19」，**实际缺 20–28 共 9 行**——20 / 21（第十一轮）、
      25 / 26（第十五轮）、27（13:45–14:15 场次）**都是各写者自己加的，编号从未变过**；
@@ -6817,3 +6829,140 @@ Chromium 155.0.8059.0** → runner **自带** Chrome。
 - 提交方式同上：临时索引 `GIT_INDEX_FILE` + `commit-tree` + `update-ref`（带旧值做 CAS），
   **不读真实索引**，别人的暂存区原封不动；提交后把真实索引的日志条目对齐到新 HEAD。
 - **不 push**。
+
+## 2026-10-19 · 15:50–16:10 场次（**不占轮次号**，避免与并发场次撞号）：复核 14:00 场次交接件（mvs_f92f2ad）——**C2 判据洞在现行 HEAD 上仍成立**，sameAs 段已被前一轮覆盖
+
+本轮对象：`/tmp/mh_f92f2ad_1530/handoff/handoff.md`（14:00 场次 `mvs_f92f2ad1e8f942289a3b054bfd96a586`，
+15:12 落款；只读场次，**未改工作树、未 commit、未 push**）。复验时的 HEAD = `4557722`。
+处置基调：**先分清哪部分是新的**，已被前一轮覆盖的不重复实施；新的一节逐条现查现跑。
+
+### A. §6（sameAs 更正）已被前一轮覆盖 —— 数字吻合，不重复实施
+
+交接件 §6 更正了它自己上一轮的错误结论：说 `sameAs` 缺陷在 HEAD **仍成立**（4 个裸 ORCID 字符串）。
+我用自己的递归扫描器（`/tmp/mh-r26-verify/scan-person.cjs`，递归进 `author`/`creator` 等嵌套 Person）
+在**复验时 HEAD 的产物**上重算，与它、与日志前一轮**逐字吻合**：
+
+| 指标（递归扫描） | 实测 |
+|---|---|
+| 扫描的 HTML 页数 | 6 |
+| Person 节点总数 / 其中带 `@id` | 43 / **13** |
+| `sameAs` 是**数组**（5 句柄全集）的节点 | **9** |
+| `sameAs` 是**裸字符串**（只有 ORCID）的节点 | **4** |
+| 同一 `@id` 出现两种取值的组数 | **1**（`…/#person`：全集数组 vs 裸 ORCID 串） |
+
+→ **同 `@id` 同字段两值，缺陷在现行 HEAD 上成立**；这与日志「14:45–15:05 场次补充（协调）」A 节、
+「15:00–15:50 场次」B 节记的是**同一件事**（那两节已记根因修复与门禁 31）。
+本轮**不重复实施、不重复记述**，只补「本轮实测数字与前一轮吻合」这一条。
+
+⚠️ 顺带记一条方法论（交接件自己也踩了）：**否定结论（"没发现冲突"）同样依赖扫描集合的完整性**——
+只扫顶层会漏掉嵌套节点，**假阴性与真通过长得一模一样**（都是"0 命中"）。
+可操作的自证手段：**把扫到的节点总数写进输出**，跟"应该有多少个"对比；数目对不上就是漏扫
+（我这次扫到 43 个 Person、13 个带 `@id`；只扫顶层 `@graph` 是 0 个——差得太明显）。
+
+### B. 新东西：C2 判据洞（窄判据）在现行 HEAD 上**仍然活着** —— 三处同形
+
+`isGitProcessFailure` 的判据在**三处**都还是窄式：
+
+| 位置 | 判据 |
+|---|---|
+| HEAD `eleventy.config.js` | `(typeof e.status === "number" || e.code === "ENOENT")` |
+| HEAD `scripts/verify-site.cjs` | 同上 |
+| 工作树 / 暂存区 | 同上（两文件的判据行都在，未被在途改动碰过） |
+
+窄式在 **git 被信号杀**（SIGKILL/SIGTERM/SIGSEGV）或 **spawn 失败**（EACCES/EISDIR/ENOBUFS）时判不出来：
+这些情形 `e.status` 是 `null`、`e.code` 不是 `"ENOENT"` → 窄判据判成"编程错误" → rethrow → **构建崩栈**。
+（"git 不可用" ≠ "编程错误"；崩栈是"该降级时崩了"，属**健壮性**缺陷，不是假绿。）
+
+### C. 我自己重跑 A/B/C 三组端到端注入（隔离克隆，**不用 `cp -R`**）
+
+隔离克隆：`git clone --no-hardlinks file:///Volumes/Kingston/Mac/MeteoHub /tmp/mh-r26-verify/repo`
+（HEAD = `4557722`）+ `node_modules` 软链。注入手法：造一个假 `git` 放 `PATH` 首位，
+它记录调用后 `kill -9 $$` 自杀 → 复现"git 被 SIGKILL"。
+
+| 组 | 判据 | 场景 | 实测结果 |
+|---|---|---|---|
+| **A** | 窄式（HEAD 现行） | 假 git 自杀 SIGKILL | **exit 1，构建崩栈**：`Eleventy Fatal Error … Command failed: git rev-parse --show-toplevel`，栈落 `gitRoot (eleventy.config.js:365:22)`；假 git 被调 **1** 次；全文**无**「不在 git 仓库里」 |
+| **B** | 宽式 `"status" in e` | 同一假 git | **exit 0**，优雅降级：假 git 被调 **3** 次（`rev-parse --show-toplevel` ×2 + `rev-parse --is-shallow-repository` ×1）；note 原文「不在 git 仓库里：sitemap 不输出 lastmod（源码 zip 分发，本就没有 git 历史）」；sitemap 5 条 URL / **0** 条带 lastmod |
+| **C** | 宽式 | **真编程错误**：把 `const { execFileSync }` 改成 `const { execFileSync: _unused }` | **exit 1**，红因 `ReferenceError: execFileSync is not defined`，栈在 `gitOut (scripts/verify-site.cjs:1206:5)`；全文**0** 次「不在 git 仓库里」→ **宽判据没有把"编程错误必须暴露"这条保护卸掉** |
+
+→ **洞成立、修法成立，数字与交接件逐字吻合。**
+
+附带解释一个初看矛盾：门禁 18 的 `gitOut` 与 `eleventy.config.js` 的 `gitRoot` **各有**一份判据，
+但 A 组的栈只落在 `gitRoot` —— 因为 `check:gates` 跑的只是 `check-gates-wired.cjs`（接线检查），
+`verify-site.cjs` 属于 `check:site`，排在 **`eleventy` 之后**。
+
+⚠️ **我第一版注入脚本有 bug，留作记录**：`reset_repo` 每次都顺手打补丁 → **A 组实际跑成了宽判据**（A exit=0）。
+是自己写错、不是结论问题（重跑 A 得到 exit 1）。教训：**注入脚本里"复位"与"打补丁"必须分开**，
+否则 A/B 两组会悄悄退化成同一组，得出"A 也优雅降级"的假结论。
+
+### D. 形态表实测（探针 `/tmp/mh-r26-verify/shapes.cjs`，Node v26.8.1）
+
+逐种实测 10 种失败形态，**与交接件的表格逐行吻合**；四处值得单独记：
+
+- **EISDIR（目标是目录）的 `e.code` 确实是 `"EACCES"`**（不是 `"EISDIR"`）——交接件写对了。
+- **maxBuffer 溢出**：`e.code="ENOBUFS"`、`e.signal="SIGTERM"`——交接件写对了。
+- **「子进程错误必定带 `status` 属性、编程错误一个属性都没有」**：实测成立
+  （8 种进程级失败全带 `status`；TypeError / ReferenceError 都没有）
+  → `"status" in e` 一次全对，**不是**"又一个静默口"。
+- ⚠️ **交接件一处自相矛盾**：正文说"8 种进程级失败里旧判据漏判 **5** 种"，
+  但它自己的表里打了 **6** 个 ✗（SIGKILL / SIGTERM / SIGSEGV / EACCES / EISDIR / maxBuffer）；
+  我的实测也是 **6**。**以 6 为准**。
+- 交接件明确警告的 `typeof e.code === "string"`：实测会把 TypeError（`code="ERR_INVALID_ARG_TYPE"`）**吞掉**
+  → 这条警告成立，**不能**用那个写法。
+
+### E. 三份"C2 补丁"的现状（对复验时 HEAD 实测 `git apply --check`）
+
+| 补丁 | 对 HEAD | 它到底是什么 |
+|---|---|---|
+| `/tmp/mvs_dd21f18c_r14/patch_C2.diff` | **不可套**（`patch failed: scripts/verify-site.cjs:1089`） | 它就是**引入窄判据**的那份补丁，已以 `f59fec4` 落地（在链上）→ 不可套只是因为**已经应用过了** |
+| `/tmp/mh_fix-D1-D2-rebased.patch` | **可套**（只对**在途工作树**不套） | 与判据**无关**：改的是门禁 23 的 note 措辞（引入 `ownerMissingId`），全文 **0** 处 `status`/`ENOENT` |
+| `/tmp/mh_C2fixed_criterion.patch` | 文件已不存在 | 基于更早的裸 `catch {` 版本 |
+| `/tmp/mh_f92f2ad_1530/handoff/fix-C2-head-criterion.patch` | **可套**（对 HEAD 与对在途工作树**都**可套） | 42 行 / 2 文件：两处判据体各改一行 + 注释与实现对齐 |
+
+⚠️ **订正交接件一句**：它说"我之前给的 `mh_C2fixed_criterion.patch` 与 `mh_fix-D1-D2-rebased.patch`
+**都已过期**（does not apply）"——后半句不准确：`mh_fix-D1-D2-rebased.patch` 对现行 HEAD **可套**
+（它只对在途工作树不套，因为那个文件正被别的场次改），而且它**根本不是 C2 判据补丁**。
+D1/D2 的 `ownerMissingId` 在 HEAD 与在途工作树里**都还没有** → 仍开放，需要 rebase。
+
+### F. 交接件 §9「在途改动整体验证」的两条 —— 现查
+
+- `scripts/check-overflow.cjs` 的 `found.reason` / `found.bin` **仍在位**（工作树 `check-overflow.cjs:278–280,294`）
+  → 广播里说的窄屏 TDZ 崩溃当前**没有**复现。✅ 与交接件一致。
+- 在途的 sameAs 修复**只在工作树里**：`eleventy.config.js` 的本人节点已改成取全集
+  （工作树 `person.sameAs = [...A.sameAs]`），而 **HEAD 仍是 `if (ownerOrcid) person.sameAs = ownerOrcid;`**
+  → **该缺陷在 HEAD 上尚未闭环**，修复待在途场次提交。交接件说"在途修复有效"，本轮确认其在位。
+
+### G. 本轮状态与纪律
+
+- **只读 + 只改 `docs/IMPROVEMENT-LOG.md`**：`eleventy.config.js` / `scripts/verify-site.cjs`
+  （含别人的在途改动）**一个字节没碰**；未 push。
+- 中间产物全在 `/tmp`（隔离克隆、注入副本、形态探针、补丁）。
+- 线上仍是 2026-10-16 旧部署（`/feed.xml`、`/papers/` 仍 404），push 权在本人。
+- **本轮不实施窄→宽的判据改动**：这两个文件正被并发场次持有，且上一轮已把"V6b 真 EACCES 用例"
+  列为**留给本人**的决策项。本轮只把**证据备齐**（A/B/C + 形态表 + 三份补丁对照），决策仍在本人手上。
+
+### H. 认账：本场次自己犯了一次「基线漂移」，第一版提交把 peer 已提交的一节扫掉了
+
+这一节是本场次**自己的事故记录**，不推给别人。
+
+- **现象**：我准备提交时，先把日志在 HEAD 上的版本 dump 到一个文件（当时 HEAD = `4557722`），
+  据此构造「仅含我自己的插入」的提交副本。**等我真正提交时，HEAD 已经前进了两笔 peer 提交**
+  （`0618642`、`24859f7`）——而我的副本仍以旧 dump 为基线。
+- **后果**：第一版提交 `ca4a06d` 的父提交是 `24859f7`，内容却是 `4557722` + 我的插入
+  → diff 变成 **+117 / −86**：把 peer 已提交的「15:25–15:50 场次」整节**扫掉了 86 行**。
+  （讽刺的是，那一节记的正是「并发提交把整节日志扫掉」这件事。）
+- **为什么我的门禁没拦住**：门禁① 断言的是「提交副本 vs **我 dump 的那个 HEAD 副本** 的删行数 = 0」——
+  **比对对象错了**。它证明的是「我没吞掉 `4557722` 的内容」，
+  而真正要保护的是「**实时父提交**的内容」。断言用错基准，等于没有断言。
+- **收口**：`ca4a06d` 当时是 tip、无人在其上再提交、也未 push
+  → 用 `git update-ref refs/heads/main 24859f7 ca4a06d`（CAS）**原子回退**，
+  再以**实时 HEAD** 为基线重建；新提交的 diff **必须是纯插入**（提交后回读 numstat 自证）。
+  坏提交 `ca4a06d` 仍留在 reflog 里，可取证。
+- **改正后的门禁（这条比事故本身更值得记）**：
+  ① 提交副本的基线必须是**提交那一刻的实时 `git show HEAD:<file>`**，不是早先 dump 的副本；
+  ② 删行数断言必须对着**实时父提交**算；
+  ③ `update-ref <ref> <new> <old>` 的 `<old>` 取实时 HEAD，HEAD 动了就整轮重来；
+  ④ 提交后**必须回读 `git show --numstat`**：出现任何删行 → 立刻 `update-ref` 回退，
+     而不是等下一轮才发现。
+  → 一句话：**「纯插入」这个性质只能由「提交后回读 diff」来证明，
+  不能由「提交前比对一份旧副本」来保证。**
