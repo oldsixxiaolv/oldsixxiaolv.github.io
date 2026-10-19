@@ -2565,7 +2565,8 @@ if (!risExists) {
   };
 
   const problemsBeforeSameIdCheck = problems.length;
-  let compared = 0; // 真正比过的字段处数
+  let compared = 0; // 真正比过的字段处数（含发现冲突的）
+  let comparedConsistent = 0; // 其中取值一致的处数
   let sameAsCompared = 0; // sameAs 比过几处
   let multiNodeGroups = 0;
   const pendingHits = [];
@@ -2600,9 +2601,14 @@ if (!risExists) {
       }
       if (uncomparable) continue;
       if (contributors < 2) continue; // 只有一处给了这个字段 → 覆盖差异，不算冲突
+      // ⚠️ 计数必须与「比过没有」脱钩：只要两个及以上节点都给了这个字段，
+      // 就说明比过了。原先把计数写在下面 buckets.size === 1 分支里，
+      // 于是「sameAs 取值冲突」反而会同时触发两条自相矛盾的红因——
+      // 一条说「sameAs 有 2 种取值」，另一条说「sameAs 从产物里消失了」。
+      compared++;
+      if (field === "sameAs") sameAsCompared++;
       if (buckets.size === 1) {
-        compared++;
-        if (field === "sameAs") sameAsCompared++;
+        comparedConsistent++;
         continue;
       }
       // 真冲突
@@ -2666,8 +2672,8 @@ if (!risExists) {
   }
   if (problems.length === problemsBeforeSameIdCheck) {
     note(
-      `同一 @id 的字段一致性：${multiNodeGroups} 个多节点组 / ${compared} 处比对，同名字段取值一致` +
-        `（字段缺失、嵌套字段不判）`
+      `同一 @id 的字段一致性：${multiNodeGroups} 个多节点组 / ${compared} 处比对` +
+        `（其中 ${comparedConsistent} 处取值一致；字段缺失、嵌套字段不判）`
     );
   }
 }
