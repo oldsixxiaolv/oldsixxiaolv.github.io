@@ -1469,6 +1469,12 @@ CSDN 521 并列）。那个归类对 ResearchGate / CSDN 成立，但对这一�
   属于事实性内容，不擅自改，需要本人确认该写哪个（或怎么表述）。
   （**第六轮补充**：结构化数据层面已用 `alumniOf` 把两者分开了，见本节
   "论文当时的单位要不要也显示出来"那条。）
+  ⚠️ **第十三轮补充（外部佐证，不是拍板）**：作者**自己在 ORCID 上登记的**
+  雇佣/学籍记录是——2026-06-01 起在 `Institute of Atmospheric Physics`
+  （LAGEO，Student），此前 2022-09–2026-06 在 `Lanzhou University`
+  （实测 `pub.orcid.org/v3.0/0009-0005-3511-0546/record`）。
+  → 这条**独立佐证**了站上"现单位 = IAP + 曾就读 = 兰大"的两段式写法
+  （即 `affiliation` / `alumniOf`），但**具体措辞仍由本人定**。
 - **`citation_author_orcid` 暂不输出**：7 位作者里只有 3 位有 ORCID，而该标签是
   **按位置配对**的，只给 3 个会让 Zotero 把 ORCID 挂到错误的人身上。
   现在的做法是：ORCID 在 JSON-LD 与页面可见链接里**逐人绑定**，
@@ -1699,6 +1705,16 @@ CSDN 521 并列）。那个归类对 ResearchGate / CSDN 成立，但对这一�
   ⚠️ 顺带：这条**当前没有任何门禁守着**——门禁 15 只在"这张图也出现在本页
   `<img>` 里"时才比对两处 alt，而首页的 og 卡片图根本不在首页的 `<img>` 集合里
   （详见本轮"留给下一轮"第 7 条）。
+
+- **ORCID 记录里的作品列表目前是空的**（第十三轮新增，实测）：
+  站上把 `https://orcid.org/0009-0005-3511-0546` 当作身份锚点公开给出
+  （JSON-LD `sameAs` + 关于页可见链接），但那条 ORCID **公共记录**的
+  `works` 节点**一条都没有**——论文与 Zenodo 数据集都还没挂上去，
+  读者点进去看到的是空列表。
+  - **这是作者本人在 ORCID 上的操作**（把 JGR-A 论文与数据集加为 works），
+    本任务不代劳；
+  - 不影响站点正确性：ORCID 本身是有效标识（`claimed` + 已验证邮箱），
+    只是"点进去看不到作品"。
 
 ---
 
@@ -1982,6 +1998,87 @@ MeteoHub 会话（`mavis session list` 实测），且其中**至少一个仍在
    真正会被门禁报红的是 `no / on / off / "false" / null / 1` 这类。
    写成"只能写 true 或 false"会让本人以为 `False` 会红——**实测 `False` 是绿的**。
 
+### D. 门禁 21 规则②/④ 的两条独立故障注入（补第十一轮 FI 表的缺口）
+
+第十一轮的 FI 表只验了门禁 21 的**规则①**（`site.url` 带子路径）。规则②
+（canonical 必须挂在 `site.url`）和规则④（JSON-LD `@id` 的 origin）当时没有
+独立注入，本轮补上（隔离克隆 `/tmp/mh-r12-fifg/repo`，基于 `65f2a42`；
+**只改产物后单跑 `node scripts/verify-site.cjs`，不重跑 build**——
+重跑会把产物重新生成、把注入冲掉）：
+
+| 场景 | 注入 | 期望 | 实测 |
+|---|---|---|---|
+| FI-F | about 页 canonical 改成别的域（`https://old.example.com/about/`） | exit 1 | **exit 1**，2 条：「canonical 与 og:url 不一致」+「canonical = "https://old.example.com/about/" **不在站点地址 https://github.lvyihang.xyz/ 之下**」。旧门禁 3 只查 canonical≠og:url —— **两个一起错照样通过** |
+| FI-G | 论文页 JSON-LD 的 `@id` origin 换错、路径保留（`https://old.example.com/papers/trmm-thunderstorm-stages/`） | exit 1 | **exit 1**，5 条：门禁 19「同一件作品出现 2 个不同的 @id」+ 门禁 21④「`@id` 指向的是本站页面（/papers/trmm-thunderstorm-stages/），**origin 却不是** https://github.lvyihang.xyz」 |
+
+两条**复位后都 exit 0**（证明红的是注入本身，不是基线）。
+
+⚠️ 注入过程中**又一次踩到"注入未生效"陷阱**（本轮第二次）：
+第一次 FI-G 用"解析 JSON → 改 → 按块写回"的写法，**写回逻辑有 bug**，
+产物其实没被改（**回读断言当场抓到**：读出来的还是原 `@id`），
+于是 gate exit 0 —— 那一刻**差点被误读成"门禁 21④ 没拦住"**。
+第二次换成**精确子串替换**：锚点 `"@id":"…/papers/trmm-thunderstorm-stages/"`
+命中 **4 次**（同一 `@graph` 里实体自身 + `mainEntityOfPage` 等嵌套字段
+都指向这一页），先断言命中数 → 写 → **回读**确认，才算注入真的落地。
+→ 教训与第十一轮那条同源：**绿灯与红灯都要以"回读断言 + 报错原文"为准，
+不能只看 exit code**。exit 0 只说明"没检出"，不说明"注入生效了"。
+
+> 附注：FI-G 里门禁 21④ 的**同一句话报了 4 遍**（同一 `@id` 在块里出现 4 次就报 4 次）。
+> 不是缺陷，只是报错可读性可以再收一下——属"留给下一轮"级别的小账。
+
+### E. 外链全量审计（产物里全部外链逐条探测）
+
+从产物里抽全部外部 URL 逐条探测（38 个匹配，其中 4 个是抽取正则把 JSON 结尾的 `}`
+和 CSS 注释里的举例一起抓进来的**假 URL**：`agupubs…836}`、`codeocean…v1}`、
+`doi.org/…880}`，以及 `github.com/xxx/yyy）`——后者在
+`src/assets/css/base.css:102` 的一句注释里）。真实外链 34 条：
+
+| 状态 | 条数 | 是哪些 |
+|---|---|---|
+| 200 | 25 | `iap.cas.cn`、openalex、3 个 orcid、zenodo / codeocean、github 各页、schema.org、11ty.dev、fonts 的完整 `css2` URL 等 |
+| 403 | 6 | agupubs（doi 与 pdf）、`doi.org/10.1029/…`（重定向到出版商后被拒）、`doi.org/10.5281/zenodo.16662143` 与 `…18041880`、researchgate 个人页 |
+| 404 | 2 | `fonts.googleapis.com`、`fonts.gstatic.com` —— 裸域名，是 `<link rel=preconnect>` 的写法，**本就不是页面** |
+| 000 | 1 | `blog.csdn.net/lvyihang200411`（见下） |
+
+**唯一真死链**是 `https://www.iap.cas.cn/`（TLS 握手即死）——已由 `33ca461`
+改成 apex `https://iap.cas.cn/`（现在 200）。
+
+⚠️ **403 与 000 都不等于死链**，两个反例：
+- **403 是机器人拦截**，而且不稳定：codeocean 我这次实测 **200**，另一场次实测 403；
+  同一 URL 不同时刻结论可以相反。
+- **000 是本机环境**：`dig blog.csdn.net` 返回 **198.18.0.230**——ClashX 的
+  **fake-IP 段**（本机 DNS 被 TUN 劫持）；而 `openssl s_client` 取到的证书
+  **有效**（`CN=*.csdn.net`，Verify return code 0）→ 是 fake-IP 路由 + 源站 521，
+  **不是站内把链接写错了**。
+
+→ **本轮不加"外链可达性"门禁**：403/000 的假阳性会频繁卡住部署；
+而一个经常误报的门禁，久了就没人看它的红灯——**那比没有门禁更糟**。
+→ 改为**定期人工巡检**（本节即是）。若本人仍想要这类门禁，请拍板。
+
+### F. 部署拓扑：部署后会不会自愈？——**会，一次自愈**
+
+| 远端 | 指向 | 停在哪 |
+|---|---|---|
+| `origin` | `oldsixxiaolv/oldsixxiaolv.github.io`（**用户站仓库**，Pages 就来自它） | `cfef826`（2026-10-16） |
+| `oldsixxiaolv` | `oldsixxiaolv/MeteoHub`（镜像） | `f47357d`（2026-10-02） |
+
+→ **"部署"就是把本地 main 推到 `origin`**（本地领先 `origin/main` 的 commit
+数见 `git log --oneline origin/main..HEAD | wc -l`，截至本轮提交**全部未 push**）。
+
+**自愈结论**：HEAD 的 `site.url` 已是 `https://github.lvyihang.xyz`（**无子路径**），
+本地产物已逐条核对：
+- sitemap 5 条 `<loc>` **全是根路径**；
+- 产物里**无 `/MeteoHub/` 路径残留**（`grep -rn "/MeteoHub/" _site/` 为空；
+  剩下的 "MeteoHub" 命中全在 CSS 文件头注释里）；
+- canonical / og:url 也都挂在域名根。
+→ **部署后 canonical / og:url / sitemap 的 `/MeteoHub/` 前缀会一次消掉**。
+另外线上那三条 404（`/papers/`、`/publications.bib`、`/feed.xml`）的根因也查清了：
+**线上那份 `origin/main` 的 `src/` 里根本没有 `feed.njk` / `papers.njk` /
+`publications.bib.njk`**（`git cat-file -e origin/main:<file>` 三个都判"无"，
+线上 `src/` 共 57 个文件、本地 HEAD 63 个）→ 部署后这三个文件才第一次上线，
+404 一并消失。`docs/DEPLOY.md` 里已有对应的部署后检查项
+（curl 首页 grep canonical 确认不带 `/MeteoHub/`）。
+
 ### 验证结果
 
 - `npm run build` **exit 0**；`check:css` 通过（15 个文件）；`check:site` 通过
@@ -1996,6 +2093,10 @@ MeteoHub 会话（`mavis session list` 实测），且其中**至少一个仍在
   （两个时间源确实同源）
 - JSON-LD 12 块全部 `JSON.parse` 通过；`canonical` 与 `og:url` 6 个页面全部一致；
   `sitemap.xml` 5 条 URL 与真实路由一一对应
+- 门禁 21 规则②/④ 的两条独立注入（FI-F / FI-G）**均 exit 1 且复位后 exit 0**（见 D 节）
+- 外链 34 条逐条探测：25×200、6×403、2×404（裸域名，正常）、1×000（本机 fake-IP，非死链）；
+  **无新死链**（见 E 节）
+- 部署拓扑与"部署后一次自愈"已核实到文件级（见 F 节）
 - 线上巡检无新增损坏（见 A 节）
 
 ### 待部署（本轮**不 push**，线上仍是旧版本）
@@ -2003,6 +2104,11 @@ MeteoHub 会话（`mavis session list` 实测），且其中**至少一个仍在
 线上仍是 2026-10-16 那次部署：`/papers/`、`/publications.bib`、`/feed.xml`
 在线仍 404，canonical / og:url / sitemap 仍带 `/MeteoHub/` 前缀且逐条 404。
 **本地已全部修好**，但**部署与否由本人决定**（本任务禁止 push）。
+
+根因与自愈结论见 **F 节**：那三条 404 的根因是**线上那份 `origin/main` 的
+`src/` 里压根没有 `feed.njk` / `papers.njk` / `publications.bib.njk`**（不是链接写错）；
+`/MeteoHub/` 前缀的根因是**旧部署的 `site.url` 带子路径**，而 HEAD 已是域名根
+→ **部署后一次自愈**（`origin` = 用户站仓库 `oldsixxiaolv/oldsixxiaolv.github.io`）。
 
 ### 待决策（沿用上一轮，本轮不擅自拍板）
 
@@ -2012,64 +2118,36 @@ MeteoHub 会话（`mavis session list` 实测），且其中**至少一个仍在
 2. **论文页是否显示"论文署名单位"**（发表时兰州大学 / 现在中科院 / 两者并注）
    与 `pub.authorAffiliations` 数据字段。
 3. **`figure.alt` 是否保留 "Fig. 10 —" 前缀**（忠于作者原文 vs 只留描述）。
-4. **何时 push / 部署**（截至本轮提交，本地已领先远端 16 个 commit，**均未 push**）。
+4. **何时 push / 部署**（领先数量见 `git log --oneline origin/main..HEAD | wc -l`；
+   截至本轮提交**全部未 push**）。
 
 ### 留给下一轮
 
 1. **线上部署**（本人决定后执行）——部署完应能一次消掉三类"待部署"差异：
-   三个 404 路由 + `/MeteoHub/` 前缀。
+   三个 404 路由 + `/MeteoHub/` 前缀（根因与自愈条件见 F 节）。
 2. **门禁 22 候选**：`og:image:alt` 目前仍带 "Fig. 10 —" 前缀，会上到分享卡片
    —— 与待决策第 3 条同一个根因，等本人拍板后一并处理。
-3. **全站真实 img 必须有非空 alt 的门禁**：现状全站 5 张真实 img 的 alt 都齐，
+3. **门禁 21④ 的报错去重**：同一个 `@id` 在一个 `@graph` 里出现 N 次
+   （实体自身 + `mainEntityOfPage` 等嵌套字段）就报 N 遍同一句话
+   （FI-G 实测报了 4 遍）。不影响判定（exit code 对），只是可读性，
+   值得改成一处聚合报一次。
+4. **全站真实 img 必须有非空 alt 的门禁**：现状全站 5 张真实 img 的 alt 都齐，
    但**没有任何门禁守着**（门禁 15 只管"同一张图三出口一致"，不管"这张图压根
    没有 alt"）。⚠️ 实现必须**先剔除 `<style>` 块与 HTML 注释**再匹配 `<img`——
    `src/about.njk:71` 的 CSS 注释里有一句字面 `<img>`，不剔除会造成假阳性。
-4. `eleventy.config.js` 的 `buildStamp` 现在按进程缓存 —— 开发服务器
+5. `eleventy.config.js` 的 `buildStamp` 现在按进程缓存 —— 开发服务器
    （`--serve`）下**热重载后会一直用第一次的时刻**。生产构建无影响
    （每次 `npm run build` 都是新进程），但若将来在 `--serve` 下检查
    `robots.txt` 的生成时间，会看到陈旧值 → 值得记一笔或改成按构建轮次重置。
-5. **门禁 12 的逃逸路径：`ownerName` 两处不同源 → 建议加 ORCID 双向绑定门禁**
-   （判据当前是绿的，下一轮可直接加；**本轮不实施**）：
-   - `eleventy.config.js:688`：`const ownerName = "Yihang Lyu"; // 与 site.author.nameAsPublished 一致`
-     → **硬编码**（注释只是"人工声明一致"，不是派生）；
-   - `eleventy.config.js:820`：`const ownerName = A.nameAsPublished || A.name || "";` → **读 site.js**。
-   - 今天两处恰好相同（`src/_data/site.js:68` 的 `nameAsPublished: "Yihang Lyu"`）→ **现在没有可见 bug**。
-   - **逃逸路径**：`nameAsPublished` 一旦变成出版商登记名（如 "Yihang L. Lyu"），
-     `jsonLdArticles` 里的 `a.name === ownerName`（`eleventy.config.js:712`）不再命中
-     → 站点级 `ScholarlyArticle` 的本人作者节点**拿不到 canonical `#person` @id**；
-     而门禁 12 只数"名字匹配 `nameAsPublished`"的节点 → 对这条**无感**。
-   - **建议的新门禁**（用与名字无关的稳定锚点 `site.author.orcid` 双向绑定）：
-     凡 `sameAs` 里含该 ORCID 的 Person 节点必须带 canonical person @id；
-     凡带 canonical person @id 的 Person 节点必须在 `sameAs` 里含该 ORCID。
-   - **实测（12:50 场次，静态扫 6 页全部 JSON-LD 的当前产物）**：Person 节点 **43** 个 /
-     带 canonical @id 的 **13** 个 / 带 ORCID 的 **13** 个；
-     方向 A（有 ORCID 无 @id）违例 **0**、方向 B（有 @id 无 ORCID）违例 **0**
-     → 建议的判据在当前产物上**是绿的**（可以直接加）。
-   - ⚠️ **加门禁时必须处理 `sameAs` 的两种形态**：带 canonical @id 的节点里
-     **9 个是数组、4 个是字符串**（`jsonLdArticles` 的 `person.sameAs = ownerOrcid`
-     是字符串；`jsonLdPaper` 的 `person.sameAs = A.sameAs` 是 site.js 里的数组）。
-     写成 `sameAs.includes(ORCID)` 对**字符串**会退化成"子串在字符串里"、
-     对数组才是"元素匹配"；必须写成
-     `(Array.isArray(v) ? v : [v]).some(s => s.includes(ORCID))` 才对两种都成立。
-     **这与第九轮刚修的 `@type` 数组洞是同一类陷阱**——
-     "判据只认一种序列化形式 → 换种写法让整条判据静默失效"。
-   - **更根本的配套修法**（建议**先做它**）：让 `jsonLdArticles` 的 `ownerName`
-     也从 site.js 读（`A.nameAsPublished || A.name`）→ 分歧就不可能发生。
-     这一步比加门禁更根本。
-6. **`src/feed.njk` 的"优先级"注释默认了"不转义"这个前提，与实际配置不符**
-   （**本轮不实施**）：
-   - `src/feed.njk` 里那段讲"`|` 优先级高于 `or`，括号不能省"的注释，
-     **要专门教人手写 `| escape`**，等于默认了"默认不转义"；
-   - 而 Eleventy 3.1.6 的 Nunjucks **autoescape 默认开着**
-     （`eleventy.config.js` 里没有关掉它的设置；本项目日志第八轮早已写明
-     "页面侧是 nunjucks 转义过的"）→ 读者会以为"不写 `| escape` 就不转义"。
-   - 本轮在飞的 `src/feed.njk` 改动只动了 `lastBuildDate` / `pubDate` 两行
-     与它们的新注释，**这段老注释原样保留** → 这条**尚未被处理**。
-   - ⚠️ 顺带一个**尚未验证、不要写进结论**的点：autoescape 开着的同时又手写
-     `| escape`，在 description 含 `&` 时是否**双重转义**（`&amp;amp;`）？
-     实测当前 `feed.xml` 的两条 description **都不含 `&`**，所以看不出差别；
-     要确认得先有一条含 `&` 的摘要（属于要动数据的事）。
-     → **日志里只写"前提与实际配置不符"，不写"双重转义"。**
+6. **第十二轮留下的这两条技术项已结清**（不再留给下一轮）：
+   - `ownerName` 两处不同源 → **已由并发场次 `dead243` 落地**：
+     `ownerName` 改成从 site.js 派生（`A.nameAsPublished || A.name`），
+     并加了 **ORCID ↔ canonical person @id 双向绑定门禁**
+     （`65f2a42` 的 `verify-site.cjs` 里 0 处 → `dead243` 里 2 处；
+     构建输出实测打印「13 个节点带 ORCID / 13 个节点带 @id」）。
+     第十三轮已独立复核，见「第十三轮」C 节；
+   - `src/feed.njk` 的转义行为（"双重转义"疑点）→ **第十三轮实测结清：
+     不会双重转义**，注释已按实测改写，见「第十三轮」E 节。
 7. **门禁 15 在四个页面上空跑（目前只保护论文页）**（**本轮不实施**）：
    - 门禁 15（`scripts/verify-site.cjs` 里标题为"同一张图在页面里必须只有一套
      alt 文本"的那条；⚠️ **当前编号是 15，不是 14**——14 是编号理顺前的旧号）
