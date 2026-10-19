@@ -5879,3 +5879,156 @@ textarea 回退 → src/assets/js/fallback-only.js）"）。这正是"先确认�
 - 复验环境：隔离克隆 `/tmp/mvs_a28294bac2da40dd8af2f82ac6d8d032/clone`
   （HEAD = `6e319e1` + 本场次门禁改动），`npm run build` → exit 0；
   驱动脚本 `/tmp/mvs_a28294bac2da40dd8af2f82ac6d8d032/driver.js`（17 例，含回读断言）。
+
+## 2026-10-19 · 14:50 订正：14:30 巡检表里「首页 `citation_*` = 0 个 ⚠️」**不是缺陷**，是已验证的正确状态
+
+> 订正对象：14:30 巡检节「爬虫定位链整条指向 404」那张表的最后一行
+> （`docs/IMPROVEMENT-LOG.md` 约 5298 行）：
+>
+> | 首页的 `citation_*` 元标签 | **0 个**（第三轮才加的） | — | ⚠️ |
+>
+> 这行的**结论（0 个）是对的，但 ⚠️ 的标法是错的**，而且括号里那句
+> 「（第三轮才加的）」会引人往错的方向修。**本节把它写清楚，免得下一轮
+> 去"修"一个不该修的东西。**
+
+### A. 实测：0 个正是设计，且早在本仓有记录
+
+本地产物实测（论文页 `index.html`）：
+
+```
+citation_abstract ×1   citation_abstract_html_url ×1   citation_author ×7
+citation_doi ×1        citation_firstpage ×1            citation_issn ×2
+citation_issue ×1      citation_journal_title ×1        citation_keywords ×1
+citation_language ×1   citation_pdf_url ×1             citation_publication_date ×1
+citation_publisher ×1  citation_title ×1               citation_volume ×1
+```
+
+合计 **22 个（15 类）**，全部在**论文独立页**；首页 / 列表页 / 博客 / 关于 / 404 **各 0 个**。
+
+这与本仓第三轮的验收记录**逐项一致**（日志 209 行）：
+「`citation_*` 标签分布：论文页 **22 个**（15 类），首页/列表页/博客/关于/404
+**各 0 个**（无泄漏）」——**当时就是按这个口径验过的**。
+
+「第三轮才加的」指的是**第三轮给论文页加了这套标签**，**不是**给首页加。
+括号在原句里把主语省略了，读起来正好相反。
+
+### B. 为什么首页**必须**是 0 个
+
+`src/_includes/partials/citation-meta.njk` 第 20–35 行有明文：
+
+> 一篇论文一个页面。Google Scholar 明确建议「每篇文章一个页面」；
+> 把多篇论文的 `citation_*` 混在一个列表页上，Google 只会认其中一组，
+> 其余的静默丢失。
+> 没有 `pubKey` 的页面（首页、博客、关于页）整块不输出——不摆空标签。
+
+⚠️ **所以这一行真正的风险不是"首页缺标签"，而是有人会去给首页补标签。**
+现在只有 1 篇论文，补了也看不出坏处（Google 只会认一组，而那组恰好是对的）；
+等第 2 篇上线，混输就会让**另一篇被静默丢弃** —— 而且**不报错、不掉分、
+只是"没被收录"**。这正是本仓反复记的那类"看起来在、其实不生效"。
+
+### C. 线上 Scholar 收不到的真实原因（结论不变，但归因要改）
+
+14:30 节的第 3 点写的是「线上又**一个 `citation_*` 标签都没有** →
+Scholar 这一侧目前**既没有元数据、也没有可用的定位地址**」。
+
+- **"没有可用的定位地址"** —— 对。线上每页 `canonical` 都指向 404。
+- **"没有元数据"** —— **归因不准**。线上**根本没有论文页**
+  （`/papers/trmm-thunderstorm-stages/` 404，论文页是本轮才加的、还没部署），
+  所以线上**不存在"该有 `citation_*` 的地方"**。
+  缺的不是标签，是**那一个页面本身**。
+
+→ 部署后应一次消掉：论文页 200、其上 `citation_*` 22 个（15 类）、
+`canonical` 指向 `https://github.lvyihang.xyz/papers/trmm-thunderstorm-stages/`
+（14:30 节的验收清单里已有这一条）。
+
+### D. 留给下一轮：把「不混输」从人工约定变成机器门禁
+
+第三轮那条"标签分布"是**人工验的**，日志里记着，但**没有门禁守着** ——
+今天靠人记住，明天就可能有人去"修首页"。
+
+- 建议门禁（编号接在同伴正在写的 31 之后）：**`citation_*` 标签分布**——
+  论文页 `citation_*` 计数 == 期望值（22 个 / 15 类）**且** 首页、列表页、
+  博客、关于、404 页**一个都没有**（反向判据：任何一个非论文页出现
+  `citation_*` 就判红）。
+  形状与门禁 16 对 `identityOn404` 的双向判据同一构型。
+- ⚠️ 本轮**不实施**：同伴场次正在改 `scripts/verify-site.cjs`（加门禁 31），
+  本场次**零写入**该文件，不撞号、不撞 hunk。
+
+### E. 本订正的边界
+
+- **只改本文件**，不碰任何代码 / 模板 / 门禁。
+- **不 push**。本地 `main` 领先远端 50+ 个 commit，部署由本人拍板。
+
+---
+
+## 2026-10-19 · 15:00–15:20 补充（**只读复核，零代码改动**）：`patch_C.diff` 不可套用的裁定 + 一处**订正**
+
+### A. 裁定（与 11:45 场次一致，本场次独立复核后维持）
+
+**`/tmp/mvs_dd21f18c_r10/patch_C.diff` 不可套用**，三条理由各自独立成立：
+
+1. **套不上**：本场次实测 `git apply --check` → **exit 1**，
+   `scripts/verify-site.cjs:1089` 与 `eleventy.config.js:355` **两处都对不上**。
+2. **它带的判据更松**：补丁里的判据是
+   `(typeof e.status === "number" || typeof e.code === "string")`——
+   `typeof e.code === "string"` 会把 **EACCES / EPERM** 当成"没有 git 历史"吞掉。
+3. **加固 C 早已在现行代码里**：`scripts/verify-site.cjs:1217`、
+   `eleventy.config.js:373`、`eleventy.config.js:415` 三处都是
+   `if (!isGitProcessFailure(e)) throw e;`。
+
+缺口 A 已由**门禁 16** 的双向判据覆盖（`src/404.njk:26` 的 `identityOn404: true`）。
+
+### B. ★**订正**：11:45 交接件把「现行判据」写错了
+
+11:45 交接件里写的是"现行 = `("status" in e || e.code === "ENOENT")`"。
+**本场次实测：现行不是这个。** HEAD 与工作树**两处都**是
+
+```js
+!!e && typeof e === "object" && (typeof e.status === "number" || e.code === "ENOENT");
+```
+
+（`scripts/verify-site.cjs:1200`、`eleventy.config.js:361`；判据**逐字一致**。）
+
+`"status" in e` 那个版本是**已被否决的候选**——14:10 场次在 `459c3e8` 里明确**撤回**了它
+（见本日志 §E「判据裁定」：它在真实 EACCES 下会造出**假绿**）。
+→ **这条订正要紧**：若有人照 11:45 那句描述去"对齐"，等于把**已撤回的错版本**装回去，
+而那正是要防的静默失效。**裁定本身（别套）不受影响，错的只是那句"现行长什么样"。**
+
+### C. 独立复核：真实失败对象上的判据对照
+
+判据**从源码原文抽出**（不手抄），错误对象**真实**（`chmod 000` → 真 EACCES）：
+
+| 真实失败 | 现行判据 | 补丁判据 |
+|---|---|---|
+| **EACCES**（`code=EACCES`, `status=null`） | **抛出**（fail-closed ✓） | **吞掉**（✗ 当成"没有 git 历史"） |
+| ENOENT（`code=ENOENT`） | 吞掉（✓ 正是"不在 git 仓库里"那条路径） | 吞掉 |
+| exit 1（`status=1`） | 吞掉（✓ git 非零退出） | 吞掉 |
+| SIGKILL（`signal=SIGKILL`, `status=null`） | 抛出（✓ fail-closed） | 抛出 |
+
+→ **决定性的就是 EACCES 那一行**：现行抛出、补丁吞掉。这就是"补丁不可套用"的技术根据。
+
+复现脚本：`/tmp/mvs_a28294bac2da40dd8af2f82ac6d8d032/check_criterion.js`（只读仓库，零写入）。
+
+> ⚠️ 复验环境的一个坑（记下来）：第一版把失败**经 `/bin/sh` 触发**，
+> 结果 shell 把 "Permission denied" 变成**退出码 126**，
+> Node 拿到的是 `status=126`（数字）→ 现行判据也判"吞" → 看起来"两者一样"。
+> **验证环境失败会伪装成被验证对象的性质。** 直接 exec 文件本身
+> （不经 shell）才会拿到真正的 `code=EACCES` 错误对象。
+> 脚本里已加自证：EACCES 用例若拿不到 `code === "EACCES"` 就直接 exit 2。
+
+### D. 根因线索：日志的「判据裁定」段**同时出现两个版本**
+
+`"status" in e` 这个字面量在本日志里出现 **4 处**（`:2450`、`:4894`、`:5220`、`:5511`/`:5517`），
+全部在**讲历史**——"peer 建议过这个版本，我们驳回了"。
+→ **只读日志、不核代码的 peer 交接件，很容易把"被否决的候选"当成"现行代码"。**
+这是本条订正的来源，也是它值得写进日志的原因：**引用"现行代码长什么样"时，
+必须回代码里核一遍，不能只看日志里的字面量。**
+
+### E. 本场次的边界
+
+- **零代码改动**：本节只追加日志，**没有**碰 `scripts/verify-site.cjs` /
+  `eleventy.config.js` / `src/assets/js/main.js` / `src/_data/site.js`。
+- **不 push**。本地 `main` 领先 `oldsixxiaolv/main` 64 个 commit，部署由本人决定。
+- 工作树里 `scripts/check-overflow.cjs` / `package.json` /
+  `scripts/check-gates-wired.cjs` / `.github/workflows/deploy.yml` 仍是**别的场次的在途改动**，
+  本场次没有碰、也没有带进任何提交。
