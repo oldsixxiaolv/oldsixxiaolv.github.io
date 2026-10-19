@@ -22,7 +22,10 @@
  *     5. sitemap.xml 里的每个 URL 都有对应产物
  *     6. 反过来：每个产物页面都进了 sitemap（除 404）
  *     7. feed.xml 里有 item、每条 item 的 link 指向真实页面
- *     8. 论文页的 JSON-LD 里有 Dataset / SoftwareSourceCode 实体
+ *     8. 论文页的 JSON-LD 里有 Dataset / SoftwareSourceCode 实体；数据集的
+ *        文件级清单在「页面可见清单 / JSON-LD distribution / site.js」三边上
+ *        逐字一致（文件名、下载地址、字节数、md5），版本关系 isVersionOf 指向
+ *        概念 DOI
  *     9. 身份类 meta（twitter:site/creator）没有写死的兜底值
  *    10. JSON-LD 里的 @id / url 都是绝对地址
  *    11. og:type 与页面性质一致；article:* 只出现在 article 页上
@@ -982,11 +985,18 @@ for (const file of htmlFiles) {
       const p = siteRelPath(file, image);
       if (!p || !imgAlts.has(p)) continue; // 这张图没在页面上出现，不归这条管
       for (const imgAlt of imgAlts.get(p)) {
-        if (String(alt || "").trim() !== String(imgAlt || "").trim()) {
+        const a = String(alt || "").trim();
+        const b = String(imgAlt || "").trim();
+        if (a !== b) {
+          // 用差异摘录（与门禁 22 同一个 altDiffExcerpt），**不要**两侧各截前
+          // 36 个字符：两句话若前 36 字相同、差异在尾部，截出来的两段引文
+          // **逐字相同** —— 报错会变成"判红却看不出差在哪"，读的人只能
+          // 自己去产物里找。altDiffExcerpt 报首个差异位置并把差异处带上。
+          const { at, a: aEx, b: bEx } = altDiffExcerpt(a, b);
           fail(
             `${from}: ${prefix}:image:alt 与页面上同一张图的 <img alt> 不是同一句话 —— ` +
-              `一张图只能有一套 alt（现在是 "${String(alt || "").slice(0, 36)}…" vs ` +
-              `"${String(imgAlt || "").slice(0, 36)}…"）`
+              `一张图只能有一套 alt。首个差异在第 ${at} 个字：` +
+              `meta 侧 "${aEx}" vs <img alt> 侧 "${bEx}"`
           );
           break;
         }
@@ -1790,6 +1800,18 @@ if (SITE_URL) {
   }
 }
 
+/** 门禁 22 的报错引文：固定截前 40 字，一旦差异落在第 41 字之后，
+    两侧引文会**逐字相同**（实测：站点真实 alt 有 47 字，末字不同就看不出差在哪）。
+    改成定位**首个不同字符**，两侧都从它附近截取 —— 引文必然能看出差异。 */
+function altDiffExcerpt(a, b) {
+  let i = 0;
+  while (i < a.length && i < b.length && a[i] === b[i]) i++;
+  const start = Math.max(0, i - 12);
+  const cut = (s) =>
+    (start > 0 ? "…" : "") + s.slice(start, i + 28) + (s.length > i + 28 ? "…" : "");
+  return { at: i + 1, a: cut(a), b: cut(b) };
+}
+
 /* ---------- 22. 同一张图在 og 与 twitter 上必须只有一套 alt 文本 ----------
    第 15 条管的是"这张图**也出现在页面上**时，og/twitter 的 alt 与 <img alt>
    必须逐字一致"。但社交平台读的是 **og:image:alt / twitter:image:alt**，
@@ -1824,10 +1846,11 @@ for (const file of htmlFiles) {
       const a = String(ogAlt || "").trim();
       const b = String(twAlt || "").trim();
       if (a === b) continue;
+      const { at, a: aEx, b: bEx } = altDiffExcerpt(a, b);
       fail(
         `${from}: og:image:alt 与 twitter:image:alt 描述的是**同一张图**（${p}）` +
-          `却是两句话 —— 一张图只能有一套 alt 文本（og 侧 "${a.slice(0, 40)}" vs ` +
-          `twitter 侧 "${b.slice(0, 40)}"${b ? "" : "（twitter 侧整条缺失）"}）`
+          `却是两句话 —— 一张图只能有一套 alt 文本。首个差异在第 ${at} 个字：` +
+          `og 侧 "${aEx}" vs twitter 侧 "${bEx}"${b ? "" : "（twitter 侧整条缺失）"}`
       );
     }
   }
@@ -2237,11 +2260,12 @@ if (onlyCode.length) {
       )}）`
   );
 }
+let maxInt = 0;
 {
   const ints = [...headerSet]
     .map((n) => parseInt(n, 10))
     .filter((n) => Number.isInteger(n) && n > 0);
-  const maxInt = ints.length ? Math.max(...ints) : 0;
+  maxInt = ints.length ? Math.max(...ints) : 0;
   // 某个整数 N 算"存在"，可以是 N 本身，也可以是 N 后面带字母后缀的
   // 4b / 4c —— 本项目的编号体系里**没有**独立的"4"，
   // 4 这一族由 4b（错误页索引控制）与 4c（标题）承担。
@@ -2257,10 +2281,24 @@ if (onlyCode.length) {
     fail(`门禁编号不连续，缺 ${missing.join(", ")}（最大号 ${maxInt}）—— 编号必须是连续的`);
   }
 }
+// ⚠️ 这条 note 必须把"**最高编号**"与"**项数**"分开写：
+//    编号域里含 4b / 4c 这类附属号时，项数比最高编号**大**（4 号族算两项，
+//    最高编号却是 32）。此前这里只打项数（"文件头清单 33 条 / 代码段 33 条"），
+//    读者会把它读成"有第 33 号门禁" —— 这个误读已经在日志里出现过两次订正。
+const subNums = [...headerSet].filter((n) => /^\d+[a-z]+$/.test(n)).sort();
+const subNote = subNums.length
+  ? `（${subNums.join("、")} 是 ${[
+      ...new Set(subNums.map((n) => n.replace(/[a-z]+$/, ""))),
+    ].join("、")} 号族的附属号）`
+  : "";
 note(
   registryOk
-    ? `门禁编号：文件头清单 ${headerNums.length} 条 / 代码段 ${codeNums.length} 条，一一对应且连续`
-    : `门禁编号：文件头清单 ${headerNums.length} 条 / 代码段 ${codeNums.length} 条 —— 不一致（见上方报错）`
+    ? `门禁编号：最高 ${maxInt} 号${subNote}，共 ${headerSet.size} 项 —— ` +
+      `文件头清单 ${headerNums.length} 项 / 代码段 ${codeNums.length} 项，` +
+      `一一对应、整数号 1–${maxInt} 无缺号` +
+      `（"项数"≠"最高编号"：编号域含附属号时项数比最高号大）`
+    : `门禁编号：最高 ${maxInt} 号${subNote}，共 ${headerSet.size} 项 —— ` +
+      `文件头清单 ${headerNums.length} 项 / 代码段 ${codeNums.length} 项 —— 不一致（见上方报错）`
 );
 
 /* ---------- 29. 旧编号 → 新编号对照表必须覆盖全部门禁编号，且不得有重复行 ----------
@@ -2522,7 +2560,21 @@ if (!risExists) {
                        两边都符合 schema.org，**定哪边是口径问题**；
      · datePublished —— 论文 @id：列表页 "2026-06"、论文页 "2026-06-01"，
                        是粒度口径问题。
+   ⚠️ 豁免的**范围是全站**，不只下面举的那一个论文 @id：
+     PENDING_FIELDS 里的字段名对**任何** @id 组都只报不判（检查在字段循环内，
+     对每个 @id 组都走同一套）。下面举的是本轮**实际命中**的例子，
+     不是"只有这几处在等拍板"—— 读 note 时别把例子的范围当成豁免的范围。
    这两个字段一旦定下来，把名字从 PENDING_FIELDS 里删掉即变成硬判据。
+
+   ⚠️ 判据分两层，两层缺一不可：
+     ① **冲突**（上面 ①–⑤）：同一 @id 的不同节点之间，字段取值不能打架。
+     ② **完整性**（本人那一组）：本人 @id 的每个 Person 节点，其 sameAs
+        集合必须**等于** site.js 里 author.sameAs 的集合。
+        为什么 ① 不够：① 查的是"节点之间是否一致"，**查不到"全站一致地
+        退化"**——所有本人节点一致地只剩 ORCID 一条时，它们彼此并不冲突，
+        ① 全绿，可本人已经丢掉了 GitHub / ResearchGate / CSDN / OpenAlex
+        四条身份句柄（14 个节点的注入实测：注入前后门禁全绿）。
+        ② 与门禁 23 互补：23 查"ORCID 在不在"，② 查"全集在不在"。
 
    ⚠️ 本条必须**自证存活**：一个字段都没比成、或 sameAs 一次都没被比对，
    都说明判据已经失效（与门禁 18"标注没了整条失效"是同一类病：
@@ -2644,18 +2696,28 @@ if (!risExists) {
       .join("；");
     note(
       `⚠️ 口径待本人拍板（本条不判红）：${detail}—— 见日志「待决策」段；` +
+        `待拍板的**范围是全站**任何 @id 组上的这两个同名字段` +
+        `（上面列的只是本轮实际命中的几处，不是全部）；` +
         `定下来后把字段名从 PENDING_FIELDS 里删掉即变成硬判据`
     );
   }
-  // 同一 @id 被多种 @type 复用：建模选择（如论文的 mainEntityOfPage 指回本页），
-  // 记一笔事实，不判红——但它让"同一 @id 的同一字段"这件事必须按 @type 分组看。
+  // 同一 @id 被多种 @type 复用：**这是缺陷，不是建模选择**。
+  // 此前这里写的是"这是建模选择（如 mainEntityOfPage 指回本页），不是错误"
+  // —— 那句话把一个真缺陷记成了口味问题，于是它一直没被修。
+  // 事实：论文页的 mainEntityOfPage 曾指向**论文实体自己的 @id**，
+  // 于是同一个 @id 上同时挂了 ScholarlyArticle 与 WebPage 两种 @type
+  // （消费方按 @id 归并节点时，"这一页是网站"与"这一页是一篇论文"会挤进
+  // 同一个节点）。2026-10-19 已修：mainEntityOfPage 改指页面实体
+  // <页面 URL>#webpage，与论文实体彻底分开。
+  // 判红在 scripts/check-jsonld.cjs 的 J8；本条按 @type 分组比对，只记事实。
   for (const [id, types] of typeUse) {
     if (types.size > 1) reusedIds.push(`${id}（${[...types].sort().join(" / ")}）`);
   }
   if (reusedIds.length) {
     note(
-      `同一 @id 被多种 @type 复用：${reusedIds.join("；")}—— 按 @type 分组比对；` +
-        `这是建模选择（如 mainEntityOfPage 指回本页），不是错误`
+      `同一 @id 被多种 @type 复用：${reusedIds.join("；")}—— ` +
+        `这是缺陷不是建模选择，判红在 check-jsonld 的 J8；` +
+        `本条按 @type 分组比对，只记事实`
     );
   }
 

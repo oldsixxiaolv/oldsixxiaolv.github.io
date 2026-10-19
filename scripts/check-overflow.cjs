@@ -21,7 +21,85 @@ const path = require("path");
 const os = require("os");
 
 const SITE = path.resolve(__dirname, "../_site");
-const CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
+
+/* ---------- 找 Chrome ----------
+ *
+ * 此前这里把路径写死成 macOS 的 app bundle 路径
+ * （/Applications/Google Chrome.app/...），于是这个脚本在 CI 上
+ * **根本跑不起来** —— 它在 Linux 上找不到那个路径。
+ * 这也是 scripts/check-gates-wired.cjs 里那条豁免的真实成因，
+ * 但那条豁免**写的理由是错的**（见该文件 EXEMPT 处的订正）：
+ * GitHub 的 ubuntu runner 镜像**自带 google-chrome**
+ * （runner-images 的 Ubuntu 24.04 / 26.04 镜像 README 里
+ *  "Browsers and Drivers" 一节明确列着 Google Chrome 与 ChromeDriver），
+ * 所以真正缺的不是 Chrome，而是**找 Chrome 的方式只认 macOS**。
+ *
+ * 现在按三级查找，优先级从高到低：
+ *   ① CHROME_PATH 环境变量（显式指定；显式指定却找不到 → 直接报错，
+ *      不退回自动查找——显式指定的意图就是"我说的那个"）；
+ *   ② PATH 里的 google-chrome / google-chrome-stable / chromium /
+ *      chromium-browser（CI 上命中的是这一级）；
+ *   ③ 各平台常见安装位置（macOS 的 app bundle、Linux 的 /usr/bin 等）。
+ *
+ * ⚠️ 找不到 Chrome 时**直接失败，不静默跳过**：
+ * 量不了窄屏溢出却不报错，等于给这个门禁发了一张"已通过"的假证书——
+ * 那正是本仓库反复在修的那一族缺陷（"看起来在、其实不生效"）。 */
+const CHROME_ENV_VAR = "CHROME_PATH";
+const CHROME_NAMES = [
+  "google-chrome",
+  "google-chrome-stable",
+  "chromium",
+  "chromium-browser",
+];
+const CHROME_PATHS = [
+  // macOS
+  "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+  "/Applications/Chromium.app/Contents/MacOS/Chromium",
+  // Linux
+  "/usr/bin/google-chrome",
+  "/usr/bin/google-chrome-stable",
+  "/usr/bin/chromium",
+  "/usr/bin/chromium-browser",
+  "/opt/google/chrome/chrome",
+  "/snap/bin/chromium",
+];
+
+function findChrome() {
+  const explicit = process.env[CHROME_ENV_VAR];
+  if (explicit) {
+    // ⚠️ 返回形状必须与下面两条一致（{ bin, reason }）：
+    //   早先这里直接 `return explicit`（一个字符串），于是主流程里的
+    //   `found.bin` 是 undefined → 走「找不到浏览器」分支 →
+    //   **显式指定的 CHROME_PATH 永远不生效**（而且是静默不生效）。
+    if (fs.existsSync(explicit)) return { bin: explicit, reason: null };
+    return {
+      bin: null,
+      reason:
+        `${CHROME_ENV_VAR} 指向的浏览器不存在：${explicit}\n` +
+        `  （显式指定时不退回自动查找——你指的就是这一个。）`,
+    };
+  }
+
+  // ② PATH
+  const dirs = (process.env.PATH || "").split(path.delimiter).filter(Boolean);
+  for (const name of CHROME_NAMES) {
+    for (const dir of dirs) {
+      const p = path.join(dir, name);
+      try {
+        fs.accessSync(p, fs.constants.X_OK);
+        return { bin: p, reason: null };
+      } catch {
+        /* 换下一个 */
+      }
+    }
+  }
+
+  // ③ 常见安装位置
+  for (const p of CHROME_PATHS) {
+    if (fs.existsSync(p)) return { bin: p, reason: null };
+  }
+  return { bin: null, reason: null };
+}
 
 const argWidth = (() => {
   const i = process.argv.indexOf("--width");
@@ -61,10 +139,16 @@ function startServer() {
 }
 
 /* ---------- 2. 起 Chrome 并连上 CDP ---------- */
-async function startChrome() {
+async function startChrome(chromeBin) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mh-cdp-"));
+  /* CI（Linux）上要额外两枚旗标：容器的沙箱常常起不来，
+     /dev/shm 常常只有 64MB 而 Chrome 拿它当共享内存会崩。
+     两条都只在 Linux 上加——macOS 本机不需要，也不该降级本机的沙箱。 */
+  const linuxOnly = process.platform === "linux"
+    ? ["--no-sandbox", "--disable-dev-shm-usage"]
+    : [];
   const proc = spawn(
-    CHROME,
+    chromeBin,
     [
       "--headless=new",
       "--remote-debugging-port=0",
@@ -74,6 +158,7 @@ async function startChrome() {
       "--disable-gpu",
       "--hide-scrollbars",
       "--disable-extensions",
+      ...linuxOnly,
     ],
     { stdio: "ignore" }
   );
@@ -189,8 +274,39 @@ const MEASURE = `(() => {
     console.error(`✗ 找不到 ${SITE}，请先运行 npm run build`);
     process.exit(1);
   }
-  if (!fs.existsSync(CHROME)) {
-    console.error(`✗ 找不到 Chrome：${CHROME}`);
+  const found = findChrome();
+  if (!found.bin) {
+    if (found.reason) {
+      console.error(`✗ ${found.reason}`);
+    } else {
+      console.error(
+        "✗ 找不到可用的 Chrome / Chromium。\n" +
+          "  这个门禁要用真实浏览器量窄屏（390px）下的横向溢出，量不了就不算通过——\n" +
+          "  静默跳过等于给这个门禁发一张「已通过」的假证书。\n" +
+          "  · macOS：装 Google Chrome，或设 CHROME_PATH=/Applications/Google Chrome.app/Contents/MacOS/Google Chrome\n" +
+          "  · Linux / CI：GitHub 的 ubuntu runner 镜像自带 google-chrome，应能自动找到；\n" +
+          "    若在此报错，说明 runner 镜像变了（把它加进 deploy.yml 的安装步骤），\n" +
+          "    或设 CHROME_PATH=/usr/bin/google-chrome 明确指定。"
+      );
+    }
+    process.exit(1);
+  }
+  const chromeBin = found.bin;
+  console.log(`浏览器：${chromeBin}`);
+
+  /* WebSocket 全局：Node 21.0.0 引入，**22.0.0 起不再需要 --experimental-websocket**，
+     22.4.0 起转正。Node 20 上它默认不开（要加旗标），
+     早于 20.10 的版本干脆没有 → 直接 new WebSocket(...) 会抛
+     "WebSocket is not defined"，看不出是版本问题。
+     这里提前判一次，把话说清楚。 */
+  if (typeof WebSocket !== "function") {
+    console.error(
+      "✗ 当前 Node 没有全局 WebSocket（CDP over WebSocket 需要它）。\n" +
+        "  · Node ≥ 22.4 默认可用\n" +
+        "  · Node 20 需要 --experimental-websocket 旗标（本仓库不采用那条路）\n" +
+        "  · 更早的版本没有该全局\n" +
+        `  当前版本：${process.version}`
+    );
     process.exit(1);
   }
 
@@ -206,7 +322,7 @@ const MEASURE = `(() => {
   const routes = pages.map((p) => (p.endsWith("/index.html") ? "/" + p.slice(0, -"index.html".length) : "/" + p));
 
   const { server, port } = await startServer();
-  const chrome = await startChrome();
+  const chrome = await startChrome(chromeBin);
   const wsUrl = `ws://127.0.0.1:${chrome.port}/devtools/browser/${(await fetch(`http://127.0.0.1:${chrome.port}/json/version`).then((r) => r.json())).webSocketDebuggerUrl.split("/").pop()}`;
 
   const ws = new WebSocket(wsUrl);

@@ -25,8 +25,10 @@
  *   GW3 自己没被卸掉 —— 本脚本必须真的在 build 链上。
  *
  * 与既有门禁的编号关系：本门禁用独立字母编号 GW*，
- * 不与 scripts/verify-site.cjs 的数字编号（1–29）、
+ * 不与 scripts/verify-site.cjs 的数字编号体系、
  * check-a11y.cjs 的 A1–A4、check-wrapping.cjs 的 W1–W3 续接或冲突。
+ * （这里**不写死**对方的编号上界——写死就是一个必然漂移的新来源，
+ *   数字编号那边的上界由 verify-site.cjs 自己的门禁 24 守着。）
  */
 const fs = require("fs");
 const path = require("path");
@@ -41,13 +43,20 @@ const GATE_FILE_RE = /^(check|verify)-.*\.cjs$/;
 
 /* 显式豁免：文件名 → 理由。理由必须写在这里（源码里），不能只写在日志里 ——
    日志不会被 CI 读到，写在日志里等于没写。
-   理由为空 / 文件已不存在 / 又真接在 build 上 → 判红（见 GW2）。 */
-const EXEMPT = {
-  "check-overflow.cjs":
-    "需要本机 Chrome + 临时静态服务器（CDP over WebSocket），比纯 Node 门禁重得多；" +
-    "CI（ubuntu-latest）没有 Chrome，接进 build 只会让部署随机失败 —— 故意不接。" +
-    "手动跑：node scripts/check-overflow.cjs",
-};
+   理由为空 / 文件已不存在 / 又真接在 build 上 → 判红（见 GW2）。
+
+   ⚠️ 2026-10-19 订正：此前这里登记着 `check-overflow.cjs`，
+   理由写的是"需要本机 Chrome……CI（ubuntu-latest）没有 Chrome"——
+   **那条理由是错的**。GitHub 的 ubuntu runner 镜像**自带 google-chrome**
+   （runner-images 的 Ubuntu 24.04 / 26.04 镜像 README，"Browsers and Drivers"
+   一节列着 Google Chrome 与 ChromeDriver），CI 上有 Chrome。
+   真正缺的是**找 Chrome 的方式只认 macOS 的 app bundle 路径**。
+   那个已改（scripts/check-overflow.cjs：CHROME_PATH → PATH → 各平台常见位置），
+   于是该门禁**已经真正接进 build 链**，豁免登记随之删除。
+
+   机制保留：将来若确有门禁不能进 build 链（例如必须联网、必须人工介入），
+   在这里登记并写明理由——理由要经得起"CI 真的做不了吗"这一问。 */
+const EXEMPT = {};
 
 /* ---------- 读 package.json ---------- */
 if (!fs.existsSync(PKG)) {

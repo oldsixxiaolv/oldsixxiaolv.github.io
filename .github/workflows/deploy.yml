@@ -29,11 +29,29 @@ jobs:
           # 详见 eleventy.config.js 里 lastCommitTime 的注释。
           fetch-depth: 0
 
-      - name: Setup Node 20
+      - name: Setup Node 22
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          # ⚠️ 从 20 升到 22，两个原因都不是"追新"：
+          #   ① **Node 20 已于 2026-04-30 结束支持（EOL）**，
+          #      还在用它跑部署，等于把发布管线建在不再收安全更新的运行时上。
+          #   ② **Node 20 上全局 WebSocket 默认不开**（要 --experimental-websocket），
+          #      而 build 链里的窄屏溢出门禁（scripts/check-overflow.cjs）
+          #      要用 CDP over WebSocket —— 在 Node 20 上会直接抛
+          #      "WebSocket is not defined"。该全局 22.0.0 起免旗标、22.4.0 起转正。
+          #      （package.json 的 engines 也同步收到 ">=22"。）
+          node-version: 22
           cache: npm
+
+      # 记录 runner 镜像里的浏览器版本。
+      # 窄屏溢出门禁要真实浏览器；若哪天 runner 镜像不再自带 Chrome，
+      # build 会在那个门禁上**明确报错**（不静默跳过），
+      # 有了这行版本号就能一眼看出是镜像变了还是别的什么变了。
+      - name: Record runner toolchain
+        run: |
+          echo "ImageOS=$ImageOS ImageVersion=$ImageVersion"
+          node --version
+          (google-chrome --version || chromium --version || echo "no chrome found in PATH")
 
       - name: Install dependencies
         run: npm ci

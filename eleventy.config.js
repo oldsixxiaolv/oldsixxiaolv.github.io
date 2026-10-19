@@ -564,7 +564,23 @@ module.exports = function (eleventyConfig) {
     };
     put("author", authors);
     put("title", esc(pub.title));
-    put("journal", esc(pub.shortJournal || pub.journal));
+    // 刊名用**登记全称**，不用缩写。
+    // ⚠️ 此前这里取的是 pub.shortJournal（"JGR: Atmospheres"），后果有两层：
+    //   ① 与本站自己的其余部分不一致——页面标题、列表卡、citation_journal_title
+    //      <meta>、JSON-LD 的 Periodical.name 用的全是 pub.journal
+    //      （"Journal of Geophysical Research: Atmospheres"）。读者在页面上看到的
+    //      刊名与复制走的引用条目里的刊名**不是同一个字符串**。
+    //   ② 与出版商登记不一致——Crossref 对本文登记的 container-title 是
+    //      "Journal of Geophysical Research: Atmospheres"，而 doi.org 自己导出的
+    //      BibTeX（读者点 DOI 旁边的「Copy citation」拿到的）用的也是它。
+    //      Crossref 登记的 short-container-title 是 "JGR Atmospheres"（无冒号），
+    //      此前那个 "JGR: Atmospheres" 带冒号，**两边都不是**。
+    // 引用条目的刊名是机器读的那一份，抄进参考文献表的就是它 → 取登记全称。
+    put("journal", esc(pub.journal || pub.shortJournal));
+    // publisher：RIS 条目里一直有 PB 字段，doi.org 导出的 BibTeX 也有
+    // publisher={American Geophysical Union (AGU)}。此前只有 RIS 有、BibTeX 没有，
+    // 同一个站点导出的两种格式对同一字段说法不一致 —— 补齐。
+    put("publisher", esc(pub.publisher));
     put("year", pub.year);
     if (pub.month) {
       const m = BIB_MONTHS[Number(pub.month) - 1];
@@ -701,8 +717,10 @@ module.exports = function (eleventyConfig) {
     }
 
     lines.push(risLine("TI", pub.title));
-    // T2 = 刊名（Zotero / EndNote 的 RIS 导出都用 T2 表示 publication title）
-    lines.push(risLine("T2", pub.shortJournal || pub.journal));
+    // T2 = 刊名（Zotero / EndNote 的 RIS 导出都用 T2 表示 publication title）。
+    // 口径与上面 BibTeX 的 journal 一致：取**登记全称**（pub.journal），
+    // 理由见那段注释——doi.org 自己的 RIS 导出用的也是全称。
+    lines.push(risLine("T2", pub.journal || pub.shortJournal));
     lines.push(risLine("VL", pub.volume));
     lines.push(risLine("IS", pub.issue));
     // AGU 用 e-locator 代替连续页码，放 SP（起始页）位置
@@ -1117,7 +1135,19 @@ module.exports = function (eleventyConfig) {
     }
     if (pub.abstract) article.abstract = pub.abstract;
     if (Array.isArray(pub.keywords) && pub.keywords.length) article.keywords = pub.keywords;
-    article.mainEntityOfPage = { "@type": "WebPage", "@id": selfUrl };
+    // mainEntityOfPage 指向**承载这篇论文的那个页面**，不是论文实体自己。
+    // 此前这里写的是 selfUrl（= 页面 URL，无片段）——与上面 article 的 @id
+    // **逐字相同**，于是同一个 @id 上挂了两种 @type（ScholarlyArticle 与
+    // WebPage）。消费方按 @id 归并节点时，"这一页是网站"与"这一页是一篇论文"
+    // 会挤进同一个节点里，字段互相覆盖。
+    // 正确写法是页面实体那个 @id：<页面 URL>#webpage —— base.njk 就在同一页
+    // 声明了它（见 base.njk 的"@id 方案"注释，那段注释已经把这条坑写明了，
+    // 这里是它唯一的漏网之处）。
+    // 写成**裸引用**（只有 @id）：类型在目标节点上已经声明过；引用里再带
+    // @type，门禁 27 会把这个引用当成"本人节点"去查姓名（引用里没有 name）。
+    // 门禁见 scripts/check-jsonld.cjs 的 J8（同一 @id 不得挂多种 @type）
+    // 与 J9（论文的 mainEntityOfPage 必须指向本页的页面实体）。
+    article.mainEntityOfPage = { "@id": `${selfUrl}#webpage` };
     // 资助信息（资助方 + 项目号）：与页面可见的 "Funding and publication
     // history" 同源（site.js 的 pub.funding），机器可读与页面所见一致。
     const fp = fundingProps(pub.funding);
@@ -1437,7 +1467,17 @@ module.exports = function (eleventyConfig) {
     //   "/" → 1 个斜杠 → 0 层；"/about/" → 2 个 → 1 层；"/a/b/" → 3 个 → 2 层
     const depth = Math.max(0, here.replace(/[^/]/g, "").length - 1);
     const clean = target.replace(/^\/+/, "");
-    return "../".repeat(depth) + clean;
+    const prefix = "../".repeat(depth);
+    // 目标塌缩成**站点根**（"/"）时 clean 是空串。此时分两种：
+    //   · depth > 0 → prefix 本身就是根（"../"），原样返回；
+    //   · depth = 0（当前页就在根层：首页，或根层的 404.html）→ prefix 是空串。
+    //     此前这里直接返回空串，于是产物里出现 `href=""`。
+    //     ⚠️ 空 href 按 HTML 规范解析成**当前文档**（不是站点根）：
+    //       · 404 页上的「home page」链接点了还停在 404 页，站点 logo 同理；
+    //       · 首页的 nav「Home」项变成指向自己的自链接；
+    //       · 站内链接图上"每一页 → 首页"这条边整个消失。
+    //     所以根层必须给一个显式的 "./"——它指向的才是真正的站点根。
+    return clean ? prefix + clean : prefix || "./";
   });
 
   return {

@@ -10,15 +10,18 @@
     "check:wrap": "node scripts/check-wrapping.cjs",
     "check:gates": "node scripts/check-gates-wired.cjs",
     "check:log-sections": "node scripts/check-log-sections.cjs",
-    "build": "npm run check:gates && npm run check:log-sections && npm run check:css && npm run check:wrap && eleventy && npm run check:site && npm run check:lang && npm run check:a11y && npm run check:copy && npm run check:artifact && npm run check:identity",
+    "check:tracked-refs": "node scripts/check-tracked-refs.cjs",
+    "build": "npm run check:gates && npm run check:tracked-refs && npm run check:log-sections && npm run check:css && npm run check:wrap && eleventy && npm run check:site && npm run check:lang && npm run check:a11y && npm run check:copy && npm run check:overflow && npm run check:artifact && npm run check:jsonld && npm run check:identity",
     "serve": "eleventy --serve --quiet --port=8080",
     "check:a11y": "node scripts/check-a11y.cjs",
     "check:copy": "node scripts/check-copy-export.cjs",
+    "check:overflow": "node scripts/check-overflow.cjs",
     "check:artifact": "node scripts/check-artifact-metadata.cjs",
+    "check:jsonld": "node scripts/check-jsonld.cjs",
     "check:identity": "node scripts/check-identity-handles.cjs"
   },
   "engines": {
-    "node": ">=18"
+    "node": ">=22"
   },
   "devDependencies": {
     "@11ty/eleventy": "^3.1.6",

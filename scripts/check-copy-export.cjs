@@ -85,6 +85,26 @@
  *   代价（已知边界）：本站若将来引入"只有剪贴板路径、没有回退"的复制功能，
  *   而全站别处仍在用回退方案，该文件会被判红 —— 那是本门禁要的口径，
  *   要改口径先改这里，别绕过门禁。
+ *
+ * ⚠️ 第二十二轮补的一条**扫描面**（本轮；接上一轮"留给下一轮"第 2 条）：
+ *   本检查扫的是 `src/assets/` 下的**磁盘 .js 文件**。但站点里还有
+ *   **模板内联的 `<script>` 块**——它们不是 .js 文件，一个都扫不到：
+ *     · src/_includes/layouts/base.njk:463   （<script>，主题早期注入）
+ *     · src/_includes/layouts/paper.njk:310  （<script type="module">）
+ *   → 门禁会照常报"扫 9 个 JS 文件：2 个出口……"并 exit 0，**看上去守着全站**；
+ *     而将来若有人在这两个模板里写一个 `writeText(src.innerHTML)`，
+ *     门禁**看不见**，缺陷照样上线。**没看见 = 没守**——和前面所有轮次
+ *     踩的坑是同一个病，只是这次的盲区在"文件形态"上而不是"写法"上。
+ *   → 现在把**模板内联脚本块**也纳入扫描：逐个 .njk 抽出内联 <script>，
+ *     去掉 Nunjucks 注释，**用同一套判据**分析。
+ *   ⚠️ 两个刻意的排除，各有理由：
+ *     ① `type="application/ld+json"` 的块**不扫**——那是**数据**不是代码，
+ *        里面不可能有复制出口；把它当 JS 解析只会制造噪音。
+ *     ② 带 `src=` 的块**不扫**——那是外部 .js 文件，本来就被磁盘扫描覆盖，
+ *        重复算一次会让"出口数"对不上计数自检。
+ *   ⚠️ 命令行注入模式（`node scripts/check-copy-export.cjs <文件>`）的语义
+ *      保持不变：**只查你给的那个文件**。给了 .njk 时，查的是它内部的
+ *      内联脚本块（这样"模板里的坏出口"也能被注入用例覆盖到）。
  */
 const fs = require("fs");
 const path = require("path");
@@ -123,9 +143,56 @@ function listBrowserJs(root) {
 
 // 给了路径就只查它（**只给故障注入用**）；不给就查全站浏览器 JS。
 const cliFiles = process.argv.slice(2).filter((a) => !a.startsWith("-"));
-const files = cliFiles.length
-  ? cliFiles.map((f) => path.resolve(f))
-  : listBrowserJs(path.join(REPO, "src", "assets"));
+
+/**
+ * 抽出**模板内联的 <script> 块**。
+ *
+ * 为什么必须单独抽：门禁扫的是**磁盘 .js 文件**，而模板里的内联脚本
+ * 一个都不在那儿（见文件头"第二十二轮"段）。→ 扫描面必须显式补上，
+ * 否则"门禁绿着"只是因为它没看那里。
+ *
+ * 排除项（各有理由，见文件头）：
+ *   · `type="application/ld+json"` → 数据不是代码；
+ *   · 带 `src=` → 外部 .js 文件，已被磁盘扫描覆盖，重复算会让出口数对不上。
+ */
+function listTemplateScripts(root) {
+  const out = [];
+  const walk = (dir) => {
+    let entries;
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const e of entries) {
+      if (e.name.startsWith("._")) continue;
+      if (e.name === "node_modules") continue;
+      const p = path.join(dir, e.name);
+      if (e.isDirectory()) walk(p);
+      else if (e.isFile() && e.name.endsWith(".njk")) {
+        const raw = fs.readFileSync(p, "utf-8");
+        const rel = path.relative(REPO, p);
+        for (const m of raw.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/g)) {
+          const attrs = m[1];
+          const body = m[2];
+          if (/type\s*=\s*["']application\/ld\+json["']/i.test(attrs)) continue; // 数据
+          if (/\bsrc\s*=/i.test(attrs)) continue; // 外部 .js，磁盘扫描已覆盖
+          // 去掉 Nunjucks 注释 {# ... #}：它不是 JS，留着会干扰注释剥离
+          const code = body.replace(/{#[\s\S]*?#}/g, " ");
+          if (!code.trim()) continue;
+          const line = raw.slice(0, m.index).split("\n").length;
+          out.push({
+            rel: `${rel}:${line}`,
+            absPath: p,
+            code,
+          });
+        }
+      }
+    }
+  };
+  walk(root);
+  return out.sort((a, b) => (a.rel < b.rel ? -1 : a.rel > b.rel ? 1 : 0));
+}
 
 const problems = [];
 
@@ -283,22 +350,17 @@ function judge(code, expr) {
  * 分析**一个文件**：找出复制出口、核对取值链、核对计数。
  * 返回该文件自己的问题（没有复制出口不算问题——判据 1 对整个集合成立）。
  */
-function analyzeFile(absPath) {
-  if (!fs.existsSync(absPath)) {
-    return {
-      rel: path.relative(REPO, absPath),
-      absPath,
-      exits: [],
-      fileProblems: [
-        `${path.relative(REPO, absPath)}: 找不到要检查的文件：${absPath}——` +
-          "门禁读不到源码就无法判定（判红，不静默放行）",
-      ],
-    };
-  }
-  const raw = fs.readFileSync(absPath, "utf-8");
+/**
+ * 分析**一个扫描单元**（一段源码）：找出复制出口、核对取值链、核对计数。
+ *
+ * ⚠️ 磁盘 .js 文件与**模板内联脚本块**走的是**同一套判据**：
+ *    判据只有一套，才谈得上"门禁守着的是复制出口这个行为本身"，
+ *    而不是"某一种文件形态里的复制出口"。（两者一旦用两套判据，
+ *    就会出现"内联脚本里的坏出口按 .js 的判据就不算坏"这种漏看。）
+ */
+function analyzeSource(rel, raw, absPath) {
   const code = stripComments(raw);
   const mask = stringMask(code); // 计数用：标出字符串字面量内容所在的位置
-  const rel = path.relative(REPO, absPath);
   const fileProblems = [];
 
   // ---- 1) 找出所有复制出口 ----------------------------------------------
@@ -387,19 +449,85 @@ function analyzeFile(absPath) {
   return { rel, absPath, exits, fileProblems };
 }
 
+/** 分析一个**磁盘文件**（.js 扫描集合，或注入模式指定的文件） */
+function analyzeFile(absPath) {
+  if (!fs.existsSync(absPath)) {
+    return {
+      rel: path.relative(REPO, absPath),
+      absPath,
+      exits: [],
+      fileProblems: [
+        `${path.relative(REPO, absPath)}: 找不到要检查的文件：${absPath}——` +
+          "门禁读不到源码就无法判定（判红，不静默放行）",
+      ],
+    };
+  }
+  const rel = path.relative(REPO, absPath);
+  return analyzeSource(rel, fs.readFileSync(absPath, "utf-8"), absPath);
+}
+
 // ---------------------------------------------------------------------------
 // 汇总判定
 // ---------------------------------------------------------------------------
 
-if (files.length === 0) {
+// ---- 扫描单元：磁盘 .js 文件 + **模板内联脚本块** ------------------------
+// ⚠️ 两类单元走**同一套判据**（analyzeSource）。只有一套判据，
+//    才谈得上"门禁守着的是复制出口这个行为本身"。
+//    少扫一类 = 那一类里的坏出口**静默通过**（见文件头"第二十二轮"段）。
+//
+// ⚠️ 注入模式（命令行给了文件）时**只查你给的那个文件**，不掺模板扫描：
+//    注入用例的语义是"让这一个文件红/绿"，掺进别的单元会让计数对不上。
+const jsFiles = cliFiles.length
+  ? cliFiles.map((f) => path.resolve(f))
+  : listBrowserJs(path.join(REPO, "src", "assets"));
+
+const units = [];
+for (const f of jsFiles) {
+  if (cliFiles.length && f.endsWith(".njk")) {
+    // 注入模式给了模板 → 查它**内部**的内联脚本块
+    const inner = listTemplateScripts(path.dirname(f)).filter((t) => t.absPath === f);
+    if (inner.length === 0) {
+      problems.push(
+        `${path.relative(REPO, f)}: 这个模板里没有内联 <script> 块` +
+          "（type=application/ld+json 的数据块与带 src= 的外部脚本都不算）——" +
+          "注入用例可能选错了目标，门禁没什么可判的。"
+      );
+    }
+    for (const t of inner) units.push({ rel: t.rel, absPath: f, code: t.code, kind: "template" });
+  } else {
+    units.push({ rel: path.relative(REPO, f), absPath: f, code: null, kind: "js" });
+  }
+}
+if (!cliFiles.length) {
+  for (const t of listTemplateScripts(path.join(REPO, "src"))) {
+    units.push({ rel: t.rel, absPath: t.absPath, code: t.code, kind: "template" });
+  }
+}
+
+const jsUnitCount = units.filter((u) => u.kind === "js").length;
+const tplUnitCount = units.filter((u) => u.kind === "template").length;
+
+// 扫描面自查：磁盘 .js 扫不到 = 一个洞，模板扫描补不了（两套形态各管一段）
+if (!cliFiles.length && jsUnitCount === 0) {
   console.error(
-    "  ✗ 扫描集合里一个 .js 文件都没有（src/assets/ 下没找到）——" +
+    "  ✗ 磁盘 JS 扫描集合是空的（src/assets/ 下没找到 .js）——" +
+      "扫描面本身没了，门禁看不懂就判红。"
+  );
+  process.exit(1);
+}
+if (units.length === 0) {
+  console.error(
+    "  ✗ 扫描集合里一个单元都没有（磁盘 .js + 模板内联脚本块）——" +
       "扫描面本身没了，门禁看不懂就判红。"
   );
   process.exit(1);
 }
 
-const analyses = files.map(analyzeFile);
+const analyses = units.map((u) =>
+  u.kind === "template"
+    ? analyzeSource(u.rel, u.code, u.absPath)
+    : analyzeFile(u.absPath)
+);
 for (const a of analyses) problems.push(...a.fileProblems);
 
 const allExits = analyses.flatMap((a) => a.exits.map((e) => ({ ...e, rel: a.rel })));
@@ -410,11 +538,12 @@ const allExits = analyses.flatMap((a) => a.exits.map((e) => ({ ...e, rel: a.rel 
 // 那说明复制功能被删了，或门禁看不懂现在的写法。
 if (allExits.length === 0) {
   problems.push(
-    files.length === 1
+    units.length === 1
       ? `${analyses[0].rel}: 找不到任何复制出口（clipboard.writeText / textarea 回退）——` +
           "要么复制功能被删了，要么这段源码改成了门禁看不懂的写法。" +
           "门禁看不懂时必须判红：否则它会一直'全绿'，看着像在守着，其实没守。"
-      : `在 ${files.length} 个 JS 文件里找不到任何复制出口（clipboard.writeText / textarea 回退）——` +
+      : `在 ${units.length} 个扫描单元（${jsUnitCount} 个 JS 文件 + ${tplUnitCount} 个模板内联脚本块）` +
+          "里找不到任何复制出口（clipboard.writeText / textarea 回退）——" +
           "要么复制功能被删了，要么它被挪到了扫描范围之外。" +
           "门禁看不懂时必须判红：否则它会一直'全绿'，看着像在守着，其实没守。"
   );
@@ -452,11 +581,11 @@ if (fallbackFiles.length > 0) {
   for (const f of byFile.values()) {
     if (f.hasWriteText && !f.hasFallback) {
       problems.push(
-        `${f.rel}: 这个文件有 clipboard.writeText 出口，但 textarea 回退在别的文件` +
-          `（回退 → ${fallbackFiles.join("、")}）—— 两条复制路径分处两个文件。` +
-          "本检查按文件核对「两条路径取同一个值」，跨文件就够不着这条 writeText：" +
+        `${f.rel}: 这个单元有 clipboard.writeText 出口，但 textarea 回退在别的单元` +
+          `（回退 → ${fallbackFiles.join("、")}）—— 两条复制路径分处两个单元。` +
+          "本检查按单元核对「两条路径取同一个值」，跨单元就够不着这条 writeText：" +
           "将来只改它一条、两条出口的行为就会分叉（剪贴板一份、回退一份），而门禁看不见。" +
-          "请把回退路径与 writeText 放回同一个文件。"
+          "请把回退路径与 writeText 放回同一个单元（同文件，或同一个模板内联脚本块）。"
       );
     }
   }
@@ -465,18 +594,21 @@ if (fallbackFiles.length > 0) {
 // ---- 输出 -----------------------------------------------------------------
 if (problems.length) {
   for (const p of problems) console.error(`  ✗ ${p}`);
-  console.error(`\nCopy 出口检查失败：${problems.length} 个问题（扫描 ${files.length} 个文件）`);
+  console.error(
+    `\nCopy 出口检查失败：${problems.length} 个问题` +
+      `（扫描 ${jsUnitCount} 个 JS 文件 + ${tplUnitCount} 个模板内联脚本块）`
+  );
   process.exit(1);
 }
 
-if (files.length === 1) {
+if (units.length === 1) {
   console.log(
     `Copy 出口检查通过（${analyses[0].rel}：${allExits.length} 个出口，取值来自 textContent）`
   );
 } else {
   const hosts = [...new Set(allExits.map((e) => e.rel))];
   console.log(
-    `Copy 出口检查通过（扫 ${files.length} 个 JS 文件：${allExits.length} 个出口在 ` +
-      `${hosts.join("、")}，取值来自 textContent）`
+    `Copy 出口检查通过（扫 ${jsUnitCount} 个 JS 文件 + ${tplUnitCount} 个模板内联脚本块：` +
+      `${allExits.length} 个出口在 ${hosts.join("、")}，取值来自 textContent）`
   );
 }

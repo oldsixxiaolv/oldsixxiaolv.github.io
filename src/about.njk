@@ -1,6 +1,9 @@
 ---
 layout: layouts/page.njk
 title: "About"
+# 关于页是标准的"个人档案页"，结构化数据里声明为 ProfilePage
+# （mainEntity → 本人）。开关放在 front matter，理由同 index.njk。
+profilePage: true
 # 同 index.njk：front matter 不走模板引擎，要用数据必须放 eleventyComputed。
 # 上一版的 description 里写着 {{ site.author.name }}，渲染结果里 meta 与
 # og:description 都是原样的模板语法。

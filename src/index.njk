@@ -1,6 +1,11 @@
 ---
 layout: layouts/base.njk
 title: Home
+# 首页是"关于本人"的页面（hero 就是本人），所以它在结构化数据里是
+# ProfilePage（mainEntity → 本人），而不是泛泛的 WebPage。
+# 开关放在 front matter 而不是模板里按 URL 硬编码：路由一改，
+# 硬编码会静默失配，而这里改一行就够。
+profilePage: true
 # ⚠️ title / description 里**不能直接写 {{ }}**。Eleventy 的 front matter 是
 #    普通字符串，不会再过一遍模板引擎——上一版把 {{ site.author.name }} 写在
 #    title 里，渲染出来就是字面量 "<title>{{ site.author.name }} · ...</title>"，

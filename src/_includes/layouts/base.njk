@@ -407,6 +407,93 @@
   </script>
   {%- endif %}
 
+  {# =====================================================================
+       站点实体 + 页面实体（WebSite / WebPage / ProfilePage）
+       ---------------------------------------------------------------------
+       上面那个 Person 说"我是谁"，这一段说"这是一个什么站点、这一页在讲谁"。
+       少了这一层，站里就只剩"一堆彼此无序的实体"：消费方能读到 Person 与
+       若干 ScholarlyArticle，却拿不到两个最基础的答案——
+         · "这个站点是谁的"（谁在运营它）
+         · "这一页的主题是谁 / 是什么"（这一页到底在讲什么）
+
+       —— 为什么现在补（2026-10-19 查证的外部做法）——
+       个人学术主页的 JSON-LD 惯例是至少三件套：WebSite（站点身份）、
+       Person（作者身份）、ProfilePage（讲作者的页面，mainEntity → Person）。
+       本站此前只有 Person 与 ScholarlyArticle 两层，站点自己从未被声明过。
+
+       —— @id 方案（这一段最容易踩坑的地方）——
+         · WebSite  → <站点根>/#website
+         · 页面实体 → <该页 URL>#webpage
+         · 本人     → <站点根>/#person（既有，不动）
+         · 论文     → <该论文页 URL>（既有，不动）
+       ⚠️ 页面实体的 @id **必须带 #webpage 片段**，不能直接用页面 URL：
+         论文页上 ScholarlyArticle 的 @id 就是那个页面 URL（jsonLdPaper 的
+         selfUrl）。若页面实体也用它，一个 @id 上就挂了两个 @type
+         （WebPage 与 ScholarlyArticle）——消费方按 @id 合并节点时，
+         "这一页是网站"与"这一页是一篇论文"会挤进同一个节点里。
+         带片段后，页面实体与论文实体各有各的 @id，互不干扰。
+       ⚠️ 引用一律写成**只有 @id 的裸引用**（{"@id": "..."}）：
+         · 带上 @type，门禁 27 会把这个引用当成"本人节点"去查姓名
+           （引用里没有 name → 判红）；
+         · 带上 name，会在门禁 31 里多出一组可比节点，白增噪声。
+         裸引用是 schema.org 认可的"按 @id 指向本档里已声明的节点"，
+         而 Person 节点就在同一个 <head> 里声明着，引用能就地解析。
+       ⚠️ 错误页不输出这一段（与上面 Person 的 identityOn404 开关**不是**同一个）：
+         404 页要的是"这里没有内容"，它既不是一个站点页面，也不是一个
+         关于某人的页面。门禁见 scripts/check-jsonld.cjs 的 J6。
+       ⚠️ 页面实体的 @type 由 front matter 的 `profilePage` 决定
+         （首页与关于页写 true → ProfilePage；其余页 → WebPage）。
+         不按 URL 硬编码路由——路由一改，硬编码就会静默失配。
+       ===================================================================== #}
+  {%- if not is404 %}
+  {%- set pageEntityType = 'ProfilePage' if profilePage else 'WebPage' -%}
+  {%- set pageEntityId = site.url + page.url + '#webpage' -%}
+  {%- set pageEntityUrl = site.url + page.url -%}
+  {# mainEntity 指向"这一页在讲谁"：论文页讲的是那篇论文，其余页讲的是本人。
+     论文页的 @id = 页面 URL（无片段），与本页实体的 @id（带 #webpage）不同，
+     所以这不是自引用。 #}
+  {%- set pageMainEntityId = pageEntityUrl if pubKey else (site.url + '/#person') -%}
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "WebSite",
+        "@id": {{ (site.url + '/#website') | dump | safe }},
+        "url": {{ (site.url + '/') | dump | safe }},
+        "name": {{ site.title | dump | safe }},
+        "alternateName": {{ site.shortTitle | dump | safe }},
+        "description": {{ site.description | dump | safe }},
+        "inLanguage": {{ (site.locale or 'en') | dump | safe }},
+        "image": {{ (site.url + '/assets/img/og/og-1200x630.png') | dump | safe }},
+        "publisher": { "@id": {{ (site.url + '/#person') | dump | safe }} }
+      },
+      {
+        "@type": {{ pageEntityType | dump | safe }},
+        "@id": {{ pageEntityId | dump | safe }},
+        "url": {{ pageEntityUrl | dump | safe }},
+        "name": {{ (pageTitle or site.title) | dump | safe }},
+        "description": {{ (description or site.description) | dump | safe }},
+        "inLanguage": {{ (site.locale or 'en') | dump | safe }},
+        "isPartOf": { "@id": {{ (site.url + '/#website') | dump | safe }} },
+        "mainEntity": { "@id": {{ pageMainEntityId | dump | safe }} }
+      }
+    ]
+  }
+  </script>
+  {# source: 这一页的源文件（仓库相对路径）。
+     给门禁 scripts/check-jsonld.cjs 的 J10 用：页面实体的 @type 必须与
+     源文件 front matter 的 `profilePage` 开关一致（true → ProfilePage，
+     否则 → WebPage）。门禁据此**逐页**核对"这一页该自称什么"，
+     而不是在门禁里另抄一份 URL 清单（路由一改，清单就会静默失配）。
+
+     为什么必须由构建期写：站点的 permalink 不统一（顶层 .njk 有显式
+     permalink 的、也有走默认规则的，paper.md 更是靠目录数据文件才定下
+     地址），从 URL 反推源文件不可靠 —— 同 eleventy.config.js 里
+     repoRelPath filter 的理由。 #}
+  <!-- source: {{ page.inputPath | repoRelPath }} -->
+  {%- endif %}
+
   {# —— ScholarlyArticle：论文的结构化数据 ——
      上面那段 Person 描述"我是谁"，这段描述"我产出过什么"。两边用同一个
      ORCID 串起来，搜索引擎才能把它们识别成同一实体。
