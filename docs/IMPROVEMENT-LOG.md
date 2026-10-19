@@ -1503,10 +1503,24 @@ CSDN 521 并列）。那个归类对 ResearchGate / CSDN 成立，但对这一�
     （`https://github.lvyihang.xyz/`），与"这个 URL 是一篇论文"无关；
     对消费方的**实体消歧**（把散落各页的同一个人合并成一个节点）有益，
     而 `@id` = `{{ site.url }}/#person` 与其它页面完全一致。
-  - 本轮**没有替本人拍板**：选了"保留"，并把新门禁写成**只黑名单内容类实体**，
-    不写成"404 页只能有 Person"——后者会把未决口径写死进代码。
-    若本人选"去掉"，改 `base.njk` 的 Person 块加 `{%- if not is404 %}` 即可，
-    第 16 条门禁不受影响（它不查 Person）。
+  - 本轮**没有替本人拍板**：选了"保留"，并把它做成**开关**
+    `src/404.njk` 的 `identityOn404`（默认 `true`），而不是把口径写死进门禁。
+    ⚠️ **第十一轮订正（下面这段原本是错的，照它改会改错地方）**：
+    原先这里写的是"若本人选'去掉'，改 `base.njk` 的 Person 块加
+    `{%- if not is404 %}` 即可，第 16 条门禁不受影响（它不查 Person）"——
+    **两处都不成立**：
+      ① 改法已变成**翻 `src/404.njk` 的 `identityOn404` 一行**
+        （`base.njk` 读的是页面变量，不是自己写条件）；
+      ② "门禁不受影响"是**假的**——门禁 16 现在**双向读同一个开关**：
+        `true` → 404 页必须 ≥1 个身份类实体；`false` → 必须 0 个。
+        开关与产物不一致时**门禁会红**（实测：翻成 `false` 但产物里还留着
+        Person → 报"开关与产物不一致"，exit 1）。
+    → **本人拍板时只改 `src/404.njk` 那一行，模板与门禁代码都不用动**；
+    两种口径门禁都认，不会出现"改了开关 build 却红了"的情况。
+    ⚠️ 那一行请写 `true` 或 `false`（`True` / `False` / `TRUE` / `FALSE` 也能过——
+    模板与门禁都按 js-yaml 的布尔口径取同一个值，两边不会对不上）；写成 `no` /
+    `on` / `off` / `"false"` / `null` / `1` 这类**会被门禁直接报红**，
+    不会静默兜底成 true。
   另附实测记录，供后续判断：
   - `og:type` = **`website`** ✓ 正确——第三轮定的规则（只有带 `pubKey` 的论文页
     才算 `article`）在 404 页上**没有**误判，这条**不用改**；
@@ -1635,3 +1649,418 @@ CSDN 521 并列）。那个归类对 ResearchGate / CSDN 成立，但对这一�
     **图内容**（三个阶段的小提琴图 + 累积分布曲线）与图**完全相符**，
     第八轮直接看过图；真正与图不符的 `paper.md` 里那份 `coverAlt`
     已在第八轮删除（alt 现在三处同源）。
+- **首页分享卡片的 `twitter:image:alt` 要不要重写**（12:50 场次实测新增）：
+  首页产物实测——`og:image` 与 `twitter:image` **是同一张图**
+  （`assets/img/og/og-1200x630.png`），但两处 alt 说法**不一致**：
+  ```
+  og:image:alt      = MeteoHub — Yihang Lyu, PhD Student at IAP-CAS
+  twitter:image:alt = Yihang Lyu · PhD Student · Yihang Lyu, PhD Student
+  ```
+  twitter 侧把作者姓名/职位**重复了一遍**（社交平台读出来就是那串重复）。
+  成因链（逐环可复现）：
+    · `src/index.njk` 的 `eleventyComputed.title` = `"{{ site.author.name }} · {{ site.author.jobTitle }}"`
+      → 覆盖了 front matter 的 `title: Home`；
+    · `base.njk:27` 的 `pageTitle` → `base.njk:150` 的 `ogTitle` = `Yihang Lyu · PhD Student`；
+    · `base.njk:306`（无封面图的分支）把 alt 拼成
+      `ogTitle + ' · ' + site.author.name + ', ' + site.author.jobTitle`
+      → **ogTitle 本身已含姓名+职位，又拼了一遍** → 出现重复；
+    · og 侧走 `base.njk:276` 的 `ogCardAlt`（`base.njk:155` 独立拼装的完整句）→ 不重复。
+  ⚠️ 讽刺的是 `base.njk:152-154` 的注释**点名**要避免的正是
+  `"Yihang Lyu · PhD Student · Yihang Lyu, PhD Student"` 这串
+  ——**注释声明的意图与 `:306` 的实现不符**。
+  **口径待本人拍板**：① 两处统一成同一句（推荐，`og:image:alt` 与
+  `twitter:image:alt` 同源）；② twitter 侧只留身份描述、去掉重复署名；
+  ③ 保持现状。
+  ⚠️ 与已有的"Fig. 10 前缀"（待拍板第 3 条）**不是同一个根因**：
+  那条讲**图的内容描述**带图号，这条讲**同一张 og 图的两处 alt 拼装不一致**。
+  ⚠️ 顺带：这条**当前没有任何门禁守着**——门禁 15 只在"这张图也出现在本页
+  `<img>` 里"时才比对两处 alt，而首页的 og 卡片图根本不在首页的 `<img>` 集合里
+  （详见本轮"留给下一轮"第 7 条）。
+
+---
+
+## 2026-10-19 · 第十一轮（12:22–12:47 场次）：订阅源时间戳说真话 + 404 身份开关落地
+
+### 本场次定位
+
+接手 12:20 场次（`mvs_9dee015c`）被限流打断的半成品，并把它的设计**补完整**。
+
+⚠️ **本轮工作树是多个场次叠加的结果**，`git status` 的 7 个改动文件分属两处：
+
+| 文件 | 归属 |
+|---|---|
+| `src/_data/site.js`（`affiliationUrl` → apex）、本节 E 段之前的第九轮 E 小节 | **12:20 场次**（本场次独立复测其外链结论：apex 200 / www 000 / 官方 301 指向 apex） |
+| `eleventy.config.js`、`src/feed.njk`、门禁 20（订阅源时间戳） | **本场次** |
+| `src/404.njk`（`identityOn404` 开关）、`base.njk`（读该开关）、门禁 16 双向化、门禁 21（绝对 URL 口径） | **并发场次**（12:36–12:39 陆续写入），本场次**接管写者权**并补完、复验 |
+
+本场次的处置原则：**不丢弃他人未提交的工作**（先备份
+`/tmp/mvs_00c97a74_r11/stalled-session-wip.diff`，217 行），补齐后**一起提交**。
+
+### A. 改进点：订阅源此前在对外报一个**假时间**
+
+**现象**：`feed.xml` 的 `<lastBuildDate>` 实测是 `2026-06-01T00:00:00.000Z`
+—— 那是**论文的发表日**，不是订阅源的生成时间。而站点真正的构建时刻
+（`robots.txt` 的「生成时间」）是 `2026-10-19`。两者对不上：
+**订阅源对外声称"最后更新于 6 月 1 日"，此后无论改多少次都停在那一天**。
+
+**这是第八轮修掉的 `robots.txt`「生成时间」缺陷的另一半** —— 那一轮只修了
+robots，feed 这一半被漏掉了。
+
+**修**（`eleventy.config.js` + `src/feed.njk`）：
+
+1. 新增 `dateToRfc822` 过滤器（`toUTCString()`）—— RSS 2.0 规范要求
+   `"Mon, 19 Oct 2026 12:00:00 GMT"`，此前 feed 用的是 ISO-8601；
+2. `buildStamp` 改为**按进程缓存**（整次构建只取一次时间）—— 否则
+   robots 的「生成时间」与 feed 的 `<lastBuildDate>` 会差几毫秒，
+   "同一次构建"这个前提就不成立；
+3. `<lastBuildDate>` 改用 `buildStamp`，`<pubDate>` 改用 `dateToRfc822`。
+
+**门禁 20**（`scripts/verify-site.cjs`）：`<lastBuildDate>` 必须逐字是
+RFC 822；必须与 `robots.txt` 的「生成时间」**同一时刻**；每条 `<pubDate>`
+也必须是 RFC 822；且 `<lastBuildDate>` 不得早于任一 `<pubDate>`。
+
+⚠️ 判据刻意**不依赖"当前时间"** —— 复制产物到 /tmp 仍然成立。
+
+**实测产物**：`<lastBuildDate>Mon, 19 Oct 2026 19:39:55 GMT</lastBuildDate>`
+↔ `# 生成时间：2026-10-19T19:39:55.803Z` → 逐字对应；
+item `<pubDate>Mon, 01 Jun 2026 00:00:00 GMT</pubDate>`。
+
+### B. 耦合补完：门禁 16 必须与 404 页的身份开关**同源**（第九轮缺口的正解）
+
+**第九轮留下的缺口**：404 页把整个 Person JSON-LD 块删掉时，门禁**全绿**
+（实测 `54899f1` / `01dd76f` 两棵树，删掉 ld+json 块后 `check:site` 仍 exit 0）。
+
+**为什么不能简单写死"404 页必须有 Person"**：那是"404 页要不要保留 Person
+实体"的**展示口径**，在「待决策」里、由本人拍板。门禁一旦写死，就等于替本人
+把那条选了。
+
+**正解（并发场次写的开关 + 本场次补完的双向校验）**：
+开关 `identityOn404` 放在 **`src/404.njk` 的 front matter**，
+`base.njk` 的 `{%- if not is404 or identityOn404 %}` 与门禁 16 **读的是同一处**
+→ 不存在"模板改了、门禁没跟着改"的漂移可能。
+判据**双向**：
+
+- `true` → 404 页必须 **≥1** 个身份类实体（少一个 = 被整块掏空）；
+- `false` → 404 页必须 **没有**身份类实体（多一个 = 开关与产物不一致）。
+
+⚠️ **必须双向**：从产物侧看"整块掏空"与"按口径去掉"**完全一样**（都让 404 页
+零实体）。单向只查"零实体"，既会误伤"去掉"的口径，又会漏掉真正的掏空。
+
+### C. 门禁 21：绝对 URL 口径 —— 线上事故的根因防线（并发场次写，本场次复验）
+
+**线上事故**：线上站点是 2026-10-16 那次部署的产物，那时 `site.url` 写的是
+`https://github.lvyihang.xyz/MeteoHub`（带仓库名子路径）。于是首页的
+canonical、og:url、sitemap 的每条 loc **全部**指向
+`https://github.lvyihang.xyz/MeteoHub/...` —— 而站点内容铺在域名根 `/`，
+那一层根本不存在（**实测逐条 404**）。页面本身照常渲染（资源走相对路径），
+只有爬虫与社交分享卡片拿到的地址是死链。
+
+**当时的门禁一条都没拦住**：门禁 3 只查 canonical 与 og:url 是否**互相一致**
+（两个一起错照样通过）；门禁 5/6/7 只按 **pathname** 映射产物（域名被有意忽略）。
+
+**门禁 21 管的是出口地址的口径**：
+① `site.url` 必须是域名根（根因防线）② 每页 canonical / og:url 必须挂在
+`site.url` 上且路径 = 该页自己的路由 ③ sitemap 的每条 loc、feed 的每条 item
+link 必须挂在 `site.url` 上 ④ JSON-LD 的 `@id` 若指向本站某个页面，
+origin 必须是 `site.url`。
+
+⚠️ ④ 只管 `@id`（实体标识符），**不管 `url`** —— Person 的 `affiliation.url`
+指向 `https://iap.cas.cn/`，其 path 恰好也是 `/`，一并按"path 对上页面"判
+会把一个完全正常的外部机构链接误报成错。
+
+### 验证（全部在**独立克隆**里跑，不碰共享工作区的 `_site`）
+
+基线 + 5 组故障注入，每组一个独立克隆（`/tmp/mvs_00c97a74_r11/verify3/`）：
+
+| 场景 | 注入 | 期望 | 实测 |
+|---|---|---|---|
+| 基线 | 无 | exit 0 | **exit 0**，✓ 站点自检全部通过 |
+| FI-A | `identityOn404: false`（产物随之 0 实体） | exit 0（合法口径不被误伤） | **exit 0** ✓ |
+| FI-B | `identityOn404: false` 但模板仍输出身份实体 | exit 1 | **exit 1**：「声明了 5 个身份类实体…但开关 = false —— 开关与产物不一致」 |
+| FI-C | `identityOn404: true` 但 404 的 JSON-LD 被掏空 | exit 1 | **exit 1**：「一个 JSON-LD 实体都没有…」 |
+| FI-D | `site.url` 退回带子路径的旧值（线上事故复原） | exit 1 | **exit 1**，13 个问题，含「site.url 不是**域名根**」 |
+| FI-E | `<lastBuildDate>` 改回 `items[0].date` | exit 1 | **exit 1**：「订阅源必须报**构建时刻**，不是最新条目的发表日」 |
+
+（此前已单独验过：`<lastBuildDate>` 改回 ISO 格式 → exit 1，
+报「不是 RSS 2.0 要求的 RFC 822 格式」。）
+
+### 并发冲突处置（记录给下一棒）
+
+- 12:38 前后，本场次在 `src/404.njk` 补 `identityOn404: true` 键时，
+  与并发场次**同时写入**同一键 → YAML `duplicated mapping key` → build exit 1。
+  处置：本场次撤掉自己那份，保留对方放在注释后的那份（位置更贴合注释里
+  "本人拍板时只改这一行"的说法）→ 复验通过。
+- ⚠️ 教训：`404.njk` 的 front matter 是 YAML，**同名键出现两次是硬错误**；
+  改这类文件前先 `grep -n` 确认没有第二份。
+- 另：并发场次曾把 `docs/IMPROVEMENT-LOG.md` 的**结尾换行**弄丢
+  （diff 里出现 `\ No newline at end of file`），本场次补回。
+
+### 待部署（本轮**不 push**，线上仍是旧版本）
+
+线上仍是 2026-10-16 那次部署，`/papers/`、`/publications.bib`、`/feed.xml`
+在线仍 404，canonical / og:url / sitemap 仍带 `/MeteoHub/` 前缀且逐条 404。
+**本地已全部修好**，但**部署与否由本人决定**。
+
+### 待决策（沿用上一轮，本轮不擅自拍板）
+
+1. **404 页要不要保留 Person 实体** —— 现已参数化为
+   `src/404.njk` 的 `identityOn404`（默认 `true`），本人拍板时**只改那一行**，
+   模板与门禁都不用动；两种口径门禁都认。
+2. **论文页是否显示"论文署名单位"**（发表时兰州大学 / 现在中科院 / 两者并注）
+   与 `pub.authorAffiliations` 数据字段。
+3. **`figure.alt` 是否保留 "Fig. 10 —" 前缀**（忠于作者原文 vs 只留描述）。
+
+### 留给下一轮
+
+1. **线上部署**（本人决定后执行）——部署完应能一次消掉三类"待部署"差异：
+   三个 404 路由 + `/MeteoHub/` 前缀。
+2. **门禁 22 候选**：`og:image:alt` 目前仍带 "Fig. 10 —" 前缀，会上到分享卡片
+   —— 与待决策第 3 条同一个根因，等本人拍板后一并处理。
+3. `eleventy.config.js` 的 `buildStamp` 现在按进程缓存 —— 开发服务器
+   （`--serve`）下**热重载后会一直用第一次的时刻**。生产构建无影响
+   （每次 `npm run build` 都是新进程），但若将来在 `--serve` 下检查
+   `robots.txt` 的生成时间，会看到陈旧值 → 值得记一笔或改成按构建轮次重置。
+---
+
+## 2026-10-19 · 第十二轮（12:40 场次）：独立复核并发场次的工作 + 修掉一个"判据会指错方向"的真缺陷
+
+### 本场次定位
+
+**没有从头做改进**——第十一轮（12:22–12:47 场次）的工作当时**已经写完但还没提交**，
+工作树里躺着 6 个文件的未提交改动。本场次做的是三件事：
+
+1. **巡检**（线上，不能坏）；
+2. **独立复核**那批未提交改动（写者自述不算数）；
+3. **修掉复核中发现的 1 个真缺陷** + 3 处会误导人的过时说明。
+
+### ⚠️ 本轮的并发情况与归属（先说清楚）
+
+巡检 cron **每 5 分钟起一个会话**，本场次开始时同一工作区里同时跑着**十来个**
+MeteoHub 会话（`mavis session list` 实测），且其中**至少一个仍在写工作树**——
+本场次接手后 20 秒内，日志文件又被改了一次（mtime 从 12:27:11 → 12:40:38）。
+
+处置：
+
+1. `mavis session list` 列出全部会话，按 `createdAt` 排出真实时序；
+2. 对 6 个仍在跑的会话逐一 `session send --force_steer` 发停手通知（全部 ACK）；
+3. 连续采样文件 mtime 确认工作树稳定（本场次写入前后各一次）；
+4. 本场次任唯一写者，**先复核再提交**，不丢弃任何他人成果。
+
+**归属**：
+
+| 内容 | 归属 |
+|---|---|
+| `affiliationUrl` → apex（`33ca461`，已提交） | **12:20 场次** |
+| 订阅源时间戳 / `identityOn404` 开关 / 门禁 16 双向化 / 门禁 20 / 门禁 21 | **第十一轮（12:22–12:47 场次）** |
+| 门禁 16 开关读取的**布尔解析缺陷**（本轮发现并修掉）+ 3 处过时说明 | **本场次（12:40）** |
+
+### A. 巡检结果（线上，无新增损坏）
+
+| 线上路由 | 状态 |
+|---|---|
+| `/` `/blog/` `/about/` `/sitemap.xml` `/robots.txt` `/404.html` | 200 |
+| `/papers/` `/publications.bib` `/feed.xml` | **404**（**待部署**，非损坏——本地都有） |
+
+- 线上 3 页 JSON-LD 各 1 块，**`JSON.parse` 全部通过**；
+- 线上 canonical 与 og:url **都带 `/MeteoHub/` 前缀**，而那 3 个带前缀的 URL
+  **实测逐条 404**（`/MeteoHub/`、`/MeteoHub/about/`、`/MeteoHub/blog/`）；
+- 线上 sitemap 的 3 条 `<loc>` 同样带前缀、同样 404。
+→ 性质是**待部署**（线上还是 2026-10-16 那次部署），**本任务禁止 push**。
+
+### B. 复核中发现并修掉的真缺陷：门禁 16 的开关读取会**指错方向**
+
+**问题**：门禁 16 读 `identityOn404` 开关用的是正则
+`/^identityOn404:\s*(true|false)\s*$/m`，**读不到就静默默认 `true`**。
+而模板读的是 **front matter（gray-matter / js-yaml）**。
+**两个解析器，取值集合不一样**——写错一个字母就可能让门禁与模板**指向相反的方向**。
+
+实测矩阵（用**仓库自带的** gray-matter 4.0.3 / js-yaml 4.3.2 跑出来的，不是推测）：
+
+| 写 | YAML 解析成 | 模板输出 Person？ | 旧门禁读成 | 后果 |
+|---|---|---|---|---|
+| `true` / `false` | 布尔 | 是 / 否 | true / false | ✓ 一致 |
+| `True` / `TRUE` | 布尔 true | 是 | true（默认） | ✓ 碰巧一致 |
+| `False` / `FALSE` | 布尔 false | **否** | true（默认） | ❌ **相反**：build 红，且报错文案说"= true"——**指错方向** |
+| `null` | null | **否** | true（默认） | ❌ 同上 |
+| `0` | 数字 0 | **否** | true（默认） | ❌ 同上 |
+| `no` / `off` | **字符串**（YAML 1.2 核心 schema 不认 YAML 1.1 的这些别名） | **是** | true（默认） | ⚠️ **静默失效**：本人以为关掉了，实际**没关**，且**全绿无告警** |
+| `"false"`（带引号） | 字符串 | **是** | true（默认） | ⚠️ 同上 |
+| `1` / `yes` / `on` | 数字 / 字符串 | **是** | true（默认） | ⚠️ 同上 |
+
+**两类失效的性质完全不同**：
+
+- **矛盾型**（`False` / `null` / `0`）：build 会红，但报错说"identityOn404 = true"，
+  而文件里写的是 `False`——**读代码的人会被指向"404 的 JSON-LD 被整块删了"这个
+  错方向**，真因（一个字母的大小写）根本不在那儿。
+- **静默失效型**（`no` / `off` / `"false"` / `1`）：YAML 1.2 把它们当**字符串或数字**，
+  非空字符串与数字在 Nunjucks 里**都是真值** → 模板**仍然输出 Person**；
+  门禁默认 `true` 也要求有实体 → **两边碰巧一致，全绿通过**。
+  本人以为自己关掉了这个开关，实际**根本没关**，**没有任何东西会报**。
+
+**修法**（零新依赖）：
+
+- 读法改成**宽松取字面量 + 单独判合法性**：
+  `/^identityOn404:[ \t]*(\S+)[ \t]*(?:#.*)?$/m`；
+- **读不到 / 不是合法布尔 → 直接判红**，绝不静默兜底；
+  合法集合 = YAML 1.2 核心 schema 的六种写法
+  （`true/True/TRUE/false/False/FALSE`）；
+- 报错时引用**源文件里的字面量**（新增 `identityOn404Raw`），
+  不引用门禁自己推出来的值——**推出来的值一旦与文件不符，报错就指错方向**；
+- 下游两条判据改用**严格比较**（`=== true` / `=== false`）：
+  `null`（读不到/不合法）表示"上面已经判红了"，这里必须跳过，
+  不能当成 `false` 去报"开关与产物不一致"——那同样是把人指向错方向。
+
+⚠️ **为什么不能用"读不到就默认 true"**：这条门禁的**全部意义**就是拦住
+"静默失效"。一个"读不到就当没事发生"的门禁，恰恰是它要防的那类东西本身。
+
+#### 故障注入（16 例，全部在**独立克隆**里跑，不碰共享工作区的 `_site`）
+
+| 组 | 注入 | 期望 | 实测 |
+|---|---|---|---|
+| 合法布尔 | `true` / `false` / `True` / `False` / `TRUE` / `FALSE` | exit 0 | **6/6 exit 0** ✓ |
+| 合法 + 注释 | `true  # 保留 Person` | exit 0 | **exit 0** ✓（正则允许行尾注释） |
+| 非法值 | `null` / `no` / `off` / `yes` / `on` / `"false"` / `1` / `0` | exit 1 | **8/8 exit 1** ✓，报错均点名实际字面量 |
+| 开关缺失 | 删掉整行 | exit 1 | **exit 1** ✓（「找不到 identityOn404 开关」） |
+| 双向判据 | 开关 `false`（= 本人拍"去掉"） | exit 0 | **exit 0** ✓（合法口径不被误伤） |
+| 双向判据 | 开关 `false` 但产物里塞回 Person | exit 1 | **exit 1** ✓（「开关与产物不一致」） |
+| 双向判据 | 开关 `true` 但 404 的 JSON-LD 被掏空 | exit 1 | **exit 1** ✓（报错引用 `identityOn404 = true`，与文件一致） |
+
+⚠️ **本场次自己也踩了一次那个坑**（记录下来给下一棒）：
+第一次跑 FI-F 时，我的注入脚本用 `replace` 匹配 `<script type="application/ld+json">…`，
+但**产物里那个块根本不存在**（开关 `false` 时模板不输出它）→ **replace 一次都没匹配上**，
+文件**逐字没变**，而我读到的"exit 0"其实是"注入没生效"，
+**不是**"门禁没拦住"。**"注入没生效"和"门禁没拦住"在结果上长得一模一样。**
+→ 后来给每个注入都加了**回读断言**（比对 ld+json 块数、改后字节数），
+断言不过直接 `exit 9` 作废该样本。重跑后 16/16 全部符合期望。
+
+### C. 修掉 3 处会误导人的过时说明（都不是代码缺陷，但会让人照着改错）
+
+1. **`src/404.njk` 与 `scripts/verify-site.cjs` 里的"先例引用"不成立**：
+   两处都写"与门禁 17 读 `src/robots.njk` 同一套路"——但**门禁 17 只读该文件的
+   `birthtime`/`mtime`**（`fs.statSync`），全文件**没有 front matter 解析代码**，
+   那个先例**不存在**。注释里的"先例"是给后来人验证实现是否合理的**锚**，
+   锚指向不存在的东西**比不写锚更糟**。→ 改成"门禁直接读源文件这一行（不解析 YAML）：
+   先取出字面量，再按白名单校验，只接受 true / false / True / False / TRUE / FALSE；
+   其余写法一律判红"。
+2. **`scripts/verify-site.cjs` 门禁清单第 16 条**写"与 **site.js** 的
+   `identityOn404` 开关一致"——开关**不在 `site.js`**，在 **`src/404.njk` 的
+   front matter**（`site.js` 里根本没有这个键）。→ 改正。
+3. **「待决策」段那段"本人拍板时怎么改"已经过时，且与实测矛盾**：
+   原先写"改 `base.njk` 的 Person 块加 `{%- if not is404 %}` 即可，
+   第 16 条门禁不受影响（它不查 Person）"——**两处都不成立**：
+   ① 改法已变成**翻 `src/404.njk` 的 `identityOn404` 一行**；
+   ② "门禁不受影响"是**假的**（门禁 16 现在双向读同一个开关，翻成 `false`
+   但产物里还留着 Person → 门禁**会红**）。
+   这段是**本人拍板时唯一的依据**（开关在哪、翻哪一行、后果是什么），
+   照着改会改错地方 → 已订正，并补上"那一行请写 `true` / `false`"。
+   ⚠️ **12:53 又订正一次**：初版订正写成"那一行**只能写** `true` 或 `false`"，
+   而门禁的白名单实际接受 `true / false / True / False / TRUE / FALSE`
+   （模板侧 js-yaml 也把这些当布尔 → 双方取同一个值 → 不会对不上）。
+   真正会被门禁报红的是 `no / on / off / "false" / null / 1` 这类。
+   写成"只能写 true 或 false"会让本人以为 `False` 会红——**实测 `False` 是绿的**。
+
+### 验证结果
+
+- `npm run build` **exit 0**；`check:css` 通过（15 个文件）；`check:site` 通过
+  （6 个 HTML 页、**127 条本地引用**、5 条 sitemap URL）
+- 门禁 16 的 **16 例注入**全部符合期望（见上表）
+- 第十一轮那批改动**独立复验通过**（在本场次的隔离克隆里复跑）：
+  基线 exit 0 / 开关 `false` exit 0 / 开关 `false` + 产物仍留 Person exit 1 /
+  开关 `true` + 掏空 exit 1 / 自造类型 exit 1 / 内容类实体回归 exit 1
+- `feed.xml`：`<lastBuildDate>` = `Mon, 19 Oct 2026 19:42:40 GMT`（RFC 822 ✓）、
+  item `<pubDate>` = `Mon, 01 Jun 2026 00:00:00 GMT`（RFC 822 ✓）；
+  与 `robots.txt` 的「生成时间」`2026-10-19T19:42:40.165Z` **同一秒** ✓
+  （两个时间源确实同源）
+- JSON-LD 12 块全部 `JSON.parse` 通过；`canonical` 与 `og:url` 6 个页面全部一致；
+  `sitemap.xml` 5 条 URL 与真实路由一一对应
+- 线上巡检无新增损坏（见 A 节）
+
+### 待部署（本轮**不 push**，线上仍是旧版本）
+
+线上仍是 2026-10-16 那次部署：`/papers/`、`/publications.bib`、`/feed.xml`
+在线仍 404，canonical / og:url / sitemap 仍带 `/MeteoHub/` 前缀且逐条 404。
+**本地已全部修好**，但**部署与否由本人决定**（本任务禁止 push）。
+
+### 待决策（沿用上一轮，本轮不擅自拍板）
+
+1. **404 页要不要保留 Person 实体** —— 现已参数化为 `src/404.njk` 的
+   `identityOn404`（默认 `true`），本人拍板时**只改那一行**（写成 `true` / `false` 最稳；`True` / `False` 等大小写形式也能过，
+   其余写法会被门禁报红），模板与门禁都不用动；两种口径门禁都认。
+2. **论文页是否显示"论文署名单位"**（发表时兰州大学 / 现在中科院 / 两者并注）
+   与 `pub.authorAffiliations` 数据字段。
+3. **`figure.alt` 是否保留 "Fig. 10 —" 前缀**（忠于作者原文 vs 只留描述）。
+4. **何时 push / 部署**（本地已领先远端 13 个 commit）。
+
+### 留给下一轮
+
+1. **线上部署**（本人决定后执行）——部署完应能一次消掉三类"待部署"差异：
+   三个 404 路由 + `/MeteoHub/` 前缀。
+2. **门禁 22 候选**：`og:image:alt` 目前仍带 "Fig. 10 —" 前缀，会上到分享卡片
+   —— 与待决策第 3 条同一个根因，等本人拍板后一并处理。
+3. **全站真实 img 必须有非空 alt 的门禁**：现状全站 5 张真实 img 的 alt 都齐，
+   但**没有任何门禁守着**（门禁 15 只管"同一张图三出口一致"，不管"这张图压根
+   没有 alt"）。⚠️ 实现必须**先剔除 `<style>` 块与 HTML 注释**再匹配 `<img`——
+   `src/about.njk:71` 的 CSS 注释里有一句字面 `<img>`，不剔除会造成假阳性。
+4. `eleventy.config.js` 的 `buildStamp` 现在按进程缓存 —— 开发服务器
+   （`--serve`）下**热重载后会一直用第一次的时刻**。生产构建无影响
+   （每次 `npm run build` 都是新进程），但若将来在 `--serve` 下检查
+   `robots.txt` 的生成时间，会看到陈旧值 → 值得记一笔或改成按构建轮次重置。
+5. **门禁 12 的逃逸路径：`ownerName` 两处不同源 → 建议加 ORCID 双向绑定门禁**
+   （判据当前是绿的，下一轮可直接加；**本轮不实施**）：
+   - `eleventy.config.js:688`：`const ownerName = "Yihang Lyu"; // 与 site.author.nameAsPublished 一致`
+     → **硬编码**（注释只是"人工声明一致"，不是派生）；
+   - `eleventy.config.js:820`：`const ownerName = A.nameAsPublished || A.name || "";` → **读 site.js**。
+   - 今天两处恰好相同（`src/_data/site.js:68` 的 `nameAsPublished: "Yihang Lyu"`）→ **现在没有可见 bug**。
+   - **逃逸路径**：`nameAsPublished` 一旦变成出版商登记名（如 "Yihang L. Lyu"），
+     `jsonLdArticles` 里的 `a.name === ownerName`（`eleventy.config.js:712`）不再命中
+     → 站点级 `ScholarlyArticle` 的本人作者节点**拿不到 canonical `#person` @id**；
+     而门禁 12 只数"名字匹配 `nameAsPublished`"的节点 → 对这条**无感**。
+   - **建议的新门禁**（用与名字无关的稳定锚点 `site.author.orcid` 双向绑定）：
+     凡 `sameAs` 里含该 ORCID 的 Person 节点必须带 canonical person @id；
+     凡带 canonical person @id 的 Person 节点必须在 `sameAs` 里含该 ORCID。
+   - **实测（12:50 场次，静态扫 6 页全部 JSON-LD 的当前产物）**：Person 节点 **43** 个 /
+     带 canonical @id 的 **13** 个 / 带 ORCID 的 **13** 个；
+     方向 A（有 ORCID 无 @id）违例 **0**、方向 B（有 @id 无 ORCID）违例 **0**
+     → 建议的判据在当前产物上**是绿的**（可以直接加）。
+   - ⚠️ **加门禁时必须处理 `sameAs` 的两种形态**：带 canonical @id 的节点里
+     **9 个是数组、4 个是字符串**（`jsonLdArticles` 的 `person.sameAs = ownerOrcid`
+     是字符串；`jsonLdPaper` 的 `person.sameAs = A.sameAs` 是 site.js 里的数组）。
+     写成 `sameAs.includes(ORCID)` 对**字符串**会退化成"子串在字符串里"、
+     对数组才是"元素匹配"；必须写成
+     `(Array.isArray(v) ? v : [v]).some(s => s.includes(ORCID))` 才对两种都成立。
+     **这与第九轮刚修的 `@type` 数组洞是同一类陷阱**——
+     "判据只认一种序列化形式 → 换种写法让整条判据静默失效"。
+   - **更根本的配套修法**（建议**先做它**）：让 `jsonLdArticles` 的 `ownerName`
+     也从 site.js 读（`A.nameAsPublished || A.name`）→ 分歧就不可能发生。
+     这一步比加门禁更根本。
+6. **`src/feed.njk` 的"优先级"注释默认了"不转义"这个前提，与实际配置不符**
+   （**本轮不实施**）：
+   - `src/feed.njk` 里那段讲"`|` 优先级高于 `or`，括号不能省"的注释，
+     **要专门教人手写 `| escape`**，等于默认了"默认不转义"；
+   - 而 Eleventy 3.1.6 的 Nunjucks **autoescape 默认开着**
+     （`eleventy.config.js` 里没有关掉它的设置；本项目日志第八轮早已写明
+     "页面侧是 nunjucks 转义过的"）→ 读者会以为"不写 `| escape` 就不转义"。
+   - 本轮在飞的 `src/feed.njk` 改动只动了 `lastBuildDate` / `pubDate` 两行
+     与它们的新注释，**这段老注释原样保留** → 这条**尚未被处理**。
+   - ⚠️ 顺带一个**尚未验证、不要写进结论**的点：autoescape 开着的同时又手写
+     `| escape`，在 description 含 `&` 时是否**双重转义**（`&amp;amp;`）？
+     实测当前 `feed.xml` 的两条 description **都不含 `&`**，所以看不出差别；
+     要确认得先有一条含 `&` 的摘要（属于要动数据的事）。
+     → **日志里只写"前提与实际配置不符"，不写"双重转义"。**
+7. **门禁 15 在四个页面上空跑（目前只保护论文页）**（**本轮不实施**）：
+   - 门禁 15（`scripts/verify-site.cjs` 里标题为"同一张图在页面里必须只有一套
+     alt 文本"的那条；⚠️ **当前编号是 15，不是 14**——14 是编号理顺前的旧号）
+     的逻辑：把 og/twitter 的 image URL 解析成站内路径，
+     **只有当这张图也出现在该页的 `<img>` 里**才比对两处 alt；否则 `continue`。
+   - 实测：首页 `og:image` = `assets/img/og/og-1200x630.png`，
+     而首页 `<img>` 集合里**没有**这张图 → 首页**一张图都不参与比对**；
+     `about` / `papers` / `blog` 同理（og 卡片图与页面里的图无交集）；
+     **只有论文页**的 og 图（`assets/img/publications/trmm-fig10.jpg`）同时出现在页面上
+     → 有判别力。
+   - → **这条门禁目前只保护论文页**。首页 / 列表页 / 关于页的 og 卡片 alt
+     与页面图片 alt **没有第二道保险**（本轮新增的"首页 `twitter:image:alt` 重复"
+     就是从这个缝里漏过去的——见「待决策」段新增那一条）。
+   - 补法方向（待本人定口径后做）：要么给这几个页面也加一条
+     "og 图 alt 与 twitter 图 alt 必须一致"的判据（复用同一个 `pairImageAlts`
+     结构，两处都取同一张 og 图），要么承认"列表页的 og 卡片是独立图，
+     与页面里的图本就不是同一张"，把门禁范围写清楚。
