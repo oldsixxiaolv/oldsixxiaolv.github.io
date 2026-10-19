@@ -9,24 +9,60 @@
  * 部署流水线跑的是 `npm run build`，把检查挂进去，
  * 坏链接就会**卡住部署**，而不是发出去之后再回头修。
  *
- * 检查项：
- *   1. 本地引用（href/src）能否在产物里找到对应文件
- *   2. JSON-LD 能否被 JSON.parse 解析
- *   3. canonical 与 og:url 是否一致
- *   4. sitemap.xml 里的每个 URL 是否都有对应产物
- *   5. 反过来：每个产物页面是否都进了 sitemap（除 404）
- *   6. 站内引用是否都是相对路径（"整个文件夹扔到哪都能跑"）
- *   7. 产物里有没有 macOS 资源叉 ._* 文件
- *   8. feed.xml 里有没有 item、每条 item 的 link 是否指向真实页面
- *   9. 论文页的 JSON-LD 里有没有 Dataset / SoftwareSourceCode 实体
- *  10. 身份类 meta（twitter:site/creator）有没有写死的兜底值
- *  （第 11–16 条门禁不在此列举，各自紧挨着对应的检查段落，
- *    注释里写清了拦的是哪类 bug）
+ * 编号体系（第九轮统一，务必先看这张表再引用条号）：
+ *   每页检查（对每个 HTML 产物跑一遍）：
+ *     1. 本地引用（href/src）能否在产物里找到对应文件
+ *     2. JSON-LD 能否被 JSON.parse 解析
+ *     3. canonical 与 og:url 是否一致（且非错误页必须有 canonical）
+ *    4b. 错误页的索引控制：404 页要有 noindex 与 follow（按 token 判定）、
+ *        不许有 canonical、不许有 hreflang；
+ *        正常页**不许**有 noindex
+ *    4c. 标题不能退化成站点名（<title> / og:title），且必须有 og:title
+ *   全站检查（扫全部产物）：
+ *     5. sitemap.xml 里的每个 URL 都有对应产物
+ *     6. 反过来：每个产物页面都进了 sitemap（除 404）
+ *     7. feed.xml 里有 item、每条 item 的 link 指向真实页面
+ *     8. 论文页的 JSON-LD 里有 Dataset / SoftwareSourceCode 实体
+ *     9. 身份类 meta（twitter:site/creator）没有写死的兜底值
+ *    10. JSON-LD 里的 @id / url 都是绝对地址
+ *    11. og:type 与页面性质一致；article:* 只出现在 article 页上
+ *    12. 全站"本人"的 @id 只有一个取值
+ *    13. /publications.bib 与论文页 Copy 按钮逐字一致
+ *    14. 下载的 .bib 里不含 HTML 实体
+ *    15. 同一张图在页面里只有一套 alt 文本
+ *    16. 404 页不得声明内容类实体（ScholarlyArticle 等）
+ *    17. robots.txt 的"生成时间"是真正的构建时间，不是文件创建时间
+ *    18. sitemap 的 <lastmod> 是真实的 git 提交时间（逐页核对；浅克隆直接失败）
+ *    19. 内容类实体的 @id 全站一致，且指向真实存在的页面
+ *
+ * 旧编号 → 新编号对照（历史日志/commit 里引用的是旧号，追溯时用这张表）：
+ *   旧 1 / 2 / 3      → 新 1 / 2 / 3
+ *   旧 3b            → 新 4b   （第七轮 commit message 把它写成"第 15 条"，
+ *                              同一个东西两个号，后来的轮次照着引用会指错对象）
+ *   旧 4（标题退化） → 新 4c
+ *   旧 4（sitemap）  → 新 5    （旧版里"第 4 条"被用了两次）
+ *   旧 5             → 新 6
+ *   旧 6             → 新 7
+ *   旧 7             → 新 8
+ *   旧 8             → 新 9
+ *   旧 9             → 新 10
+ *   旧 10            → 新 11
+ *   旧 11            → 新 12
+ *   旧 12            → 新 13
+ *   旧 13            → 新 14   （旧版里这条缩在第 12 条的 else 分支内，
+ *                              从代码上看不出它是一条独立门禁）
+ *   旧 14            → 新 15
+ *   旧 15            → 新 4b   （即旧 3b，见上）
+ *   旧 16            → 新 17
+ *   （无）            → 新 16   （第九轮新增：404 页不得声明内容类实体）
+ *   （无）            → 新 18   （第九轮新增：sitemap lastmod 必须是真实提交时间）
+ *   （无）            → 新 19   （第九轮新增：内容类实体的 @id 全站一致）
  *
  * 用法：node scripts/verify-site.cjs   （有错 exit 1）
  */
 const fs = require("fs");
 const path = require("path");
+const { execFileSync } = require("child_process");
 
 // 产物目录。默认是仓库里的 _site；SITE_DIR 只是给"故障注入"用的——
 // 改产物做注入测试时如果直接改 _site，会和并发的 build 抢同一个目录，
@@ -98,7 +134,7 @@ function resolveLocal(fromFile, raw) {
 
 let refCount = 0;
 let absoluteCount = 0;
-// 每页解析成功的 JSON-LD 记录，供第 11 / 13 条门禁复查
+// 每页解析成功的 JSON-LD 记录，供第 10 / 12 / 16 条门禁复查
 const ldRecords = [];
 
 for (const file of htmlFiles) {
@@ -145,7 +181,7 @@ for (const file of htmlFiles) {
     fail(`${from}: 缺 canonical`);
   }
 
-  // 3b) 错误页的索引控制
+  // 4b) 错误页的索引控制（与下面的 4c 同属"每页检查"这一族）
   //     404 页此前既**没有 noindex**、又发着指向自身的 canonical
   //     （实测 `<link rel="canonical" href=".../404.html">`）——等于主动向
   //     搜索引擎声明"404 也是正式内容页"，而错误页 URL 本该被排除在索引外。
@@ -154,21 +190,47 @@ for (const file of htmlFiles) {
   //                  但 follow 保留页内有效链接的抓取与权重传递）；
   //       · 正常页 → **不许**出现 noindex（那是把好页面自己藏起来，
   //                  同样属于静默缺陷，一并兜住）。
+  //     ⚠️ 这段在第七轮被加进来时，注释编号写的是 "3b"，而同一轮的
+  //     commit message 与日志写的是"第 15 条"——同一个东西两个号，
+  //     后来的轮次照着引用就会指错对象。第九轮把编号体系统一了：
+  //     **每页检查 = 1–4c，全站检查 = 5–17**，见文件头部的编号对照表。
   const isNotFound = from.endsWith("404.html");
   const robotsMeta = (html.match(/<meta[^>]*name\s*=\s*"robots"[^>]*content\s*=\s*"([^"]*)"/i) || [])[1];
-  const hasNoindex = robotsMeta ? /noindex/i.test(robotsMeta) : false;
+  // robots 指令必须**按 token 精确匹配**，不能用子串正则：
+  // "nofollow" 里含 "follow" 子串 → /follow/i 对 "noindex, nofollow" 判 true，
+  // 于是"nofollow 冒充 follow"会被放过 —— 而那正是这条要抓的 case。
+  const robotsTokens = (robotsMeta || "")
+    .split(",")
+    .map((t) => t.trim().toLowerCase());
+  const hasNoindex = robotsTokens.includes("noindex");
+  const hasFollow = robotsTokens.includes("follow");
   if (isNotFound) {
     if (!hasNoindex) {
       fail(`${from}: 404 页缺少 noindex（robots meta = ${robotsMeta || "无"}）`);
     }
+    // follow 不能丢：noindex 只表示"不收录这个 URL 本身"，
+    // follow 才表示"仍沿链抓页内的有效链接"（页脚还有 sitemap / RSS / 联系方式）。
+    // 写成 "noindex, nofollow" 会让错误页里的链接彻底不被抓取。
+    if (!hasFollow) {
+      fail(
+        `${from}: 404 页的 robots 少了 follow（robots meta = ${robotsMeta || "无"}）—— ` +
+          "noindex 只表示不收录这个 URL 本身，follow 才表示仍沿链抓页内有效链接"
+      );
+    }
     if (canonical) {
       fail(`${from}: 404 页不应有 canonical（${canonical}）`);
+    }
+    // hreflang 那一组同样是在声明"这个 URL 是某个语言版本的正式地址"，
+    // 错误页发它与发 canonical 是同一类错误。
+    const hreflangLinks = html.match(/<link[^>]*hreflang\s*=/gi) || [];
+    if (hreflangLinks.length) {
+      fail(`${from}: 404 页不应有 hreflang（发现 ${hreflangLinks.length} 个）`);
     }
   } else if (hasNoindex) {
     fail(`${from}: 正常页不该有 noindex（robots meta = ${robotsMeta}）`);
   }
 
-  // 4) 标题不能退化成站点名
+  // 4c) 标题不能退化成站点名
   //    base.njk 的标题回落是「title → 论文标题 → 站点名」三级。
   //    论文页（第三轮才加）front-matter 里没有 title，最初整页的
   //    <title>/og:title 全部退化成 "Yihang Lyu"——分享出去预览标题是
@@ -187,7 +249,7 @@ for (const file of htmlFiles) {
   if (!ogTitleVal) fail(`${from}: 缺 og:title`);
 }
 
-/* ---------- 4) sitemap 里的 URL 都要有对应产物 ---------- */
+/* ---------- 5) sitemap 里的 URL 都要有对应产物 ---------- */
 const sitemapPath = path.join(SITE, "sitemap.xml");
 const sitemapUrls = [];
 if (fs.existsSync(sitemapPath)) {
@@ -211,7 +273,7 @@ if (fs.existsSync(sitemapPath)) {
   fail("产物里没有 sitemap.xml");
 }
 
-/* ---------- 5) 每个产物页面都要进 sitemap（除 404） ---------- */
+/* ---------- 6) 每个产物页面都要进 sitemap（除 404） ---------- */
 const sitemapPaths = new Set(
   sitemapUrls.map((u) => {
     try {
@@ -229,7 +291,7 @@ for (const file of htmlFiles) {
   }
 }
 
-/* ---------- 6) RSS 订阅源不能是空的 ----------
+/* ---------- 7) RSS 订阅源不能是空的 ----------
    /feed.xml 此前只取 collections.blog，而那个集合是空的，feed 里一条 item
    都没有，页脚却挂着一个 RSS 入口。一个点开永远是空白的订阅源，比没有
    更糟——而且它不会报错，只会安静地空着，所以必须做成门禁。
@@ -275,7 +337,7 @@ if (!fs.existsSync(feedPath)) {
   note(`feed.xml ${feedItemCount} 条 item`);
 }
 
-/* ---------- 7) 论文页必须声明数据集与可复现胶囊 ----------
+/* ---------- 8) 论文页必须声明数据集与可复现胶囊 ----------
    站点确实发布了两条带 DOI 的产出（Zenodo 数据集、Code Ocean 胶囊），
    它们的 schema.org 实体类型是 DataCite 自己映射的
    （types.schemaOrg = Dataset / SoftwareSourceCode）。
@@ -315,7 +377,7 @@ for (const [from, html] of paperHtml) {
   }
 }
 
-/* ---------- 8) 身份类 meta 不得声明没有数据支撑的账号 ----------
+/* ---------- 9) 身份类 meta 不得声明没有数据支撑的账号 ----------
    twitter:site / twitter:creator 不是普通外链：它的内容被搜索引擎当成
    "这个账号属于本站作者"。写错的后果不是死链，而是**把本站归属挂到
    别人名下**。此前 base.njk 写死了两个猜测值（@meteohub 是别人的账号、
@@ -367,7 +429,7 @@ if (siteData) {
   }
 }
 
-/* ---------- 9. JSON-LD 里的 @id / url 必须是绝对地址 ----------
+/* ---------- 10. JSON-LD 里的 @id / url 必须是绝对地址 ----------
    这条门禁是被一个真 bug 逼出来的：eleventy.config.js 的 jsonLdArticles
    签名有 4 个形参（pubs, ownerOrcid, excludeKey, siteUrl），但 base.njk
    的调用只传了 2 个——JS 把多余的实参**静默丢弃**（不报错、页面照出），
@@ -406,7 +468,7 @@ for (const { from, parsed } of ldRecords) {
   }
 }
 
-/* ---------- 10. og:type 要与页面性质一致 ----------
+/* ---------- 11. og:type 要与页面性质一致 ----------
    此前 base.njk 写的是"除首页外一律 article"，于是 /about/、/blog/、
    /papers/ 列表页、/404.html 统统自称 article——它们都不是文章，
    分享卡片与聚合器会按文章语义解读它们（取 article:published_time 等）。
@@ -444,7 +506,7 @@ for (const file of htmlFiles) {
   }
 }
 
-/* ---------- 11. 全站"本人"的 @id 必须只有一个取值 ----------
+/* ---------- 12. 全站"本人"的 @id 必须只有一个取值 ----------
    schema.org 里 @id 是"同一个实体"的稳定标识：不同页面上描述同一个人的
    节点，@id 相同才会被合并成一个节点；不同就会被当成多个人。
    站点上描述"本人"的节点有好几处来源（base.njk 的 Person 实体、
@@ -483,7 +545,7 @@ if (ownerIds.size > 1) {
   fail(`产物里找不到任何描述"${OWNER_NAME}"的 Person 节点`);
 }
 
-/* ---------- 12. /publications.bib 必须与论文页的 Copy 按钮逐字一致 ----------
+/* ---------- 13. /publications.bib 必须与论文页的 Copy 按钮逐字一致 ----------
    论文页给了 3 个 Copy 按钮（论文 / 数据集 / 胶囊），而 /publications.bib
    是读者下载全部引用的入口。此前这个文件**只有论文那一条**：页面能复制
    3 条、文件里只有 1 条，两处口径不一致——读者下载后会以为数据没有
@@ -501,7 +563,7 @@ if (ownerIds.size > 1) {
    遇到 URL 查询串里的 & 时两边就会错位。原文就该原样比。
 
    ⚠️ 这条门禁以前正是靠"两边同样被转义"才逐字通过的 —— 它**结构上就抓不到
-   转义 bug**：转义错了反而更"一致"。所以下面第 13 条直接盯"文件里不该有实体"。 */
+   转义 bug**：转义错了反而更"一致"。所以下面第 14 条直接盯"文件里不该有实体"。 */
 
 /** 把 HTML 实体解码回原字符。
     nunjucks 的 autoescape 会把 & " ' < > \ ` 转成
@@ -521,10 +583,17 @@ const decodeHtmlEntities = (s) =>
 const HTML_ENTITY_RE = /&(?:amp|quot|lt|gt|#39|#92|#96);|&#(?:x[0-9a-fA-F]+|\d+);/;
 
 const bibPath = path.join(SITE, "publications.bib");
-if (!fs.existsSync(bibPath)) {
+// 本节开始前的问题数：用来判断"这一节是否一条问题都没有"，
+// 从而决定那句"逐字一致"的 note 能不能打印（失败时打印它就是自相矛盾）。
+const problemsBeforeBibCheck = problems.length;
+// bibText 提到模块作用域：第 13 条与第 14 条都要读它。
+// （此前它被声明在 else 块里，第 14 条独立成块后就是 undefined ——
+//  这条门禁会直接抛 ReferenceError，整个验收脚本崩掉。）
+const bibExists = fs.existsSync(bibPath);
+const bibText = bibExists ? fs.readFileSync(bibPath, "utf8") : "";
+if (!bibExists) {
   fail("产物里没有 publications.bib");
 } else {
-  const bibText = fs.readFileSync(bibPath, "utf8");
   const bibEntries = bibText
     .split(/\n\s*\n/)
     .map((s) => s.trim())
@@ -572,19 +641,30 @@ if (!fs.existsSync(bibPath)) {
       }
     }
   }
-  note(
-    `publications.bib ${bibEntries.length} 条，与论文页 ${copyBlocks.length} 个复制块逐字一致（页面侧已解码 HTML 实体）`
-  );
+  // 这句 note 只能在**本节一条问题都没有**时才说"逐字一致"：
+  // 无条件打印的话，失败时同一屏上既报"找不到逐字相同的条目"、
+  // 又说"与论文页逐字一致"—— 自相矛盾，且让人怀疑门禁是不是在乱报。
+  if (problems.length === problemsBeforeBibCheck) {
+    note(
+      `publications.bib ${bibEntries.length} 条，与论文页 ${copyBlocks.length} 个复制块逐字一致（页面侧已解码 HTML 实体）`
+    );
+  }
 
-  /* ---------- 13. 下载的 .bib 里不得出现 HTML 实体 ----------
-     publications.bib 是**下载文件**，读者拿它直接喂给 Zotero / BibDesk。
-     里面出现 `&#92;&amp;` 这种实体，就说明它被 nunjucks 的 autoescape 加工过
-     —— 那不是合法 BibTeX，导入器会读出乱码，或直接把字段名认错。
+}
 
-     这条比第 12 条更直接：第 12 条比的是"两处是否一致"，而修复前两边
-     **同样**被转义，所以照样通过；这条直接问"文件里有没有实体"。
+/* ---------- 14. 下载的 .bib 里不得出现 HTML 实体 ----------
+   publications.bib 是**下载文件**，读者拿它直接喂给 Zotero / BibDesk。
+   里面出现 `&#92;&amp;` 这种实体，就说明它被 nunjucks 的 autoescape 加工过
+   —— 那不是合法 BibTeX，导入器会读出乱码，或直接把字段名认错。
 
-     判据只认 nunjucks 真会产生的那些实体；裸 & 不算 —— URL 查询串里本来就有 &。 */
+   这条比第 13 条更直接：第 13 条比的是"两处是否一致"，而修复前两边
+   **同样**被转义，所以照样通过；这条直接问"文件里有没有实体"。
+
+   判据只认 nunjucks 真会产生的那些实体；裸 & 不算 —— URL 查询串里本来就有 &。
+
+   ⚠️ 这条此前是**缩进在第 13 条的块里**的（共用一个 else 分支），
+   于是从代码上根本看不出它是一条独立门禁——编号体系第九轮才理顺。 */
+if (bibExists) {
   const entityHit = bibText.match(HTML_ENTITY_RE);
   if (entityHit) {
     fail(
@@ -594,7 +674,7 @@ if (!fs.existsSync(bibPath)) {
   }
 }
 
-/* ---------- 14. 同一张图在页面里必须只有一套 alt 文本 ----------
+/* ---------- 15. 同一张图在页面里必须只有一套 alt 文本 ----------
    一张图在三处各写各的 alt，是这类站点最常见的静默缺陷：页面照出、构建照过、
    没有任何报错，只有读屏软件用户和社交平台会读错。
 
@@ -693,7 +773,54 @@ for (const file of htmlFiles) {
   }
 }
 
-/* ---------- 16. robots.txt 的"生成时间"必须是真正的构建时间 ----------
+/* ---------- 16. 404 页不得声明内容类实体 ----------
+   错误页的可见文案是 "Nothing here"——一个**不存在的页面**。但它此前
+   仍带着全站的 @graph：一个 ScholarlyArticle 节点，带 headline（论文标题）、
+   abstract（摘要）、funder/Grant（NSFC 资助）、isPartOf（期刊）、
+   encoding/MediaObject（成果图）。
+
+   这是**明确的误导信号**，不是口味问题：消费方会把这些实体归到
+   `/404.html` 这个 URL 上。而线上 `/404.html` **直接访问返回 200**
+   （不是靠访问不存在的路径才 404），所以它是一个可被抓取的真实页面。
+
+   判据按**内容类实体**列黑名单，而不是"404 页只能有 Person"：
+     · 允许 Person（描述站点作者本人，url 指向站点根，与"本页是论文"无关）；
+     · 禁止 ScholarlyArticle / Dataset / SoftwareSourceCode / Article /
+       BlogPosting / NewsArticle / TechArticle / ScholarlyChapter / Review /
+       CreativeWork / Periodical / Grant / MediaObject 等——这些每一个
+       都在说"这里有**一份具体的产出**"。
+   ⚠️ Periodical / Grant / MediaObject 也列进来了：它们是 ScholarlyArticle
+   的嵌套节点，只跟着文章实体出现；放过它们等于留了个后门。 */
+const CONTENT_TYPES = new Set([
+  "ScholarlyArticle",
+  "Article",
+  "Dataset",
+  "SoftwareSourceCode",
+  "BlogPosting",
+  "NewsArticle",
+  "TechArticle",
+  "ScholarlyChapter",
+  "Review",
+  "CreativeWork",
+  "Periodical",
+  "Grant",
+  "MediaObject",
+]);
+for (const { from, parsed } of ldRecords) {
+  if (!from.endsWith("404.html")) continue;
+  for (const node of collectNodes(parsed)) {
+    const type = node["@type"];
+    if (typeof type !== "string") continue;
+    if (!CONTENT_TYPES.has(type)) continue;
+    fail(
+      `${from}: JSON-LD 里出现了内容类实体 "${type}" —— ` +
+        `错误页不该声明论文/数据集/胶囊（页面文案是 "Nothing here"，` +
+        `而实体却在对外声明这里有产出）`
+    );
+  }
+}
+
+/* ---------- 17. robots.txt 的"生成时间"必须是真正的构建时间 ----------
    robots.txt 里那行 `# 生成时间：…` 此前取的是 `page.date`，而对模板页
    而言 page.date = **源文件的 birthtime（创建时间）**。实测本机：
      src/robots.njk birthtime = 2026-10-02T04:29:21.600Z
@@ -743,6 +870,305 @@ if (fs.existsSync(robotsTxtPath)) {
     }
   }
 }
+
+/* ---------- 18. sitemap 的 <lastmod> 必须是真实的 git 提交时间 ----------
+   线上实测（2026-10-16 那次部署）：/ 与 /about/ 与 /blog/ 三条 <lastmod>
+   精确到同一毫秒（09:51:14.887~.894Z），而部署就在 push 后 13 秒。
+   根因是 lastmod 取的是 entry.date —— 对模板页而言那是源文件的
+   **birthtime（创建时间）**，而 CI 的 actions/checkout 会重新写盘，
+   birthtime 变成 checkout 那一刻。于是每次部署，全站 lastmod 一起跳到
+   部署时刻：那不是"内容最后一次改变的时间"，是个**假时间戳**，
+   还会让搜索引擎以为全站每次部署都被整体重写了一遍。
+
+   现在 lastmod 取"该页源文件最后一次 git 提交时间"
+   （eleventy.config.js 的 lastCommitTime filter）。这条门禁守住它，
+   判据是五条互补的规则：
+
+     A. **浅克隆一律失败**（无条件，不只 CI）。
+        浅克隆里 `git log -1 -- <file>` 只能查到 HEAD 那一次，查出来的值
+        "看起来像提交时间、其实是 checkout 时间"——症状与 birthtime 一模一样
+        （全站一起跳到部署时刻），但更难被发现。
+        ⚠️ 这条判定必须放在"产物里有没有 lastmod"**之外**：
+        浅克隆里 filter 返回空串 → 产物零 lastmod → 若把判定写在
+        "遍历带 lastmod 的条目"里，循环体一次都不执行 → 门禁放行，
+        恰好放过了最该抓的那次退化。
+     B. **不在 git 仓库里 → 产物里不许有 lastmod**。
+        源码 zip 分发本来就没有 git 历史，这不是"退化"，不该拦人；
+        但产物里若出现了 lastmod，只能说明有人在没有真实数据源的情况下
+        硬凑了一个值。
+     C. **给了就必须是真的**：合法 ISO 时间、不得晚于构建时刻、
+        且等于 src 下某个源文件真实的最后一次提交时间（集合比对）。
+     D. **逐页核对（值）**：产物里每条 <url> 都带着它自己的源文件路径
+        （`<!-- source: ... -->`，由 sitemap.njk 写入）。该页的 lastmod
+        必须**精确等于**那个源文件的最后提交时间。
+        集合比对（C）发现不了"取错源文件"——把全站 5 条 lastmod 都填成
+        src/index.njk 的提交时间，集合判定照样通过。
+     E. **逐页核对（有/无）+「lastmod 整体消失」兜底**：
+        源文件提交过 → 该页必须有 lastmod；源文件还没提交 → 该页不该有。
+        filter 一旦静默失效（返回空串），sitemap 里一条 lastmod 都不剩，
+        而 build 照样 exit 0、门禁照样全绿 —— sitemap 规范里 lastmod 是
+        **可选**字段，所以它不报错，只会悄悄地不写。
+        ⚠️ 早先这个兜底挂在"src 下**每个**源文件都提交过"这个前提下，
+        而本仓库流程是「先 build 后 commit」——新写的页面文件在 build 时
+        还没进历史 → 前提必然不成立 → **整条兜底长期失效**，最典型的
+        静默失效反而抓不到。逐页判定（按该页自己的源文件查）没有这个前提：
+        一个还没提交的新文件只影响它自己那一页。 */
+const REPO = path.resolve(__dirname, "..");
+const gitOut = (args) => {
+  try {
+    return execFileSync("git", args, {
+      cwd: REPO,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+  } catch {
+    return null;
+  }
+};
+// git 仓库根（与 eleventy.config.js 里 repoRelPath filter 的基准一致）
+const GIT_TOP = gitOut(["rev-parse", "--show-toplevel"]);
+const GIT_ROOT = GIT_TOP ? path.resolve(GIT_TOP) : REPO;
+const inGitRepo = GIT_TOP !== null;
+const isShallow = gitOut(["rev-parse", "--is-shallow-repository"]);
+// 某个源文件最后一次提交的时间，统一成 UTC ISO（与模板产出的格式一致）
+const gitCommitTime = (rel) => {
+  const out = gitOut(["log", "-1", "--format=%cI", "--", rel]);
+  if (!out) return null;
+  const d = new Date(out);
+  return isNaN(d.getTime()) ? null : d.toISOString();
+};
+
+// src 下所有源文件各自的最后提交时间（规则 C 的集合比对用）
+const srcCommitTimes = new Set();
+if (inGitRepo && isShallow === "false") {
+  const walkSrc = (dir) => {
+    for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+      const p = path.join(dir, e.name);
+      if (e.isDirectory()) {
+        walkSrc(p);
+      } else {
+        const t = gitCommitTime(path.relative(GIT_ROOT, p));
+        if (t) srcCommitTimes.add(t);
+      }
+    }
+  };
+  const srcDir = path.join(GIT_ROOT, "src");
+  if (fs.existsSync(srcDir)) walkSrc(srcDir);
+}
+
+// 从产物 sitemap 里取出每条 <url> 的 loc、lastmod 与源文件路径
+const sitemapEntries = [];
+if (fs.existsSync(sitemapPath)) {
+  const xml = fs.readFileSync(sitemapPath, "utf8");
+  for (const m of xml.matchAll(/<url>([\s\S]*?)<\/url>/g)) {
+    const block = m[1];
+    const loc = (block.match(/<loc>([^<]*)<\/loc>/) || [])[1];
+    const lastmod = (block.match(/<lastmod>([^<]*)<\/lastmod>/) || [])[1];
+    const source = (block.match(/<!--\s*source:\s*([^>]*?)\s*-->/) || [])[1];
+    sitemapEntries.push({
+      loc: loc ? loc.trim() : "",
+      lastmod: lastmod ? lastmod.trim() : "",
+      source: source ? source.trim() : "",
+    });
+  }
+}
+const withLastmod = sitemapEntries.filter((e) => e.lastmod);
+
+if (isShallow === "true") {
+  // 规则 A：浅克隆 = 数据源被截断，lastmod 这个功能被**静默关掉**了。
+  // 这条判定刻意不挂在 withLastmod 上：浅克隆里产物零 lastmod，
+  // 挂在上面就等于什么都不查、直接放行 —— 恰好放过了最该抓的那次退化。
+  fail(
+    "当前是浅克隆（git clone --depth 1，或 CI 未设 fetch-depth: 0）：" +
+      "sitemap 的 <lastmod> 依赖完整 git 历史，浅克隆下 git log -1 -- <file> " +
+      "只能查到 HEAD 那一次，查到的值『看起来像提交时间、其实是 checkout 时间』。" +
+      "解法：本地 git fetch --unshallow（或 git clone 不带 --depth 1）；" +
+      "CI 侧在 actions/checkout 加 with: fetch-depth: 0。"
+  );
+} else if (!inGitRepo) {
+  // 规则 B：不在 git 仓库里（源码 zip 分发），本就没有 git 历史。
+  // 不拦人，但产物里不许出现 lastmod —— 那只能说明有人硬凑了值。
+  for (const e of withLastmod) {
+    fail(
+      'sitemap.xml: "' + e.loc + '" 带了 <lastmod>' + e.lastmod + "</lastmod>，" +
+        "但当前不在 git 仓库里——查不到真实的提交时间。" +
+        "lastmod 只能是内容最后一次改变的时间，宁缺勿假"
+    );
+  }
+  note("不在 git 仓库里：sitemap 不输出 lastmod（源码 zip 分发，本就没有 git 历史）");
+} else {
+  // 规则 C：给了就必须是真的
+  for (const e of withLastmod) {
+    const d = new Date(e.lastmod);
+    if (isNaN(d.getTime())) {
+      fail('sitemap.xml: "' + e.loc + '" 的 <lastmod>' + e.lastmod + "</lastmod> 不是合法时间戳");
+      continue;
+    }
+    if (d.getTime() > Date.now() + 60000) {
+      fail('sitemap.xml: "' + e.loc + '" 的 <lastmod> 在未来（' + e.lastmod + "）");
+    }
+    if (!srcCommitTimes.has(d.toISOString())) {
+      fail(
+        'sitemap.xml: "' + e.loc + '" 的 <lastmod>' + d.toISOString() + "</lastmod> " +
+          "不等于 src 下任何源文件真实的最后一次提交时间——" +
+          "它不是内容最后一次改变的时间"
+      );
+    }
+  }
+  // 规则 D + E：逐页核对
+  let perPageChecked = 0;
+  for (const e of sitemapEntries) {
+    if (!e.source) {
+      // 产物里没有源文件信息 → "逐页核对"这一整套判据被**静默关掉**了。
+      // 洞的性质和"lastmod 整体消失"完全一样：sitemap 规范里 source 标注
+      // 是可有可无的注释，删掉它既不会让 build 失败、也不会让任何一条
+      // 其它判据报错 —— 于是"取错源文件"这类错就再也抓不到了。
+      // 所以这里必须 fail：没有标注 = 门禁自己被卸掉了。
+      fail(
+        'sitemap.xml: "' + e.loc + '" 没有 <!-- source: ... --> 源文件标注——' +
+          "门禁靠它逐页核对 lastmod，标注没了整套逐页核对就失效了" +
+          "（sitemap.njk 里那行 <!-- source: ... --> 不能删）"
+      );
+      continue;
+    }
+    perPageChecked++;
+    const t = gitCommitTime(e.source);
+    if (t && !e.lastmod) {
+      fail(
+        'sitemap.xml: "' + e.loc + '" 的源文件 ' + e.source + " 提交过，" +
+          "这一页却没有 <lastmod>——lastmod filter 静默失效了" +
+          "（sitemap 规范里 lastmod 是可选字段，所以它不会报错，只会悄悄地不写）"
+      );
+    } else if (!t && e.lastmod) {
+      fail(
+        'sitemap.xml: "' + e.loc + '" 的源文件 ' + e.source + " 还没有提交过，" +
+          "却带了 <lastmod>" + e.lastmod + "</lastmod>——那是查不到来源的时间"
+      );
+    } else if (t && e.lastmod) {
+      // 逐页核对**值**：集合比对只能证明"这个时间是某个源文件的提交时间"，
+      // 发现不了"取错了源文件"（所有页都填同一个文件的时间也会过）。
+      const d = new Date(e.lastmod);
+      if (!isNaN(d.getTime()) && d.toISOString() !== t) {
+        fail(
+          'sitemap.xml: "' + e.loc + '" 的 <lastmod>' + e.lastmod + "</lastmod> " +
+            "不等于它自己的源文件 " + e.source + " 的最后一次提交时间" + t +
+            "——取错了源文件"
+        );
+      }
+    }
+  }
+  // 产物里一条源文件信息都没有（老产物 / 模板被改）→ 退回整体兜底：
+  // 全站零 lastmod、而 src 下确实有提交过的页面源 ⇒ filter 静默失效。
+  if (perPageChecked === 0 && srcCommitTimes.size > 0) {
+    for (const e of sitemapEntries) {
+      if (!e.lastmod) {
+        fail(
+          'sitemap.xml: "' + e.loc + '" 没有 <lastmod>，而 src 下有提交过的源文件——' +
+            "lastmod filter 静默失效了（sitemap 规范里 lastmod 是可选字段，" +
+            "所以它不会报错，只会悄悄地不写）"
+        );
+      }
+    }
+  }
+}
+note(
+  "sitemap " + sitemapEntries.length + " 条 URL，其中 " + withLastmod.length +
+    " 条带 lastmod" +
+    (inGitRepo && isShallow === "false"
+      ? "（已逐页与各自源文件的 git 提交时间核对）"
+      : "（非完整 git 历史，未核对提交时间）")
+);
+
+/* ---------- 19. 内容类实体的 @id 必须全站一致，且指向真实页面 ----------
+   @id 是 schema.org 里"同一个实体"的稳定标识：不同页面上描述同一件
+   作品的节点，@id 相同才会被合并成一个节点；不同就被当成多件作品。
+   这与第 12 条（"本人"的 @id 只能有一个取值）是同一类 bug，只是被
+   拆开的不再是人，而是论文。
+
+   第九轮之前，站点级那个 ScholarlyArticle 节点**根本没有 @id**：
+   论文页有 @id、首页/列表页那个没有 → 同一篇论文在知识图谱里是两件
+   不同的作品（与"同一个人被读成 6 个人"同类）。现在两边用同一个
+   @id（<站点根>/papers/<slug>/，就是论文页 jsonLdPaper 的 selfUrl），
+   这条门禁守住它：
+     · 内容类实体必须有 @id（缺了就没有归并的抓手）；
+     · 同一件作品（按 identifier / DOI 归一）在全站只能有一个 @id；
+     · @id 指向站内页面时，那个页面必须真实存在（否则实体归并到一个
+       空地址上，等于没有）。 */
+const WORK_ENTITY_TYPES = new Set([
+  "ScholarlyArticle",
+  "Article",
+  "BlogPosting",
+  "NewsArticle",
+  "TechArticle",
+  "ScholarlyChapter",
+  "Review",
+  "Dataset",
+  "SoftwareSourceCode",
+  "CreativeWork",
+]);
+let siteUrl = "";
+try {
+  siteUrl = require(path.resolve(__dirname, "../src/_data/site.js")).url || "";
+} catch {
+  /* 读不到就只查绝对性，不查站内路径 */
+}
+const idByWork = new Map(); // 作品标识 → Map(@id → 首次出现的页面)
+for (const { from, parsed } of ldRecords) {
+  for (const node of collectNodes(parsed)) {
+    const rawType = node["@type"];
+    const type = Array.isArray(rawType) ? rawType[0] : rawType;
+    if (typeof type !== "string" || !WORK_ENTITY_TYPES.has(type)) continue;
+    const id = node["@id"];
+    if (typeof id !== "string" || !id.trim()) {
+      fail(
+        from + ": JSON-LD 里有一个 " + type + " 实体没有 @id —— " +
+          "没有 @id 就没有归并的抓手，同一件作品在站内会被读成多件"
+      );
+      continue;
+    }
+    if (!ABSOLUTE_URL.test(id.trim())) {
+      fail(from + ": " + type + " 实体的 @id " + JSON.stringify(id) + " 不是绝对地址");
+      continue;
+    }
+    const ident =
+      typeof node.identifier === "string"
+        ? node.identifier
+        : (node.identifier && node.identifier["@value"]) || node.headline || id;
+    if (!idByWork.has(ident)) idByWork.set(ident, new Map());
+    const seen = idByWork.get(ident);
+    if (!seen.has(id)) seen.set(id, from);
+    // @id 指向站内页面时，那个页面必须真实存在
+    if (siteUrl && id.startsWith(siteUrl)) {
+      let p = "";
+      try {
+        p = new URL(id).pathname;
+      } catch {
+        p = "";
+      }
+      if (
+        p &&
+        !sitemapPaths.has(p) &&
+        !sitemapPaths.has(p.replace(/\/$/, "")) &&
+        !sitemapPaths.has(p + "/")
+      ) {
+        fail(
+          from + ": " + type + " 实体的 @id " + JSON.stringify(id) +
+            " 指向站内一个不存在的页面 —— 实体归并到一个空地址上，等于没有"
+        );
+      }
+    }
+  }
+}
+for (const [ident, seen] of idByWork) {
+  if (seen.size > 1) {
+    const list = [...seen.entries()].map(([id, from]) => id + "（" + from + "）").join(" / ");
+    fail(
+      '同一件作品 "' + ident + '" 在站内出现了 ' + seen.size + " 个不同的 @id：" +
+        list + " —— 消费方按 @id 归并，同一件作品会被读成多件"
+    );
+  }
+}
+note("内容类实体 " + idByWork.size + " 件，每件的 @id 全站唯一且指向真实页面");
 
 /* ---------- 汇总 ---------- */
 console.log(`产物：${htmlFiles.length} 个 HTML 页，${refCount} 条本地引用，${sitemapUrls.length} 条 sitemap URL`);

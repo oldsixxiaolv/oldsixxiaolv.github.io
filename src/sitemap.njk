@@ -9,7 +9,24 @@ eleventyExcludeFromCollections: true
     {% if entry.url and not entry.data.eleventyExcludeFromCollections %}
   <url>
     <loc>{{ site.url }}{{ entry.url }}</loc>
-    <lastmod>{{ entry.date | dateToIso }}</lastmod>
+    {# source: 这一页的源文件（仓库相对路径）。
+       给门禁**逐页**核对 lastmod 用：某页的源文件提交过 → 该页必须有
+       lastmod，且值必须等于那个源文件的最后提交时间；没提交过 → 该页
+       不该有 lastmod。
+       有了它，"一个还没提交的新文件"就不会连累全站失去这项检查，
+       而且"全站填成同一个文件的时间"这种取错源文件的错也能被抓出来。 #}
+    <!-- source: {{ entry.inputPath | repoRelPath }} -->
+    {# lastmod = 该页源文件**最后一次 git 提交**的时间。
+       此前这里取的是 entry.date，而对模板页而言 entry.date = 源文件的
+       birthtime（创建时间）；在 CI 上 actions/checkout 会重新写盘，
+       birthtime 变成 checkout 那一刻 —— 于是每次部署全站 lastmod 一起
+       跳到部署时刻（线上实测三条 URL 的 lastmod 精确到同一毫秒）。
+       lastmod 的语义是"这个 URL 的内容最后一次改变的时间"，部署时刻
+       不是内容改变的时刻，那是个假时间戳。
+       取不到（不在 git 仓库里 / 浅克隆 / 文件还没提交过）就整条不输出 ——
+       lastmod 在 sitemap 规范里是可选字段，宁可没有，也不要一个假的。 #}
+    {% set lastmod = entry.inputPath | lastCommitTime %}
+    {% if lastmod %}<lastmod>{{ lastmod }}</lastmod>{% endif %}
     {% if entry.url == "/" %}
     <changefreq>weekly</changefreq>
     <priority>1.0</priority>

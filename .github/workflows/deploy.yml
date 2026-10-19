@@ -21,6 +21,13 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # sitemap 的 <lastmod> 取"该页源文件最后一次 git 提交时间"，
+          # 需要**完整历史**。默认是浅克隆（depth=1），历史被截断，
+          # `git log -1 -- <file>` 只能查到 HEAD 那一次 —— 查出来的值
+          # 看起来像提交时间、其实是 checkout 时间，比原来的 birthtime 更糟。
+          # 详见 eleventy.config.js 里 lastCommitTime 的注释。
+          fetch-depth: 0
 
       - name: Setup Node 20
         uses: actions/setup-node@v4

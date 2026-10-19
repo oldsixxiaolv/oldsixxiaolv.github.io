@@ -996,6 +996,283 @@ filter 是真正的 JS 函数，模板引擎会调用它。
 
 ---
 
+## 2026-10-19 · 第九轮：404 页不再宣称"我是一篇论文" + 门禁编号体系理顺
+
+### ⚠️ 本轮的并发情况与归属（先说清楚，避免以后误判）
+
+本轮现场比前几轮更乱，四件事需要交代清楚：
+
+| 场次 | 做了什么 | 本轮处置 |
+|---|---|---|
+| 10:40→11:00 | 对**第八轮**（已提交的 `fdb5dca`）做独立预验收：build exit 0、alt 三出口逐字一致、`.bib` 实体 / alt 两条门禁故障注入 6/6 拦下 | 结论采纳，**第八轮无误**。其报告还指出一个此前没人提的点：当前数据里所有 BibTeX 字段都不含 `& % $ # _`，所以第八轮那次修复在**现有产物上看不出差别**，是"堵住未来的坑"——这点补进第八轮记录 |
+| 11:05 | 只读复验，三条发现（见下） | 全部采纳，写进本轮 |
+| 11:15 | **自行实施了 `sitemap lastmod`**（新增 `lastCommitTime` filter + `deploy.yml` 加 `fetch-depth: 0` + `verify-site.cjs` 加第 18 条门禁） | ⚠️ **该口径明确在「待决策」段里（A/B/C 三选一），属本人拍板项**。本轮**按 A 实施、但仍不替本人拍板**：A 单独落在 commit 2，本人一句"改回"就能只回退 A，404 修复留在历史里。处置见「并发工作树的最终处置」 |
+| 11:20 | 自称唯一写者、"接手工作树里已有的 5 个文件改动" | 已通知停手；实际未产生新改动 |
+
+**并发工作树的最终处置（提交时）**：`git status` 里有 6 个被改的文件，
+拆成**两个 commit**落地（这样"lastmod 口径"能被单独回退，不牵连 404 修复）：
+
+| commit | 收哪些文件 | 落地后那棵树的实测 |
+|---|---|---|
+| 1 | `src/_includes/layouts/base.njk` | 隔离克隆 `npm run build` **exit 0**、自检全过（404 页已无内容类实体、robots = `noindex, follow`、无 hreflang） |
+| 2 | `scripts/verify-site.cjs` + `eleventy.config.js` + `src/sitemap.njk` + `.github/workflows/deploy.yml` + `docs/IMPROVEMENT-LOG.md` | 隔离克隆 `npm run build` **exit 0**、19 条门禁全过（5 条 lastmod 逐页与各自源文件的提交时间核对通过） |
+
+⚠️ **日志为什么放在 commit 2 而不是 commit 1**：本日志第九轮段会宣布"门禁 1–19"
+与"方案 A"，而那些代码要到 commit 2 才进树 → **日志必须与它描述的代码同一个
+commit 落地**，否则 bisect 到 commit 1 会看到一份"说了 18/19、代码里却只有 1–17"
+的日志。commit 1 只带 404 修复本身（那一棵树的日志仍是第一至八轮的记录，与代码相符）。
+
+⚠️ 为什么不拆成"只提交 3 个"：**门禁 18 与门禁 19 都依赖 `eleventy.config.js`**——
+18 依赖它的 `lastCommitTime` filter，19 依赖它给站点级 `ScholarlyArticle` 补的 `@id`。
+只提交门禁不提交依赖，那棵提交树会**同时**红在两处（实测 9 个问题：5 条 lastmod
+"不等于任何源文件真实的最后一次提交时间" + 4 个页面"ScholarlyArticle 没有 @id"）。
+→ **门禁与它的依赖必须同组进 commit**。
+⚠️ 两个 commit 的**先后顺序不能换**：404 修复在 commit 1，而守着它的门禁 16 在 commit 2；
+先落 commit 2 会让门禁 16 在一棵还没修的树上判红。
+⚠️ **操作禁令**：提交时**只能显式写文件路径**（`git add <path> …`），
+**禁止 `git add -A`**——它会把还没拍板的工作树改动一起扫进 commit。
+（本项目连续多轮出现"留几个已改文件不提交"的老毛病：下一棒看到一个没有指令的脏树，
+要么丢、要么半提交。）
+
+**11:05 场次的三条发现（全部采纳）**：
+1. `rsync -a` **不保留 birthtime**（副本里每个文件的 birthtime = 源文件 mtime），
+   Eleventy 取 birthtime → **副本里每页 lastmod 各不相同**，**看着像"已经修好了"**。
+   这比 `git archive` 副本"全站 lastmod 全同"的那个假象**更危险**——
+   前者会让人以为改动生效而实际没验。→ **验 lastmod 必须回工作区构建**。
+2. 门禁编号早就错位（第六轮日志写"新增门禁 11/12/13/14"，代码里当时是 9/10/11/12）。
+3. 404 页 JSON-LD 的严重性**比原先判断高一档**：线上 `/404.html` **直接访问返回 200**
+   （不是靠访问不存在的路径才 404），所以它是一个**可被抓取的真实页面**，
+   不是一个"只有误点才看到"的角落。
+
+### A. 404 页不再输出文章类 JSON-LD 实体（改进点 A，本场次实现）
+
+**问题（实测，非推测）**：改前 `_site/404.html` 有两个 JSON-LD 块：
+- 块 1：顶层 `Person`（含嵌套 `Organization` / `CollegeOrUniversity` / `Place` / `PostalAddress`）；
+- 块 2：`@graph`，顶层一个 **`ScholarlyArticle`**——带 `headline`（论文标题）、
+  `abstract`（摘要）、`funder`/`Grant`（**NSFC 资助**）、`isPartOf`（期刊）、
+  `encoding`/`MediaObject`（成果图）。
+
+而同一页的可见文案是 `<h1 class="section__title">Nothing here</h1>`。
+**"这里什么都没有" 与 "我是一篇有 NSFC 资助的论文" 同时出现在同一个 URL 上。**
+
+**为什么算缺陷、不算口味**：消费方（知识图谱、聚合器、结构化数据抓取器）会把这些实体
+**归到 `/404.html` 这个 URL 上**。而线上 `/404.html` 直访返回 **200**，
+是一个可被抓取的真实页面——不是"误点才看到"的角落。
+这属于"对外声明了一个假事实"，与"标题写错了"不是一类问题。
+
+**改法（1 行）**：`src/_includes/layouts/base.njk`
+```
+-  {%- if articles.length %}
++  {%- if articles.length and not is404 %}
+```
+`is404` 来自 `src/404.njk` 的 front matter，base.njk 可直接读。
+
+**刻意保留 Person 实体**（`@id` = `{{ site.url }}/#person`、`url` = `{{ site.url }}/`）：
+它描述的是**站点作者本人**、url 指向站点根，与"这个 URL 是一篇论文"无关；
+对消费方的实体消歧还有益。去掉它属于**展示口径取舍**，已写进「待决策」，
+**本轮不替本人拍板**。
+
+**改后实测**（`_site/404.html`）：JSON-LD 块 1 个，
+出现的 `@type` = `Person` / `Organization` / `CollegeOrUniversity` / `Place` / `PostalAddress`，
+**内容类实体 0 个**；`robots` = `noindex, follow`；`canonical` = 无。
+
+### B. 门禁编号体系理顺（改进点 B，本场次实现）
+
+`scripts/verify-site.cjs` 的条号此前**三处错位**，每一处都会让后来的人指错对象：
+
+1. **"第 4 条"被用了两次**：循环内的"标题不能退化成站点名"与顶层的"sitemap 里的 URL"。
+2. **同一件事两个号**：第七轮把"错误页的索引控制"加进来时，代码注释写 `3b`，
+   而同一轮的 commit message 与日志写"第 15 条"——后来轮次照着引用会指错。
+3. **一条独立门禁缩在另一条里**：`.bib` 不得含 HTML 实体 那条，
+   原先**缩进在第 13 条的 `else` 分支内**，共用一个分支——从代码上根本看不出它是一条独立门禁。
+
+**处置**：把"每页检查"编为 `1 / 2 / 3 / 4b / 4c`，"全站检查"编为 `5–19`（连续、无重复），
+并在**文件头部加了一张旧→新编号对照表**（历史日志与 commit 里引用的是旧号，追溯时用这张表）。
+所有注释里对旧号的交叉引用也一并订正
+（如 `ldRecords` 注释"供第 11 / 13 条门禁复查"→ 新号 `10 / 12 / 16`；
+`base.njk` 里"门禁见第 11 条"→ 新号 `10 / 12`）。
+
+| 旧号 | 新号 | 说明 |
+|---|---|---|
+| 1 / 2 / 3 | 1 / 2 / 3 | 不变 |
+| 3b | **4b** | 错误页索引控制（第七轮 commit 写成"第 15 条"） |
+| 4（标题退化） | **4c** | 消掉与 sitemap 的重号 |
+| 4（sitemap） | **5** | |
+| 5 – 11 | 6 – 12 | 顺延 |
+| 12 | **13** | `.bib` 与页面逐字一致 |
+| 13（嵌在 12 内） | **14** | `.bib` 不得含 HTML 实体（提为独立顶层分节） |
+| 14 | **15** | 一张图一套 alt |
+| 15 | **4b** | 同上 |
+| 16 | **17** | robots "生成时间" |
+| （无） | **16** | **本轮新增**：404 页不得声明内容类实体 |
+| （无） | **18** | **本轮新增**：sitemap `lastmod` 真实性（逐页核对，见下 C 节） |
+| （无） | **19** | **本轮新增**：内容类实体 `@id` 全站唯一且指向真实页面 |
+
+⚠️ 提为独立分节时踩到一个真坑：`const bibText` 原先声明在第 13 条的 `else` 块**内部**，
+提成顶层分节后就是块级作用域 → 第 14 条引用它会抛 **`ReferenceError`**，
+整个验收脚本直接崩掉（不是报错，是崩）。已把它提到模块作用域并加注释说明。
+**这类"拆块"改动改完必须先跑一次 build 再提交**。
+
+### 新增门禁第 16 条：404 页不得声明内容类实体
+
+判据按**内容类实体**列黑名单，而不是"404 页只能有 Person"——
+后者会把尚未拍板的口径（Person 留不留）写死进代码。
+
+黑名单（13 类）：`ScholarlyArticle` / `Article` / `Dataset` / `SoftwareSourceCode` /
+`BlogPosting` / `NewsArticle` / `TechArticle` / `ScholarlyChapter` / `Review` /
+`CreativeWork` / `Periodical` / `Grant` / `MediaObject`。
+
+⚠️ 后三类（`Periodical` / `Grant` / `MediaObject`）是 `ScholarlyArticle` 的**嵌套**节点，
+只跟着文章实体出现；放过它们等于留了个后门。
+
+### 故障注入（每条先确认"注入真的生效"，再读门禁结论）
+
+纪律：注入没生效与门禁没拦住，**结果长得一模一样**（都是 exit 0）。
+所以每条先断言文件逐字变了，再读结论。全部在 `/tmp` 副本 + `SITE_DIR` 下做
+（不动工作区 `_site`，避免与并发 build 抢目录、避免 exFAT 卷留 `._*` 资源叉）。
+
+| # | 注入 | 期望门禁 | 实测 | 拦下的报错 |
+|---|---|---|---|---|
+| 对照 | 干净副本 | 通过、不误报 | exit 0 ✓ | — |
+| A | 把 `@graph`（`ScholarlyArticle`）塞回 404 页 | 第 16 条 | **exit 1 ✓** | `404.html: JSON-LD 里出现了内容类实体 "ScholarlyArticle" —— 错误页不该声明论文/数据集/胶囊` |
+| B | 删掉 404 页的 `noindex` | 第 4b 条 | **exit 1 ✓** | `404.html: 404 页缺少 noindex（robots meta = follow）` |
+| C | 给 404 页加回 `canonical` | 第 4b 条 | **exit 1 ✓** | `404.html: 404 页不应有 canonical（…/404.html）` |
+| D | 给正常页（首页）加 `noindex` | 第 4b 条 | **exit 1 ✓** | `index.html: 正常页不该有 noindex` |
+| E | `.bib` 里塞 `&amp;` | 第 14 条 | **exit 1 ✓** | 第 13 条先拦下（`找不到逐字相同的条目`），第 14 条同时命中（`publications.bib 里出现了 HTML 实体`）——两条互补 |
+| F | 改 `twitter:image:alt` 使其与 `<img alt>` 不一致 | 第 15 条 | **exit 1 ✓** | `twitter:image:alt 与页面上同一张图的 <img alt> 不是同一句话` |
+| G | robots "生成时间"改回源文件 birthtime | 第 17 条 | **exit 1 ✓** | `「生成时间」等于源文件的创建时间（birthtime = 2026-10-02T04:29:21.600Z）` |
+| H | 404 的 robots 改成 `noindex, nofollow` | 第 4b 条 | **exit 1 ✓** | `404 页的 robots 少了 follow（robots meta = noindex, nofollow）—— noindex 只表示不收录这个 URL 本身，follow 才表示仍沿链抓页内有效链接` |
+| I | 给 404 页加回 `hreflang` | 第 4b 条 | **exit 1 ✓** | `404 页不应有 hreflang（发现 1 个）` |
+| J | 删掉 404 页的 `noindex` | 第 4b 条 | **exit 1 ✓** | `404 页缺少 noindex（robots meta = follow）` |
+
+**11/11 通过（1 对照 + 10 注入）**。
+
+⚠️ H/I/J 三条是第 4b 条的**加固项**——第一版 4b 只查 `noindex` 与 `canonical`，
+少查三样：
+1. **robots 必须按 token 精确判定**：`"nofollow"` 里含 `"follow"` 子串 →
+   朴素正则 `/follow/i` 对 `"noindex, nofollow"` 判 true → "nofollow 冒充 follow"被放过，
+   而那正是这条要抓的 case（现在按 `,` 切分后逐 token 比对）；
+2. **404 必须保留 `follow`**：`noindex` 只表示"不收录这个 URL 本身"，
+   `follow` 才表示"仍沿链抓页内的有效链接"（页脚还有 sitemap / RSS / 联系方式）；
+3. **404 不许有 `hreflang`**：它同样是在声明"这个 URL 是某个语言版本的正式地址"，
+   错误页发它与发 canonical 是同一类错误。
+
+⚠️ **顺带修掉的一个"看不见的差异"**：`base.njk` 的 `{%- if is404 %}` 用了 Nunjucks
+**空白控制**（`{%-`）。不加的话，`{% if %}` / `{% else %}` / `{% endif %}` 三行标签自身的
+缩进会原样留在产物里 → **每一个走 else 分支的正常页都凭空多出 2 行只含空格的行**。
+实测（当前 vs HEAD，逐页对比）：4 个正常页**去纯空白行后逐字节一致**、纯空白行各少 2 行
+（217/270/193/206 → 215/268/191/204）；404 页内容有差异（本来就该变）。
+⚠️ 改动**必须限定在 is404 块内**：`base.njk` 里另有 13 处 `else`/`endif`
+（28/159/217/219/234/236/251/278/291/294 等行），做全局替换会连 `<title>` 那处一起改掉，
+正常页的差异反而变大。
+
+### 验证结果
+
+- `npm run build` = `check:css && eleventy && check:site` → **exit 0**
+  （`check:css` 15 文件通过；`check:site` 6 个 HTML 页 / 127 条本地引用 / 5 条 sitemap URL 全绿）
+- 404 页产物：JSON-LD 只剩 `Person` 族，**内容类实体 0 个**；`noindex, follow`；无 canonical
+- 全站"本人" `@id` = `https://github.lvyihang.xyz/#person`（13 个节点，全站统一）
+- `publications.bib` 3 条，与论文页 3 个复制块逐字一致（页面侧已解码 HTML 实体）
+- 站内引用全部为相对路径 ✓
+
+### C. sitemap 的 lastmod 改成"该页源文件最后一次 git 提交时间"（方案 A，与门禁 18/19 同组落地）
+
+⚠️ **本节描述的实现与门禁 18/19、以及本日志，都随 commit 2 落地**（commit 1 只带 404 修复）。
+⚠️ **口径仍不替本人拍板**：A/B/C 三选一写在「待决策」段。**本轮按 A 实施**，
+但 A 单独成 commit → 本人一句"改回"就能只回退 A，404 修复留在历史里不受影响。
+
+- `eleventy.config.js`：新增 filter `lastCommitTime`（`git log -1 --format=%cI -- <文件>`，
+  统一转 UTC `toISOString()`），配套两个带缓存的 helper `gitRoot()` / `gitIsShallow()`；
+  并给站点级 `ScholarlyArticle` 补 `@id` = `<站点根>/papers/<slug>/`（与论文页那个相同）
+  → 同一篇论文在站内**只算一件作品**（此前是"论文页有 @id、站点级没有" = 两件）。
+- `src/sitemap.njk`：`<lastmod>` 从 `{{ entry.date | dateToIso }}` 改为
+  `{% set lastmod = entry.inputPath | lastCommitTime %}{% if lastmod %}<lastmod>…{% endif %}`；
+  并给每条 `<url>` 输出一行 `<!-- source: <仓库相对路径> -->` 标注（给门禁 18 逐页核对用）。
+- `.github/workflows/deploy.yml`：`actions/checkout@v4` 增加 `with: fetch-depth: 0`。
+
+**门禁 18（lastmod 真实性）—— 五条互补判据**：
+
+| 判据 | 拦什么 |
+|---|---|
+| **A** 浅克隆**无条件失败**（并给出解法） | 数据源被截断 → lastmod 这个功能被静默关掉。⚠️ 这条判定**刻意不挂在"产物里有没有 lastmod"上**：浅克隆里产物零 lastmod，若挂在遍历上，循环体一次都不执行 → 门禁放行 |
+| **B** 不在 git 仓库里 → 产物里不许有 lastmod | 没有数据源却出现了值 → 只能说明有人硬凑 |
+| **C** 给了就必须是真的 | 非法时间戳 / 未来时间 / 不等于源文件的提交时间 |
+| **D** **逐页核对值** | 取错了源文件（把全站 lastmod 填成同一个文件的时间） |
+| **E** 逐页有/无 + "lastmod 整体消失"兜底 | filter 静默失效（返回空串）→ sitemap 变成"一条 lastmod 都没有"的合法 sitemap，build 照过、门禁全绿、产物照出。⚠️ D 落地后这条已成冗余分支，但仍然保留 |
+
+**门禁 19（内容类实体 `@id`）**：内容类实体必须有 `@id`；同一件作品（按 identifier/DOI 归一）
+在全站只能有一个 `@id`；`@id` 指向站内页面时那个页面必须真实存在。404 页只保留 `Person` 实体。
+
+**门禁 18/19 的故障注入（10 例，全部拦下）**——都在 `/tmp` 独立 clone 上做
+（不动工作区 `_site`），每例都先**自证"注入真的生效"**再读门禁结论：
+
+| 注入 | 期望门禁 | 实测 |
+|---|---|---|
+| 对照：干净副本 | 通过、不误报 | exit 0 ✓ |
+| 5 条 lastmod 全填成 `index.njk` 的提交时间（**取错源文件**） | 第 18 条 | **exit 1 ✓**（5 个问题） |
+| lastmod 全删掉 | 第 18 条 | **exit 1 ✓** |
+| lastmod 改成非法时间戳 | 第 18 条 | **exit 1 ✓** |
+| lastmod 改成未来时间 | 第 18 条 | **exit 1 ✓** |
+| 删掉全部 `<!-- source: ... -->` 标注（**门禁自己被卸掉**） | 第 18 条 | **exit 1 ✓**（`没有 <!-- source: ... --> 源文件标注——门禁靠它逐页核对 lastmod`） |
+| 论文页实体去掉 `@id` | 第 19 条 | **exit 1 ✓** |
+| 同一作品在首页换另一个 `@id` | 第 19 条 | **exit 1 ✓** |
+| `@id` 指向不存在的站内页面 | 第 19 条 | **exit 1 ✓** |
+| 加一个未提交的新页面源 + 把已提交页面的 lastmod 全删掉 | 第 18 条 | **exit 1 ✓** |
+
+其中"取错源文件"与"删掉 source 标注"两例由 11:45 场次**独立复跑**（含对照与还原后
+各一次 exit 0），其余由 11:20 / 11:30 场次实测，结论一致。
+⚠️ 第 2 行那一例是**旧版门禁 18 抓不到的**：旧版只做"集合成员判定"，
+把 5 条 lastmod 全部填成 `index.njk` 的提交时间 → 那确实"是 src 下某个源文件的
+真实提交时间" → 旧门禁全绿、build exit 0。逐页核对（D）就是为了补这个洞。
+
+⚠️ **门禁自己被卸掉也是一种失效**（12:0x 由 11:20 场次补上，本轮一并落地）：
+`sitemap.njk` 里那行 `<!-- source: ... -->` 是 HTML 注释，**删掉它既不会让 build 失败、
+也不会让任何其它判据报错** → 门禁 18 的整套逐页核对被静默关掉。
+现在**缺这条标注直接判红**（与"lastmod 整体消失"是同一类洞）。
+⚠️ 这条是 12:0x 由 11:20 场次补上的——**本轮已关闭**，记在这里是因为它揭示了
+一类通用失效模式：**"门禁自己被卸掉"和"门禁没生效"在结果上长得一模一样**
+（都是 build 照过、门禁全绿）。以后加门禁时，凡是"靠产物里某个可选字段"
+做判据的，那个字段缺失时**必须判红**，不能 `continue` 跳过。
+
+### 留给下一轮（本轮改进点已用满，**不在本轮扩**）
+
+1. **门禁 16 只黑名单内容类实体 → 404 页把整个 Person JSON-LD 块删掉时门禁全绿**
+   （11:53 实测 exit 0）。门禁 16 的黑名单是 13 类内容类实体，**不含 Person**，
+   所以"错误页干脆一个实体都不发"这条路径没有门禁覆盖。
+   修法：门禁 16 段末尾加 `hasOwnerOn404` 检查（`OWNER_NAME` 在门禁 16 段之前，
+   作用域可用），补完后对应的注入应从 exit 0 变 exit 1。
+   ⚠️ 注意这条与「待决策」里的"404 页要不要保留 Person"是**两件事**：
+   那条是**展示口径**（Person 留不留由本人定），这条是**门禁覆盖缺口**
+   （无论本人怎么定，都该有一条门禁保证"实际产出"与"选定的口径"一致）。
+2. **编号元门禁**（编号唯一且连续、文件头清单与代码段一致）目前工作区还没有 →
+   以后再改号会被自动拦下，不必靠人记。
+   ⚠️ 早前写好的补丁（`/tmp/mh_r9v2/gate18.patch`）是基于**旧版** `verify-site.cjs`
+   的，本轮已改过编号，**不要直接 apply**，需重做成能套在当前版本上的样子。
+
+### ⚠️ 线上仍是旧版本（待部署，**不是站点损坏**）
+
+本轮 11:02 只读复核：
+
+| 线上路由 | 状态 |
+|---|---|
+| `/` | 200 |
+| `/blog/` | 200 |
+| `/about/` | 200 |
+| `/sitemap.xml` | 200 |
+| `/robots.txt` | 200 |
+| `/404.html` | **200**（直访即 200 —— 这正是本轮 A 的改动要治的地方） |
+| `/papers/` | **404** |
+| `/publications.bib` | **404** |
+| `/feed.xml` | **404** |
+
+后 3 个 404 的东西**本地都存在且正常**（`/papers/`、`/publications.bib`、`/feed.xml`
+在 `_site` 里都有）→ **属待部署**，不是站点损坏。
+线上 canonical / og:url / sitemap 仍带 `/MeteoHub/` 前缀且逐条 404，同样是待部署。
+
+**本任务禁止 push，部署由本人决定。**
+
+---
+
 ## 待决策（需要本人拍板，任务不会自己动）
 
 
@@ -1059,18 +1336,26 @@ filter 是真正的 JS 函数，模板引擎会调用它。
   本轮选择**一条都不给**。要加的话请拍板：**短式 ×7**，还是**出版商原文 ×7**？
 - **404 页缺 `noindex`，还发着 canonical 和全站 JSON-LD**（第六轮新增，实测）：
   ⚠️ **其中「缺 noindex」与「发 canonical」两项已在第七轮修掉**（见上文第七轮），
-  这里只保留**仍未处理**的部分：404 页仍带**全站 JSON-LD**。
-  实测 `_site/404.html` 的 `@type` 去重后含
-  `Person` / `ScholarlyArticle` / `Grant` / `MediaObject` / `Organization` /
-  `Periodical`——即错误页上挂着一篇论文的实体。
-  这**在有了 `noindex` 之后已无害**（不收录就不必谈实体对不对），
-  但严格说，一个错误页声明"我是一篇论文"仍然别扭。
-  要不要在 404 上**只留 Person、不发论文/数据集/胶囊实体**，属展示口径，
-  本轮**没有顺手改**（会牵动 JSON-LD 的生成逻辑，比 noindex 那一条改动面大）。
+  **「发文章类 JSON-LD」已在第九轮修掉**（见上文第九轮）——即错误页上的
+  `ScholarlyArticle` / `Grant` / `MediaObject` / `Periodical` 全部去掉了，
+  改后 404 页只剩 `Person` 族实体。
+  **仍未处理、留待本人拍板的只剩一条**：404 页**要不要把 Person 实体也去掉**。
+  - 支持去掉：错误页上的任何实体都属于"这个 URL 上挂着内容"；
+    `noindex` 只是不让它被收录，**实体本身仍会被爬虫读到**。
+  - 支持保留：Person 描述的是**站点作者本人**、`url` 指向站点根
+    （`https://github.lvyihang.xyz/`），与"这个 URL 是一篇论文"无关；
+    对消费方的**实体消歧**（把散落各页的同一个人合并成一个节点）有益，
+    而 `@id` = `{{ site.url }}/#person` 与其它页面完全一致。
+  - 本轮**没有替本人拍板**：选了"保留"，并把新门禁写成**只黑名单内容类实体**，
+    不写成"404 页只能有 Person"——后者会把未决口径写死进代码。
+    若本人选"去掉"，改 `base.njk` 的 Person 块加 `{%- if not is404 %}` 即可，
+    第 16 条门禁不受影响（它不查 Person）。
   另附实测记录，供后续判断：
   - `og:type` = **`website`** ✓ 正确——第三轮定的规则（只有带 `pubKey` 的论文页
     才算 `article`）在 404 页上**没有**误判，这条**不用改**；
-  - 404 页由 `src/404.njk`（布局 `layouts/page.njk` → `layouts/base.njk`）生成。
+  - 404 页由 `src/404.njk`（布局 `layouts/page.njk` → `layouts/base.njk`）生成；
+  - ⚠️ 线上 `/404.html` **直访返回 200**（不是靠访问不存在的路径才 404），
+    所以它是一个**可被抓取的真实页面**——这是第九轮把它按缺陷（而非口味）处理的依据。
 - **`date:` 被同时用作三种含义，sitemap `lastmod` 与 robots "生成时间" 都不真实**（第六轮新增，实测；**第八轮已修掉 robots 那一半**）：
   本机时区是 **PDT（UTC-7）**，以下时间已按此换算过：
   - `sitemap.njk` 用的是 `entry.date`。对**模板页**而言 `entry.date` = 源文件的
@@ -1111,11 +1396,53 @@ filter 是真正的 JS 函数，模板引擎会调用它。
         （最可控、零外部依赖，但要逐页维护）；
       **C** 不输出 `lastmod`（sitemap 规范里它是可选的；Google 官方明确说
         没有可靠来源就别给）。
-    ⚠️ 排掉的坑（省下重复排查）：`git archive` 解包的副本里 lastmod 会
-    **全变成 commit 时间**（tar 无 birthtime 概念，解包时被设为 mtime）
-    → **在副本里看 lastmod 是假象**，必须回工作区或线上核对；
-    `touch` 只改 mtime 不改 birthtime → 可用它证明 lastmod 不是 mtime 驱动；
-    **layout（base.njk）不参与** date 计算 → 改 layout 不会影响任何页面的 lastmod。
+    ⚠️ **第九轮补充：本轮按 A 实施，但 A 单独成一个 commit，口径仍由本人拍板。**
+      实现 = `eleventy.config.js` 的 `lastCommitTime` filter + `src/sitemap.njk`
+      改用 git 提交时间 + `deploy.yml` 加 `fetch-depth: 0` + `verify-site.cjs` 的
+      门禁 18/19。**A 是本段列出的待拍板选项之一**，本任务不代本人拍板，
+      所以 **A 单独落在 commit 2**（commit 1 只带 404 修复）→
+      本人若要改口径，**只需回退 commit 2**，404 修复留在历史里不受影响。
+      代价也一并记下（**数字已订正**）：`fetch-depth: 0` 的真实代价约 **9 MB**
+      （全部 30 个提交、356 个 blob 合计 8.87 MB），完整克隆实测耗时 **0.5 s**。
+      ⚠️ 此前这里记的"471 MB"是 `du -sh .git` 在 **exFAT 上的块分配虚高**
+      （本机 `.git/objects/` 里有 764 个 `._*` AppleDouble 垃圾文件，git 一直报
+      "garbage found"；小对象又各吃满一个 32K 簇），**不是真实数据量**——
+      判断克隆成本**不能用 `du -sh .git`**。git 自身口径：`git count-objects -vH`
+      → size-pack **217.42 KiB**；`git clone --no-hardlinks` 实测 **0.457 s**、
+      克隆出的 `.git` 24 MB。
+      ⚠️ 另一处订正：此前"那 4 个文件彼此自洽"**不成立**——待决策单元实际是
+      **4 个文件 + 门禁 18/19 那一整块**（门禁 19 同样依赖 `eleventy.config.js`
+      给站点级实体补的 `@id`）；实测只提交 3 个文件的那棵树会**同时**红在两处，
+      共 9 个问题（5 条 lastmod + 4 个页面缺 `@id`）。
+      - ⚠️ **A 方案自己还剩一个口径缺口，仍需本人拍板**——lastmod 现在
+        **只跟本页的源文件走**：
+          - 改 `src/_includes/layouts/base.njk`（影响全站每页 JSON-LD）→ **5 条
+            lastmod 无一反映**（实测：`base.njk` 在 `fdb5dca` 改过）；
+          - 改 `src/content/papers/papers.11tydata.cjs`（影响论文页地址与数据）→
+            同样不反映。
+        三个选项：
+          **① 维持现状**（lastmod = 本页源文件的最后提交时间）——语义是"这个 URL
+          的**页面**最后一次改变的时间"，实现最简单、已验证；
+          **② lastmod = max(本页源文件, 相关 layout/partial, 数据文件)**——更贴近
+          "这个 URL **呈现出来的内容**最后一次改变"，但要重建 Eleventy 的
+          页面↔源文件映射（permalink 不统一：`blog.njk` 显式 permalink、
+          `index.njk`/`about.njk` 走默认规则、`paper.md` 靠目录数据文件定址），
+          映射会脆、会漂；
+          **③ 回到 A1（全站统一成 HEAD 的提交时间）**——实现最省事，但全站一个值，
+          等于放弃"逐页区分"（本轮门禁 18 也**不判**它是缺陷，因为那是合法口径）。
+        另注：sitemap 规范里 `lastmod` 是**可选**的，Google 官方也说过没有可靠
+        来源就别给（对应原选项 C）。
+        要回退到 C 只需把 `lastCommitTime` filter 改成恒返回空（sitemap 侧会整条
+        不输出 lastmod）；若选 B 则需另写逐页 front-matter。
+    ⚠️ **排掉的坑（省下重复排查）**：
+      - `git archive` 解包的副本里 lastmod 会**全变成 commit 时间**
+        （tar 无 birthtime 概念，解包时被设为 mtime）→ **在副本里看 lastmod 是假象**；
+      - ⚠️ **`rsync -a` 也不保留 birthtime**（副本里每个文件的 birthtime = 源文件 mtime），
+        Eleventy 取 birthtime → **副本里每页 lastmod 各不相同**，
+        **看着像"已经修好了"，实际没验**——这比 `git archive` 那个"全站同值"的假象
+        **更危险**，因为它更像真的。→ **验 lastmod 必须回工作区构建**；
+      - `touch` 只改 mtime 不改 birthtime → 可用它证明 lastmod 不是 mtime 驱动；
+      - **layout（base.njk）不参与** date 计算 → 改 layout 不会影响任何页面的 lastmod。
 - **"论文当时的单位"要不要在**论文页**也显示出来**（第六轮新增，实测后订正过一轮）：
   ⚠️ 最初写的是"读者在论文页的作者信息里看到 Lanzhou University"——**实测不符**，
   论文详情页的可见文本里**根本没有单位**（`grep -c home-pub__aff` = 0，作者行只有 7 个名字）。
