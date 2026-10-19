@@ -685,16 +685,30 @@ module.exports = function (eleventyConfig) {
   */
   eleventyConfig.addFilter("jsonLdArticles", (pubs, author, excludeKey, siteUrl) => {
     if (!Array.isArray(pubs) || !pubs.length) return [];
-    // 「本人」的判定**必须**与 jsonLdPaper 用同一份数据（site.js 的 author），
-    // 否则两处会各自认人：jsonLdPaper 用 A.nameAsPublished || A.name，
-    // 这里此前写死字符串 "Yihang Lyu"——今天恰好相同，但一旦 nameAsPublished
-    // 改成出版商登记名（如 "Yihang L. Lyu"），这里就再也认不出本人，
-    // 于是站点级 Person 的 canonical @id 悄悄丢失，而门禁只数"名字匹配"的
-    // 节点，对这种"认不出人"的退化**完全无感**。
-    // → 改成从 site.js 派生：分歧在结构上就不可能发生。
+    // 「本人」的判定**必须**与 jsonLdPaper 用同一份数据、同一套判据，
+    // 否则两处会各自认人。此前这里把 ownerName **写死**成 "Yihang Lyu"，
+    // 而 jsonLdPaper 读 site.js —— 今天两处恰好相同，但只要有一边变了，
+    // 两边就会认出不同的人。
+    //
+    // ⚠️ 认人**主要靠 ORCID，不靠姓名**（2026-10-19 13:0x 场次实测后修正）：
+    //   姓名是**可变**的（出版商登记名可能与本站写法不同，nameAsPublished
+    //   就是为此存在的），ORCID 是**稳定**的标识。
+    //   只把 ownerName 改成"从 site.js 派生"**并不够**——实测（FI-G）：
+    //   只改 site.js 的 nameAsPublished、作者列表不动时，派生出来的名字
+    //   与作者列表里的名字对不上 → 本人节点照样拿不到 canonical @id，
+    //   反而比写死的版本更脆（写死的那版是"隐式钉在作者列表拼写上"的）。
+    //   → 判据顺序：**ORCID 相同即本人**（作者列表里每人都有 orcid 字段），
+    //     姓名相同作为**兜底**（作者列表里没有 orcid 时用）。
+    //   这样两种改法都稳：改名 + 改作者列表（FI-E）、只改 site.js（FI-G）。
     const A = author || {};
     const ownerName = A.nameAsPublished || A.name || "";
     const ownerOrcid = A.orcid || "";
+    // site.js 里存的是完整 URL（https://orcid.org/0000-0000-…），
+    // 作者列表里存的是裸号（0000-0000-…）→ 取最后一段再比。
+    const ownerOrcidId = ownerOrcid.split("/").pop().trim();
+    const isOwnerAuthor = (a) =>
+      (ownerOrcidId && a && a.orcid && String(a.orcid).trim() === ownerOrcidId) ||
+      (ownerName && a && a.name === ownerName);
     // 本人实体的稳定标识与主页地址：与 base.njk 里那个 Person 用**同一个**
     // @id，两处描述才会合并成同一个节点，而不是散成多个"人"。
     const ownerPersonId = `${siteUrl || ""}/#person`;
@@ -718,7 +732,7 @@ module.exports = function (eleventyConfig) {
       const authors = authorList.map((a) => {
         const person = { "@type": "Person", name: a.name };
         if (a.orcid) person.sameAs = `https://orcid.org/${a.orcid}`;
-        if (a.name === ownerName) {
+        if (isOwnerAuthor(a)) {
           if (ownerOrcid) person.sameAs = ownerOrcid;
           // 复用 base.njk 的 @id → 跨页合并成同一个节点。
           // url 是这个人的主页（站点根），不是论文页的地址。
@@ -827,12 +841,18 @@ module.exports = function (eleventyConfig) {
     const pagePath = pageUrl || "";
     const selfUrl = `${siteUrl}${pagePath}`;
     const ownerName = A.nameAsPublished || A.name || "";
+    // 与 jsonLdArticles **同一套认人判据**：ORCID 优先、姓名兜底。
+    // 姓名可变（出版商登记名）、ORCID 稳定 → 认人要认 ORCID。
+    const ownerOrcidId = (A.orcid || "").split("/").pop().trim();
+    const isOwnerAuthor = (a) =>
+      (ownerOrcidId && a && a.orcid && String(a.orcid).trim() === ownerOrcidId) ||
+      (ownerName && a && a.name === ownerName);
 
     // —— 作者：与原模板逐字段一致 ——
     const authorList = Array.isArray(pub.authorList) ? pub.authorList : [];
     const authors = authorList.map((a) => {
       const person = { "@type": "Person", name: a.name };
-      if (a.name === ownerName) {
+      if (isOwnerAuthor(a)) {
         // 本人：sameAs 用全集（第一条就是 ORCID）。不能另加一条 a.orcid 的
         // sameAs——同一对象里两个同名键，后者会静默覆盖前者。
         if (A.sameAs) person.sameAs = A.sameAs;

@@ -40,6 +40,12 @@
  *    21. 绝对 URL 口径：site.url 必须是域名根（无子路径）；产物里所有指向
  *        本站地址的绝对 URL（canonical / og:url / JSON-LD 的 @id 与 url /
  *        sitemap 的 loc / feed 的 link）必须以 site.url 为前缀
+ *    22. 同一张图在 og 与 twitter 上必须只有一套 alt 文本（og:image 与
+ *        twitter:image 指向同一文件时，两处 alt 必须逐字相同）
+ *    23. 本人的 ORCID 与 canonical @id 必须**双向**绑定（含本人 ORCID 的
+ *        Person 节点必须有 canonical @id；有 canonical @id 的必须有本人 ORCID）
+ *    24. 门禁编号本身：文件头这份清单与代码里的门禁段必须一一对应、
+ *        编号唯一且连续（防止"加了门禁忘了登记"这类漂移）
  *
  * 旧编号 → 新编号对照（历史日志/commit 里引用的是旧号，追溯时用这张表）：
  *   旧 1 / 2 / 3      → 新 1 / 2 / 3
@@ -908,8 +914,12 @@ for (const { from, parsed } of ldRecords) {
 //    就与 base.njk 里"本人改这一行即可，门禁代码不用动"的承诺矛盾
 //    （"整块掏空"要拦的是**误删**，不是**有意关掉**）。
 //
-//    ⚠️ 读法：门禁**直接读源文件这一行**，只匹配 `identityOn404: true|false`
-//    （不解析 YAML）——判据放在源文件里，产物被复制到别处也不影响。
+//    ⚠️ 读法：门禁**只读源文件 front matter 里的这一行**，宽松取出字面量
+//    再单独判合法性（不解析 YAML）——判据放在源文件里，产物被复制到别处
+//    也不影响。作用域必须和模板侧（gray-matter 只解析 front matter）
+//    **完全一致**：门禁若扫全文，正文里任何以 `identityOn404:` 开头的
+//    字样（示例、说明）都可能顶替掉真正的开关 → 门禁与模板读的不是
+//    同一处 → 正是本条最怕的"悄悄分叉"。
 //
 //    ⚠️⚠️ **为什么不能用"读不到就默认 true"**（2026-10-19 第十一轮实测订正）：
 //    模板与门禁用的是**两个不同的解析器**——
@@ -917,7 +927,7 @@ for (const { from, parsed } of ldRecords) {
 //        YAML 会把 `True`/`False`/`TRUE`/`FALSE` 当布尔，把 `null` 当 null、
 //        把 `yes`/`no`/`on`/`off` 当**字符串**（js-yaml 4.x 的 YAML 1.2 核心
 //        schema 不认 YAML 1.1 的这些布尔别名）；
-//      · 门禁：正则只认小写 `true|false`。
+//      · 门禁（**旧**实现）：正则只认小写 `true|false`。
 //    两者取值集合不同 → 写错一个字母就可能**指向相反的方向**。实测矩阵
 //    （用仓库自带的 gray-matter 4.0.3 / js-yaml 4.3.2 跑出来的，非推测）：
 //
@@ -940,31 +950,42 @@ let identityOn404 = null; // null = 读不到/不合法 → 判红，不进下�
 let identityOn404Raw = "(未读到)"; // 报错时引用**源文件里的字面量**，不要用
 // 门禁自己推出来的值——推出来的值一旦与文件不符，报错就会指错方向。
 if (fs.existsSync(identity404SrcPath)) {
-  // 宽松匹配：先把**字面量**取出来，再单独判它是不是合法布尔。
-  // （用严格的 /(true|false)/ 匹配会在"值不合法"时直接匹配失败，
-  //   于是"不合法"与"没写"混成同一种情况，报错就说不清是哪一种。）
-  // 允许行尾注释（`identityOn404: true  # 保留 Person`）——
-  //   否则加了注释的那一行就匹配不上，会被误报成"找不到开关"。
-  const m = fs
-    .readFileSync(identity404SrcPath, "utf8")
-    .match(/^identityOn404:[ \t]*(\S+)[ \t]*(?:#.*)?$/m);
-  if (!m) {
+  const srcText = fs.readFileSync(identity404SrcPath, "utf8");
+  // ⚠️ 只读 **front matter**（--- 包裹的那一段），与模板侧 gray-matter
+  //    的作用域**完全一致**：模板只解析 front matter，门禁若扫全文，
+  //    正文里任何以 `identityOn404:` 开头的字样（示例、说明）都可能被
+  //    当成开关 → 两边读的不是同一处 → 正是本条要防的"悄悄分叉"。
+  const fm = srcText.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+  if (!fm) {
     fail(
-      `src/404.njk: 找不到 identityOn404 开关 —— 门禁读不到「404 页要不要声明身份」` +
-        `这一口径，就不能当没事发生。请在 src/404.njk 的 front matter 里写一行` +
-        `identityOn404: true（保留）或 identityOn404: false（去掉）。`
-    );
-  } else if (!/^(true|false|True|False|TRUE|FALSE)$/.test(m[1])) {
-    fail(
-      `src/404.njk: identityOn404 的值 "${m[1]}" 不是合法布尔（只接受 true / false / True / False / TRUE / FALSE）—— ` +
-        `YAML 1.2 只把 true/True/TRUE/false/False/FALSE 这六种写法当布尔；` +
-        `"${m[1]}" 会被解析成别的类型（字符串 / 数字 / null），而 Nunjucks 只看真值——` +
-        `非空字符串与数字都是真值，于是"写 no 以为关掉了"实际**没关**，` +
-        `且门禁与模板对不上、谁也发现不了。请写成 true 或 false。`
+      `src/404.njk: 文件没有 front matter（--- 包裹的那一段）—— 门禁读不到 ` +
+        `identityOn404 开关，无法校验「404 页要不要声明身份」。`
     );
   } else {
-    identityOn404 = m[1].toLowerCase() === "true";
-    identityOn404Raw = m[1];
+    // 宽松匹配：先把**字面量**取出来，再单独判它是不是合法布尔。
+    // （用严格的 /(true|false)/ 匹配会在"值不合法"时直接匹配失败，
+    //   于是"不合法"与"没写"混成同一种情况，报错就说不清是哪一种。）
+    // 允许行尾注释（`identityOn404: true  # 保留 Person`）——
+    //   否则加了注释的那一行就匹配不上，会被误报成"找不到开关"。
+    const m = fm[1].match(/^identityOn404:[ \t]*(\S+)[ \t]*(?:#.*)?$/m);
+    if (!m) {
+      fail(
+        `src/404.njk: front matter 里找不到 identityOn404 开关 —— 门禁读不到「404 页要不要声明身份」` +
+          `这一口径，就不能当没事发生。请在 src/404.njk 的 front matter 里写一行` +
+          `identityOn404: true（保留）或 identityOn404: false（去掉）。`
+      );
+    } else if (!/^(true|false|True|False|TRUE|FALSE)$/.test(m[1])) {
+      fail(
+        `src/404.njk: identityOn404 的值 "${m[1]}" 不是合法布尔（只接受 true / false / True / False / TRUE / FALSE）—— ` +
+          `YAML 1.2 只把 true/True/TRUE/false/False/FALSE 这六种写法当布尔；` +
+          `"${m[1]}" 会被解析成别的类型（字符串 / 数字 / null），而 Nunjucks 只看真值——` +
+          `非空字符串与数字都是真值，于是"写 no 以为关掉了"实际**没关**，` +
+          `且门禁与模板对不上、谁也发现不了。请写成 true 或 false。`
+      );
+    } else {
+      identityOn404 = m[1].toLowerCase() === "true";
+      identityOn404Raw = m[1];
+    }
   }
 } else {
   fail(`src/404.njk: 文件不存在 —— 门禁读不到 identityOn404 开关`);
@@ -1626,6 +1647,90 @@ if (OWNER_ORCID && SITE_URL) {
       `${withOwnerId} 个节点带 @id）`
   );
 }
+
+/* ---------- 24. 门禁编号自身：文件头清单与代码段必须一一对应 ----------
+   这条元门禁是被一个**真实案例**逼出来的：门禁 22/23 落地时，代码段已经
+   写好，文件头那份「编号清单」却还停在 21 —— **清单与代码不一致**，
+   而当时**所有门禁都是绿的**（编号漂移不会让任何页面检查失败）。
+   后果是实的：后来的人按清单引用门禁号，会引到一个**不存在**的号；
+   按代码数，又会和文件头对不上。第九轮刚把编号体系理顺过一轮，
+   这种漂移一进来就白理。
+
+   所以这里把"编号"本身也纳入检查：
+     ① 文件头清单里的编号 = 代码里实际存在的门禁段（集合必须相等）；
+     ② 两边各自**不得重复**（同一个号写两遍 = 两个门禁共用一个号）；
+     ③ 整数编号必须**连续**（1..max 一个不缺；4b/4c 这类附属号允许）。
+
+   ⚠️ 提取规则必须**只认段首**，否则会把自己脚下的注释也算进去：
+     · 文件头清单：` *    22. 文字`（星号 + 编号 + 点）
+     · 代码段：      `// 1) 文字` 与 `/* ---------- 10. 文字`（两种写法都有）
+   编号里允许带字母后缀（4b / 4c）——历史上有过。 */
+const SELF_SRC = fs.readFileSync(__filename, "utf8");
+const headerNums = [];
+for (const m of SELF_SRC.matchAll(/^\s*\*\s+(\d+[a-z]?)\.\s/gm)) headerNums.push(m[1]);
+const codeNums = [];
+for (const m of SELF_SRC.matchAll(/^\s*(?:\/\/|\/\* -+)\s*(\d+[a-z]?)[.)]\s/gm))
+  codeNums.push(m[1]);
+
+const dupOf = (arr) => {
+  const seen = new Set();
+  const dups = new Set();
+  for (const n of arr) {
+    if (seen.has(n)) dups.add(n);
+    seen.add(n);
+  }
+  return [...dups];
+};
+for (const [label, arr] of [
+  ["文件头清单", headerNums],
+  ["代码里的门禁段", codeNums],
+]) {
+  const dups = dupOf(arr);
+  if (dups.length) {
+    fail(`门禁编号在${label}里重复：${dups.join(", ")} —— 同一个号只能有一条门禁`);
+  }
+}
+const headerSet = new Set(headerNums);
+const codeSet = new Set(codeNums);
+const onlyHeader = [...headerSet].filter((n) => !codeSet.has(n));
+const onlyCode = [...codeSet].filter((n) => !headerSet.has(n));
+if (onlyHeader.length) {
+  fail(
+    `文件头清单里登记了门禁 ${onlyHeader.join(", ")}，但代码里没有对应的门禁段 —— ` +
+      `清单与代码对不上，按清单引用会引到不存在的号`
+  );
+}
+if (onlyCode.length) {
+  fail(
+    `代码里有门禁 ${onlyCode.join(", ")}，但文件头清单里没有登记 —— ` +
+      `新加的门禁忘了登记编号（清单只到 ${Math.max(
+        ...[...headerSet].map((n) => parseInt(n, 10) || 0)
+      )}）`
+  );
+}
+{
+  const ints = [...headerSet]
+    .map((n) => parseInt(n, 10))
+    .filter((n) => Number.isInteger(n) && n > 0);
+  const maxInt = ints.length ? Math.max(...ints) : 0;
+  // 某个整数 N 算"存在"，可以是 N 本身，也可以是 N 后面带字母后缀的
+  // 4b / 4c —— 本项目的编号体系里**没有**独立的"4"，
+  // 4 这一族由 4b（错误页索引控制）与 4c（标题）承担。
+  const hasFamily = (n) =>
+    headerSet.has(String(n)) ||
+    [...headerSet].some((k) => new RegExp(`^${n}[a-z]$`).test(k));
+  const missing = [];
+  for (let n = 1; n <= maxInt; n++) {
+    if (!hasFamily(n)) missing.push(n);
+  }
+  if (missing.length) {
+    fail(`门禁编号不连续，缺 ${missing.join(", ")}（最大号 ${maxInt}）—— 编号必须是连续的`);
+  }
+}
+note(
+  `门禁编号：文件头清单 ${headerNums.length} 条 / 代码段 ${codeNums.length} 条，` +
+    `一一对应且连续`
+);
 
 /* ---------- 汇总 ---------- */
 console.log(`产物：${htmlFiles.length} 个 HTML 页，${refCount} 条本地引用，${sitemapUrls.length} 条 sitemap URL`);
