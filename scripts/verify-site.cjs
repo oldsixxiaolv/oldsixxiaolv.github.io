@@ -1189,6 +1189,10 @@ if (fs.existsSync(robotsTxtPath)) {
         静默失效反而抓不到。逐页判定（按该页自己的源文件查）没有这个前提：
         一个还没提交的新文件只影响它自己那一页。 */
 const REPO = path.resolve(__dirname, "..");
+// git 跑失败（退出码非 0 → e.status 是数字）或 git 不可用（spawn 失败 → e.code 是字符串）
+// ——这才算"没有 git 历史"；ReferenceError / TypeError 等编程错误两者皆无，必须抛出。
+const isGitProcessFailure = (e) =>
+  !!e && typeof e === "object" && (typeof e.status === "number" || e.code === "ENOENT");
 const gitOut = (args) => {
   try {
     return execFileSync("git", args, {
@@ -1196,7 +1200,16 @@ const gitOut = (args) => {
       encoding: "utf8",
       stdio: ["ignore", "pipe", "ignore"],
     }).trim();
-  } catch {
+  } catch (e) {
+    // ⚠️ 只把「git 跑失败 / git 不可用」当成"没有 git 历史"（源码 zip 分发 / git 不可用）。
+    // 编程错误（例如漏了 require("child_process") 导致 execFileSync 未定义
+    // → ReferenceError）必须立刻暴露，不能被伪装成"不在 git 仓库里"——
+    // 那会让「lastmod 整体消失」那条兜底整条静默失效
+    // （兜底只挂在 inGitRepo 为真的分支上）。
+    // ⚠️ 两边必须一起改：eleventy.config.js 侧的 gitRoot()/lastCommitTime()
+    //    也有同款裸 catch —— 只有两边同时坏，才会出现"产物 lastmod 全消失
+    //    而门禁全绿"的静默漏报（2026-10-19 实测：exit 0、note 谎称"源码 zip 分发"）。
+    if (!isGitProcessFailure(e)) throw e;
     return null;
   }
 };

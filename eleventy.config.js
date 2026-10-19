@@ -355,6 +355,10 @@ module.exports = function (eleventyConfig) {
        3. **文件还没被提交过（历史里查不到）→ 也不给**。
      sitemap 规范里 lastmod 是**可选**字段，宁可没有，也不要一个假的。 */
   let gitRootCache;
+// git 跑失败（退出码非 0 → e.status 是数字）或 git 不可用（spawn 失败 → e.code 是字符串）
+// ——这才算"没有 git 历史"；ReferenceError / TypeError 等编程错误两者皆无，必须抛出。
+const isGitProcessFailure = (e) =>
+  !!e && typeof e === "object" && (typeof e.status === "number" || e.code === "ENOENT");
   function gitRoot() {
     if (gitRootCache !== undefined) return gitRootCache;
     try {
@@ -363,7 +367,10 @@ module.exports = function (eleventyConfig) {
         encoding: "utf8",
         stdio: ["ignore", "pipe", "ignore"],
       }).trim();
-    } catch {
+    } catch (e) {
+      // 同 verify-site.cjs 的 gitOut：只吞"git 跑失败 / git 不可用"，
+      // 编程错误必须暴露（否则 lastmod 整片消失，而门禁也以为"不在 git 仓库里"）。
+      if (!isGitProcessFailure(e)) throw e;
       gitRootCache = null; // 不在 git 仓库里（或 git 不可用）
     }
     return gitRootCache;
@@ -403,7 +410,9 @@ module.exports = function (eleventyConfig) {
       if (isNaN(d.getTime())) return "";
       // 统一成 UTC 的 Z 形式，与站点其它时间戳（dateToIso）格式一致
       return d.toISOString();
-    } catch {
+    } catch (e) {
+      // 同上：编程错误不能被伪装成"查不到提交时间"（那会让 lastmod 静默变空）。
+      if (!isGitProcessFailure(e)) throw e;
       return "";
     }
   });

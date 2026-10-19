@@ -4799,3 +4799,174 @@ Google Scholar/ADS/arXiv 档案、网盘 URL、OpenAlex 是否页脚可见、作
 **日志文件里也有另一场次的在途改动**（门禁 24 承重续报、C2 补丁取代 C 那两段）——
 本条**只把自己的 hunk 写进索引**（`hash-object` + `update-index --cacheinfo`），
 **不碰工作树里的在途内容**。
+
+## 2026-10-19 · 14:30–15:00 场次（**不占轮次号**，避免与并发场次撞号）：落地 C2 —— 把 `gitOut` / `gitRoot` / `lastCommitTime` 三处裸 catch 收窄
+
+### 本场次定位
+
+接收只读复验场次 `mvs_dd21f18c` 的裁决与加固补丁
+（`/tmp/mvs_dd21f18c_r14/report_1345.md`、`patch_C2.diff`），
+本场次**不直接采信**，把它的每一条断言独立复算一遍，确认无误后才落地 **C2**，
+并顺带处理它提出的「对照表补行」事项（结论：已过期，见 F）。
+
+### A. 裁决三条，我方逐条独立复算（全部吻合）
+
+| 断言 | 我的复算方式 | 结果 |
+|---|---|---|
+| ① `fdb5dca` 的可达性 | `git merge-base --is-ancestor fdb5dca HEAD` | exit 0 → **在链上**，且是 `6953e74` 的父提交 |
+| ② `/tmp/mh_r9c` 副本的内容归属 | 与 `git show 54899f1:scripts/verify-site.cjs` 逐字节 diff | **逐字节相同** → 副本的 `.git` HEAD **不能**代表副本内容 |
+| ③ 谁才是真孤儿 | 逐个验 `526b566` / `dfe021a` / `89d64fd` | 三者**均不在链上** → 这三个才是孤儿 |
+
+⚠️ **订正一条我自己的旧记忆**（此前记错过，记在这里免得后人照抄）：
+我把 `fdb5dca` 记成"孤儿 commit"是**错的**——它在链上。
+真孤儿是 `526b566` / `dfe021a` / `89d64fd`。
+根因是把 `git reflog` 里的 `reset: moving to X` 读反了：
+那是"**移到** X"（X 留下来当父提交），不是"丢掉 X"（被丢掉的是 reset 之前那批）。
+→ **教训**：写"某 hash 是孤儿"之前先 `merge-base --is-ancestor` 验一遍，
+reset 的方向要去看 reflog 原文，不能凭字面猜。
+
+### B. 这个洞的性质：**判据与被判据共用同一个会吞错的 catch**
+
+`scripts/verify-site.cjs` 的 `gitOut()` 与 `eleventy.config.js` 的
+`gitRoot()` / `lastCommitTime()` 原本都是裸 `catch { return null / ""; }`。
+后果不是"某条门禁误报"，而是**两边同向失败**：
+
+- 模板侧：编程错误（比如漏 `require("child_process")` → `ReferenceError`）被当成
+  "查不到提交时间" → `lastmod` 整片消失；
+- 门禁侧：同一个编程错误被当成"不在 git 仓库里" → `inGitRepo = false`
+  → 门禁**改走规则 B**（"不在 git 仓库里就不该有 lastmod"，本来就该没有）
+  → **判红的那条规则 E 整条被绕过**。
+
+即：**判据自己被卸掉了，产物照坏，门禁照绿**。
+本场次在**未打补丁**的树上实测复现过（2026-10-19 约 14:1x）：
+注入 `TypeError` 到 `gitOut` 与 `gitRoot` → **build exit 0（全绿）**
++ sitemap lastmod **0/5** + 门禁 note 谎称"源码 zip 分发"。
+
+→ **可推广的纪律**：判据与被判据**不得共用同一个会吞错的 catch**。
+两边任一侧单独坏掉都还能被对方发现；两边一起坏，才是"静默漏报"。
+
+### C. 为什么用 C2，而不是 peer 报告里的另外两版
+
+| 版本 | 判据 | 后果 |
+|---|---|---|
+| 旧 C | `typeof e.status === "number" \|\| typeof e.code === "string"` | `code` 只要是**字符串**就吞 → **`EACCES`/`EPERM` 也被吞** → 仍会静默全绿 |
+| peer 版 | `"status" in err` | `{status:null, code:null}` 也满足 → 吞掉一批**根本不是 git 失败**的对象 |
+| **C2（本轮采用）** | `typeof e.status === "number" \|\| e.code === "ENOENT"` | 只吞「git 跑了但退出码非 0」与「git 不在 PATH」两种**真的没有 git 历史**的情况；编程错误、`EACCES`/`EPERM` 等环境异常**一律抛出** |
+
+两个文件里各定义一份（`verify-site.cjs:1194`、`eleventy.config.js:360`）：
+
+```js
+const isGitProcessFailure = (e) =>
+  !!e && typeof e === "object" && (typeof e.status === "number" || e.code === "ENOENT");
+```
+
+### D. 改动
+
+三处 `catch` 由"吞掉一切"改为"只吞 git 进程失败"，其余原样抛出：
+
+- `scripts/verify-site.cjs` `gitOut()`（~1196 行）
+- `eleventy.config.js` `gitRoot()`（~362 行）
+- `eleventy.config.js` `lastCommitTime` filter（~388–410 行）
+
+判据**只**在"git 真的没跑起来/跑挂了"时返回空值，
+编程错误一律带栈冒到 build → **exit 1**。
+
+### E. 复验（隔离克隆 `/tmp/mh-r19/landed`，共享工作区零写入）
+
+**被测对象 = 暂存区（index）里那两份文件**，不是工作区版本、也不是补丁副本 ——
+工作区的 `eleventy.config.js` 还叠着并发场次的 RIS 改动（`src/publications.ris.njk`
+是未跟踪文件，干净克隆里没有），从工作区取会引进与 C2 无关的失败。
+
+**判据单元测试（6 例，喂合成错误对象）**
+
+| 输入 | 期望 | 实测 |
+|---|---|---|
+| `TypeError` / `ReferenceError`（编程错误） | 抛 | ✅ 抛 |
+| `{status:128}`（git 退出码非 0） | 吞 | ✅ 吞 |
+| `{code:"ENOENT"}`（git 不在 PATH） | 吞 | ✅ 吞 |
+| `{code:"EACCES"}`（git 在但跑不起来） | 抛 | ✅ 抛 |
+| `{status:null, code:null}` | 抛 | ✅ 抛 |
+
+顺带对照：旧 C 的判据对 `{code:"EACCES"}` **确实返回 true** → 坐实"必须用 C2"。
+
+**端到端矩阵（4 例）**
+
+| 用例 | 期望 | 实测 |
+|---|---|---|
+| V0 都不坏 | exit 0 + lastmod 5/5 | ✅ exit 0 / lastmod 5 |
+| V3 两侧都坏（注入 `TypeError`） | exit 1 + 编程错误可见 + 有栈 | ✅ exit 1 / `INJECTED_PROGRAMMING_ERROR` 可见 / 有栈 / **note 不再谎称"源码 zip 分发"** |
+| L1 无 `.git`（合法环境） | exit 0 不崩栈 | ✅ exit 0 / 无栈 |
+| L3 git 退出码 128（合法环境） | exit 0 不崩栈 | ✅ exit 0 / 无栈 |
+
+注入自证：写盘后**回读**确认注入串可读到、且 md5 变化
+（`verify-site.cjs` `7a0c5067→6f7f161d`、`eleventy.config.js` `fbae6fe7→c47078da`）。
+**基线 V0 先确认为 exit 0** 才做注入，避免"基线本来就红"把假红当结论。
+
+### F. 「对照表补行」：已过期，本场次**不做**
+
+peer 建议把 `旧编号→新编号对照` 表补齐 20–29 行。
+实际打开文件才发现，**并发场次已经做完了**（14:00–14:10 场次）：
+对照表补到 20–29 行齐全，并且**新增了门禁 29** —— 门禁 29 自己就是"对照表覆盖度自检"
+（清单 ↔ 对照表**双向**覆盖 + 不得有重复行）。
+比 peer 提议的一次性幂等脚本更结构化（能防复发，不只是补一次）。
+（⚠️ 时点说明：上面是 14:00–14:10 那场次做完时的状态；截至本场次，
+HEAD 上的门禁已到 **30** 条、对照表 30 行 —— 并发场次随后又加了门禁 30。）
+→ 不重复做。
+
+### G. 一个我**刻意留在范围外**的裸 catch（实测确认安全）
+
+`eleventy.config.js` 的 `gitIsShallow()` 里仍有一处裸 `catch { gitShallowCache = true; }`。
+它与上述三处**不是同一类**：方向是**偏向报错**。
+实测（注入 `TypeError` 到 `gitIsShallow`，md5 `fbae6fe7→791c263b`）：
+
+```
+exit=1
+sitemap.xml: ".../" 的源文件 src/index.njk 提交过，这一页却没有 <lastmod>——lastmod filter 静默失效了
+```
+
+即：模板侧误判成"浅克隆" → lastmod 全空 → **门禁规则 E 逐页核对必然报红**。
+**fail-closed**（偏报错），不会静默放行 → 本轮不改，留作已知边界。
+（若哪天后有人把 `gitIsShallow` 改成"偏放行"，这条边界就反了，须重新评估。）
+
+### H. 我自己这轮犯的两个错（都记下来）
+
+1. **判据单元测试第一版写错了**：我用 `try/catch` 去测 `isGitProcessFailure`「是否抛」，
+   而它是个**谓词**（返回布尔）→ 6 例全被判成"吞"，看起来像补丁失效。
+   改回 `isGitProcessFailure(err) === true` 才得到真结果。
+   → **判据是"返回"还是"抛"，决定了测法**；测错了会把"通过"报成"失败"。
+2. **驱动脚本 `build()` 漏接 `env` 参数** → L3 用例直接 `TypeError` 崩掉。
+   顺手补上。（另：驱动脚本最初从**工作区**取被测文件，会把并发场次的在途改动带进来 →
+   改成从**暂存区**取，那才是"将要提交的那份代码"。）
+
+### I. 一个**在本机无法端到端复现**的分支
+
+`EACCES`（git 在 PATH 里但跑不起来）这条，**本机造不出来**：
+macOS 的 `execvp` 遇到**存在但不可执行（mode 000）或本身是目录**的 PATH 项会**跳过并继续往后找**
+→ 假 git 永远造不出 EACCES，真 git 总被找到；且 `npm run` 会把 `/opt/homebrew/bin` 前置到 PATH 顶部。
+→ 这条分支**只能靠判据单元测试**（喂合成错误对象）来验，本轮已验（见 E）。
+peer 侧在其环境跑通了端到端 V6b exit 1。
+
+### J. 本轮提交（**不 push**）
+
+- `scripts/verify-site.cjs` + `eleventy.config.js`：**只把我的两个 hunk 写进索引**
+  （`git apply --cached` 精确分段暂存），并发场次在飞的 RIS 改动完整留在未暂存区。
+- `docs(log)`：本节（同样只把自己的 hunk 写进索引，**不碰工作树里的在途内容**）。
+
+⚠️ 绝不 amend 已有 commit（会造孤儿、让同伴的 `--is-ancestor` 判断失真）；
+订正一律另起 commit。
+
+### 待部署（本轮**不 push**，线上仍是旧版本）
+
+线上仍是 2026-10-16 那次部署：`/papers/`、`/publications.bib`、`/feed.xml` 仍 404（属待部署，非损坏）。
+
+### 待决策（**沿用既有清单，本轮不新增、不擅自拍板**）
+
+404 页是否保留 Person 实体 · 论文页是否显示署名单位 · `figure.alt` 是否保留 "Fig. 10 —" 前缀 ·
+sitemap `lastmod` 口径 · 门禁 25 的博客封面图 `alt=""` 是否给描述性替代文本 · OG 分享图里的中文品牌文案要不要英文化。
+
+### 留给下一轮
+
+- `sameAs` 形态门禁（只查绝对地址形态与 `site.js` 逐字一致，**不查可达性**）尚未做。
+- 门禁 27 锚点改 ORCID（换锚点前必须先确认 R4 仍被门禁 12 抓到）。
+- 门禁 21④ 报错去重、门禁 15 在四个页面上空跑。
+- 巡检 cron 频率（仍每 5 分钟起一个会话，持续并发冲突）→ 建议 30–60 分钟 + 单写者锁。
