@@ -140,6 +140,14 @@
      不是 og:title 的复述。页面标题由 og:title 单独承担，alt 再抄一遍就会
      出现 "Yihang Lyu · PhD Student · Yihang Lyu, PhD Student" 这种重复。 #}
   {% set ogCardAlt = "MeteoHub — " + site.author.name + ", " + site.author.jobTitle + " at " + site.author.affiliationShort %}
+  {# 封面图的 alt —— 三级来源，从具体到通用：
+       ① front-matter 的 `coverAlt`（页面级显式覆盖，最优先）
+       ② site.js 里这篇论文的 publications[].figure.alt（**数据源**）
+       ③ ogCardAlt（作者身份图）——论文页不该落到这里，那是图文不符
+     ② 是论文页的默认：图（figure.src）和它的 alt（figure.alt）在数据里是同一处维护，
+     页面 <img alt> / og:image:alt / twitter:image:alt 三处同源，不会再出现
+     "一张图、三套文案"。 #}
+  {%- set coverAltText = coverAlt or (pubMeta.figure.alt if pubMeta and pubMeta.figure else null) -%}
 
   {# og:type 按**页面性质**判定。此前写的是"除首页外一律 article"，于是
      /about/ 、/blog/ 、/papers/ 这三个档案页与列表页、以及 /404.html
@@ -236,9 +244,10 @@
     <meta property="og:image:height" content="{{ coverHeight }}" />
     {%- endif %}
     {# alt 描述的是**这张图**。默认 alt 描述的是作者身份，论文页的 cover 是
-       论文成果图，用作者身份当 alt 属于图文不符；内容页可用 front-matter
-       `coverAlt` 覆盖。 #}
-    <meta property="og:image:alt" content="{{ coverAlt or ogCardAlt }}" />
+       论文成果图，用作者身份当 alt 属于图文不符 —— 论文页的 alt 走
+       coverAltText（= site.js 的 publications[].figure.alt，与 <img alt> 同源），
+       内容页可用 front-matter `coverAlt` 覆盖。 #}
+    <meta property="og:image:alt" content="{{ coverAltText or ogCardAlt }}" />
   {% else %}
     {# 多尺寸 og:image（默认 fallback；社交平台按 slot 尺寸自动选图）：
          1. 1200×630  — FB / LinkedIn / Twitter summary_large_image 默认
@@ -278,7 +287,7 @@
   <meta name="twitter:description" content="{{ ogDesc }}" />
   {% if cover %}
     <meta name="twitter:image" content="{{ coverUrl }}" />
-    <meta name="twitter:image:alt" content="{{ coverAlt or (ogTitle + ' · ' + site.author.name + ', ' + site.author.jobTitle) }}" />
+    <meta name="twitter:image:alt" content="{{ coverAltText or (ogTitle + ' · ' + site.author.name + ', ' + site.author.jobTitle) }}" />
   {% else %}
     <meta name="twitter:image" content="{{ site.url }}/assets/img/og/og-1200x630.png" />
     <meta name="twitter:image:alt" content="{{ ogTitle }} · {{ site.author.name }}, {{ site.author.jobTitle }}" />

@@ -10,7 +10,20 @@ eleventyExcludeFromCollections: true
   ========================================================================== #}
 # MeteoHub · robots.txt
 # 站点：{{ site.url }}
-# 生成时间：{{ page.date | dateToIso }}
+{# 「生成时间」= **这次构建的时刻**。
+   ⚠️ 此前写的是 `{{ page.date | dateToIso }}`——那是本模板文件的
+   **birthtime（创建时间）**，不是构建时间。本机实测：
+     src/robots.njk birthtime = 2026-10-02T04:29:21.600Z
+     产物里那行"生成时间"     = 2026-10-02T04:29:21.600Z   ← 逐字相同
+   而站点实际是 10-19 建的。那行字标着"生成时间"却永远停在 10-02，
+   是一个**会误导人的标签**（比单纯"不准"更糟）。
+
+   在 CI 上更隐蔽：actions/checkout 会把文件重新写盘，birthtime 变成
+   checkout 那一刻，于是"生成时间"看起来正好等于部署时刻——**恰好蒙对**，
+   所以一直没人发现。机制是错的，只是两次都撞对了。
+
+   buildStamp filter 每次渲染重新取时间，所以它就是真的构建时刻。 #}
+# 生成时间：{{ "" | buildStamp }}
 
 User-agent: *
 Allow: /

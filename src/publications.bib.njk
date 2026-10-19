@@ -36,4 +36,14 @@ eleventyExcludeFromCollections: true
     {%- set _ = entries.push(p.capsule | resourceBibtex("software")) -%}
   {%- endif -%}
 {%- endfor -%}
-{{ entries | join("\n\n") }}
+{# ⚠️ 这里的 `| safe` 是**必需**的，不是偷懒。
+
+   Eleventy 3.1.6 的 nunjucks 默认开着 autoescape（eleventy.config.js 没有覆盖
+   它的 nunjucksEnvironmentOptions），于是 BibTeX 里的 `\&`（转义后的 &）会被
+   再转义成 `&#92;&amp;` —— 页面上的 <pre> 看着正常（浏览器解码后仍是 `\&`），
+   但**下载下来的 .bib 文件里字面就是 `&#92;&amp;`**，那不是合法 BibTeX，
+   Zotero 之类的导入器会读出乱码。
+
+   页面侧（paper.njk 的 <pre>）**不能**加 | safe：那里的 `&` 需要 HTML 转义，
+   否则就是裸 & 落进 HTML。所以只有"下载文件"这条路径可以关掉转义。 #}
+{{ entries | join("\n\n") | safe }}

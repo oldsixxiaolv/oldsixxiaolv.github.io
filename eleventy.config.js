@@ -286,6 +286,25 @@ module.exports = function (eleventyConfig) {
     return d.toISOString();
   });
 
+  // buildStamp：**这次构建的时刻**（ISO-8601，UTC）。
+  //
+  // 为什么需要它：robots.txt 里那行「生成时间」此前取的是
+  // `page.date | dateToIso`，而对模板页而言 page.date = 源文件的
+  // **birthtime（创建时间）**。实测 src/robots.njk 的 birthtime =
+  // 2026-10-02T04:29:21.600Z，与产物里那行「生成时间」逐字相同，
+  // 而站点实际是 10-19 建的 —— 一个**会误导人的标签**。
+  //
+  // ⚠️ 为什么用 filter 而不是 `eleventyComputed`：
+  // Eleventy 的 eleventyComputed 里，**字符串值会被当作"模板字符串"渲染**
+  // （见 Template.js 的 _addComputedEntry：typeof obj === "string" 走
+  // #renderComputedUnit），不是当 JS 求值。写
+  // `buildTime: "new Date().toISOString()"` 会被原样输出成那行字。
+  // filter 是真正的 JS 函数，模板引擎会调用它。
+  //
+  // 每次渲染都重新取时间 → 开发服务器（--serve）里也是当下的时刻，
+  // 而不是服务启动时刻。
+  eleventyConfig.addFilter("buildStamp", () => new Date().toISOString());
+
   // head(n)：取前 n 项（默认 3）
   eleventyConfig.addFilter("head", (arr, n = 3) => {
     if (!Array.isArray(arr)) return [];

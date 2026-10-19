@@ -786,6 +786,216 @@ JS 把多余的实参**静默丢弃**（不报错、页面照出、构建照过�
 
 ---
 
+## 2026-10-19 · 第八轮：下载的 .bib 别带 HTML 实体 + 一张图只配一套 alt + robots 的"生成时间"改成真的构建时间
+
+### ⚠️ 本轮的并发情况与归属（先说清楚，避免以后误判）
+
+巡检 cron **每 5 分钟起一个会话**，本轮（11:00）开始时工作区里同时跑着
+**10:10 / 10:35 / 10:40 / 10:45 / 10:50 / 10:55** 六个 MeteoHub 会话，
+且**三个会话正在同时写** `base.njk` / `paper.md` / `publications.bib.njk`
+（mtime 落在 11:00:2x–3x）。
+
+处理：
+
+1. 向 6 个会话逐一 `session send --force_steer` 发停手通知（全部 ACK）；
+2. 连续采样文件 mtime 60 秒，确认工作树**稳定**（停在 11:00:37）；
+3. 11:05 又起了一个会话并自称写者，已通知它转为**只读独立复验**。
+
+**归属**：
+
+| 场次 | 写了什么 | 去向 |
+|---|---|---|
+| **10:45**（`mvs_e442fe05`） | A、B 两组改动（`| safe` + 删 `coverAlt` + `coverAltText` + 门禁 12/13/14） | 本轮提交 |
+| **11:00**（本场次） | 复核上述全部改动 + C 组（robots 构建时间 + 门禁 16）+ 本日志 | 本轮提交 |
+
+### A. 下载的 `publications.bib` 不该带 HTML 实体（10:45 写，本轮复核）
+
+**问题**：`publications.bib.njk` 末尾是 `{{ entries | join("\n\n") }}`，
+而 Eleventy 3.1.6 的 nunjucks **默认开着 autoescape**。BibTeX 里的
+`\&`（转义后的 &）会被**再转义**成 `&#92;&amp;`——页面上 `<pre>` 看着正常
+（浏览器解码后仍是 `\&`），但**下载下来的 .bib 文件里字面就是 `&#92;&amp;`**，
+那不是合法 BibTeX，Zotero 之类的导入器会读出乱码。
+
+**改法**：`.bib` 这条路径加 `| safe`（下载文件必须是原始 BibTeX）；
+页面侧的 `<pre>` **不能**加（那里的 `&` 需要 HTML 转义，否则是裸 `&` 落进 HTML）。
+
+#### ⚠️ 一条必须写清楚的事实：`| safe` 在**当前数据上是 no-op**，但它是这个 bug 的**正解**
+
+本轮在 `/tmp` 隔离副本上实测（rsync + symlink `node_modules`）：
+
+**① 当前数据下确实是 no-op**：去掉 `| safe` 重建，产物 `.bib` 与保留时
+**逐字相同**。原因：**当前 `publications.bib` 全文一个 `&` 都没有**——
+3 条条目的 author / title / journal / doi / url 都不含 `&`，nunjucks 无从转义。
+
+**② 但只要出现一个 `&`，它立刻就是"合法 BibTeX"与"HTML 实体乱码"的分界线。**
+把 title 改成含 `&` 的版本（`Lightning & Convective Structure`）后实测：
+
+| 字段 | 保留 `\| safe` | 去掉 `\| safe` |
+|---|---|---|
+| `title`（**走** `esc`） | `title = {Lightning \& Convective…}` ✓ | `title = {Lightning &#92;&amp; Convective…}` ✗ |
+| `url`（**不走** `esc`） | `url = {https://…?a=1&b=2}` ✓ | `url = {https://…?a=1&amp;b=2}` ✗ |
+
+去掉 `| safe` 时产物里的 `&#92;&amp;` / `&amp;` **就是**导入器会读出乱码的东西。
+
+**所以准确的说法是**：
+
+- ❌ **不是**"修好了一个已经发生的线上 bug"——**当前数据里那个 bug 尚未显形**；
+- ✅ **但 `| safe` 正是这个 bug 的正解**：它决定了 `.bib` 一旦出现 `&` 时
+  落在哪一边。**这行不能删**；
+- ✅ 门禁 13 是**第二道防线**：机制正确之后**不许再退化**——
+  注入 `&#92;&amp;` 后门禁 12 + 13 同时报出（实测）。
+  两条是**互补**的，不是二选一。
+
+⚠️ **一条方法论（故障注入本身也会骗人）**：本轮第一次注入"把 `.bib` 里的
+`\&` 换成 `&#92;&amp;`"报了"**漏网**"，看起来像门禁 13 失效——真因是
+**注入根本没生效**：当前 `.bib` 里连一个 `&` 都没有，`replace` 匹配不到，
+文件**逐字没变**，门禁当然放行。
+**"注入没生效"和"门禁没拦住"在结果上长得一模一样。**
+所以每条注入都必须先**确认文件真的被改了**（打印改后内容）再读门禁的结论。
+（端到端复现由 10:40 场次先做出来，本轮独立复跑核对，结论一致。）
+
+### B. 一张图只能有一套 alt（10:45 写，本轮复核）
+
+**问题**：论文页的成果图 `trmm-fig10.jpg` 在**三处各写各的 alt**：
+
+| 出口 | 原文 | 对不对 |
+|---|---|---|
+| `<img alt>` | site.js 的 `publications[].figure.alt` | ✅ 与图相符 |
+| `og:image:alt` | paper.md front-matter 的 `coverAlt` | ❌ 与图不符 |
+| `twitter:image:alt` | 同上 | ❌ 与图不符 |
+
+`coverAlt` 写的是"复合雷达回波剖面 / echo coverage percentage"，
+而**本轮直接看了图**（`src/assets/img/publications/trmm-fig10.jpg`）：
+上排是三个阶段的**小提琴图**（Altitude 0–20 km vs Horizontal scale ±20 km，
+按 20/30/40 dBZ 分层），下排是三个阶段的**累积分布曲线**
+（蓝 = FlRate fl min⁻¹，红 = FD₄₀ fl min⁻¹ (100 km)⁻²，横轴 Percentage %）。
+"echo coverage percentage" 这个说法与图对不上。
+
+**改法**：删掉 front-matter 里的 `coverAlt`，改由 `base.njk` 从**数据源**
+`site.js` 的 `publications[].figure.alt` 取值——图（`figure.src`）和它的
+alt（`figure.alt`）在同一处维护，`<img alt>` / `og:image:alt` /
+`twitter:image:alt` 三处**同源**，不会再各说各话。
+
+### C. robots.txt 的"生成时间"改成**真的构建时间**（本场次实现）
+
+**问题**：`src/robots.njk` 那行写的是
+
+```njk
+# 生成时间：{{ page.date | dateToIso }}
+```
+
+而对模板页而言 `page.date` = 源文件的 **birthtime（创建时间）**。本机实测：
+
+| | 值 |
+|---|---|
+| `src/robots.njk` birthtime | `2026-10-02T04:29:21.600Z` |
+| 产物里那行"生成时间" | `2026-10-02T04:29:21.600Z` ← **逐字相同** |
+| 站点实际建成日期 | 2026-10-19 |
+
+那行字**标着"生成时间"却永远停在 10-02**。这不是"不准"，是
+**一个会误导人的标签**——读者会以为产物很旧。
+
+**为什么一直没人发现**：在 CI 上 `actions/checkout` 会把文件重新写盘，
+birthtime 变成 **checkout 那一刻**，于是"生成时间"看起来正好等于部署时刻
+——**恰好蒙对**。机制是错的，只是碰巧两次都撞对了。
+
+**改法**：新增 filter `buildStamp`（`eleventy.config.js`），每次渲染重新取
+`new Date().toISOString()`；`robots.njk` 改用它。
+
+⚠️ **踩到的一个坑：不能用 `eleventyComputed`**。Eleventy 的
+`eleventyComputed` 里，**字符串值会被当作"模板字符串"渲染**，不是当 JS 求值
+（见 `node_modules/@11ty/eleventy/src/Template.js` 的 `_addComputedEntry`：
+`typeof obj === "string"` 走 `#renderComputedUnit`）。写
+
+```yaml
+eleventyComputed:
+  buildTime: "new Date().toISOString()"
+```
+
+会被**原样输出**成那行字（实测产物就是 `# 生成时间：new Date().toISOString()`，
+并被门禁 16 当成"非法时间戳"拦下——门禁反而先抓到了这个错）。
+filter 是真正的 JS 函数，模板引擎会调用它。
+
+### 新增门禁 12 / 13 / 14 / 16
+
+| # | 门禁 | 拦的是哪类 bug |
+|---|---|---|
+| 12 | 论文页可复制的 BibTeX 块与 `.bib` 里的条目**逐字一致**（比对前**只解页面侧**的 HTML 实体） | 页面加了复制块、文件没同步 |
+| 13 | 下载的 `.bib` 里**不得出现 HTML 实体**（裸 `&` 不算） | A 组那个"潜在"缺陷显形 |
+| 14 | 同一张图在 `<img alt>` / `og:image:alt` / `twitter:image:alt` 三处**逐字一致**；论文页 og:image 必须是页面上真显示的那张 | 一张图、三套文案 |
+| 16 | robots.txt 的「生成时间」必须是合法 ISO 时间戳、**不得等于源文件 birthtime**、**不得早于源文件 mtime** | "拿文件创建时间冒充生成时间" |
+
+⚠️ **门禁 12 以前结构上就抓不到转义 bug**：它比的是"两处是否一致"，
+而修复前**两边同样**被转义——转义错了反而更"一致"。**门禁 13 才是直接问
+"文件里有没有实体"**的那一条。两者是互补的，缺一不可。
+
+⚠️ **门禁 16 刻意不用"距今 N 分钟"**：故障注入要把产物复制到 `/tmp` 再跑门禁，
+"新鲜度"判据会让**每一份历史副本都误报**。改成**相对源文件**的判据
+（≠ birthtime、≥ mtime）在复制后依然成立。
+
+### 调研来源与核实方式
+
+- **alt 与图是否相符**：**直接看图**（读 `src/assets/img/publications/trmm-fig10.jpg`），
+  逐条比对坐标轴、分层色标、面板标 (a)(b)(c)(d)。不靠记忆、也不靠 alt 自己的措辞。
+- **"Fig. 10" 这个图号**：**无法从外部核实**（Crossref 的 JATS 摘要里 `<fig>` 数量为 0、
+  本地无 PDF、图上只有 (a)(b)(c)(d) 面板标）。但 `git log -S` 溯源到 `0252580`，
+  是**作者原站重构时的原文**，故**不擅自改作者措辞** → 见"待决策"。
+- **`eleventyComputed` 的字符串语义**：读 Eleventy 3.1.6 源码
+  `src/Template.js` 的 `_addComputedEntry` 确认，不是靠试。
+- **`| safe` 是否是 no-op**：在 `/tmp` 副本上把 `| safe` 去掉重建、
+  与保留时逐字对比实测。
+
+### 验证结果
+
+- `npm run build` **exit 0**；`check:css` 通过（15 个文件）；`check:site` 通过
+  （6 个 HTML 页、**127 条本地引用**、5 条 sitemap URL）
+- **`.bib` 里 HTML 实体 = 0**（`grep -c '&#'` → 0）；`publications.bib` 3 条
+  （`@article` / `@dataset` / `@software`），与论文页 3 个复制块逐字一致
+- **alt 三出口逐字一致**：`/tmp/mh_checkalt.sh _site` → 「检查 1 / 跳过 5 /
+  **不一致 0**」（修复前是"不一致 1"）
+- **故障注入 6 项，全部按预期拦下**（都在 `/tmp` 副本上做，没碰工作区 `_site`）：
+
+  | 注入的故障 | 门禁反应 | 结果 |
+  |---|---|---|
+  | `.bib` 里塞进字面 HTML 实体 | 门禁 13 报"下载文件必须是原始 BibTeX" | exit 1 ✓ |
+  | `.bib` 与页面侧**同时**被转义（= 修复前状态） | 门禁 12 + 13 同时报 | exit 1 ✓ |
+  | `twitter:image:alt` 与 `<img alt>` 不一致 | 门禁 14 报"一张图只能有一套 alt" | exit 1 ✓ |
+  | 论文页 og:image 指向页面上不存在的图 | 门禁 14 报"分享卡片的图与读者看到的图对不上" | exit 1 ✓ |
+  | robots 生成时间 = 源文件 birthtime | 门禁 16 报"那是文件什么时候被创建" | exit 1 ✓ |
+  | robots 生成时间 = 非法字符串 / 整行删掉 | 门禁 16 报"不是合法时间戳" / "找不到这一行" | exit 1 ✓ |
+
+- **robots.txt 实际输出**：`# 生成时间：2026-10-19T18:08:01.150Z`，
+  与构建完成时刻 `2026-10-19T18:08:01Z`（UTC）**同一秒** ✓
+- **开发服务器（`eleventy --serve`，写 `_site_dev`）同样输出当下时刻**
+  `2026-10-19T18:07:56.125Z` ✓（不是服务启动时刻）
+- 横向溢出检测：6 个页面在 390px 视口下 `scrollWidth` 全部 = 390，无横向溢出 ✓
+- `_site` 里 `._*` 资源叉计数 **0** ✓
+- JSON-LD 12 块全部 `JSON.parse` 通过；`canonical` 与 `og:url` 6 个页面全部一致；
+  `sitemap.xml` 5 条 URL 与真实路由一一对应（均由 `check:site` 保证）
+
+### ⚠️ 线上仍是旧版本（待部署，**不是站点损坏**）
+
+本轮实测（11:00，逐条 `curl -w '%{http_code}'`）：
+
+| 线上路由 | 状态 |
+|---|---|
+| `/` | 200 |
+| `/papers/` | **404** |
+| `/blog/` | 200 |
+| `/about/` | 200 |
+| `/publications.bib` | **404** |
+| `/feed.xml` | **404** |
+| `/sitemap.xml` | 200 |
+
+线上首页 / `/blog/` / `/about/` 的 JSON-LD 全部 `JSON.parse` 通过 ✓。
+但线上三页的 `canonical` 与 `og:url` **都指向** `https://github.lvyihang.xyz/MeteoHub/…`，
+而这三个带前缀的 URL **实测全部 404**；线上 `sitemap.xml` 的 3 条 `<loc>` 同样带前缀、
+同样 404。**性质仍是待部署**（线上是 2026-10-16 的部署，本地 `site.url` 已是
+`https://github.lvyihang.xyz`、canonical / sitemap 全部正确）。
+**本任务禁止 push，部署由本人决定。**
+
+---
+
 ## 待决策（需要本人拍板，任务不会自己动）
 
 
@@ -861,7 +1071,7 @@ JS 把多余的实参**静默丢弃**（不报错、页面照出、构建照过�
   - `og:type` = **`website`** ✓ 正确——第三轮定的规则（只有带 `pubKey` 的论文页
     才算 `article`）在 404 页上**没有**误判，这条**不用改**；
   - 404 页由 `src/404.njk`（布局 `layouts/page.njk` → `layouts/base.njk`）生成。
-- **`date:` 被同时用作三种含义，sitemap `lastmod` 与 robots "生成时间" 都不真实**（第六轮新增，实测）：
+- **`date:` 被同时用作三种含义，sitemap `lastmod` 与 robots "生成时间" 都不真实**（第六轮新增，实测；**第八轮已修掉 robots 那一半**）：
   本机时区是 **PDT（UTC-7）**，以下时间已按此换算过：
   - `sitemap.njk` 用的是 `entry.date`。对**模板页**而言 `entry.date` = 源文件的
     **birthtime**（创建时间），不是 mtime、也不是提交时间。实测：
@@ -885,6 +1095,27 @@ JS 把多余的实参**静默丢弃**（不报错、页面照出、构建照过�
   本轮**未实施**：属于"改一个 filter + 改一处标签"的独立小改动，
   且需要本人确认是否值得（`lastmod` 本身对 SEO 影响有限，但 robots 那行
   **标错了**）。
+  - ⚠️ **第八轮补充：robots 那半已经修掉了，sitemap 这半仍待拍板。**
+    robots 的"生成时间"改成了**真的构建时刻**（新增 `buildStamp` filter
+    + 门禁 16，见第八轮），所以"robots 标错了"这条不再是缺陷。
+    但 **`sitemap` 的 `lastmod` 仍是老问题，而且线上正在暴露它**：
+    线上 `/` = `09:51:14.894Z`、`/about/` = `09:51:14.887Z`、
+    `/blog/` = `09:51:14.893Z`——**同一毫秒级**，就是 `actions/checkout`
+    写盘那一瞬间；而 `git reflog` 显示 origin/main 最后一次 push =
+    `2026-10-16 02:51:01 -0700`（= `09:51:01Z`），**部署就在 push 后 13 秒**。
+    → 每次部署，**全站 lastmod 一起跳到部署时刻**。
+    三种修法（**口径要本人拍板**，本轮不实施）：
+      **A** 用 git 最后提交时间（语义最正确）→ 需在 `deploy.yml` 把 checkout
+        改成 `fetch-depth: 0`（现为浅克隆，拿不到提交历史）；
+      **B** 每页 front-matter 显式写 `lastmod`，sitemap 用 `page.lastmod or page.date`
+        （最可控、零外部依赖，但要逐页维护）；
+      **C** 不输出 `lastmod`（sitemap 规范里它是可选的；Google 官方明确说
+        没有可靠来源就别给）。
+    ⚠️ 排掉的坑（省下重复排查）：`git archive` 解包的副本里 lastmod 会
+    **全变成 commit 时间**（tar 无 birthtime 概念，解包时被设为 mtime）
+    → **在副本里看 lastmod 是假象**，必须回工作区或线上核对；
+    `touch` 只改 mtime 不改 birthtime → 可用它证明 lastmod 不是 mtime 驱动；
+    **layout（base.njk）不参与** date 计算 → 改 layout 不会影响任何页面的 lastmod。
 - **"论文当时的单位"要不要在**论文页**也显示出来**（第六轮新增，实测后订正过一轮）：
   ⚠️ 最初写的是"读者在论文页的作者信息里看到 Lanzhou University"——**实测不符**，
   论文详情页的可见文本里**根本没有单位**（`grep -c home-pub__aff` = 0，作者行只有 7 个名字）。
@@ -905,3 +1136,18 @@ JS 把多余的实参**静默丢弃**（不报错、页面照出、构建照过�
   "论文署名单位"）。数据侧缺的是 `pub.authorAffiliations` 这类
   **逐作者单位**字段（Crossref 里 7 位作者是同一个单位串，所以统一值也够用）。
   本轮**没有擅自加**——这属于事实性内容 + 展示口径，需本人拍板。
+- **"Fig. 10" 这个图号要不要保留**（第八轮新增，实测后提出）：
+  `site.js` 的 `publications[].figure.alt` 带 **"Fig. 10 — "** 前缀。
+  - **该图号无法从外部核实**：Crossref 的 JATS 摘要里 `<fig>` 数量为 0、
+    本地没有 PDF、图上只有 (a)(b)(c)(d) 面板标，没有 "Fig. 10" 字样。
+  - 但 `git log -S` 溯源到 `0252580`，确认是**作者原站重构时的原文**，
+    不是后来加的猜测 → 第十轮（10:45）决定**不擅自改作者措辞**。
+  - **它会经 `og:image:alt` 上到社交分享卡片**（Facebook / LinkedIn / X），
+    读者点开原图若找不到图号，会显得不严谨。
+  - 供拍板的两个选项：**① 保留** "Fig. 10 —"（忠于作者原文）；
+    **② 去掉图号只留描述**（如 "Three-dimensional structural profiles of …"）。
+    数据侧改动只有 `site.js` 一处字符串。
+  - ⚠️ 顺带核实过的**不是**问题的那部分（不用改）：`figure.alt` 描述的
+    **图内容**（三个阶段的小提琴图 + 累积分布曲线）与图**完全相符**，
+    第八轮直接看过图；真正与图不符的 `paper.md` 里那份 `coverAlt`
+    已在第八轮删除（alt 现在三处同源）。

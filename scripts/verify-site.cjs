@@ -20,6 +20,8 @@
  *   8. feed.xml 里有没有 item、每条 item 的 link 是否指向真实页面
  *   9. 论文页的 JSON-LD 里有没有 Dataset / SoftwareSourceCode 实体
  *  10. 身份类 meta（twitter:site/creator）有没有写死的兜底值
+ *  （第 11–16 条门禁不在此列举，各自紧挨着对应的检查段落，
+ *    注释里写清了拦的是哪类 bug）
  *
  * 用法：node scripts/verify-site.cjs   （有错 exit 1）
  */
@@ -489,7 +491,35 @@ if (ownerIds.size > 1) {
 
    判据不看"应该有几条"（那是写死的数），而看**两处文本是否逐字相同**：
    把 .bib 的条目与论文页 <pre class="paper-cite__bibtex"> 块的内容一一
-   对比。这样将来加了新资源、加了论文，两边自动跟着变，不会再错位。 */
+   对比。这样将来加了新资源、加了论文，两边自动跟着变，不会再错位。
+
+   ⚠️ 比对前必须**解码页面侧的 HTML 实体**，而且只解页面侧、不解 .bib 侧：
+     · 页面侧是 nunjucks 转义过的（autoescape 默认开着）：`\&` → `&#92;&amp;`
+     · .bib 侧是**原始 BibTeX**（下载文件，必须能被 Zotero 直接读）
+   两者差的就是这一层实体。
+   不解 .bib 侧的原因：.bib 侧是原文，解它等于把原文里的 & 改成别的——
+   遇到 URL 查询串里的 & 时两边就会错位。原文就该原样比。
+
+   ⚠️ 这条门禁以前正是靠"两边同样被转义"才逐字通过的 —— 它**结构上就抓不到
+   转义 bug**：转义错了反而更"一致"。所以下面第 13 条直接盯"文件里不该有实体"。 */
+
+/** 把 HTML 实体解码回原字符。
+    nunjucks 的 autoescape 会把 & " ' < > \ ` 转成
+    &amp; &quot; &#39; &lt; &gt; &#92; &#96;，页面上的文本拿到的是转义后的形态。
+    顺序：先解数字实体（&#39; / &#92; / &#96; 都在这），再解命名实体，
+    `&amp;` 放最后 —— 否则 "&amp;lt;" 会被解成 "&lt;" 再解成 "<"（多解一层）。 */
+const decodeHtmlEntities = (s) =>
+  String(s)
+    .replace(/&#x([0-9a-fA-F]+);/g, (_, h) => String.fromCodePoint(parseInt(h, 16)))
+    .replace(/&#(\d+);/g, (_, d) => String.fromCodePoint(Number(d)))
+    .replace(/&quot;/g, '"')
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&amp;/g, "&");
+
+/** nunjucks 真会产生的那些 HTML 实体。裸 & 不算 —— URL 查询串里本来就有 &。 */
+const HTML_ENTITY_RE = /&(?:amp|quot|lt|gt|#39|#92|#96);|&#(?:x[0-9a-fA-F]+|\d+);/;
+
 const bibPath = path.join(SITE, "publications.bib");
 if (!fs.existsSync(bibPath)) {
   fail("产物里没有 publications.bib");
@@ -527,11 +557,191 @@ if (!fs.existsSync(bibPath)) {
     );
   }
   for (const { from, text } of copyBlocks) {
-    if (!bibEntries.includes(text)) {
-      fail(`${from}: 有一个可复制的 BibTeX 块在 publications.bib 里找不到逐字相同的条目`);
+    const decoded = decodeHtmlEntities(text);
+    if (!bibEntries.includes(decoded)) {
+      // 解码后**仍**含实体，说明多半不是"少解了一层"，而是两侧都被转义了
+      // （.bib 模板漏了 | safe）。给一句能指到根因的诊断，而不是笼统的"找不到"。
+      if (HTML_ENTITY_RE.test(decoded)) {
+        fail(
+          `${from}: 这个 BibTeX 块在 publications.bib 里找不到逐字相同的条目 —— ` +
+            `而且解码后仍含 HTML 实体 "${decoded.match(HTML_ENTITY_RE)[0]}"，` +
+            `怀疑 publications.bib 自己也被 autoescape 转义了（模板漏了 | safe）`
+        );
+      } else {
+        fail(`${from}: 有一个可复制的 BibTeX 块在 publications.bib 里找不到逐字相同的条目`);
+      }
     }
   }
-  note(`publications.bib ${bibEntries.length} 条，与论文页 ${copyBlocks.length} 个复制块逐字一致`);
+  note(
+    `publications.bib ${bibEntries.length} 条，与论文页 ${copyBlocks.length} 个复制块逐字一致（页面侧已解码 HTML 实体）`
+  );
+
+  /* ---------- 13. 下载的 .bib 里不得出现 HTML 实体 ----------
+     publications.bib 是**下载文件**，读者拿它直接喂给 Zotero / BibDesk。
+     里面出现 `&#92;&amp;` 这种实体，就说明它被 nunjucks 的 autoescape 加工过
+     —— 那不是合法 BibTeX，导入器会读出乱码，或直接把字段名认错。
+
+     这条比第 12 条更直接：第 12 条比的是"两处是否一致"，而修复前两边
+     **同样**被转义，所以照样通过；这条直接问"文件里有没有实体"。
+
+     判据只认 nunjucks 真会产生的那些实体；裸 & 不算 —— URL 查询串里本来就有 &。 */
+  const entityHit = bibText.match(HTML_ENTITY_RE);
+  if (entityHit) {
+    fail(
+      `publications.bib 里出现了 HTML 实体 "${entityHit[0]}" —— 下载文件必须是原始 BibTeX，` +
+        `不能带 HTML 转义（多半是模板漏了 | safe）`
+    );
+  }
+}
+
+/* ---------- 14. 同一张图在页面里必须只有一套 alt 文本 ----------
+   一张图在三处各写各的 alt，是这类站点最常见的静默缺陷：页面照出、构建照过、
+   没有任何报错，只有读屏软件用户和社交平台会读错。
+
+   论文页踩过这个坑 —— 成果图 trmm-fig10.jpg：
+     <img alt>         = site.js 的 publications[].figure.alt（准确）
+     og:image:alt      = paper.md front-matter 的 coverAlt（写的是"复合雷达
+                          回波剖面 / echo coverage percentage"，与图不符）
+     twitter:image:alt = 同上
+   图只有一张，alt 有两套，而且两套互相从不校验。
+
+   判据是**按同一张图**比，不是"页面里所有 <img> 的 alt 都要等于 og:image:alt"
+   —— 后者会把首页的作者头像也拽进来（首页 og 卡片是作者身份图，不是头像）。
+   做法：把 og:image / twitter:image 的 URL 解析成站内路径，跟页面上 <img>
+   的 src 解析到同一路径的那张对上，两处 alt 必须逐字相同。
+
+   另外钉一条：论文页分享卡片用的图，必须是页面上真给读者看的那张图。 */
+
+/** 把一个 URL / 路径解析成相对产物根的站内路径（外链只取 pathname）。 */
+function siteRelPath(fromFile, raw) {
+  if (!raw) return null;
+  let s = String(raw).trim();
+  if (/^https?:\/\//i.test(s)) {
+    try {
+      s = new URL(s).pathname;
+    } catch {
+      return null;
+    }
+  }
+  s = s.split("#")[0].split("?")[0].trim();
+  if (!s) return null;
+  const abs = s.startsWith("/") ? path.join(SITE, s) : path.resolve(path.dirname(fromFile), s);
+  return path.relative(SITE, abs).split(path.sep).join("/");
+}
+
+/** 把页面里 og:image / og:image:alt、twitter:image / twitter:image:alt
+    按出现顺序配成对（同一组里紧跟在 image 后面、且还没配上 alt 的那个 alt 属于它）。 */
+function pairImageAlts(html, prefix) {
+  const pairs = [];
+  for (const m of html.matchAll(/<meta\b[^>]*>/gi)) {
+    const tag = m[0];
+    const key = (tag.match(/\b(?:property|name)="([^"]*)"/i) || [])[1];
+    if (key !== `${prefix}:image` && key !== `${prefix}:image:alt`) continue;
+    const content = (tag.match(/\bcontent="([^"]*)"/i) || [])[1] || "";
+    if (key === `${prefix}:image`) {
+      pairs.push({ image: content, alt: null });
+    } else if (pairs.length && pairs[pairs.length - 1].alt === null) {
+      pairs[pairs.length - 1].alt = content;
+    }
+  }
+  return pairs;
+}
+
+for (const file of htmlFiles) {
+  const html = fs.readFileSync(file, "utf8");
+  const from = rel(file);
+
+  // 页面上每一张 <img>：站内路径 → 该路径出现过的所有 alt
+  const imgAlts = new Map();
+  for (const m of html.matchAll(/<img\b[^>]*>/gi)) {
+    const tag = m[0];
+    const src = (tag.match(/\bsrc="([^"]*)"/i) || [])[1];
+    if (!src) continue;
+    const alt = (tag.match(/\balt="([^"]*)"/i) || [])[1] || "";
+    const p = siteRelPath(file, src);
+    if (!p) continue;
+    if (!imgAlts.has(p)) imgAlts.set(p, []);
+    imgAlts.get(p).push(alt);
+  }
+
+  for (const prefix of ["og", "twitter"]) {
+    for (const { image, alt } of pairImageAlts(html, prefix)) {
+      const p = siteRelPath(file, image);
+      if (!p || !imgAlts.has(p)) continue; // 这张图没在页面上出现，不归这条管
+      for (const imgAlt of imgAlts.get(p)) {
+        if (String(alt || "").trim() !== String(imgAlt || "").trim()) {
+          fail(
+            `${from}: ${prefix}:image:alt 与页面上同一张图的 <img alt> 不是同一句话 —— ` +
+              `一张图只能有一套 alt（现在是 "${String(alt || "").slice(0, 36)}…" vs ` +
+              `"${String(imgAlt || "").slice(0, 36)}…"）`
+          );
+          break;
+        }
+      }
+    }
+  }
+
+  // 论文页：分享卡片用的图必须是页面上真给读者看的那张
+  if (isPaperDetail(from)) {
+    const shown = [...imgAlts.keys()];
+    const ogPaths = pairImageAlts(html, "og")
+      .map((x) => siteRelPath(file, x.image))
+      .filter(Boolean);
+    if (ogPaths.length && !ogPaths.some((p) => shown.includes(p))) {
+      fail(`${from}: 论文页的 og:image 不是页面上显示的任何一张图 —— 分享卡片的图与读者看到的图对不上`);
+    }
+  }
+}
+
+/* ---------- 16. robots.txt 的"生成时间"必须是真正的构建时间 ----------
+   robots.txt 里那行 `# 生成时间：…` 此前取的是 `page.date`，而对模板页
+   而言 page.date = **源文件的 birthtime（创建时间）**。实测本机：
+     src/robots.njk birthtime = 2026-10-02T04:29:21.600Z
+     产物里那行"生成时间"     = 2026-10-02T04:29:21.600Z   ← 逐字相同
+   而站点实际是 10-19 建的。那行字**标着"生成时间"却永远停在 10-02**——
+   这不是"不准"，是**一个会误导人的标签**（读者会以为产物很旧）。
+
+   在 CI 上更隐蔽：actions/checkout 会重新写盘，birthtime 变成 checkout
+   那一刻，于是"生成时间"看起来正好等于部署时刻——**恰好蒙对**，所以一直
+   没人发现。机制是错的，只是碰巧两次都撞对了。
+
+   判据（刻意不依赖"当前时间"）：
+     · 必须是合法的 ISO-8601 时间戳；
+     · **不得**等于源文件的 birthtime（那正是"拿文件创建时间冒充生成时间"）；
+     · 不得早于源文件最后一次修改时间（构建不早于它自己的源文件）。
+   为什么不用"距今 N 分钟"：故障注入会把产物复制到 /tmp 再跑门禁，
+   那种"新鲜度"判据会让**每一份历史副本都误报**。源文件相对判据在
+   复制后依然成立。 */
+const robotsTxtPath = path.join(SITE, "robots.txt");
+const robotsSrcPath = path.resolve(__dirname, "../src/robots.njk");
+if (fs.existsSync(robotsTxtPath)) {
+  const robotsTxt = fs.readFileSync(robotsTxtPath, "utf8");
+  const stampLine = robotsTxt.match(/^#\s*生成时间[：:]\s*(.+?)\s*$/m);
+  if (!stampLine) {
+    fail("robots.txt: 找不到「生成时间」这一行");
+  } else {
+    const stamp = stampLine[1].trim();
+    const parsed = Date.parse(stamp);
+    if (Number.isNaN(parsed)) {
+      fail(`robots.txt: 「生成时间」不是合法时间戳 —— "${stamp}"`);
+    } else if (fs.existsSync(robotsSrcPath)) {
+      const st = fs.statSync(robotsSrcPath);
+      const birthIso = new Date(st.birthtime).toISOString();
+      if (parsed === Date.parse(birthIso)) {
+        fail(
+          `robots.txt: 「生成时间」等于源文件的创建时间（birthtime = ${birthIso}）—— ` +
+            `那是"文件什么时候被创建"，不是"这次构建是什么时候"`
+        );
+      }
+      // 构建不早于源文件最后一次修改（留 2 秒容差，避开写盘与取时间的先后）
+      if (parsed < st.mtime.getTime() - 2000) {
+        fail(
+          `robots.txt: 「生成时间」早于源文件最后一次修改（${st.mtime.toISOString()}）—— ` +
+            `构建时间不可能比它自己的源文件还早`
+        );
+      }
+    }
+  }
 }
 
 /* ---------- 汇总 ---------- */

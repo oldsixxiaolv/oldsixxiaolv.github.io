@@ -5,10 +5,13 @@ description: "Stage-dependent relationships between lightning and radar echo str
 cover: "/assets/img/publications/trmm-fig10.jpg"
 coverWidth: 1400
 coverHeight: 745
-# 分享图的替代文本。这张图是论文成果图（上排三个阶段的复合雷达回波剖面，
-# 下排各阶段的闪电率曲线），不写的话会回落到站点默认的作者身份文案——
-# 图文不符。alt 描述的是**图里有什么**，不是"论文配图"。
-coverAlt: "Composite radar echo cross-sections for Pre-Mature, Mature and Post-Mature thunderstorms, showing 20, 30 and 40 dBZ echo height against horizontal scale, with lightning flash rate and 40 dBZ flash rate plotted against echo coverage percentage for each stage."
+# 分享图的 alt **不在这里写**。
+# 封面图与它的 alt 都在 site.js 的 publications[].figure 里（figure.src /
+# figure.alt），base.njk 从那里取，页面上 <img alt> / og:image:alt /
+# twitter:image:alt 三处同源，不会各说各话。
+# 此前这里另写了一份 coverAlt，写的是"复合雷达回波剖面 / echo coverage
+# percentage"——与图不符：图里是各阶段的结构分布小提琴图（按 20/30/40 dBZ
+# 分层）与闪电率、40 dBZ 闪密度的累积分布曲线。图只有一张，alt 却有两套。
 ---
 
 ## What this paper does
