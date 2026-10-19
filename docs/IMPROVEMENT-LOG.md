@@ -3249,3 +3249,176 @@ const fm = srcText.match(/^---\r?\n([\s\S]*?)\r?\n---/);
 4. **`gitOut` 的 catch 加固**（第十四轮「留给下一轮」第 2 条，低严重性）。
 5. **巡检 cron 仍是每 5 分钟起一个会话** → 持续并发冲突（连续多轮都撞见）。
    建议改成 30–60 分钟 + 单写者锁。
+## 2026-10-19 · 第十七轮（13:40–14:20 场次）：可访问性（WCAG AA）实测修复 + check:a11y 门禁
+
+### 本场次定位
+
+前十六轮做的都是**结构与一致性**（站内引用、JSON-LD、canonical、sitemap、图片机械属性、
+界面语言）。**可访问性**是站点里唯一还没有任何机器判据的轴——加 `check:lang` 那一轮我
+确认过"站内自检没有任何一条查可访问性"。
+
+选它而不是继续加编号门禁，三个理由：
+
+1. 有**实测证据**（axe-core 4.10.2 跑 6 页 × 暗/浅 2 主题 = 12 个组合），不是"我觉得可能
+   有问题"；
+2. 查出来的三类缺陷**都不会让 build 失败**——正是门禁该拦的那一类"静默错误"；
+3. 与前几轮**不重叠**：不碰 `scripts/verify-site.cjs`、不占门禁编号、不改站点定位。
+
+### A. 巡检结果（线上，13:52 PDT；与前几轮一致，**无新增损坏**）
+
+| 路由 | 状态 |
+|---|---|
+| `/` `/blog/` `/about/` `/sitemap.xml` `/404.html` | 200 |
+| `/papers/` `/publications.bib` `/feed.xml` | 404 |
+
+404 仍是**待部署**（线上还是 2026-10-16 那次部署），不是站点损坏。线上 canonical 与 sitemap
+的 loc 仍带 `/MeteoHub/` 前缀（`https://github.lvyihang.xyz/MeteoHub/`）——同样是待部署的旧
+产物。本地已领先远端 **28** 个 commit（本轮提交后为 29），**本轮仍不 push**。
+
+### B. 改进点 A：axe-core 实测出的三类 WCAG AA 缺陷（外加一处 axe 自己漏掉的）
+
+**B1 · `color-contrast`（13 节点，暗色，serious）**
+
+`about` 页三处 11px 小标签用 `--color-accent-600`（#b14810）：`.about-eyebrow`、
+`.about-skillgroup dt`、`.about-output__meta a`。该色是给**浅底**设计的（浅色下对页面底色
+5.21:1 合格），但暗色底 `#0f0e0c` 上只有 **3.49:1**，而 11px 小字要 4.5:1。
+
+**B2 · `link-in-text-block`（19 节点，serious）**
+
+正文里的链接**只靠颜色**与周围文字区分。暗色下链接 `#4d97ff` 对正文 `#f5f2ea` 只有
+**2.61:1**、对弱化正文 `#a8a498` 只有 **1.17:1**（判据 3:1）。涉事容器：
+`.paper-head__authors`、`.about-prose`（约稿正文）、裸 `li`、`.list-empty__body` 等。
+
+**B3 · `scrollable-region-focusable`（4 节点，serious）**
+
+论文页三个横向可滚动的 BibTeX `<pre>`（`#paper-bibtex` / `#paper-bibtex-capsule` /
+`#paper-bibtex-dataset`）键盘不可聚焦——鼠标能拖，键盘用户没法读。
+
+**B4 · axe 漏掉、我自己按计算样式逐元素量出来的：`.home-intro__label`**
+
+首页那句 11px 标签同样用 `--color-accent-600`，暗色下 **3.49:1**，**axe 没有报它**
+（它把这个元素当成了装饰性小标签放过）。是我另写了一个探针，按 `getComputedStyle`
+把每个叶子文本节点的计算色/背景色/字号/字重都量一遍，才抓到的。
+→ 教训写进了门禁 A4：**只查 token 不查用法，漏网的是用法。**
+
+**B5 · 附带发现：一条从未生效过的死 CSS**
+
+`base.css` 里的 `.article a { text-decoration: underline }` —— 全站**没有任何模板**用
+`class="article"`（博客正文用的是 `.detail`）。也就是说"正文链接带下划线"这个设计意图
+**从来没生效过**，不是被人删掉的。本轮顺手把它换成真实存在的容器。
+
+### C. 改动清单（7 个文件）
+
+| 文件 | 改了什么 |
+|---|---|
+| `src/assets/css/tokens.css` | 新增语义 token `--text-accent`：浅色取 `accent-600`（5.21:1），两处暗色取 `accent-500` #ffa874（9.99:1） |
+| `src/assets/css/base.css` | 删掉死规则 `.article a` / `.article a:hover`，换成 5 个真实容器加下划线 |
+| `src/about.njk` | 3 处 `color: var(--color-accent-600)` → `var(--text-accent)` |
+| `src/assets/css/pages.css` | `.home-intro__label` → `var(--text-accent)`（B4 那处） |
+| `src/_includes/layouts/paper.njk` | 3 个 `<pre class="paper-cite__bibtex">` 加 `tabindex="0"` |
+| `scripts/check-a11y.cjs` | **新建**：可访问性门禁 A1–A4 |
+| `package.json` | 加 `check:a11y`，并串进 `build`（排在 `check:lang` 之后） |
+
+**为什么不动 `--color-accent-600` 本身**：徽标 `.badge--accent` 在浅色下是
+「accent-600 文字 + accent-50 底」= 5.07:1，改那个 token 能一次修好所有 accent-600 文字，
+但会把徽标一起弄坏。门禁 A1 专门给这组组合留了护栏。
+
+### D. 正文链接为什么用下划线，而不是改链接色（数学上无解）
+
+WCAG 1.4.1 给的是"要么对比度 ≥3:1，要么另给一条非颜色线索"。改色这条路在暗色下
+**三个颜色互相牵制，解不出来**：
+
+- 链接色 vs 正文 `#f5f2ea` 要 ≥3:1 → 相对亮度 L ≤ 0.2597；
+- 链接色 vs 底 `#0f0e0c` 要 ≥4.5:1 → L ≥ 0.2002；
+- 链接色 vs 弱化正文 `#a8a498` 要 ≥3:1 → L ≤ 0.0900。
+
+第一个和第三个的上界与第二个的下界互相矛盾 → **纯改色无解**。所以走非颜色线索：
+给正文容器里的链接加下划线。下划线颜色用
+`color-mix(in srgb, currentColor 55%, transparent)`（而不是 `--color-brand-200`——
+那个在暗色下是深海军蓝 #1b386a，画线等于没画）。
+
+### E. 新门禁 `scripts/check-a11y.cjs`（A1–A4）
+
+编号用**独立的 A1–A4**，不占 `verify-site.cjs` 的 1–26（那边门禁 24 会自查"文件头清单与
+代码段一一对应"，撞号会让追溯日志时指错对象）。同门的 `check-lang.cjs` /
+`check-dead-css.cjs` 也都不用数字编号。
+
+| 号 | 判据 | 对应 |
+|---|---|---|
+| A1 | 三套主题下 `text-primary/secondary/muted/accent`、`link-color` 对 `bg-page`/`bg-surface` 全部 ≥4.5:1；徽标那组 accent 组合不得被改坏；两处暗色 token 定义逐项一致（零漂移） | 1.4.3 |
+| A2 | 正文容器里的链接必须有下划线（**逐页判定**，见 G2） | 1.4.1 |
+| A3 | 横向可滚动的 BibTeX 块必须有 `tabindex="0"` | 2.1.1 |
+| A4 | 源码里 `color: var(--color-accent-600)` 只允许出现在徽标上，其余必须走 `--text-accent` | 1.4.3（用法层） |
+
+**不重复造轮子**：`<img>` 的 alt 存在性由 `verify-site.cjs` 门禁 25 管、width/height 由门禁 26
+管（第十五轮 commit 93f9497 加的），本脚本**不重复**——同一个事实两处判，改一处就会与
+另一处说法打架。
+
+### F. 验证证据
+
+1. **构建**：`npm run build` exit 0（`check:css` + `check-dead-css` + `eleventy` +
+   `check:site` + `check:lang` + `check:a11y` 全绿）。
+2. **axe 复测**：修复前 **36 个违规节点**（link-in-text-block 19 + color-contrast 13 +
+   scrollable-region-focusable 4）→ 修复后 **12/12 个组合全部 violations=0**。
+3. **对照自证**：把改动 stash 掉、用**同一套脚本**重跑，修复前确实报出上述违规 →
+   证明"全绿"不是因为脚本坏了或检查被跳过。
+4. **独立探针**（不依赖 axe）：按计算样式逐个叶子文本节点量对比度，修复后只剩
+   `span.dot`（列表项之间的 "·" 分隔符，1.5:1）——纯装饰，WCAG 1.4.3 明确豁免。
+5. **故障注入 6 例 + 基线 + 复位 = 8/8 全过**（在隔离克隆的产物副本上做，工作区零写入）：
+   A1 对比度退回 accent-600 / A1 两处暗色漂移 / A1 徽标组合被改坏 / A2 抽掉某一页的
+   下划线 / A3 抽掉 tabindex / A4 新写一处直接用 accent-600 —— 六例全部 exit 1，
+   复位后 exit 0。
+
+### G. 排查与判据设计上的四个坑（都踩过，记下来）
+
+1. **扫 HTML 前必须先剥 `<style>` / `<script>` / HTML 注释。** `about` 页内联样式的
+   CSS 注释里有一句说明文字"…`<img>` 上的 width/height 属性负责首屏前的比例预留…"，
+   光秃秃一个 `<img>` 被当成了真元素，门禁报"缺 alt"——**假阳性**。
+2. **A2 不能用"合并所有页面的样式"判。** `base.css` 是内联进每一页的：若合并后再看
+   "有没有一条 underline 规则"，某一页丢了这条、别的页还留着 → 门禁照样绿，而那一页已经
+   坏了。改成**逐页判定**：先看哪一页真的出现了该容器，再在那些页里要求规则存在。
+3. **解析 CSS 块不能用"下一个块注释开头"当结束标记。** `tokens.css` 里 `:root {` 后面紧跟
+   一行注释，用它当结束标记会只切出 10 个字符、解析出 **0 个 token** ——门禁会拿着空表去
+   比对，然后**"全绿"**。必须按括号配对。
+4. **门禁 A4 的存在理由就是 B4**：A1 查的是 token 层，管不到"某处直接写了
+   `var(--color-accent-600)`"这种用法。漏网的是用法。
+
+### H. 提交范围：为什么不是裸 `git add -A`
+
+任务书要求 `git add -A`，但本场次实测**并发场次正在同一个工作区写文件**：
+`scripts/verify-site.cjs`（已改未提交）与 `scripts/check-copy-export.cjs`（未跟踪）都不是
+本轮的。裸 `-A` 会把别人的未提交工作一起扫进本轮 commit。
+
+→ 本轮改用**显式路径 add**（只 add 上表 7 个文件 + 日志），别人的两个文件**故意留下不提交**，
+留给它们自己的场次。落盘前逐个校验过：这 7 个文件在我动手前都是 HEAD 版本（`git diff
+--quiet` 通过），不存在"覆盖别人改动"。
+
+### 待部署（本轮**不 push**，线上仍是旧版本）
+
+本地领先远端 **28** 个 commit（本轮提交后为 29）。线上仍是 2026-10-16 的部署产物，`/papers/`、
+`/publications.bib`、`/feed.xml` 三条 404 与 `/MeteoHub/` 前缀都要等部署才消失。
+
+### 待决策（沿用上一轮 7 条，本轮**新增第 8 条**，不擅自拍板）
+
+8. **【本轮新提】正文链接统一加下划线后的视觉密度**：本轮给 5 个正文容器的链接都加了
+   下划线（`.prose` / `.detail` / `.paper-head__authors` / `.list-empty__body` /
+   `.about-output__meta`），暗色下 19 个节点不再只靠颜色区分。若本人觉得视觉密度偏重，
+   可选：① 保留全部（当前）；② 只保留"弱化正文里"的链接（`.detail` / `.list-empty__body`），
+   其余靠提高链接色对比度——但 D 节已算过，**改色那条路在暗色下无解**（三色约束互斥），
+   所以"减下划线"与"改色"不能二选一，只能二选一的是"减下划线"这一侧的具体范围。
+   **本轮不擅自改**：这是展示口径取舍。
+
+### 留给下一轮
+
+1. **巡检 cron 仍是每 5 分钟起一个会话** → 持续并发冲突（连续四轮都撞见）。建议改成
+   30–60 分钟 + 单写者锁。
+2. **可访问性只覆盖了机器可判的 4 条**：完整 WCAG 审计仍靠 axe 的人工跑批。axe 现成的
+   规则里还有 `aria-*` 全套、landmark 结构、heading 顺序、landmark 唯一性等未被门禁覆盖，
+   可按需再挑。
+3. **`span.dot` 的装饰性豁免**目前靠"它确实是纯装饰"这个判断，没有机器判据；将来若有
+   真实内容被塞进 `span.dot`，门禁不会拦。
+4. **门禁 A2 的容器清单是硬编码的**：新增正文容器时**必须同步加进清单**，否则该容器的
+   链接会不受下划线约束。可考虑后续改成"凡是段落/列表里的 a 都要有下划线"的全称判据。
+
+
+---

@@ -90,6 +90,16 @@
   --text-primary:   var(--color-neutral-900);
   --text-secondary: var(--color-neutral-600);
   --text-muted:     var(--color-neutral-500);
+  /* —— 强调色**作为文字**用时的色 ——
+     accent-600 (#b14810) 是给浅底设计的：浅色下 5.21:1，够 AA。
+     但暗色底 (#0f0e0c) 上只有 3.49:1，而用到它的地方全是 11px 的小标签
+     （about 页的分区 eyebrow、技能组标题、产出列表的 DOI 链接），
+     小字要 4.5:1 —— 直接用 accent-600 在暗色下是不合格的。
+     暗色下改走 accent-500 (#ffa874)：9.99:1。
+     ⚠️ 不要去改 accent-600 本身：徽标 .badge--accent 在浅色下是
+     「accent-600 文字 + accent-50 底」（5.07:1），改那个 token 会连带把徽标弄坏。
+     门禁 check-a11y A1 会同时核对这两组对比度。 */
+  --text-accent:    var(--color-accent-600);
   --text-on-brand:  #ffffff;
   --link-color:     var(--color-brand-500);
   --link-hover:     var(--color-brand-700);
@@ -221,6 +231,7 @@
     --text-primary:   var(--color-neutral-900);
     --text-secondary: var(--color-neutral-600);
     --text-muted:     var(--color-neutral-500);
+    --text-accent:    var(--color-accent-500);
     --link-color:     var(--color-brand-400);
     --link-hover:     var(--color-brand-300);
 
@@ -280,6 +291,7 @@
   --text-primary:   var(--color-neutral-900);
   --text-secondary: var(--color-neutral-600);
   --text-muted:     var(--color-neutral-500);
+  --text-accent:    var(--color-accent-500);
   --link-color:     var(--color-brand-400);
   --link-hover:     var(--color-brand-300);
 

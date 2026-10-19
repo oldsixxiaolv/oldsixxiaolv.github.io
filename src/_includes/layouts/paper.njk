@@ -204,7 +204,7 @@ layout: layouts/base.njk
            字段与论文参考文献表里那条完全一致（同一 DOI、同一标题、同一作者），
            这样论文和本站给出的引用不会打架。 #}
         {%- if pub.software.citeTitle %}
-        <pre class="paper-cite__bibtex paper-availability__bibtex" id="paper-bibtex-dataset">{{ pub.software | resourceBibtex("dataset") }}</pre>
+        <pre class="paper-cite__bibtex paper-availability__bibtex" id="paper-bibtex-dataset" tabindex="0">{{ pub.software | resourceBibtex("dataset") }}</pre>
         <p class="paper-cite__actions">
           <button type="button" class="btn btn--ghost btn--sm" data-copy-target="paper-bibtex-dataset">Copy dataset BibTeX</button>
         </p>
@@ -218,7 +218,7 @@ layout: layouts/base.njk
         <span class="paper-availability__meta">Code Ocean · v{{ pub.capsule.version or "—" }} · {{ pub.capsule.license or "" }} · DOI {{ pub.capsule.doi }}</span>
         <span class="paper-availability__note">Code, data and the compute environment are packaged together, so the analysis can be re-run as published.</span>
         {%- if pub.capsule.citeTitle %}
-        <pre class="paper-cite__bibtex paper-availability__bibtex" id="paper-bibtex-capsule">{{ pub.capsule | resourceBibtex("software") }}</pre>
+        <pre class="paper-cite__bibtex paper-availability__bibtex" id="paper-bibtex-capsule" tabindex="0">{{ pub.capsule | resourceBibtex("software") }}</pre>
         <p class="paper-cite__actions">
           <button type="button" class="btn btn--ghost btn--sm" data-copy-target="paper-bibtex-capsule">Copy capsule BibTeX</button>
         </p>
@@ -261,7 +261,7 @@ layout: layouts/base.njk
      收益低，BibTeX 才是领域内的通用语言。 #}
   <section class="paper-cite" aria-labelledby="paper-cite-title">
     <h2 id="paper-cite-title">Cite this paper</h2>
-    <pre class="paper-cite__bibtex" id="paper-bibtex" data-copy-source="paper-bibtex">{{ pub | bibtex }}</pre>
+    <pre class="paper-cite__bibtex" id="paper-bibtex" data-copy-source="paper-bibtex" tabindex="0">{{ pub | bibtex }}</pre>
     <p class="paper-cite__actions">
       <button type="button" class="btn btn--ghost btn--sm" data-copy-target="paper-bibtex">Copy BibTeX</button>
       <a class="btn btn--ghost btn--sm" href="{{ '/publications.bib' | relUrl }}" download>Download all BibTeX</a>

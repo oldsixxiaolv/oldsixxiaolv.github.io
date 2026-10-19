@@ -318,15 +318,39 @@ th {
 .article h3 { font-size: var(--fs-h3); }
 .article h4 { font-size: var(--fs-h4); }
 
-.article a {
-  color: var(--link-color);
+/* —— WCAG 1.4.1 · 正文里的链接必须有"非颜色"的区分 ——
+   axe-core 实测（2026-10-19，第十二轮）：正文里的链接只靠颜色与周围文字区分，
+   而链接色与正文色的对比度只有 1.17–2.61:1（判据要 3:1），
+   色觉障碍用户根本分不出哪个是链接。axe 的规则是
+   "要么对比度 ≥3:1，要么有下划线之类的非颜色线索"，这里走后一条。
+
+   ⚠️ 原来的规则写的是 `.article a`，但全站**没有任何模板**用 class="article"
+   （博客正文用的是 .detail）—— 这条规则从来没生效过，"正文链接带下划线"
+   是设计意图落空的结果，不是被人删掉的。这里换成真实存在的容器。
+
+   ⚠️ 颜色本身救不了：暗色下正文色 #f5f2ea、链接色 #4d97ff，
+   要让两者达到 3:1 得把链接色压暗，而压暗后链接在深色底 #0f0e0c 上
+   又会跌破 4.5:1 —— 背景/正文/链接三个色互相牵制，数学上无解。
+   WCAG 1.4.1 给出的正解就是补一条非颜色线索。
+   门禁 check-a11y A2 要求下面这 5 个容器各有一条 underline 规则。 */
+.prose a,
+.detail a,
+.paper-head__authors a,
+.list-empty__body a,
+.about-output__meta a {
   text-decoration: underline;
   text-underline-offset: 3px;
-  text-decoration-color: var(--color-brand-200);
+  /* 下划线用链接自己的颜色按比例淡化：暗色下 brand-200 是深海军蓝
+     (#1b386a)，拿它画线等于没画。用 currentColor 才是主题无关的。 */
+  text-decoration-color: color-mix(in srgb, currentColor 55%, transparent);
 }
 
-.article a:hover {
-  text-decoration-color: var(--color-brand-400);
+.prose a:hover,
+.detail a:hover,
+.paper-head__authors a:hover,
+.list-empty__body a:hover,
+.about-output__meta a:hover {
+  text-decoration-color: currentColor;
 }
 
 .article blockquote {

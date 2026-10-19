@@ -80,7 +80,7 @@ editPaths:
   font: 600 11px/1 var(--font-mono);
   letter-spacing: 0.14em;
   text-transform: uppercase;
-  color: var(--color-accent-600);
+  color: var(--text-accent);
 }
 .about-hero__name {
   margin: 0;
@@ -232,7 +232,7 @@ editPaths:
   font: 600 11px/1.4 var(--font-mono);
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: var(--color-accent-600);
+  color: var(--text-accent);
   padding-bottom: var(--space-2);
   border-bottom: 1px solid var(--border-subtle);
 }
@@ -283,7 +283,8 @@ editPaths:
   font-size: var(--fs-caption);
   color: var(--text-muted);
 }
-.about-output__meta a { color: var(--color-accent-600); }
+/* 产出列表里的 DOI 链接：暗色下 accent-600 只有 3.49:1，小字不合格 → 走 --text-accent */
+.about-output__meta a { color: var(--text-accent); }
 
 /* —— 联系方式：dl 两列 ——
    单独成段而不是并进 .about-blocks：联系方式是全宽的一条清单，

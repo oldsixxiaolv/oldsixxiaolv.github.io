@@ -250,7 +250,7 @@
    留着不报错，但会让人以为这些元素还在页面上；已连同注释一并清除。 */
 
 .home-intro { display: grid; grid-template-columns: 1fr 2.2fr auto; gap: 32px; padding: 36px 0; border-top: 1px solid var(--border-default); border-bottom: 1px solid var(--border-default); }
-.home-intro__label { margin: 0; color: var(--color-accent-600); font: 600 11px var(--font-mono); text-transform: uppercase; letter-spacing: .12em; }   /* P1.4 · was accent-500 (3.26:1) */
+.home-intro__label { margin: 0; color: var(--text-accent); font: 600 11px var(--font-mono); text-transform: uppercase; letter-spacing: .12em; }   /* P1.4 · was accent-500 (3.26:1) → 改走 --text-accent：accent-600 在暗色底上只有 3.49:1，11px 小字要 4.5:1 */
 .home-intro__body { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; max-width: 700px; }
 .home-intro__body p { margin: 0; font-size: 14px; line-height: 1.7; text-wrap: pretty; orphans: 2; widows: 2; }
 /* Inline links in body text must have a non-color indicator (WCAG 1.4.1) */
