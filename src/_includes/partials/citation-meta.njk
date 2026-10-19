@@ -11,11 +11,24 @@
   Google 普通检索的富结果），两套都得有——但让论文真正进 Google Scholar
   的是这个文件，不是 JSON-LD。
 
-  标签取自 Google Scholar 的官方收录说明（citation_title / citation_author /
-  citation_publication_date / citation_journal_title / citation_volume /
-  citation_issue / citation_firstpage / citation_doi / citation_pdf_url /
-  citation_abstract / citation_issn / citation_keywords / citation_language /
-  citation_publisher）。写成 <meta name="...">，不是 property="og:..."。
+  —— 哪些标签是官方收录说明真列了，哪些是本站自己加的（2026-10-20 实测）——
+  官方收录说明（https://scholar.google.com/intl/en/scholar/inclusion.html）
+  逐条列举的是：citation_title / citation_author / citation_publication_date /
+  citation_online_date / citation_journal_title / citation_conference_title /
+  citation_issn / citation_isbn / citation_volume / citation_issue /
+  citation_firstpage / citation_lastpage / citation_pdf_url /
+  citation_dissertation_institution / citation_technical_report_institution /
+  citation_technical_report_number。
+  ⚠️ citation_doi / citation_abstract / citation_keywords / citation_language /
+  citation_publisher / citation_abstract_html_url **不在**那份清单里——
+  但它们是出版商页面与引用管理器的通行写法（Scholar 之外的消费方会用），
+  所以本站保留。**此前这里写"标签取自官方收录说明"是写错了**：
+  那是把"官方列出的"与"我们额外提供的"混成一句，读的人会以为这 15 类
+  全都出自官方。写清楚来源，才知道哪条能改、哪条动了会掉收录。
+  同样地，收录说明里**没有** citation_journal_abbrev / citation_issn_print /
+  citation_issn_electronic 这三个常被提到的标签：输出了也没有任何一方会读，
+  本站**不输出**（实测收录说明正文里全文没有这三处）。
+  一律写成 <meta name="...">，不是 property="og:..."。
 
   —— 数据来源与生效范围 ——
   · 只在**论文独立页**（/papers/<slug>/）生效：该页 front-matter 用
@@ -74,10 +87,23 @@
     {%- if pub.abstract %}
     <meta name="citation_abstract" content="{{ pub.abstract }}" />
     {%- endif %}
-    {%- if pub.issn %}
-      {%- if pub.issn.print %}<meta name="citation_issn" content="{{ pub.issn.print }}" />{% endif -%}
-      {%- if pub.issn.electronic %}<meta name="citation_issn" content="{{ pub.issn.electronic }}" />{% endif -%}
-    {%- endif %}
+    {# ⚠️ 只输出**一条** citation_issn。
+       官方收录说明里它是单数标签，而此前这里同时输出 print 与 electronic
+       两条同名标签：解析方只能取其一，取到哪条取决于实现（Zotero / EndNote
+       的网页导入器各取各的，有的取第一个、有的取最后一个），于是"这个刊的
+       ISSN 是哪个"变成一个由解析顺序决定的问题。
+       这里取 print 2169-897X，因为它与本站**自己**的引用导出口径一致：
+         · BibTeX 的 issn 字段 = pub.issn.print || pub.issn.electronic → 同值
+         · RIS 的 SN 字段   = pub.issn.print || pub.issn.electronic → 同值
+         · Crossref 对本文登记的 ISSN 数组首项 = '2169-897X' → 同值
+       即三处（meta / BibTeX / RIS）现在给出的是同一个 ISSN。
+       electronic（2169-8996）**没有丢**：JSON-LD 的 periodical.issn 仍然是
+       两个都放——那里"这个刊有 print 和 electronic 两个 ISSN"是准确事实，
+       不要为了"看起来一致"把它删掉。
+       ⚠️ 口径待本人拍板：AGU 自己导出的 BibTeX 用的是 electronic 2169-8996，
+       与本站的 print 2169-897X 不同。要不要整体改成 AGU 的那个，
+       见 IMPROVEMENT-LOG.md 待决策段（改 1 行 eleventy.config.js 即可）。 #}
+    {%- if pub.issn and pub.issn.print %}<meta name="citation_issn" content="{{ pub.issn.print }}" />{% endif -%}
     {%- if pub.keywords and pub.keywords.length %}
     <meta name="citation_keywords" content="{{ pub.keywords | join('; ') }}" />
     {%- endif %}

@@ -65,6 +65,67 @@ layout: layouts/base.njk
 </script>
 {% endif %}
 
+{# ============================================================================
+   代码仓库实体（SoftwareSourceCode）—— 真正可克隆的那份源码
+   ----------------------------------------------------------------------------
+   为什么单开一个 ld+json 块：jsonLdPaper 那个 filter 是**站点级共享**的
+   （首页 / 列表页 / 论文页都调它），改它会把新实体泄到不是论文页的页面上。
+   页面特有的实体一律走**独立的 ld+json 块**——这是本仓已有的做法
+   （/papers/ 的 ItemList 就是这么加的）。
+
+   为什么需要它：论文页的 "Code" 按钮指向 GitHub 仓库
+   （https://github.com/oldsixxiaolv/Manuscript_Lvyh）。这个仓库**不是**
+   随便贴的一个链接——数据集在 DataCite 上的登记描述里明确指认了它
+   （"You can come to my GitHub to download the codes"），
+   Code Ocean 胶囊的登记描述里也指向它。也就是说，它是这篇论文
+   **读者真正会去 clone 的源码**。
+
+   但在此之前，它在结构化数据里**一个节点都没有**：胶囊有
+   SoftwareSourceCode 实体（有 DOI），数据集有 Dataset 实体（有 DOI），
+   唯独这份可克隆的源码只有一条可见链接。机器消费方
+   （Semantic Scholar / OpenAIRE / 搜索引擎的结构化检索）读论文页时
+   读到的"代码在哪"是空的——胶囊不等于源码仓库。
+
+   字段口径（全部来自 site.js 的单一真源，不另编）：
+     · @id / url / identifier / codeRepository = pub.code（仓库地址本身
+       就是这个仓库的稳定标识；没有 DOI 的代码仓库用 URL 当 IRI 是通行做法）
+     · name = 仓库的 owner/name 形式，与页面可见文字同源
+     · creator = 本人（沿用与数据集 / 胶囊**同一个** @id → 消费方按 @id
+       把三处描述合并成一个人，而不是读成三个人）
+       ⚠️ 这个 Person 节点必须与全站其它带本人 @id 的节点**逐字段一致**
+       （name / sameAs / url）——门禁 23 查 ORCID 双向绑定、门禁 27 查姓名、
+       门禁 31 查同一 @id 的同名字段一致。少给 sameAs 会被门禁 23 打红
+       （"本人实体与自己的权威标识脱钩"），少给 name 会被门禁 27 打红。
+       实测：初版只写 { @type, @id } → build 直接 exit 1，两条门禁同时报红。
+     · citation → 论文页（与胶囊 citation → 文章 同一套写法）
+   ⚠️ 本仓库**没有** license 字段：GitHub 侧该仓库确实没有声明许可证
+   （API 实测 license = null），**不编造**。没有许可证这件事如实反映在
+   "读者能不能合法复用"上，比给一个假的 SPDX 标识诚实。
+   ========================================================================== #}
+{%- set codeRepo = pub.code if pub else null -%}
+{%- if codeRepo %}
+{%- set codeRepoNode = {
+     "@context": "https://schema.org",
+     "@type": "SoftwareSourceCode",
+     "@id": codeRepo,
+     "name": codeRepo | replace("https://github.com/", ""),
+     "url": codeRepo,
+     "identifier": codeRepo,
+     "codeRepository": codeRepo,
+     "creator": {
+       "@type": "Person",
+       "@id": site.url + "/#person",
+       "name": site.author.nameAsPublished or site.author.name,
+       "url": site.url + "/",
+       "sameAs": site.author.sameAs
+     },
+     "citation": { "@id": site.url + page.url }
+   } -%}
+<script type="application/ld+json">
+{{ codeRepoNode | dump | safe }}
+</script>
+{% endif %}
+
 <div class="paper-reader-wrap">
 <article class="paper">
   {%- if pub %}
@@ -197,6 +258,27 @@ layout: layouts/base.njk
            上面那个是"论文里引用的那一版"，这个是"这个数据集整体"——
            两种引法都有人用，给出来让读者自己按需要选。 #}
         <span class="paper-availability__meta">All versions: <a href="{{ pub.software.conceptUrl }}" target="_blank" rel="noopener noreferrer">{{ pub.software.conceptDoi }}</a></span>
+        {%- endif %}
+        {# —— 文件清单 + 校验和 ——
+           "数据在哪"只是第一步；读者真正要的是"要下多少、里面是什么、
+           下载完怎么确认没坏"。Zenodo 为每个文件登记了字节数与 MD5，
+           这里逐条摆出来，读者下完用 md5sum 一比就知道文件完整。
+           ⚠️ 标题里带版本号：这份清单只对**当前这一版**成立，
+           下一版换了文件它就过期了，不能让读者照着一份旧清单去核对新版本。 #}
+        {%- if pub.software.files and pub.software.files.length %}
+        <p class="paper-availability__files-title">Files in v{{ pub.software.version }} ({{ pub.software.files.length }})</p>
+        <ul class="paper-availability__files">
+          {%- for f in pub.software.files %}
+          <li class="paper-availability__file">
+            <span class="paper-availability__file-name">{{ f.name }}</span>
+            <span class="paper-availability__meta">{{ (f.bytes / 1000000) | round(1) }} MB · md5:{{ f.md5 }}</span>
+          </li>
+          {%- endfor %}
+        </ul>
+        <span class="paper-availability__note">
+          {%- if pub.software.totalBytes %}{{ (pub.software.totalBytes / 1000000) | round(1) }} MB in total. {% endif -%}
+          Sizes are decimal (1 MB = 1,000,000 bytes). The MD5 values are the checksums Zenodo publishes for this version.
+        </span>
         {%- endif %}
         {# —— 可复制的引用条目 ——
            读者的下一动作常常是"在我的论文里引用这份数据"，不是"点开下载"。

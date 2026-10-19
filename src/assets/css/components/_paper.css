@@ -734,6 +734,36 @@ strong[data-annotation-ids] {
   color: var(--text-muted);
   margin-top: 2px;
 }
+/* 数据集文件清单（可复现性）：文件名 + 体积 + MD5 校验和。
+   文件名很长（TRMM_tropical_convection_dataset_202512.hdf.zip，44 个字符），
+   monospace 下 11.5px 约 300px，窄屏（390px 视口减内边距）放得下但很挤，
+   再长一点就会把整块撑出屏幕 → overflow-wrap: anywhere 允许在长串内部断行，
+   与 base.css / _list.css 里长串的既有处理一致。 */
+.paper-availability__files-title {
+  margin: var(--space-2) 0 0;
+  font-family: var(--font-sans-en);
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.paper-availability__files {
+  margin: var(--space-1) 0 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: var(--space-1);
+}
+.paper-availability__file {
+  min-inline-size: 0;
+}
+.paper-availability__file-name {
+  display: block;
+  font-family: var(--font-code);
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
+}
 /* 数据 / 胶囊的引用条目。
    比"Cite this paper"里的那条窄一档：这里的 BibTeX 短（6~8 行），
    字号再小就不好读了；用 --space-2 收紧上下留白，让这一块不喧宾夺主。

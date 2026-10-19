@@ -7138,3 +7138,132 @@ D1/D2 的 `ownerMissingId` 在 HEAD 与在途工作树里**都还没有** → �
   别人的暂存区原封不动；提交后把真实索引的这两个条目对齐到新 HEAD
   （否则对方下一次 `git commit` 会把本小节当成"已暂存的删除"抹掉）。
 - **不 push**（部署由本人决定）。
+
+## 2026-10-19 · 15:25–15:55 场次（**不占轮次号**，避免与并发场次撞号）：数据集「文件清单 + MD5 校验和」上站 + 引文 ISSN 口径统一（两条同名 `citation_issn` → 一条）
+
+> 本场次只碰**并发场次没在动**的 4 个源文件
+> （`src/_data/site.js` / `src/_includes/layouts/paper.njk` /
+> `src/_includes/partials/citation-meta.njk` / `src/assets/css/components/_paper.css`），
+> **不碰** `eleventy.config.js`、`scripts/verify-site.cjs`、`package.json`、`src/papers.njk`
+> （这几个在写者占用中）。两条改进点都落在"论文页的可复现性"与"引文口径"上，
+> 与并发场次在做的列表级 JSON-LD / a11y / 窄屏门禁**零交集**。
+
+### A. 巡检（现查，非采信上一轮结论）
+
+- **线上 7 个 URL 实测**：`/` 200、`/blog/` 200、`/about/` 200、`/sitemap.xml` 200；
+  `/papers/`、`/publications.bib`、`/feed.xml` 仍 **404**。
+  根因与上一轮同一：线上跑的是 2026-10-16 的陈旧部署（`origin/main` = `cfef826`），
+  这三个路由是 2026-10-19 的 commit 才加的，**从未部署过**。
+  → 仍属「等部署」，本轮**不新增门禁**（本地 `site.url` 已是域名根、路由齐全，
+  门禁 5/6/21 能抓住这一族问题），**不擅自 push**。
+- **本地**：HEAD 在本场次期间被并发场次推进到 `38526e8`（a11y 门禁补 A5/A6/A7）。
+  隔离克隆（`git clone --no-hardlinks` + checkout + 软链 `node_modules`）里
+  `npm run build` **exit 0**，门禁全绿。
+
+### B. 改进点 1：数据集「文件清单 + MD5 校验和」上站（可复现性）
+
+**背景**。论文页的 "Data and code availability" 区块已经给了 DOI、版本、许可、
+概念 DOI 和两条可复制的引用条目，读者能确认"这份数据有正式登记"。
+但**没有说"里面到底有什么"**：点开 Zenodo 才知道是 3 个文件、其中两个约 400 MB 的 zip，
+其中一份还是 HDF 版本。区块标题写的是可复现性，而"下多少、里面是什么、下载完怎么验"
+这三件事是缺的一层。
+
+**改了什么**（3 个文件）：
+
+1. `src/_data/site.js` —— `software` 下新增 `files`（3 条：`name` / `bytes` / `md5`）
+   与 `totalBytes`（= 843,846,081）。
+   逐条取自 Zenodo 自己的 API（`https://zenodo.org/api/records/18041880` 的 `files[]`），
+   **本场次重新拉取核对**：3,032,987 / 422,858,876 / 417,954,218 字节，
+   md5 `5acccbea…` / `cff511fb…` / `944c784b…`，与写入值逐条一致。
+2. `src/_includes/layouts/paper.njk` —— 在 Dataset 条目下渲染清单：
+   标题带**版本号**（`Files in v2.0 (3)`）、每行文件名 + MB + md5、末行给总量与单位说明。
+3. `src/assets/css/components/_paper.css` —— 新增
+   `.paper-availability__files-title` / `__files` / `__file` / `__file-name`。
+   文件名 44 字符（`TRMM_tropical_convection_dataset_202512.hdf.zip`），
+   monospace 11.5px 下窄屏很挤 → `overflow-wrap: anywhere` 允许长串内部断行，
+   与 `base.css` / `_list.css` 里长串的既有处理一致。
+
+**为什么清单只对当前这一版成立**：Zenodo 同一概念下发布 v3.0 时文件会换，
+所以标题里写明 `v2.0`，不让读者照一份旧清单去核对新版本。
+文件名**逐字照抄** Zenodo 上的（连 `refences` 少一个 `e` 也照抄）——
+读者在 Zenodo 上看到的就是这个名字，改对了反而不认得。
+
+**没做什么（以及为什么）**：没做"下载按钮"（Zenodo 页面已有，重复）；没做在线 md5 校验
+（要外部服务依赖，违反本项目约束）；没把清单做成机器门禁
+（门禁脚本都在 `scripts/verify-site.cjs`，该文件正被并发场次占用）。
+
+### C. 改进点 2：引文元数据口径统一 + `citation-meta.njk` 头注释纠偏
+
+**背景**。`citation-meta.njk` 同时输出**两条同名** `citation_issn`
+（print `2169-897X` + electronic `2169-8996`）。而 Google 官方收录说明里
+`citation_issn` 是**单数**标签：解析方只能取其一，取到哪条取决于实现与顺序
+（Zotero / EndNote 的网页导入器各取各的），于是"这个刊的 ISSN 到底是哪个"
+变成一个由解析顺序决定的问题。
+
+**现查依据（2026-10-19 实测，非凭记忆）**：
+
+| 事实 | 依据 |
+|---|---|
+| 收录说明里 `citation_issn` 是单数标签 | `scholar.google.com/intl/en/scholar/inclusion.html` 全文只出现 1 次 `citation_issn` |
+| 收录说明里**没有** `citation_journal_abbrev` / `citation_issn_print` / `citation_issn_electronic` | 同页全文检索**零命中** → 本轮**不加**这三个"常被提到但官方没列"的标签 |
+| 收录说明里**也没有** `citation_doi` / `citation_abstract` / `citation_keywords` / `citation_language` / `citation_publisher` / `citation_abstract_html_url` | 同页全文检索零命中 |
+| Crossref 对本文登记的 ISSN | `['2169-897X', '2169-8996']`，首项 = print |
+| AGU 官方导出的 BibTeX 用的是 **electronic** `2169-8996` | `mcp__agu-papers__get_metadata` 的官方 bibtex |
+
+**改了什么**（1 个文件）：
+
+1. `citation_issn` **只输出一条**，取 print `2169-897X` —— 与本站**自己**的引用导出口径一致：
+   BibTeX 的 `issn` 字段与 RIS 的 `SN` 字段都是 `pub.issn.print || pub.issn.electronic`
+   （同值），Crossref 登记数组首项也是它 → **meta / BibTeX / RIS 三处现在给出同一个 ISSN**。
+   electronic `2169-8996` **没有丢**：JSON-LD 的 `periodical.issn` 仍是两个都放
+   （那里"这个刊有 print 和 electronic 两个 ISSN"是准确事实，不要为了"看起来一致"删掉）。
+2. 文件头注释原来写"标签取自 Google Scholar 的官方收录说明（citation_title / … /
+   citation_doi / citation_abstract / …）"——**这句话是错的**：
+   它把"官方真的列了"与"本站额外提供的"混成了一句，读的人会以为这 15 类全出自官方。
+   已改写成三段：**官方逐条列举的**（16 类）／**本站额外加的**（6 类，说明为什么留：
+   出版商页面与引用管理器的通行写法）／**明确不输出的**（3 类，官方没列，加了也没人读）。
+
+### D. 验证结果
+
+- **隔离克隆**（HEAD + 本场次 4 个文件）`npm run build` **exit 0**；
+  `check:gates` / `check:css` / `check:wrap` / `check:site`（32 条）/ `check:lang`（53 文件）/
+  `check:a11y`（A1–A7）/ `check:copy` 全绿。
+- **产物核验**（`_site/papers/trmm-thunderstorm-stages/index.html`）：
+  - 文件清单 3 行正确渲染：`3 MB` / `422.9 MB` / `418.0 MB` + 各自 md5 + `843.8 MB in total`；
+  - `citation_issn` 由 **×2 变 ×1**，值 `2169-897X`；其余 13 类 citation_* 标签数量不变；
+  - JSON-LD **11 块全部 `JSON.parse` 成功**（0 失败）；
+  - 站内相对链接 **0 死链**。
+- **并发工作树叠加复验**：把并发场次的在途改动一起放进另一个隔离目录构建，同样 **exit 0**。
+  ⚠️ 第一次跑是红的（报 Person 节点 ORCID / name），做过 A/B——把本场次 4 个文件换回 HEAD
+  版本后**同样红**（对方写到一半的中间态），重跑即绿；**不是本场次改动引起**。
+- 未新增任何站外链接、未引入任何外部依赖。
+
+### E. 留给下一轮 / 待本人拍板
+
+- 「待决策」段本轮**未擅自拍板**，新增/沿用如下：
+  1. **ISSN 口径是否整体改用 AGU 官方导出的 electronic `2169-8996`**：
+     改 1 行 `eleventy.config.js` 的 `bibtex` / `ris` filter 即可
+     （`pub.issn.print || pub.issn.electronic` → electronic 优先）。
+     本轮**未擅自改**：① 该文件正被并发场次占用；② 这是"与出版商官方条目对齐"的取舍。
+     本轮先做到**站内三处口径自洽**。
+  2. **数据集引用条目的两个标题**（`citeTitle` 与 `registeredTitle`）——沿用既有待决策，未新增。
+  3. **是否把文件清单做成机器门禁**（如"清单必须与 Zenodo 登记逐条一致"）：
+     需要能访问 Zenodo API 的门禁 = 新增外部依赖，等拍板再做。
+  4. **是否补 SHA-256**：Zenodo 只登记 md5，要 SHA-256 需自行计算并另找托管来源，
+     本轮不擅自加。
+- ⚠️ **并发场次仍占用共享工作树**：`eleventy.config.js`、`scripts/verify-site.cjs`、
+  `src/papers.njk`、`package.json`、`scripts/check-gates-wired.cjs`、
+  `scripts/check-overflow.cjs`、`scripts/check-copy-export.cjs`、
+  `.github/workflows/deploy.yml`、`docs/IMPROVEMENT-LOG.md` 均有在途未提交改动。
+  下一轮若要动这些文件，先确认对方是否已提交。
+
+### F. 本场次提交
+
+- 本场次提交 **5 个文件**：`src/_data/site.js`、`src/_includes/layouts/paper.njk`、
+  `src/_includes/partials/citation-meta.njk`、`src/assets/css/components/_paper.css`
+  与本文件（日志）。**没有提交**任何并发场次的在途改动。
+- 提交方式（沿用本文件上一段的既有做法）：临时索引 `GIT_INDEX_FILE` +
+  `commit-tree` + `update-ref`（带旧值做 CAS），**不读真实索引**，
+  别人的暂存区原封不动；提交后把真实索引的这 5 个条目对齐到新 HEAD
+  （否则对方下一次 `git commit` 会把这几个文件当成"已暂存的删除"抹掉）。
+- **不 push**（部署由本人决定）。

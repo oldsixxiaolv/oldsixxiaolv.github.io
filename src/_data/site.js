@@ -422,6 +422,37 @@ module.exports = {
         // 取代，概念 DOI 仍能解析到最新一版。
         conceptDoi: "10.5281/zenodo.16662143",
         conceptUrl: "https://doi.org/10.5281/zenodo.16662143",
+        // —— 文件清单（v2.0 实际包含的文件）——
+        // 读者点下载之前就该知道三件事：要下多少、里面是什么、下载完怎么验。
+        // bytes 与 md5 逐条取自 Zenodo 自己的 API
+        //（https://zenodo.org/api/records/18041880 的 files[]），
+        // md5 就是 Zenodo 为该文件登记的校验值，读者 md5sum 一比即知完整。
+        //
+        // ⚠️ 这个清单只对**当前这一版**成立：Zenodo 同一概念下的下一版
+        // （v3.0）文件会变。所以页面里把版本号写在标题上（模板侧），
+        // 不要让它被读成"这个数据集永远就这三个文件"。
+        //
+        // ⚠️ 文件名是**逐字照抄** Zenodo 上的，连里面的拼写（refences
+        // 少一个 e）也照抄——读者在 Zenodo 上看到的就是这个名字，
+        // 改对了反而不认得。totalBytes = 三个文件的字节数之和。
+        files: [
+          {
+            name: "Thunderstorm_life_stages_refences_Byers(1949).pdf",
+            bytes: 3032987,
+            md5: "5acccbea49b5522de089f8a07a3ac134",
+          },
+          {
+            name: "TRMM_tropical_convection_dataset_202512.hdf.zip",
+            bytes: 422858876,
+            md5: "cff511fb23fc4d5ed49d30f8d2c0e2df",
+          },
+          {
+            name: "TRMM_tropical_convection_dataset.zip",
+            bytes: 417954218,
+            md5: "944c784b00658aedf198e8e2fd620af9",
+          },
+        ],
+        totalBytes: 843846081,
       },
       code: "https://github.com/oldsixxiaolv/Manuscript_Lvyh",
       // Code Ocean 可复现计算胶囊：整篇论文的代码 + 数据 + 运行环境打包成
