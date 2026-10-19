@@ -143,6 +143,29 @@ for (const file of htmlFiles) {
     fail(`${from}: 缺 canonical`);
   }
 
+  // 3b) 错误页的索引控制
+  //     404 页此前既**没有 noindex**、又发着指向自身的 canonical
+  //     （实测 `<link rel="canonical" href=".../404.html">`）——等于主动向
+  //     搜索引擎声明"404 也是正式内容页"，而错误页 URL 本该被排除在索引外。
+  //     规范做法：
+  //       · 错误页 → robots = noindex, follow（不收录这个 URL 本身，
+  //                  但 follow 保留页内有效链接的抓取与权重传递）；
+  //       · 正常页 → **不许**出现 noindex（那是把好页面自己藏起来，
+  //                  同样属于静默缺陷，一并兜住）。
+  const isNotFound = from.endsWith("404.html");
+  const robotsMeta = (html.match(/<meta[^>]*name\s*=\s*"robots"[^>]*content\s*=\s*"([^"]*)"/i) || [])[1];
+  const hasNoindex = robotsMeta ? /noindex/i.test(robotsMeta) : false;
+  if (isNotFound) {
+    if (!hasNoindex) {
+      fail(`${from}: 404 页缺少 noindex（robots meta = ${robotsMeta || "无"}）`);
+    }
+    if (canonical) {
+      fail(`${from}: 404 页不应有 canonical（${canonical}）`);
+    }
+  } else if (hasNoindex) {
+    fail(`${from}: 正常页不该有 noindex（robots meta = ${robotsMeta}）`);
+  }
+
   // 4) 标题不能退化成站点名
   //    base.njk 的标题回落是「title → 论文标题 → 站点名」三级。
   //    论文页（第三轮才加）front-matter 里没有 title，最初整页的

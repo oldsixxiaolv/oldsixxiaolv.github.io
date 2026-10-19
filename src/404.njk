@@ -4,6 +4,13 @@ title: 404 · Page not found
 permalink: /404.html
 description: The page you asked for does not exist.
 eleventyExcludeFromCollections: true
+# 错误页专用开关（base.njk 读它）：
+#   ① 不输出 canonical / hreflang —— canonical 的语义是"这个 URL 是该内容的
+#      权威地址"，对错误页发它等于主动声明"404 也是正式内容页"；
+#   ② 输出 <meta name="robots" content="noindex, follow"> —— 不收录这个 URL
+#      本身，但 follow 保留页内有效链接的抓取与权重。
+# 只写在这个模板里，全站其他页面不受影响。
+is404: true
 editPaths:
   - path: src/404.njk
     label: "Edit this page"

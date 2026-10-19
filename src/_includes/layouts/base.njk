@@ -102,11 +102,22 @@
   {# —— Favicon —— #}
   <link rel="icon" type="image/svg+xml" href="{{ '/assets/favicon.svg' | relUrl }}" />
 
-  {# —— canonical link（GH Pages 子路径下由 pathPrefix 自动处理 page.url） —— #}
+  {# —— canonical link（GH Pages 子路径下由 pathPrefix 自动处理 page.url）——
+       ⚠️ 错误页是**唯一例外**（开关是 404.njk 的 front matter `is404`）：
+       canonical 的语义是"这个 URL 是该内容的权威地址"，对一个错误页发它，
+       等于主动向搜索引擎声明"404 也是正式内容页"；hreflang 那一组同理
+       （它同样是在声明"这个 URL 是某个语言版本的正式地址"）。
+       错误页要的是 noindex（不收录这个 URL 本身）+ follow（仍沿链抓页内
+       的有效链接，把权重传出去）。
+       ⚠️ 这个开关只挂在 404 页上，其他页面的 canonical / hreflang 一个字没动。 #}
+  {% if is404 %}
+  <meta name="robots" content="noindex, follow" />
+  {% else %}
   <link rel="canonical" href="{{ site.url }}{{ page.url }}" />
   {# 备用 hreflang：主站点是中英混排，当前只声明默认 locale，避免误判多语言版本 #}
   <link rel="alternate" hreflang="{{ site.locale or 'zh-CN' }}" href="{{ site.url }}{{ page.url }}" />
   <link rel="alternate" hreflang="x-default" href="{{ site.url }}{{ page.url }}" />
+  {% endif %}
 
   {# —— RSS 订阅源（feed autodiscovery）——
        <link rel="alternate" type="application/rss+xml"> 是订阅源的标准发现方式：

@@ -721,6 +721,71 @@ JS 把多余的实参**静默丢弃**（不报错、页面照出、构建照过�
 
 ---
 
+## 2026-10-19 · 第七轮：404 页补 noindex、去掉自指的 canonical
+
+**触发**：10:10 场次（`mvs_f82683a6`）只读核验时实测发现——
+`_site/404.html` **既没有 `noindex`**，又**发着指向自身的 canonical**
+（`<link rel="canonical" href="https://github.lvyihang.xyz/404.html" />`）。
+这个缺陷在第六轮就被我记进"待决策"，当时写的收尾是"可以下一轮做"——
+本轮就是那一轮。
+
+**为什么它不是"口径取舍"、可以直接修掉**：canonical 的语义是
+"这个 URL 是该内容的权威地址"，对一个错误页发它，等于主动向搜索引擎声明
+"404 也是正式内容页"；而错误页 URL 本就该被排除在索引之外。
+**没有任何一种合理口径是"让 404 被收录"**——所以它不是需要本人拍板的取舍项，
+而是一个可以直接修掉的缺陷。**（第六轮把它归进"待决策"是分类偏保守了，
+这里更正：前两项已修，第三项见下。）**
+
+### 改了什么（1 个改进点，只动 3 个文件）
+
+- `src/404.njk`：front matter 加 `is404: true`（**只有这个模板**有）。
+- `src/_includes/layouts/base.njk`：
+  - `is404` 为真 → 输出 `<meta name="robots" content="noindex, follow" />`，
+    **不输出** canonical，也**不输出** hreflang 那一组；
+  - 其余页面 → **一个字没动**（canonical / hreflang 原样输出）。
+- `scripts/verify-site.cjs`：新增**第 15 条门禁**。
+
+⚠️ **为什么 hreflang 一起去掉**：canonical 与 hreflang 在 `base.njk` 里是同一组
+"自指 URL 声明"（同一段、相邻两行、同一个 `site.url + page.url` 模式）。
+只去掉 canonical 却留着 hreflang，语义上是半拉子的——审代码的人会问
+"为什么只删一个"。两者都不构成风险（错误页本来就不该有语言版本声明）。
+
+⚠️ **为什么没有撞坏现有门禁**：`verify-site.cjs` 原本就有
+`if (!canonical && !from.endsWith("404.html"))` —— 也就是说
+**"404 页可以没有 canonical"这条早就被允许**，只是没人真的去掉它。
+本轮是先改产物再补门禁，顺序是反的，但结果一致。
+
+### 新增门禁第 15 条
+
+| # | 门禁 | 拦的是哪类 bug |
+|---|---|---|
+| 15 | 404 页必须有 `noindex`、且**不得有** canonical；**正常页不得有** `noindex` | 错误页被索引 / 好页面被自己藏起来 |
+
+**故障注入（3 项，全部拦下）**：
+
+| 注入的故障 | 门禁反应 | 结果 |
+|---|---|---|
+| 删掉 404 页的 noindex | 报"404 页缺少 noindex（robots meta = 无）" | exit 1 ✓ |
+| 给 404 页加回 canonical | 报"404 页不应有 canonical（…/404.html）" | exit 1 ✓ |
+| 给正常页（about）加 noindex | 报"正常页不该有 noindex（robots meta = noindex, follow）" | exit 1 ✓ |
+
+注入全部在 `/tmp` 副本上做（`SITE_DIR`），**没碰工作区的 `_site`**；
+还原后重跑 exit 0。
+
+### 验证结果
+
+- `npm run build` **exit 0**；`check:css` 通过（15 个文件）；`check:site` 通过
+  （6 个 HTML 页、**127 条本地引用**、5 条 sitemap URL）
+- **404 页实测**：`<meta name="robots" content="noindex, follow" />` 在；
+  `canonical` **0 个**、`hreflang` **0 个**
+- **其余 5 页实测**：`canonical` 各 1 个、`robots` 各 0 个 —— **没有被误伤**
+- `node scripts/check-overflow.cjs` exit 0（390px 六页 `scrollWidth` 全 = 390）
+
+**归属**：本轮改动全部由 **10:35 场次**（`mvs_b348dad6bacc4e88b0828bbcf619b257`）写；
+问题由 **10:10 场次**只读发现；已请 **10:40 场次**做独立复验。
+
+---
+
 ## 待决策（需要本人拍板，任务不会自己动）
 
 
@@ -783,20 +848,19 @@ JS 把多余的实参**静默丢弃**（不报错、页面照出、构建照过�
      是**当前**单位——两者是不同时间点，不矛盾，也不能互相覆盖。
   本轮选择**一条都不给**。要加的话请拍板：**短式 ×7**，还是**出版商原文 ×7**？
 - **404 页缺 `noindex`，还发着 canonical 和全站 JSON-LD**（第六轮新增，实测）：
-  404 页由 `src/404.njk`（布局 `layouts/page.njk` → `layouts/base.njk`）生成，
-  逐项实测产物 `_site/404.html`：
+  ⚠️ **其中「缺 noindex」与「发 canonical」两项已在第七轮修掉**（见上文第七轮），
+  这里只保留**仍未处理**的部分：404 页仍带**全站 JSON-LD**。
+  实测 `_site/404.html` 的 `@type` 去重后含
+  `Person` / `ScholarlyArticle` / `Grant` / `MediaObject` / `Organization` /
+  `Periodical`——即错误页上挂着一篇论文的实体。
+  这**在有了 `noindex` 之后已无害**（不收录就不必谈实体对不对），
+  但严格说，一个错误页声明"我是一篇论文"仍然别扭。
+  要不要在 404 上**只留 Person、不发论文/数据集/胶囊实体**，属展示口径，
+  本轮**没有顺手改**（会牵动 JSON-LD 的生成逻辑，比 noindex 那一条改动面大）。
+  另附实测记录，供后续判断：
   - `og:type` = **`website`** ✓ 正确——第三轮定的规则（只有带 `pubKey` 的论文页
     才算 `article`）在 404 页上**没有**误判，这条**不用改**；
-  - **完全没有 `noindex`**（`grep -c noindex` = **0**）← 这是**真实缺陷**，
-    404 页面会被搜索引擎当正常页面收录；
-  - **发着 canonical** 指向 `https://github.lvyihang.xyz/404.html`（指向自身）；
-  - **带着全站 JSON-LD**，实测 `@type` 去重后含
-    `Person` / `ScholarlyArticle` / `Grant` / `MediaObject` / `Organization` /
-    `Periodical`——即 404 页上挂着一篇论文的实体。
-  规范做法是：**404 不发 canonical**、**保留 `noindex`**、**不发结构化数据**。
-  本轮**没有顺手改**：①超出"1–2 个改进点"的范围；②`base.njk` 的 meta 是
-  全站共用的，改错会让 404 页**连 noindex 都保不住**，反而更糟。
-  要改是独立一个小改动（`404.njk` 走一套独立的 meta 分支），可以下一轮做。
+  - 404 页由 `src/404.njk`（布局 `layouts/page.njk` → `layouts/base.njk`）生成。
 - **`date:` 被同时用作三种含义，sitemap `lastmod` 与 robots "生成时间" 都不真实**（第六轮新增，实测）：
   本机时区是 **PDT（UTC-7）**，以下时间已按此换算过：
   - `sitemap.njk` 用的是 `entry.date`。对**模板页**而言 `entry.date` = 源文件的
