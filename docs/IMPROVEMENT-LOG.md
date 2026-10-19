@@ -4970,3 +4970,130 @@ sitemap `lastmod` 口径 · 门禁 25 的博客封面图 `alt=""` 是否给描�
 - 门禁 27 锚点改 ORCID（换锚点前必须先确认 R4 仍被门禁 12 抓到）。
 - 门禁 21④ 报错去重、门禁 15 在四个页面上空跑。
 - 巡检 cron 频率（仍每 5 分钟起一个会话，持续并发冲突）→ 建议 30–60 分钟 + 单写者锁。
+
+## 2026-10-19 · 14:15–14:40 场次（**不占轮次号**，避免与并发场次撞号）：新增「门禁接线」横切门禁——守住"每个门禁脚本都真的在 build 链上"
+
+### A. 为什么要加这个门禁
+
+交接复核时读到一条实测：`scripts/check-copy-export.cjs`（Copy 出口取值方式的源码级检查）
+**从来没有被任何 `package.json` script 引用过**。CI 只跑 `npm run build`，
+所以这个门禁**从写下那刻起就是零保护作用**——而它自己 exit 0、输出漂亮，
+"看起来完全在工作"。
+
+也就是说：**"门禁文件存在"和"门禁在跑"是两件事，而后者当时无人看守。**
+这类缺陷的共同形状是：**不报错、build 照过、门禁照绿**，
+只有回头逐行读 `package.json` 才会发现。
+本仓库此前已经反复栽在这一族上（门禁编号表漏行、清单与代码段不一一对应、
+门禁汇总句照抄通过时的断言、"只能写 X"这类断言写进会被人照着改的说明里），
+它们都是同一句话：**看起来在、其实不生效**。
+既然"有没有接线"是可机器判的，就不该继续靠人记得。
+
+### B. 改动（两个文件）
+
+- **新增 `scripts/check-gates-wired.cjs`**（编号 **GW1–GW3**，
+  沿用独立字母体系，不与 `verify-site.cjs` 的 1–30、`check-a11y.cjs` 的 A1–A4、
+  `check-wrapping.cjs` 的 W1–W3 续接或撞号）。
+- **`package.json`**：新增 `"check:gates": "node scripts/check-gates-wired.cjs"`，
+  并接进 build 链**最前**（接线本身就是纯配置问题，先查它最省事）。
+
+### C. 三条判据
+
+| 编号 | 判据 | 为什么这样定 |
+|---|---|---|
+| **GW1** 全覆盖 | `scripts/` 下每个门禁脚本（`check-*.cjs` / `verify-*.cjs`）都必须**从 `npm run build` 可达**（含间接：`build → check:css → 两个脚本`） | "某个 script 引用了它"还不够——那个 script 也可能不在 build 链上。必须算**可达性**，不是"存在性" |
+| **GW2** 豁免登记 | 豁免必须**写在源码里**并写明理由；理由为空、文件已不存在、或"既登记豁免又真接在 build 上"（状态自相矛盾）都判红 | 豁免只写在日志里等于没写——CI 读不到日志 |
+| **GW3** 自己没被卸掉 | 本脚本必须真的在 build 链上 | "门禁自己被卸掉"和"门禁没生效"在结果上长得一模一样（build 照过、门禁全绿），必须有专门的兜底 |
+
+**当前唯一豁免**：`check-overflow.cjs` —— 需要本机 Chrome + 临时静态服务器
+（CDP over WebSocket），CI（ubuntu-latest）没有 Chrome，接进 build 只会让部署随机失败。
+**故意不接**，理由写在源码的 `EXEMPT` 里（不是只写在日志里）。
+依据见本日志「长串断行兜底」那轮「留给下一轮」第 1 条。
+
+### D. 复验
+
+**（1）隔离克隆全量 build**（基座 = 当前 HEAD `f59fec4`，共享工作区零写入）：
+`npm run build` **exit 0**，链上依次为 `check:gates → check:css → check:wrap →
+eleventy → check:site → check:lang → check:a11y → check:copy`；
+门禁 24 的两条 note 仍为「文件头清单 30 条 / 代码段 30 条，一一对应且连续」
+与「对照表 30 行，覆盖全部 30 个门禁编号且无重复行」——新门禁**没有**打破编号体系。
+
+**（2）8 例故障注入**（每个用例一份全新副本，基线必须先 exit 0）：
+
+| # | 注入 | 期望 | 实测 |
+|---|---|---|---|
+| 0 | 无注入（基线） | exit 0 | exit 0 ✓ |
+| 1 | 新增 `scripts/check-fake.cjs`，无任何 script 引用 | exit 1 | exit 1「没有被任何 npm script 引用——这个门禁**永远不会执行**」✓ |
+| 2 | `check-fake.cjs` 只被 `check:fake` 引用，而 `check:fake` 不在 build 链 | exit 1 | exit 1「只被 npm script「check:fake」引用，但那些 script **不在 build 链上**」✓ |
+| 3 | `check-fake.cjs` 正确接进 build | exit 0 | exit 0 ✓ |
+| 4 | 已豁免的 `check-overflow.cjs` 又被接进 build | exit 1 | exit 1「既是豁免项、又被接在 build 链上——状态自相矛盾」✓ |
+| 5 | build 链里去掉 `check:gates`（门禁自己被卸掉） | exit 1 | exit 1「门禁自己被卸掉了」✓ |
+| 6 | 豁免理由被清空 | exit 1 | exit 1「没有写理由——豁免必须写明为什么不能接」✓ |
+| 7 | 豁免名单里留一个已不存在的文件 | exit 1 | exit 1「在 scripts/ 下已经不存在了——别让名单烂在里面」✓ |
+| 8 | build 整个改成只跑 `eleventy` | exit 1 | exit 1，**7 个门禁**同时被判未接线 ✓ |
+
+⚠️ 用例 3–5 首轮**全被用例 1 遗留的 `check-fake.cjs` 掩盖**（它一直在报未接线，
+把后面几条的正确判定盖住了）——这是**我的测试序列有缺陷**，不是门禁有缺陷。
+改成"每个用例一份全新副本"后重跑，8/8 全部符合预期。
+（这正是本仓库记过的那条教训的又一次出现：**验证环境的失败会伪装成被验证对象的性质**。）
+
+### E. 顺带：对已落地的 C2 做了一次独立复验（结论与 14:30 场次一致）
+
+C2 已由 `f59fec4` 落地（「收窄 gitOut/gitRoot/lastCommitTime 三处裸 catch」）。
+本场次在**当前 HEAD 基座**上重跑了对照实验，结论吻合：
+
+| 场景 | 无 C2 | 有 C2 |
+|---|---|---|
+| 两侧同时注入 `execFileSync` 未定义 | `eleventy` exit **0** / 门禁 exit **0** / sitemap lastmod **0 条** / note **谎称**"不在 git 仓库里：sitemap 不输出 lastmod（源码 zip 分发，本就没有 git 历史）" | `eleventy` exit **1**（可见 `ReferenceError: execFileSync is not defined`）/ 门禁 exit **1** |
+
+**合法场景回归**（"确实该静默"的三种情形必须仍然静默通过）：
+
+| 场景 | eleventy | 门禁 |
+|---|---|---|
+| 不在 git 仓库里（源码 zip 分发） | exit 0 | exit 0，note 如实说"不在 git 仓库里" |
+| git 不在 PATH（ENOENT） | exit 0，无 ReferenceError | exit 0 |
+| 浅克隆（`git clone --depth 1`） | exit 0 | exit 1，提示"浅克隆…请设 `fetch-depth: 0`"（**基线既有行为**，非 C2 引入） |
+
+### F. 一条在途改动，本场次**不碰**
+
+复验期间发现另一场次正在**未暂存地**细化 `isGitProcessFailure` 的判据
+（把 `typeof e.status === "number"` 改成 `"status" in e`，理由是
+`execFileSync` 在 SIGKILL / EACCES 下 `status` 为 `null`——
+按"值的类型"判会把它们误当编程错误而 rethrow，导致**崩栈**而非判红）。
+那是**它的在途工作，本场次既没改也没提交**；
+上面 E 节的实测数据是按 `f59fec4` 里已提交的版本测的。
+⚠️ 两版判据在 **EACCES** 上结论不同（已提交版会 rethrow，在途版会吞掉），
+这属于该场次的裁决范围，**本场次不擅自拍板**，留给它自己收口。
+
+### G. 本轮提交（**不 push**）
+
+- `feat(gate)`：新增 `scripts/check-gates-wired.cjs`（GW1–GW3）+ `package.json` 接线
+  （`check:gates` 接进 build 链最前）。
+- `docs(log)`：本条（A–G）。
+
+⚠️ 并发提醒：提交时工作树里**叠着并发场次在途的改动**
+（`eleventy.config.js` 的 RIS filter、`scripts/verify-site.cjs` 的 `isGitProcessFailure` 细化、
+`scripts/check-a11y.cjs`、`scripts/check-copy-export.cjs`、
+`src/_includes/layouts/paper.njk`、`src/assets/css/components/_paper.css`、
+`src/papers.njk`，以及未跟踪的 `src/publications.ris.njk`），
+**日志文件里也有另一场次的在途改动**（12:50 交接件四条遗留项的复核那节）。
+本条**只把自己的 hunk 写进索引**（`hash-object` + `update-index --cacheinfo`），
+**不碰工作树里的在途内容**，也**不碰别人已暂存的内容**。
+C2 已由 `f59fec4` 单独提交，本条**不含** C2（避免把同一件事写两遍）。
+
+### H. 待决策
+
+**本轮不新增待决策项**（沿用既有清单，不擅自拍板）。
+
+### I. 留给下一轮
+
+1. **豁免机制目前是硬编码在 `EXEMPT` 里**。若将来豁免变多（比如 CI 有了 Chrome、
+   又多出几个需要外部工具的门禁），可以把它挪成一个独立的 `scripts/gates-exempt.json`，
+   让"谁豁免了什么"更好审。**现在只有 1 条豁免，不值得为此加一个文件**。
+2. **本门禁只查"接线"，不查"接上了之后真的会跑"**。
+   判据是"某个 npm script 的命令行里出现了这个文件名"，
+   理论上仍可能有人把 `node scripts/check-x.cjs` 写成一个**空操作**。
+   要堵这一层得改判据（例如要求脚本以非零码退出），代价是门禁本身变复杂——**先不做**。
+3. **本门禁在 `build` 链最前**，所以它一红，后面几步都不跑。
+   这是有意的（接线错了就别构建了），但要注意：并发场次若新加一个门禁脚本而**还没接线**，
+   本门禁会立刻把 build 判红——**这是正确行为**（那正是一个没接线的门禁），
+   修法是把它接进 `package.json` 或在 `EXEMPT` 里显式登记并写明理由。

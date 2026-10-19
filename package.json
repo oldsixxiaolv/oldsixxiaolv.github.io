@@ -8,7 +8,8 @@
     "check:lang": "node scripts/check-lang.cjs",
     "check:site": "node scripts/verify-site.cjs",
     "check:wrap": "node scripts/check-wrapping.cjs",
-    "build": "npm run check:css && npm run check:wrap && eleventy && npm run check:site && npm run check:lang && npm run check:a11y && npm run check:copy",
+    "check:gates": "node scripts/check-gates-wired.cjs",
+    "build": "npm run check:gates && npm run check:css && npm run check:wrap && eleventy && npm run check:site && npm run check:lang && npm run check:a11y && npm run check:copy",
     "serve": "eleventy --serve --quiet --port=8080",
     "check:a11y": "node scripts/check-a11y.cjs",
     "check:copy": "node scripts/check-copy-export.cjs"
