@@ -16,6 +16,9 @@ const { DateTime } = require("luxon");
 const fs = require("fs");
 const path = require("path");
 const { execFileSync } = require("child_process");
+// git 失败的分类与"降级 or 抛"的决定 —— 与 scripts/verify-site.cjs 共用同一份
+// （见 scripts/lib/git-error.cjs 顶部的说明：抄两份会漂移，漂移会静默漏报）。
+const { classifyGitError, degradeOrThrow } = require("./scripts/lib/git-error.cjs");
 
 // ---------------------------------------------------------------------------
 // 输出目录：dev server 与生产构建必须写不同的目录
@@ -355,10 +358,11 @@ module.exports = function (eleventyConfig) {
        3. **文件还没被提交过（历史里查不到）→ 也不给**。
      sitemap 规范里 lastmod 是**可选**字段，宁可没有，也不要一个假的。 */
   let gitRootCache;
-// git 跑失败（退出码非 0 → e.status 是数字）或 git 不可用（spawn 失败 → e.code 是字符串）
-// ——这才算"没有 git 历史"；ReferenceError / TypeError 等编程错误两者皆无，必须抛出。
-const isGitProcessFailure = (e) =>
-  !!e && typeof e === "object" && (typeof e.status === "number" || e.code === "ENOENT");
+// git 失败的分类在 scripts/lib/git-error.cjs —— 与 scripts/verify-site.cjs
+// **共用同一份**（原来两边各抄一份判据，"改一处忘一处"就会让两侧行为不一致，
+// 而这两边恰恰必须一致：它们一起决定"门禁到底有没有真的核对过 lastmod"）。
+// 四类里只有「git 不在 PATH」「git 说这里没有提交历史」可以降级成"没有 git 历史"；
+// 「git 判定不出来」（被信号杀 / 不可执行）与编程错误都必须抛。
   function gitRoot() {
     if (gitRootCache !== undefined) return gitRootCache;
     try {
@@ -368,10 +372,9 @@ const isGitProcessFailure = (e) =>
         stdio: ["ignore", "pipe", "ignore"],
       }).trim();
     } catch (e) {
-      // 同 verify-site.cjs 的 gitOut：只吞"git 跑失败 / git 不可用"，
-      // 编程错误必须暴露（否则 lastmod 整片消失，而门禁也以为"不在 git 仓库里"）。
-      if (!isGitProcessFailure(e)) throw e;
-      gitRootCache = null; // 不在 git 仓库里（或 git 不可用）
+      // 可降级时返回 null（= 不在 git 仓库里 / 没有 git 历史）；
+      // 不可降级时抛（见 scripts/lib/git-error.cjs）。
+      gitRootCache = degradeOrThrow(e);
     }
     return gitRootCache;
   }
@@ -386,8 +389,18 @@ const isGitProcessFailure = (e) =>
           encoding: "utf8",
           stdio: ["ignore", "pipe", "ignore"],
         }).trim() === "true";
-    } catch {
-      gitShallowCache = true; // 判不出来就按"不可信"处理
+    } catch (e) {
+      // ⚠️ 这里原来是**裸 catch**（`catch {`）—— 它把编程错误（TypeError /
+      //   ReferenceError）也一起吞掉：门禁会以为只是"浅克隆 / 不可信"，
+      //   而实际是代码写错了。现在与另两处用同一套判据：
+      //   · 「git 用不了」→ 按"不可信"处理（原来的行为，保留）；
+      //   · 「git 判定不出来」/ 编程错误 → 必须抛，不能悄悄降级。
+      const kind = classifyGitError(e);
+      if (kind === "unavailable" || kind === "no-history") {
+        gitShallowCache = true; // 判不出来就按"不可信"处理
+      } else {
+        degradeOrThrow(e); // "unknown" → 抛一句人话；"program-error" → 原样抛
+      }
     }
     return gitShallowCache;
   }
@@ -411,8 +424,9 @@ const isGitProcessFailure = (e) =>
       // 统一成 UTC 的 Z 形式，与站点其它时间戳（dateToIso）格式一致
       return d.toISOString();
     } catch (e) {
-      // 同上：编程错误不能被伪装成"查不到提交时间"（那会让 lastmod 静默变空）。
-      if (!isGitProcessFailure(e)) throw e;
+      // 同上：编程错误不能被伪装成"查不到提交时间"（那会让 lastmod 静默变空）；
+      // 「git 判定不出来」同样不能伪装（降级 = 门禁以为验过了，其实没验）。
+      degradeOrThrow(e);
       return "";
     }
   });

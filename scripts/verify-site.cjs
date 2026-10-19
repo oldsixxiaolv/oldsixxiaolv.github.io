@@ -111,6 +111,9 @@
 const fs = require("fs");
 const path = require("path");
 const { execFileSync } = require("child_process");
+// git 失败的分类与"降级 or 抛"的决定 —— 与 eleventy.config.js 共用同一份，
+// 免得两边各抄一份、改一处忘一处（见 scripts/lib/git-error.cjs 顶部的说明）。
+const { degradeOrThrow } = require("./lib/git-error.cjs");
 
 // 产物目录。默认是仓库里的 _site；SITE_DIR 只是给"故障注入"用的——
 // 改产物做注入测试时如果直接改 _site，会和并发的 build 抢同一个目录，
@@ -1214,10 +1217,16 @@ if (fs.existsSync(robotsTxtPath)) {
         静默失效反而抓不到。逐页判定（按该页自己的源文件查）没有这个前提：
         一个还没提交的新文件只影响它自己那一页。 */
 const REPO = path.resolve(__dirname, "..");
-// git 跑失败（退出码非 0 → e.status 是数字）或 git 不可用（spawn 失败 → e.code 是字符串）
-// ——这才算"没有 git 历史"；ReferenceError / TypeError 等编程错误两者皆无，必须抛出。
-const isGitProcessFailure = (e) =>
-  !!e && typeof e === "object" && (typeof e.status === "number" || e.code === "ENOENT");
+// git 失败的分类在 scripts/lib/git-error.cjs（与 eleventy.config.js 共用一份）。
+// 这里只说**为什么**分类要这么细：
+//   · 「git 不在 PATH」/「git 说这里没有提交历史」→ 可以降级成"没有 git 历史"；
+//   · 「git 判定不出来」（被信号杀 / 不可执行）→ **必须抛**：降级等于把
+//     "判不出来"说成"没有 git 历史"，下面规则 C/D/E 整块被跳过 → 门禁全绿
+//     而实际上一页都没验证过（2026-10-19 端到端实测：同一缺陷，git 可用时
+//     exit 1 判红，git 被 SIGKILL 时 exit 0 全绿）；
+//   · 编程错误（TypeError / ReferenceError）→ 必须原样抛出，不能伪装成
+//     "不在 git 仓库里"——那会让「lastmod 整体消失」那条兜底整条静默失效
+//     （兜底只挂在 inGitRepo 为真的分支上）。
 const gitOut = (args) => {
   try {
     return execFileSync("git", args, {
@@ -1226,16 +1235,8 @@ const gitOut = (args) => {
       stdio: ["ignore", "pipe", "ignore"],
     }).trim();
   } catch (e) {
-    // ⚠️ 只把「git 跑失败 / git 不可用」当成"没有 git 历史"（源码 zip 分发 / git 不可用）。
-    // 编程错误（例如漏了 require("child_process") 导致 execFileSync 未定义
-    // → ReferenceError）必须立刻暴露，不能被伪装成"不在 git 仓库里"——
-    // 那会让「lastmod 整体消失」那条兜底整条静默失效
-    // （兜底只挂在 inGitRepo 为真的分支上）。
-    // ⚠️ 两边必须一起改：eleventy.config.js 侧的 gitRoot()/lastCommitTime()
-    //    也有同款裸 catch —— 只有两边同时坏，才会出现"产物 lastmod 全消失
-    //    而门禁全绿"的静默漏报（2026-10-19 实测：exit 0、note 谎称"源码 zip 分发"）。
-    if (!isGitProcessFailure(e)) throw e;
-    return null;
+    // 可降级时返回 null（= 没有 git 历史）；不可降级时抛（见 git-error.cjs）。
+    return degradeOrThrow(e);
   }
 };
 // git 仓库根（与 eleventy.config.js 里 repoRelPath filter 的基准一致）
