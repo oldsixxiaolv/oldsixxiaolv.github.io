@@ -30,10 +30,16 @@
  *    13. /publications.bib 与论文页 Copy 按钮逐字一致
  *    14. 下载的 .bib 里不含 HTML 实体
  *    15. 同一张图在页面里只有一套 alt 文本
- *    16. 404 页不得声明内容类实体（ScholarlyArticle 等）
+ *    16. 404 页不得声明内容类实体（ScholarlyArticle 等）；且身份实体的有无
+ *        与 src/404.njk 的 identityOn404 开关一致（双向）
  *    17. robots.txt 的"生成时间"是真正的构建时间，不是文件创建时间
  *    18. sitemap 的 <lastmod> 是真实的 git 提交时间（逐页核对；浅克隆直接失败）
  *    19. 内容类实体的 @id 全站一致，且指向真实存在的页面
+ *    20. 订阅源的时间戳说真话：lastBuildDate = 本次构建时刻（且与 robots
+ *        的「生成时间」是同一时刻），日期格式按 RSS 2.0 用 RFC 822
+ *    21. 绝对 URL 口径：site.url 必须是域名根（无子路径）；产物里所有指向
+ *        本站地址的绝对 URL（canonical / og:url / JSON-LD 的 @id 与 url /
+ *        sitemap 的 loc / feed 的 link）必须以 site.url 为前缀
  *
  * 旧编号 → 新编号对照（历史日志/commit 里引用的是旧号，追溯时用这张表）：
  *   旧 1 / 2 / 3      → 新 1 / 2 / 3
@@ -79,6 +85,18 @@ try {
   SITE_TITLE = require(path.resolve(__dirname, "../src/_data/site.js")).title || "";
 } catch {
   /* 读不到就跳过这条检查 */
+}
+
+// 站点公开地址（site.url）。绝对 URL 口径的唯一基准——
+// 第 21 条门禁用它核对 canonical / og:url / JSON-LD / sitemap / feed。
+// ⚠️ 错误页的身份开关（identityOn404）**不在这里**读：它在 src/404.njk 的
+//    front matter 里（第 16 条门禁自己读），别在这里再造第二个来源。
+let SITE_URL = "";
+try {
+  const siteData = require(path.resolve(__dirname, "../src/_data/site.js"));
+  SITE_URL = (siteData.url || "").replace(/\/+$/, "");
+} catch {
+  /* 读不到就跳过与 site.url 有关的检查 */
 }
 
 const fail = (msg) => problems.push(msg);
@@ -806,7 +824,38 @@ for (const file of htmlFiles) {
        CreativeWork / Periodical / Grant / MediaObject 等——这些每一个
        都在说"这里有**一份具体的产出**"。
    ⚠️ Periodical / Grant / MediaObject 也列进来了：它们是 ScholarlyArticle
-   的嵌套节点，只跟着文章实体出现；放过它们等于留了个后门。 */
+   的嵌套节点，只跟着文章实体出现；放过它们等于留了个后门。
+
+   ⚠️ 黑名单是**单向**的，光有它不够：把 404 页的 JSON-LD **整块删掉**
+   （连 Person 一起没了），其余 5 页的 Person 还在 → 门禁 12 的"全站 @id 唯一"
+   统计照样通过 → 门禁全绿。实测（第九轮 commit 54899f1 / 01dd76f）：
+   删掉 404.html 的 ld+json 块后 `check:site` **exit 0**。
+   所以这里补一条**反向**判据：404 页**不能一个实体都不声明**，
+   且它声明的实体类型必须是**其它页面也在用**的（不许自造类型）。
+
+   ⚠️ 这条**本意**是不要求 404 页必须有 Person。
+   "404 页要不要保留 Person"是**展示口径**，写在「待决策」里由本人拍板；
+   门禁一旦写死"必须有 Person"，就等于替本人把那条选了——而本人尚未拍板。
+   所以本条只兜两种**硬伤**：
+     ① 整块掏空：404 页一个实体都没有；
+     ② 自造类型：404 页声明了其它页面根本没有的实体类型。
+
+   ⚠️ **但要诚实：本条实际上隐含了"404 页至少要有一个实体"。**
+   404 页现在唯一的实体就是 Person，所以"至少一个实体" ≈ "必须有 Person"。
+   实测（2026-10-19 12:35，11:45 场次独立复现）：把 src/404.njk 的
+   identityOn404 翻成 false（模拟本人拍"去掉"）→ 404.html 不再输出 Person
+   → 本条报「404.html: 一个 JSON-LD 实体都没有」→ 构建 exit 1。
+   → 原注释写的"拍'去掉'→ 本条原样成立，不用改"**是错的**，此处订正。
+
+   ✅ **正解已落地（2026-10-19 第十一轮）：本条读同一个开关**——identityOn404
+   为 false 时豁免"至少一个实体"，只保留"自造类型"判据。开关定义在
+   src/404.njk 的 front matter，与 base.njk 读的**是同一处**，不存在漂移可能。
+   判据做成**双向**：
+     true  → 404 页必须�� ≥1 个身份类实体（少一个 = 被整块掏空）
+     false → 404 页必须**没有**身份类实体（多一个 = 开关与产物不一致）
+   ⚠️ 必须双向：从产物侧看"整块掏空"与"按口径去掉"**完全一样**
+   （都让 404 页零实体），单向只查"零实体"的话，既会误伤"去掉"的口径，
+   又会漏掉真正的掏空。 */
 const CONTENT_TYPES = new Set([
   "ScholarlyArticle",
   "Article",
@@ -822,17 +871,127 @@ const CONTENT_TYPES = new Set([
   "Grant",
   "MediaObject",
 ]);
+// ⚠️ 判定 404 页**是否存在**要按文件本身判，不能按"ldRecords 里有没有 404 的记录"判：
+// 注入的场景恰恰是"把 404 页的 JSON-LD 整块删掉"——那时 ldRecords 里根本没有 404，
+// 用它判定会连判据本身一起跳过（实测：这样写时注入后仍 exit 0）。
+const has404File = htmlFiles.some((f) => f.endsWith("404.html"));
+// 参照系：其它页面用到的全部实体类型（404 自己的不算，否则是自证）
+const otherTypes = new Set();
+for (const { from, parsed } of ldRecords) {
+  if (from.endsWith("404.html")) continue;
+  for (const node of collectNodes(parsed)) {
+    for (const type of typesOf(node)) otherTypes.add(type);
+  }
+}
+const types404 = new Set();
 for (const { from, parsed } of ldRecords) {
   if (!from.endsWith("404.html")) continue;
   for (const node of collectNodes(parsed)) {
     for (const type of typesOf(node)) {
-      if (!CONTENT_TYPES.has(type)) continue;
-      fail(
-        `${from}: JSON-LD 里出现了内容类实体 "${type}" —— ` +
-          `错误页不该声明论文/数据集/胶囊（页面文案是 "Nothing here"，` +
-          `而实体却在对外声明这里有产出）`
-      );
+      if (CONTENT_TYPES.has(type)) {
+        fail(
+          `${from}: JSON-LD 里出现了内容类实体 "${type}" —— ` +
+            `错误页不该声明论文/数据集/胶囊（页面文案是 "Nothing here"，` +
+            `而实体却在对外声明这里有产出）`
+        );
+        continue; // 内容类实体已单独报错，不再进"自造类型"判据，避免重复刷屏
+      }
+      types404.add(type);
     }
+  }
+}
+// ⚠️ 「404 页要不要保留 Person 实体」是**待本人拍板的口径**，所以
+//    src/404.njk 的 front matter 里有一个开关 identityOn404：
+//      true  = 错误页也声明身份 → 404 页必须至少有 1 个 JSON-LD 实体；
+//      false = 错误页不声明身份 → 0 个实体是**合法**口径，门禁不得拦。
+//    门禁必须读这个开关，否则本人将来把开关改成 false、build 却红了，
+//    就与 base.njk 里"本人改这一行即可，门禁代码不用动"的承诺矛盾
+//    （"整块掏空"要拦的是**误删**，不是**有意关掉**）。
+//
+//    ⚠️ 读法：门禁**直接读源文件这一行**，只匹配 `identityOn404: true|false`
+//    （不解析 YAML）——判据放在源文件里，产物被复制到别处也不影响。
+//
+//    ⚠️⚠️ **为什么不能用"读不到就默认 true"**（2026-10-19 第十一轮实测订正）：
+//    模板与门禁用的是**两个不同的解析器**——
+//      · 模板：Eleventy 用 gray-matter（js-yaml）解析 front matter，
+//        YAML 会把 `True`/`False`/`TRUE`/`FALSE` 当布尔，把 `null` 当 null、
+//        把 `yes`/`no`/`on`/`off` 当**字符串**（js-yaml 4.x 的 YAML 1.2 核心
+//        schema 不认 YAML 1.1 的这些布尔别名）；
+//      · 门禁：正则只认小写 `true|false`。
+//    两者取值集合不同 → 写错一个字母就可能**指向相反的方向**。实测矩阵
+//    （用仓库自带的 gray-matter 4.0.3 / js-yaml 4.3.2 跑出来的，非推测）：
+//
+//      写      模板是否输出 Person   旧门禁读成   后果
+//      true    是                    true          ✓ 一致
+//      false   否                    false         ✓ 一致
+//      True    是                    true（默认）  ✓ 碰巧一致
+//      False   **否**                true（默认）  ❌ 相反：build 红，且报错
+//                                                  文案说"= true"——**指错方向**
+//      FALSE   **否**                true（默认）  ❌ 同上
+//      null    **否**                true（默认）  ❌ 同上
+//      no      **是**（YAML 1.2 下是字符串）true（默认）⚠️ **静默失效**：本人
+//                                                  以为关掉了，实际没关，全绿无告警
+//      "false" **是**（带引号 = 字符串）true（默认）⚠️ 同上
+//
+//    → 所以现在是：**读不到、或不是合法布尔 → 直接判红**，绝不静默兜底。
+//    一个"读不到就当没事发生"的门禁，恰恰是本条要防的那类静默失效。
+const identity404SrcPath = path.resolve(__dirname, "../src/404.njk");
+let identityOn404 = null; // null = 读不到/不合法 → 判红，不进下面的双向判据
+let identityOn404Raw = "(未读到)"; // 报错时引用**源文件里的字面量**，不要用
+// 门禁自己推出来的值——推出来的值一旦与文件不符，报错就会指错方向。
+if (fs.existsSync(identity404SrcPath)) {
+  // 宽松匹配：先把**字面量**取出来，再单独判它是不是合法布尔。
+  // （用严格的 /(true|false)/ 匹配会在"值不合法"时直接匹配失败，
+  //   于是"不合法"与"没写"混成同一种情况，报错就说不清是哪一种。）
+  // 允许行尾注释（`identityOn404: true  # 保留 Person`）——
+  //   否则加了注释的那一行就匹配不上，会被误报成"找不到开关"。
+  const m = fs
+    .readFileSync(identity404SrcPath, "utf8")
+    .match(/^identityOn404:[ \t]*(\S+)[ \t]*(?:#.*)?$/m);
+  if (!m) {
+    fail(
+      `src/404.njk: 找不到 identityOn404 开关 —— 门禁读不到「404 页要不要声明身份」` +
+        `这一口径，就不能当没事发生。请在 src/404.njk 的 front matter 里写一行` +
+        `identityOn404: true（保留）或 identityOn404: false（去掉）。`
+    );
+  } else if (!/^(true|false|True|False|TRUE|FALSE)$/.test(m[1])) {
+    fail(
+      `src/404.njk: identityOn404 的值 "${m[1]}" 不是合法布尔（只接受 true / false / True / False / TRUE / FALSE）—— ` +
+        `YAML 1.2 只把 true/True/TRUE/false/False/FALSE 这六种写法当布尔；` +
+        `"${m[1]}" 会被解析成别的类型（字符串 / 数字 / null），而 Nunjucks 只看真值——` +
+        `非空字符串与数字都是真值，于是"写 no 以为关掉了"实际**没关**，` +
+        `且门禁与模板对不上、谁也发现不了。请写成 true 或 false。`
+    );
+  } else {
+    identityOn404 = m[1].toLowerCase() === "true";
+    identityOn404Raw = m[1];
+  }
+} else {
+  fail(`src/404.njk: 文件不存在 —— 门禁读不到 identityOn404 开关`);
+}
+// ⚠️ 下面两条用**严格比较**（=== true / === false），不是真值判断：
+//    identityOn404 = null 表示"读不到/不合法"，那种情况**上面已经判红了**，
+//    这里必须跳过（不能再当成 false 报"开关与产物不一致"——那会把人指向错方向）。
+if (has404File && identityOn404 === true && types404.size === 0) {
+  fail(
+    `404.html: 一个 JSON-LD 实体都没有 —— ` +
+      `src/404.njk 的 identityOn404 = ${identityOn404Raw} 声明错误页**要**声明身份，` +
+      `但产物里一个实体都没有（把 404 页的 JSON-LD 整块删掉了）`
+  );
+}
+if (has404File && identityOn404 === false && types404.size > 0) {
+  fail(
+    `404.html: 声明了身份类实体（${[...types404].join("、")}，含 Person 的嵌套节点），` +
+      `但 src/404.njk 的 identityOn404 = ${identityOn404Raw} ` +
+      `声明错误页**不**声明身份 —— 开关与产物不一致`
+  );
+}
+for (const type of types404) {
+  if (!otherTypes.has(type)) {
+    fail(
+      `404.html: 声明了其它页面都没有的实体类型 "${type}" —— ` +
+        `错误页的身份实体应与站点其它页面同源，不许自造`
+    );
   }
 }
 
@@ -1188,6 +1347,183 @@ for (const [ident, seen] of idByWork) {
   }
 }
 note("内容类实体 " + idByWork.size + " 件，每件的 @id 全站唯一且指向真实页面");
+
+/* ---------- 20. 订阅源的时间戳必须说真话，且格式符合 RSS 2.0 ----------
+   feed.xml 的 <lastBuildDate> 此前取 `items[0].date`（最新条目的日期），
+   实测产物里是 2026-06-01T00:00:00.000Z —— 那是**论文的发表日**，
+   不是订阅源的生成时间。而站点真正的构建时刻（robots.txt 的「生成时间」）
+   是 2026-10-19。两者对不上：订阅源对外报了一个假时间，且此后无论改
+   多少次都停在论文发表那天。
+
+   这是第八轮修掉的 robots.txt「生成时间」缺陷的**另一半**——那一轮
+   只修了 robots，feed 这一半被漏掉了。
+
+   判据（刻意不依赖"当前时间"，故障注入时复制到 /tmp 也能成立）：
+     1. <lastBuildDate> 必须存在，且**逐字**是 RFC 822 格式
+        （"Mon, 19 Oct 2026 12:00:00 GMT"）——RSS 2.0 规范要求；
+     2. 它的时刻必须与 robots.txt 的「生成时间」**完全相同**：
+        两者由同一个 buildStamp filter 生成，且该 filter 已按进程缓存，
+        所以同一次构建里它们是同一个字符串；
+     3. 每条 item 的 <pubDate> 同样必须是 RFC 822 格式；
+     4. <lastBuildDate> 不得早于任何一条 item 的 <pubDate>
+        （订阅源不可能比它收录的内容还旧）。 */
+const feedPathForStamp = path.join(SITE, "feed.xml");
+if (fs.existsSync(feedPathForStamp)) {
+  const feedXml = fs.readFileSync(feedPathForStamp, "utf8");
+  const lbdMatch = feedXml.match(/<lastBuildDate>([^<]*)<\/lastBuildDate>/);
+  const pubMatches = feedXml.match(/<pubDate>([^<]*)<\/pubDate>/g) || [];
+  // RSS 2.0 要求的 RFC 822 日期：英文星期缩写 + DD + 英文月份缩写 + YYYY
+  // + HH:MM:SS + GMT（年份允许 2 位或 4 位）。
+  const RFC822_RE = /^(Mon|Tue|Wed|Thu|Fri|Sat|Sun), \d{2} (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) \d{4} \d{2}:\d{2}:\d{2} GMT$/;
+
+  if (!lbdMatch) {
+    fail("feed.xml: 缺 <lastBuildDate>（订阅源必须声明最后一次构建的时刻）");
+  } else {
+    const lbd = lbdMatch[1].trim();
+    if (!RFC822_RE.test(lbd)) {
+      fail(
+        `feed.xml: <lastBuildDate> 不是 RSS 2.0 要求的 RFC 822 格式 —— "${lbd}" ` +
+          `(应为 "Mon, 19 Oct 2026 12:00:00 GMT" 这样的写法)`
+      );
+    }
+    // 与 robots.txt 的「生成时间」对表：同一次构建，两者必须是同一时刻。
+    const robotsPathForStamp = path.join(SITE, "robots.txt");
+    if (fs.existsSync(robotsPathForStamp)) {
+      const robotsTxt2 = fs.readFileSync(robotsPathForStamp, "utf8");
+      const stamp2 = robotsTxt2.match(/^#\s*生成时间[：:]\s*(.+?)\s*$/m);
+      if (stamp2) {
+        const buildIso = stamp2[1].trim();
+        const buildMs = Date.parse(buildIso);
+        if (!Number.isNaN(buildMs)) {
+          const expected = new Date(buildMs).toUTCString();
+          if (lbd !== expected) {
+            fail(
+              `feed.xml: <lastBuildDate> = "${lbd}"，但本次构建的时刻是 "${expected}" ` +
+                `(robots.txt 的「生成时间」= ${buildIso}) —— ` +
+                `订阅源必须报**构建时刻**，不是最新条目的发表日`
+            );
+          }
+        }
+      }
+    }
+    const lbdMs = Date.parse(lbd);
+    for (const raw of pubMatches) {
+      const pub = raw.replace(/^<pubDate>/, "").replace(/<\/pubDate>$/, "").trim();
+      if (!RFC822_RE.test(pub)) {
+        fail(
+          `feed.xml: item 的 <pubDate> 不是 RSS 2.0 要求的 RFC 822 格式 —— "${pub}"`
+        );
+      } else if (!Number.isNaN(lbdMs) && Date.parse(pub) > lbdMs) {
+        fail(
+          `feed.xml: 有条目的 <pubDate>（${pub}）晚于 <lastBuildDate>（${lbd}）—— ` +
+            `订阅源不可能比它收录的内容还旧`
+        );
+      }
+    }
+  }
+}
+
+/* ---------- 21. 绝对 URL 口径：一切本站地址都必须挂在 site.url 上 ----------
+   这条门禁来自一次**真实线上事故**（2026-10-19 巡检发现）：
+   线上站点是 2026-10-16 那次部署的产物，那时 src/_data/site.js 的 url 写的是
+     https://github.lvyihang.xyz/MeteoHub      ← 带了仓库名子路径
+   于是首页的 canonical、og:url、sitemap 的每条 loc **全部**指向
+   https://github.lvyihang.xyz/MeteoHub/... —— 而站点内容铺在域名根 `/`，
+   那一层根本不存在（实测全部 404）。页面本身照常渲染（资源走相对路径），
+   只有爬虫、微信 / Twitter 的分享卡片拿到的地址是死链。
+   讽刺的是：**当时的门禁一条都没拦住**——
+     · 门禁 3 只查 canonical 与 og:url 是否**互相一致**（两个一起错照样通过）；
+     · 门禁 5/6/7 只按 **pathname** 映射产物（域名被有意忽略，注释写着
+       "域名可能变（预览域 vs 正式域）"）→ 也没拦住。
+   实测（隔离副本，把 site.url 改回带子路径的旧值）：build exit 1，12 个问题，
+   但那 12 条**全是 sitemap 与 feed 的路径问题**；canonical / og:url /
+   JSON-LD 里 "本人"实体的 @id（= https://github.lvyihang.xyz/MeteoHub/#person）
+   **一条报错都没有**——它们只是安静地带错了 origin。
+
+   所以本条管的是**出口地址的口径**：
+     ① site.url 必须是域名根（无子路径）—— 根因防线；
+     ② 每页 canonical / og:url 必须挂在 site.url 上，且路径 = 该页自己的路由；
+     ③ sitemap 的每条 loc、feed 的每条 item link 必须挂在 site.url 上；
+     ④ JSON-LD 的 @id 若指向本站某个页面（path 能对上产物），origin 必须是 site.url。
+   ⚠️ ④ 只管 @id（实体标识符），不管 url：Person 的 affiliation.url 指向
+      https://iap.cas.cn/，其 path 恰好也是 "/"，若一并按"path 对上页面"判，
+      就会把一个完全正常的外部机构链接误报成错。 */
+if (SITE_URL) {
+  if (!/^https?:\/\/[^/?#]+$/.test(SITE_URL)) {
+    fail(
+      `site.url = "${SITE_URL}" 不是**域名根** —— 站点铺在域名根 / 上，` +
+        `url 里不能带子路径（历史上写成 "https://github.lvyihang.xyz/MeteoHub" 时，` +
+        `线上 canonical / og:url / sitemap 的每条 loc 全部指向 404 的 /MeteoHub/...）`
+    );
+  }
+  const sitePrefix = SITE_URL + "/";
+
+  // ② canonical / og:url：既要挂在 site.url 上，路径也要等于该页自己的路由
+  for (const file of htmlFiles) {
+    const from = rel(file);
+    if (from.endsWith("404.html")) continue; // 错误页按设计没有 canonical
+    const html = fs.readFileSync(file, "utf8");
+    const route = "/" + rel(file).replace(/index\.html$/, "");
+    const pairs = [
+      ["canonical", (html.match(/<link[^>]*rel\s*=\s*"canonical"[^>]*href\s*=\s*"([^"]*)"/i) || [])[1]],
+      ["og:url", (html.match(/<meta[^>]*property\s*=\s*"og:url"[^>]*content\s*=\s*"([^"]*)"/i) || [])[1]],
+    ];
+    for (const [label, v] of pairs) {
+      if (!v) continue;
+      if (!v.startsWith(sitePrefix)) {
+        fail(
+          `${from}: ${label} = "${v}" 不在站点地址 ${sitePrefix} 之下 —— ` +
+            `绝对地址的口径由 site.url 决定，不要在模板里另写域名`
+        );
+      } else if (v !== SITE_URL + route) {
+        fail(
+          `${from}: ${label} = "${v}" 与该页自己的路由（${SITE_URL + route}）不一致`
+        );
+      }
+    }
+  }
+
+  // ③ sitemap 的 loc 与 feed 的 item link
+  for (const u of sitemapUrls) {
+    if (!u.startsWith(sitePrefix)) {
+      fail(`sitemap.xml: "${u}" 不在站点地址 ${sitePrefix} 之下 —— sitemap 只放本站地址`);
+    }
+  }
+  if (fs.existsSync(feedPath)) {
+    const feedXml = fs.readFileSync(feedPath, "utf8");
+    for (const m of feedXml.matchAll(/<link>([\s\S]*?)<\/link>/g)) {
+      const u = m[1].trim();
+      if (u && !u.startsWith(sitePrefix)) {
+        fail(`feed.xml: item 的 link "${u}" 不在站点地址 ${sitePrefix} 之下`);
+      }
+    }
+  }
+
+  // ④ JSON-LD 的 @id：凡是指向本站某个页面的，origin 必须是 site.url
+  for (const { from, parsed } of ldRecords) {
+    for (const node of collectNodes(parsed)) {
+      const id = node && node["@id"];
+      if (typeof id !== "string" || !/^https?:\/\//i.test(id)) continue;
+      let p = "";
+      try {
+        p = new URL(id).pathname;
+      } catch {
+        continue;
+      }
+      const clean = p.replace(/^\//, "");
+      const target = path.join(SITE, clean, "index.html");
+      const flat = path.join(SITE, clean);
+      const isSelf = fs.existsSync(target) || fs.existsSync(flat);
+      if (!isSelf) continue; // 外部标识符（如 doi.org / zenodo 的 @id），不管
+      if (!id.startsWith(sitePrefix)) {
+        fail(
+          `${from}: JSON-LD 的 @id "${id}" 指向的是本站页面（${p}），` +
+            `origin 却不是 ${SITE_URL} —— 本站的实体标识必须挂在站点地址上`
+        );
+      }
+    }
+  }
+}
 
 /* ---------- 汇总 ---------- */
 console.log(`产物：${htmlFiles.length} 个 HTML 页，${refCount} 条本地引用，${sitemapUrls.length} 条 sitemap URL`);

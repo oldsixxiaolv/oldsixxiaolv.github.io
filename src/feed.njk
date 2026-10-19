@@ -25,14 +25,25 @@ eleventyExcludeFromCollections: true
     <description>Peer-reviewed papers and technical notes from {{ site.author.name }}.</description>
     <language>{{ site.locale }}</language>
     {%- set items = site.publications | feedItems(collections.blog, site.author.name) -%}
-    <lastBuildDate>{{ (items[0].date if items.length else page.date) | dateToRfc3339 }}</lastBuildDate>
+    {# lastBuildDate = **这次构建的时刻**，不是"最新条目的日期"。
+       此前这里取 `items[0].date`，实测产物里是 2026-06-01T00:00:00.000Z
+       ——那是**论文的发表日**，不是订阅源的生成时间。于是：
+         · 订阅源对外声称"最后更新于 2026-06-01"，此后无论改多少次都是它；
+         · 而站点真正的构建时刻（robots.txt 的「生成时间」）是 2026-10-19。
+       两者对不上，订阅源等于对外报了一个假时间。
+       与第八轮修掉的 robots.txt「生成时间」是**同一类缺陷的另一半**：
+       那一轮只修了 robots，feed 这一半被漏掉了。
+       buildStamp 与 robots.txt 用的是同一个 filter（且已按进程缓存），
+       所以两处的构建时刻逐字相同。 #}
+    <lastBuildDate>{{ "" | buildStamp | dateToRfc822 }}</lastBuildDate>
     <atom:link href="{{ site.url }}/feed.xml" rel="self" type="application/rss+xml" />
     {%- for item in items %}
     <item>
       <title>{{ item.title }}</title>
       <link>{{ site.url }}{{ item.path }}</link>
       <guid isPermaLink="true">{{ site.url }}{{ item.path }}</guid>
-      <pubDate>{{ item.date | dateToRfc3339 }}</pubDate>
+      {# RSS 2.0 规范要求 RFC 822 格式（见 eleventy.config.js 的 dateToRfc822）。 #}
+      <pubDate>{{ item.date | dateToRfc822 }}</pubDate>
       {# ⚠️ 括号不能省：Nunjucks 里 `|` 的优先级高于 `or`，
          写成 `{{ item.description or "" | escape }}` 实际解析成
          `item.description or ("" | escape)`——escape 只作用在空串分支，

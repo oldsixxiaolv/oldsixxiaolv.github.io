@@ -271,12 +271,23 @@ module.exports = function (eleventyConfig) {
     return { finished: "已完成", reading: "精读中", queued: "待整理" }[s] || s || "";
   });
 
-  // dateToRfc3339：Date 对象 → RFC3339 字符串（RSS pubDate / lastBuildDate）
-  eleventyConfig.addFilter("dateToRfc3339", (value) => {
+  // dateToRfc822：Date 对象 → RFC 822/1123 字符串（RSS 2.0 的日期格式）
+  //
+  // RSS 2.0 规范：订阅源里的日期一律用 RFC 822 格式，
+  // 即 "Mon, 19 Oct 2026 12:00:00 GMT"（年份可用 2 位或 4 位）。
+  // 此前 feed.xml 用的是 ISO-8601（dateToRfc3339）——绝大多数阅读器能容错，
+  // 但按规范校验的解析器会判不合规。
+  //
+  // toUTCString() 产出的正是 "Mon, 19 Oct 2026 12:00:00 GMT"：
+  // 英文星期/月份缩写 + 4 位年 + GMT 时区，与 RSS 2.0 要求的写法逐字一致。
+  //
+  // ⚠️ ISO-8601 的职责由 dateToIso 承担（sitemap 的 <lastmod>、robots 的
+  //    「生成时间」都在用它），两个格式各有各的规范依据，不要混用。
+  eleventyConfig.addFilter("dateToRfc822", (value) => {
     if (!value) return "";
     const d = value instanceof Date ? value : new Date(value);
     if (isNaN(d.getTime())) return "";
-    return d.toISOString();
+    return d.toUTCString();
   });
 
   // dateToIso：Date 对象 → ISO 字符串（sitemap lastmod）
@@ -304,7 +315,16 @@ module.exports = function (eleventyConfig) {
   //
   // 每次渲染都重新取时间 → 开发服务器（--serve）里也是当下的时刻，
   // 而不是服务启动时刻。
-  eleventyConfig.addFilter("buildStamp", () => new Date().toISOString());
+  // ⚠️ 一次构建必须只有**一个**时刻。此前这个 filter 每次被调用都取新的
+  //    Date，于是同一份产物里 robots.txt 的「生成时间」与 feed.xml 的
+  //    <lastBuildDate> 会差几毫秒——而它们本该是同一个构建时刻。
+  //    门禁 20 要拿这两个值做等值比较，所以先在这里把它**按进程缓存**：
+  //    整次构建只取一次时间，之后任何模板拿到的都是同一个字符串。
+  let buildStampValue = null;
+  eleventyConfig.addFilter("buildStamp", () => {
+    if (buildStampValue === null) buildStampValue = new Date().toISOString();
+    return buildStampValue;
+  });
 
   /* ---------- lastCommitTime：该页源文件最后一次 git 提交的时间（sitemap lastmod） ----------
 

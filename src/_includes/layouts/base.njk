@@ -326,7 +326,16 @@
   {# =====================================================================
        Person JSON-LD（全站学术画像 · Google 知识图谱）
        sameAs / knowsAbout 由 site.author 提供（详见 src/_data/site.js）
+
+       ⚠️ `identityOn404` 是**错误页是否也声明身份**的开关，定义在
+       src/404.njk 的 front matter 里，默认 true（错误页也声明）。
+       它是**待本人拍板的口径**（"404 页要不要保留 Person 实体"），
+       所以做成参数而不是写死：本人改那一行即可，门禁代码不用动。
+       ⚠️ 它与同文件里的 `is404` 是**同一处**开关（404.njk 的 front matter），
+       所以不存在"模板改了、门禁没跟着改"的漂移可能。
+       ⚠️ 改动的必须限定在这一对 if/endif 内：base.njk 里另有 13 处 else/endif。
        ===================================================================== #}
+  {%- if not is404 or identityOn404 %}
   <script type="application/ld+json">
   {
     "@context": "https://schema.org",
@@ -384,6 +393,7 @@
     }
   }
   </script>
+  {%- endif %}
 
   {# —— ScholarlyArticle：论文的结构化数据 ——
      上面那段 Person 描述"我是谁"，这段描述"我产出过什么"。两边用同一个

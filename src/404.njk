@@ -11,6 +11,18 @@ eleventyExcludeFromCollections: true
 #      本身，但 follow 保留页内有效链接的抓取与权重。
 # 只写在这个模板里，全站其他页面不受影响。
 is404: true
+# ⚠️ 下面这一行就是"404 页要不要保留 Person 实体"的开关（默认 true = 保留）。
+#    这是**待本人拍板**的展示口径；本人拍板时**只改这一行**即可，模板与门禁都不用动。
+# ⚠️ 门禁 16 按这个开关**双向**校验：
+#    true  → 404.html 必须有 ≥1 个身份类实体（少一个 = 被整块掏空）
+#    false → 404.html 必须有 0 个身份类实体（多一个 = 开关与产物不一致）
+#    读法：门禁直接读本文件的这一行（不解析 YAML）：先取出字面量，再按白名单校验，
+#    只接受 true / false / True / False / TRUE / FALSE；其余写法一律判红。
+#    判据放在源文件里，产物被复制到别处也不影响。
+# ⚠️ 请写 true 或 false。True / False / TRUE / FALSE 也能通过（与 js-yaml 的布尔
+#    解析一致，模板与门禁取同一个值）；但 no / on / off / "false" / null / 1
+#    这类写法会被**直接报红**（门禁不会静默兜底成 true）。
+identityOn404: true
 editPaths:
   - path: src/404.njk
     label: "Edit this page"
