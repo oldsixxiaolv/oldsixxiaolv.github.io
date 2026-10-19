@@ -9388,3 +9388,77 @@ J10 的判据形状（供后人接手时一眼看懂）：
 - **只改 `docs/IMPROVEMENT-LOG.md`**：C 段的时效补记（插进「16:10–16:30 场次」标题后）+ 本节。
 - 未碰任何代码文件；中间产物全在 `/tmp`；**不 push**（部署由本人决定）。
 - 巡检 cron 每 5 分钟起新会话一事**已在待决策段**（本人决定降频或加单写者锁），本节不重复登记。
+
+### F. 顺带落地：页面上**看得见**的身份链接也改为从同一真源派生（并发场次的实现，本场次代落库）
+
+`src/_data/site.js` 此前 `author.github` / `author.csdn` / `author.researchgate` / `social[]` **各写了一份字面量**，与 `sameAs` 那份互不相干。并发场次实测出的漏洞：只把页面上可见的 GitHub 链接换成 `https://github.com/impersonator`（`sameAs` 不动）→ **整条 build 链 exit 0，没有任何一道门禁判红** —— 机器读的那条有人看守，人读的那条没人管。
+
+改法：新增 `IDENTITY_BY_HOST`（**称呼**映射）、`SOCIAL_ORDER`（**显示哪几条、什么顺序**）、`identityUrl(host)`（从 `IDENTITY_SAMEAS` 按主机名取，取不到返回 `null`、**不静默兜底成别的值**），`author.*` 与 `social[]` 全部改为派生。两张表**只决定展示层，不复制清单内容** → 增删句柄只改 `scripts/lib/identity.cjs` 一处。
+
+- **验证**（本场次实测）：带该改动 `npm run build` → **exit 0**；产物 `_site/index.html` 里可见 GitHub 链接出现 **7** 次，且与同页 `sameAs` 里的 `https://github.com/oldsixxiaolv` **逐字一致**（人读路径与机读路径同源）。换模块时两者同步变 → 被独立 oracle 的身份门禁接住。
+- **归属**：实现归属并发场次；本场次只做**复验 + 落地 + 记账**（该改动当时仍未提交 → 内容丢失风险）。
+- **已知盲区（如实记账）**：目前**没有门禁**能挡住"有人把 `site.js` 里的派生改回字面量"——保护只有代码注释与派生关系本身。**候选改进**（未做）：加一条门禁，断言页面上每一个可见身份链接都**等于** `IDENTITY_SAMEAS` 里的对应项（人读路径与机读路径一致性判据）。这与 `check-identity-handles.cjs` 的 I1/I2 互补——那条管机读侧，这条管人读侧。
+
+## 2026-10-19 · 16:45–17:05 场次（**不占轮次号**，避免与并发场次撞号）：16:2x 复核回执的**逐条裁定** + 「可见身份链接」的第二条路（markdown 正文里的字面量）实测
+
+复验时的 HEAD = `268097a`（2026-10-19 16:39:03 -0700）。本场次**只读复核 + 写日志**：不改判据代码、不碰并发场次的在途改动。
+
+### A. 这份回执的基准与逐条裁定
+
+回执来自 16:2x 只读复核场次，材料在 `/tmp/mh_v34_e41cfa12`，**它自己的克隆基准是 `1ea722f`**（共享模块形态那版）——比今天的 HEAD 落后好几个提交。
+
+| 它提的建议 | 裁定 | 依据（可自己重跑） |
+|---|---|---|
+| ① 门禁恢复**独立 oracle**（完整清单 + I2 逐字核对） | **已在 main，`4986534` 就落地了** | `git show HEAD:scripts/check-identity-handles.cjs` → `ORACLE_SAMEAS` + `EXPECTED_COUNT` + `ANCHOR_ORCID` + `ORACLE_SET_SHA256` + I2d 漂移核对。**别再重做一遍** |
+| ② 模块补齐 `site.js` 里仍硬编码的 `author.github/csdn/researchgate`（about 页同时对外说两个 GitHub 身份） | **成立，且并发场次正在做** | HEAD 的 `src/_data/site.js` 仍写着字面量：`github` / `csdn` / `researchgate` / `openalex` / `social[]` |
+| ③ 「多出」回判红 | **已在 main** | I2d 是**双向**比对：`extra`（模块多出）与 `missing`（模块少了）**都**判红 |
+| ④ 锚自检失败即短路 | **仍开放**，无人接 | 见 C 段末 |
+
+**这一份的形状值得记一笔**：四条里**没有一条是错的**——①③④在当时的树上都成立（是**过期**，不是**真错**）；①③在今天的 main 上**已经做完了**，照着改会**重复实现**。
+→ 延续本文件那条纪律：**先验版本，再下结论**；「过期」能靠现查补上，「真错」会让人去重做一件已经做完的事。
+
+### B. ①的独立复核（等长替换形态）
+
+在 `268097a` 的干净克隆上注入「等长替换」：把 `scripts/lib/identity.cjs` 的 GitHub 句柄换成 `https://example.com/impersonator`（**条数不变、ORCID 仍在**）。
+
+- 注入自证：数据源已换成冒名 URL ✓；重建后产物里出现冒名 URL ✓；ORCID 仍在 ✓
+- 门禁 **exit 1（红）**，红因逐字：
+  > 共享模块 `scripts/lib/identity.cjs` 的清单与本判据的独立期望集不一致：模块多出 `https://example.com/impersonator`／模块少了 `https://github.com/oldsixxiaolv`
+
+→ **独立 oracle 形态抓得到等长替换**；共享模块形态抓不到（期望集与产物的发射源同源 → 判据在拿自己和自己比 → 全盲）。该形态矩阵见 17:10–17:30 场次一节。
+
+### C. 残留缺口：「可见身份链接」其实有**两条路**，而 I5 只看第一条
+
+并发场次正在做的是**对的那一半**：`site.author` 里的 `github` / `csdn` / `researchgate` / `openalex` / `social[]` 改为**从身份清单派生**（结构上不可能漂移），并加 **I5「人读路径」**判据（`site.author` 里的可见身份链接必须与登记期望集**逐项一致**，少一条 / 多一条 / 指向别的账号都判红）。
+
+但**产物里还有第二条路**，本轮实测确认：
+
+| 源文件 | 字面量 | 渲染后落在 |
+|---|---|---|
+| `src/content/about.md:38` | `[CSDN](https://blog.csdn.net/lvyihang200411)` | `_site/about/index.html:1565` |
+| `src/content/about.md:23` | `github.com/oldsixxiaolv/oldsixxiaolv.github.io` | about 页正文 |
+| `src/index.njk:72` | `https://github.com/oldsixxiaolv/Manuscript_Lvyh` | `_site/index.html` |
+
+**实测证据**：渲染后的 about 页里，**CSDN 链接出现两次** —— `:1525` 来自模板面板（`site.author` 派生那条路），`:1565` 来自 markdown 正文（字面量那条路）。
+
+- **I5 扫不到它**：I5 只扫 `site.author`（数据源），不扫 markdown 正文。
+- **site.js 派生也管不到它**：md 不是 site.js。
+- 后果与回执说的一样：清单里的 CSDN 一旦变了，面板跟着变、**正文那条静默留在旧句柄** → about 页对外说**两个 CSDN 身份**，且**没有任何门禁会叫**。
+
+⚠️ **修这一半有一条硬约束，别踩**：`eleventy.config.js` 里 **`markdownTemplateEngine: false`**，about.md **不走 Nunjucks**——该文件自己的头注释已写明「本文件由 eleventy.config.js 里的 markdown-it 直接渲染，不过 Nunjucks……所以模板语法在这里无效」。
+→ **不能**在 about.md 里写 `{{ site.author.csdn }}`（会当正文显示）。
+→ 而且该文件的编写约定②就是「事实性清单（关键词 / 单位 / 技能 / 论文 / **链接**）全部交给模板」——按它自己的规矩，**正确修法是把这些链接挪进模板**（`about.njk`），不是想办法在 md 里派生。
+→ 另一条路是让守卫扫**产物**（`isIdentityProfile()` 那个形状匹配器已经现成），但要放行**同行作者的 ORCID**（一段式 `orcid.org/<id>` 与本人的 ORCID **形态完全一样**）——这需要另立判据，不宜混进 I5。
+
+**本场次不动这些文件**：`about.md` / `about.njk` / `site.js` / `check-identity-handles.cjs` 都不在我的在途清单内，但**修法的形状取决于并发场次对 I5 边界的取舍**（是"链接挪进模板"还是"守卫扫产物"）——那是它的决定，**不在别人改到一半的时候抢跑**。已把上述实测与约束同步给它（`mvs_3812e6aa`）。
+
+**④ 锚自检失败即短路（仍开放）**：锚不合格（条数不足 / 缺关键项）时必须**立即短路**，不要再拿这个坏锚去比产物与数据源。实测理由：锚被改短时级联红因会**指错责任方**（数据源侧文案断言"数据源被改短"，实际是锚被改短；I1 的"多…"方向正好相反）——**红因指错地方比没有红因更坏**。
+
+### D. 待本人拍板
+
+- **待拍板 10（新增）**：`about` 页**正文里**的 CSDN 链接（`src/content/about.md:38`）要不要**保留**？
+  - 保留 → 把它挪进模板（`about.njk`）渲染，从根上消除第二条路（代价：正文那句的措辞要改，链接由面板承载）；
+  - 去掉 → 正文不再带该链接，身份链接只由模板面板承载（**结构上不可能漂移**，但少一个正文入口）；
+  - 维持现状 → 接受「两条路可能不一致」这一已知缺口（须在门禁文件头如实记账）。
+  **本场次不代拍，也不自己改。**
+- 待拍板 1–9 见前几节，**不重复、不改口**。
