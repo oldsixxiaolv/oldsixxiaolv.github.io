@@ -5,7 +5,8 @@
   "private": true,
   "scripts": {
     "check:css": "node scripts/check-css-braces.cjs",
-    "build": "npm run check:css && eleventy",
+    "check:site": "node scripts/verify-site.cjs",
+    "build": "npm run check:css && eleventy && npm run check:site",
     "serve": "eleventy --serve --quiet --port=8080"
   },
   "engines": {

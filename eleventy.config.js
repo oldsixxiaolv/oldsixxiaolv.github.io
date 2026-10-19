@@ -382,7 +382,7 @@ module.exports = function (eleventyConfig) {
       ? pub.authorList[0].name
       : String(pub.authors || "").split(",")[0].trim()) || "";
     const surname = (firstAuthor.split(/\s+/).pop() || "anon");
-    const STOP = new Set(["the", "and", "for", "from", "with", "into", "over", "a", "an"]);
+    const STOP = new Set(["the", "and", "for", "from", "with", "into", "over", "a", "an", "new"]);
     const word = String(pub.title || "")
       .split(/\s+/)
       .map((w) => w.replace(/[^A-Za-z0-9]/g, ""))
@@ -417,6 +417,62 @@ module.exports = function (eleventyConfig) {
       put("orcid", pub.authorList.map((a) => a.orcid).join(" "));
     }
     return `@article{${key},\n${f.join("\n")}\n}`;
+  });
+
+  /* ---------- 4b-2. resourceBibtex filter：数据 / 胶囊的引用条目 ----------
+     论文页的 "Data and code availability" 区块要给出**可复制的引用条目**。
+     理由很直接：读者的下一动作往往不是"点开下载"，而是"在我的论文里
+     引用这份数据"。只给一个链接，读者还得自己回 Zenodo 拼字段。
+
+     为什么不用 @article：数据/软件不是期刊文章。DataCite 的注册类型是
+     Dataset / Software，BibTeX 里对应 @dataset / @software（ biblatex
+     的类型；纯 BibTeX 用户也能正常解析，字段名是通用的）。
+
+     字段一律判空：缺就是缺，不写空串——空字段会让引用管理器存下一个
+     带空标题的条目，比没有更糟。
+  */
+  eleventyConfig.addFilter("resourceBibtex", (res, kind) => {
+    if (!res) return "";
+    const esc = (v) =>
+      v == null ? "" : String(v).replace(/[&%$#_]/g, (c) => "\\" + c);
+
+    const type = kind === "software" ? "@software" : "@dataset";
+    // 引用键：姓 + 年 + 标题首个实词，和论文条目的键规则保持一致
+    const surname = String(res.citeAuthor || "anon").split(",")[0].trim().split(/\s+/).pop();
+    // 停用词：这些词做引用键毫无区分度。
+    // "new" 尤其要排掉——胶囊标题以 "New Insights from TRMM Legacy…" 开头，
+    // 不排的话键会变成 lyu2026new，谁也看不出指的是什么。
+    const STOP = new Set(["the", "and", "for", "from", "with", "into", "over", "a", "an", "of", "new"]);
+    const word = String(res.citeTitle || "")
+      .toLowerCase()
+      .split(/[^a-z0-9]+/)
+      .find((w) => w && !STOP.has(w)) || "data";
+    const key = `${String(surname || "anon").toLowerCase()}${res.citeYear || ""}${word}`;
+
+    const f = [];
+    const put = (k, v) => {
+      if (v == null || v === "") return;
+      f.push(`  ${k.padEnd(9)} = {${esc(v)}},`);
+    };
+    put("author", res.citeAuthor);
+    put("title", res.citeTitle);
+    put("year", res.citeYear);
+    put("publisher", res.publisher);
+    // version 字段：**只取 citeVersion**，不取 res.version。
+    //
+    // 为什么不能直接用 res.version：Zenodo 那条数据的版本号（2.0）指的是
+    // **DOI 指向的那一版**，而它的标题（沿用论文参考文献表）写的是 **v1.0
+    // 时期的名字**。若把 version=2.0 和 v1.0 的标题、v2.0 的 DOI 放在一起，
+    // 生成的引用条目就自相矛盾了——读者一查 Zenodo 就会发现标题对不上。
+    //
+    // citeVersion 缺省即不输出该字段：论文参考文献表里那条本身也没有版本号，
+    // 省掉它既与原文一致，也消掉了上面那个矛盾。
+    put("version", res.citeVersion);
+    put("doi", res.doi);
+    put("url", res.url);
+    put("license", res.license);
+    put("keywords", res.keywords);
+    return `${type}{${key},\n${f.join("\n")}\n}`;
   });
 
   /* ---------- 4c. jsonLdArticles filter：ScholarlyArticle 结构化数据 ----------

@@ -228,6 +228,23 @@ layout: layouts/base.njk
       <dd>
         <a href="{{ pub.software.url }}" target="_blank" rel="noopener noreferrer">{{ pub.software.label }}</a>
         <span class="paper-availability__meta">Zenodo · v{{ pub.software.version or "—" }} · {{ pub.software.license or "" }} · DOI {{ pub.software.doi }}</span>
+        {%- if pub.software.conceptDoi %}
+        {# "所有版本"DOI：Zenodo 的概念 DOI，永远指向最新版，标题改了也不失效。
+           上面那个是"论文里引用的那一版"，这个是"这个数据集整体"——
+           两种引法都有人用，给出来让读者自己按需要选。 #}
+        <span class="paper-availability__meta">All versions: <a href="{{ pub.software.conceptUrl }}" target="_blank" rel="noopener noreferrer">{{ pub.software.conceptDoi }}</a></span>
+        {%- endif %}
+        {# —— 可复制的引用条目 ——
+           读者的下一动作常常是"在我的论文里引用这份数据"，不是"点开下载"。
+           只给链接，读者还得自己回 Zenodo 拼字段；给 BibTeX 才是一步到位。
+           字段与论文参考文献表里那条完全一致（同一 DOI、同一标题、同一作者），
+           这样论文和本站给出的引用不会打架。 #}
+        {%- if pub.software.citeTitle %}
+        <pre class="paper-cite__bibtex paper-availability__bibtex" id="paper-bibtex-dataset">{{ pub.software | resourceBibtex("dataset") }}</pre>
+        <p class="paper-cite__actions">
+          <button type="button" class="btn btn--ghost btn--sm" data-copy-target="paper-bibtex-dataset">Copy dataset BibTeX</button>
+        </p>
+        {%- endif %}
       </dd>
       {%- endif %}
       {%- if pub.capsule and pub.capsule.url %}
@@ -236,6 +253,12 @@ layout: layouts/base.njk
         <a href="{{ pub.capsule.url }}" target="_blank" rel="noopener noreferrer">Code Ocean capsule</a>
         <span class="paper-availability__meta">Code Ocean · v{{ pub.capsule.version or "—" }} · {{ pub.capsule.license or "" }} · DOI {{ pub.capsule.doi }}</span>
         <span class="paper-availability__note">Code, data and the compute environment are packaged together, so the analysis can be re-run as published.</span>
+        {%- if pub.capsule.citeTitle %}
+        <pre class="paper-cite__bibtex paper-availability__bibtex" id="paper-bibtex-capsule">{{ pub.capsule | resourceBibtex("software") }}</pre>
+        <p class="paper-cite__actions">
+          <button type="button" class="btn btn--ghost btn--sm" data-copy-target="paper-bibtex-capsule">Copy capsule BibTeX</button>
+        </p>
+        {%- endif %}
       </dd>
       {%- endif %}
       {%- if pub.code %}

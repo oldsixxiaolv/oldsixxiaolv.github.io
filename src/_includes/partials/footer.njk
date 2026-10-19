@@ -5,6 +5,12 @@
       {% if site.author.email %}<a href="mailto:{{ site.author.email }}">Email</a>{% endif %}
       {% if site.author.github %}<a href="{{ site.author.github }}" target="_blank" rel="noopener noreferrer">GitHub</a>{% endif %}
       {% if site.author.orcid %}<a href="{{ site.author.orcid }}" target="_blank" rel="noopener noreferrer">ORCID</a>{% endif %}
+      {# OpenAlex：开放学术图谱的作者实体。本人的档案是按 ORCID 精确反查
+         出来的（不是手写猜测），档案里的 works 与本站论文条目对得上。
+         它是 Semantic Scholar / CORE 等检索系统的上游，挂了更易被聚合。 #}
+      {%- if site.author.openalex %}
+      <a href="{{ site.author.openalex }}" target="_blank" rel="noopener noreferrer">OpenAlex</a>
+      {%- endif %}
       {# 网盘入口。site.drive.url 目前是 null（还没定链到哪个网盘），
          判空后整条不渲染——页脚挂一个点开是空白/错误的链接比没有更糟。
          填上真实地址即可自动出现。放在页脚而不是主导航：主导航三个入口

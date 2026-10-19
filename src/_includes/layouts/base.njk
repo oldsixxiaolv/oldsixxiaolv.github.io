@@ -11,7 +11,21 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="description" content="{{ description or site.description }}" />
-  <title>{% if title %}{{ title }} · {{ site.shortTitle }}{% else %}{{ site.title }}{% endif %}</title>
+  {# —— 页面标题的三级回落 ——
+       一级：front-matter 的 `title`（首页 / 博客 / 关于 / 论文列表都是这条）
+       二级：**论文页**——它的标题不在 front-matter 里，而是靠 `pubKey`
+             指回 site.js 的 publications 条目。这里按 pubKey 取论文标题。
+       三级：站点名（只有 404 之类的兜底页会走到这里）
+
+       ⚠️ 为什么要回落：base.njk 原来只有「title or site.title」两级，
+       论文页（第三轮才加的）front-matter 里**没有 title**，
+       于是 `<title>` 和 og:title 全都退化成 "Yihang Lyu"——
+       分享到社交平台时预览标题是作者名，浏览器标签页也是作者名，
+       跟 /blog/ 那次（blog.njk 注释里记着）是同一个坑，只是又踩了一遍。
+       论文标题现在直接取 publications 里的权威字段，不会再漏。 #}
+  {%- set pubMeta = site.publications | pubByKey(pubKey) if pubKey else null -%}
+  {%- set pageTitle = title or (pubMeta.title if pubMeta and pubMeta.title else null) -%}
+  <title>{% if pageTitle %}{{ pageTitle }} · {{ site.shortTitle }}{% else %}{{ site.title }}{% endif %}</title>
 
   {# —— 字体外链（preconnect + preload + stylesheet） ——
        关键路径只留 3 个 Latin 字族（合计 19.9KB）：nav / UI / 首页大标题 /
@@ -103,7 +117,7 @@
   {# =====================================================================
        Open Graph（所有页必备；paper 页可设置 front-matter `cover: "/path/to/img"` 覆盖）
        ===================================================================== #}
-  {% set ogTitle = title or site.title %}
+  {% set ogTitle = pageTitle or site.title %}
   {% set ogDesc = description or site.description %}
   {# og:image:alt 描述的是**图本身**（姓名 / 职位 / 单位 / 研究方向），
      不是 og:title 的复述。页面标题由 og:title 单独承担，alt 再抄一遍就会

@@ -228,7 +228,121 @@ P A P E R  D O I  P D F  C O D E  C A P S U L E  D A T A  F I G U R E
 
 ---
 
+## 2026-10-19 · 第四轮：数据/胶囊引用条目 + 验收门禁 + OpenAlex 实体
+
+### ⚠️ 本轮的并发情况（先说清楚，避免以后误判归属）
+
+巡检 cron **每 5 分钟起一个会话**，本轮开始时同一工作区里同时跑着 **5 个**
+MeteoHub 会话（09:35 / 09:40 / 09:45 / 09:50 / 09:55 / 10:00），它们各自按
+同一份任务书干活，于是**工作树里堆了好几批改动**。
+
+处理方式（已固化为流程）：
+
+1. `mavis session list` 列出同一 workspace 的所有会话，比对 `createdAt` 换算成本地时间；
+2. 用 `session send --force_steer` 通知仍在运行的会话**停止写入、不得 commit**，
+   由一个会话担任唯一写者；
+3. 连续采样文件 mtime，确认工作树**稳定**（本轮停在 10:05:57，之后只剩本会话自己的写入）；
+4. 提交前复查 `git log --oneline -1`（全程停在 `705d621`，无人抢先提交）。
+
+**本轮下文的改动是几个会话累积的结果，不全是某一个会话写的。**
+
+### 背景
+
+前三轮把"论文有独立页、能被 Scholar 收录"这件事做完了。但还差两块：
+
+1. **读者拿到数据之后的下一步动作没有出口。** 论文页的 "Data and code
+   availability" 只给了链接——读者要点进 Zenodo 自己拼 `author/title/year`。
+   而读者的真实动作是"**在我的论文里引用这份数据**"，只给链接是半步。
+2. **每一轮的验收都是手工做的。** 日志里每一轮都在人工核对同一批东西
+   （站内引用能否解析、JSON-LD 合不合法、canonical 与 og:url 是否一致、
+   sitemap 对不对得上、有没有根绝对路径）。手工核对不可重复、也容易漏——
+   写错了不会自动拦下来。
+
+### 改动
+
+| 文件 | 改动 |
+|---|---|
+| `src/_data/site.js` | 加 **OpenAlex 作者实体** `openalex`（按 ORCID 反查得到，见下）+ 进 `sameAs`；`software` 加 `conceptDoi`/`conceptUrl`（Zenodo 概念 DOI）、`citeTitle`/`citeYear`/`citeAuthor`/`citeVersion`；`capsule` 同样补齐引用字段 + `dataciteType` |
+| `eleventy.config.js` | 新增 `resourceBibtex` filter：把数据/胶囊渲染成可复制的 BibTeX（`@dataset` / `@software`，字段判空即不输出） |
+| `src/_includes/layouts/paper.njk` | "Data and code availability" 里加**数据集引用条目 + Copy 按钮**、**胶囊引用条目 + Copy 按钮**、**All versions（概念 DOI）链接** |
+| `src/_includes/partials/footer.njk` | 页脚加 OpenAlex 链接 |
+| `src/_includes/layouts/base.njk` | **页面标题三级回落**（front-matter title → 论文标题（按 `pubKey` 取）→ 站点名）。此前论文页 front-matter 里没有 `title`，`<title>` 和 `og:title` **全退化成 "Yihang Lyu"** |
+| `scripts/verify-site.cjs` | **新建**。把历轮人工验收固化成 7 项门禁：本地引用可解析 / JSON-LD 可解析 / canonical 与 og:url 一致 / sitemap↔产物双向对齐 / 无根绝对路径 / 标题不退化成站点名 / 产物无 `._*` 资源叉。**挂进 `npm run build`**——坏链接会卡住部署 |
+| `scripts/check-overflow.cjs` | **新建**。移动端横向溢出检测：起临时静态服务 + 本机 Chrome（CDP over WebSocket，**不装任何包**），列出"哪个选择器越界、越界多少像素"。P3 那条"不能盲改"靠它变成可回归的清单 |
+| `src/assets/css/components/_paper.css` | 修溢出：`.paper-availability__list` 的 grid 轨道改 `minmax(0, 1fr)`、`dd` 加 `min-inline-size: 0`（`<pre>` 是 `white-space: pre` 的长行，其 min-content 会把网格下限撑到 `--measure`≈518px，窄屏上整块被撑出屏幕） |
+| `scripts/check-css-braces.cjs` | 扫 CSS 时**跳过 `._*`**（exFAT 卷上的 AppleDouble 资源叉也以 `.css` 结尾，二进制头里随机字节可能含未闭合 `{`，会让脚本失败并指向一个用户从没写过的文件——极具误导性） |
+| `scripts/screenshot-paper.js` | 修正论文页路径 `/papers/trmm-lyu-2026/` → `/papers/trmm-thunderstorm-stages/`（旧路径已不存在） |
+| `package.json` | 新增 `check:site` 脚本；`build` 改为 `check:css && eleventy && check:site` |
+
+### 本轮修掉的一个自相矛盾
+
+`resourceBibtex` 初版对数据集条目输出 `version = {2.0}`，而同一条目的
+`title` 是 **v1.0 时期的名字**、`doi` 指向 **v2.0**——三者互相打架：
+读者复制这条 BibTeX、去 Zenodo 查，会发现标题对不上。
+
+**改法**：`version` 字段改**只取显式的 `citeVersion`**，数据集那条 `citeVersion`
+留空（不输出该字段）；胶囊那条保持 `version = {1.0}`（它的标题/DOI/版本号
+本来就一致）。
+
+为什么数据集是"故意"不写版本号：论文参考文献表里那条
+（Crossref reference [29]）本身就没有版本号，省掉它既与原文逐字一致，
+也消掉了上面那个矛盾。
+
+### 调研来源与核实方式
+
+全部经官方 API 核对，不靠记忆：
+
+- **OpenAlex 作者实体**：`api.openalex.org/authors/orcid:0009-0005-3511-0546`
+  → `A5121394231`，display_name "yihang Lyu"，works_count 3，
+  机构 Lanzhou University，topics 落在 "Lightning and Electromagnetic Phenomena"
+  一带 → **与研究方向一致，不是重名撞上的**。据此写进 `sameAs` 与页脚。
+  （OpenAlex 是 Semantic Scholar / CORE 等检索系统的上游数据源。）
+- **Zenodo 概念/版本 DOI 结构**：`api.datacite.org/dois/...` 逐条查三个记录，
+  用 `relatedIdentifiers` 的方向确认（`HasVersion` / `IsVersionOf`）：
+
+  | DOI | 标题 | 年 | 关系 |
+  |---|---|---|---|
+  | `10.5281/zenodo.16662143` | 论文标题 | 2026 | **概念 DOI**（`HasVersion` → 下面两条） |
+  | `10.5281/zenodo.16662144` | Thunderstorms stage identification | 2025 | v1.0（`IsVersionOf` → 概念） |
+  | `10.5281/zenodo.18041880` | 论文标题 | 2026 | v2.0（`IsVersionOf` → 概念） |
+
+  ⚠️ 概念 DOI 记录上的 `version` 字段显示 2.0，是 DataCite 的怪癖
+  （概念记录带着最新版元数据）——**判据是 `HasVersion` 方向，不是 `version` 字段**。
+- **论文引用原文**：`api.crossref.org/works/10.1029/2026JD046836` →
+  `reference[29]` 实测为
+  `Lyu Y.(2025). Thunderstorms stage identification[Software].Zenodo.https://doi.org/10.5281/zenodo.18041880`
+  ——本站的引用条目与它逐字一致，且**原文没有版本号**。
+- **Code Ocean 胶囊**：`api.datacite.org/dois/10.24433/CO.6720035.v1` →
+  登记标题、resourceTypeGeneral = "Software"、版本 1.0、许可 Apache-2.0。
+
+### 验证结果
+
+- `npm run build` **exit 0**；`check:css` 通过（15 个文件）；**新增的
+  `check:site` 通过**（6 个 HTML 页、120 条本地引用、5 条 sitemap URL）
+- **门禁本身做过故障注入**（否则"永远通过"的检查比没有检查更糟）：
+  故意注入一条坏 CSS 引用 → 报错 exit 1 ✓；故意改错 canonical → 报
+  "canonical 与 og:url 不一致" exit 1 ✓；故意留下 `._*` 资源叉 → 报错 ✓；
+  恢复后重新 build → 全绿 ✓
+- **溢出检测**：6 个页面在 390px 视口下 `scrollWidth` 全部 = 390，
+  **无横向溢出**（`img.home-pub__figure-img` 是容器内有意横滚，不算溢出）
+- 12 块 JSON-LD 全部 `JSON.parse` 通过；`sameAs` 5 条（含 OpenAlex）✓
+- `canonical` 与 `og:url` 5 个页面全部一致；`sitemap.xml` 5 条 URL 与真实路由一一对应
+- 论文页标题不再退化成站点名：
+  `<title>New Insights From TRMM Legacy: ... · MeteoHub</title>` ✓
+- 数据集引用条目（无 version 字段）与论文 reference[29] 逐字一致；
+  胶囊引用条目 `version = {1.0}` 保留 ✓；三条 Copy 按钮指向各自 BibTeX 块 ✓
+
+### ⚠️ 线上仍是旧版本（待部署，非站点损坏）
+
+线上 `https://github.lvyihang.xyz/` 仍是 2026-10-16 的部署：`/papers/`、
+`/publications.bib`、`/feed.xml` **404**，sitemap 仍带 `/MeteoHub/` 前缀。
+本任务禁止 push，部署由本人决定。线上现有 4 个路由
+（`/`、`/blog/`、`/about/`、`/sitemap.xml`）均 **200**，没有坏链。
+
+---
+
 ## 待决策（需要本人拍板，任务不会自己动）
+
 
 
 - **Google Scholar / ADS / arXiv 主页**：调研没找到本人的公开档案，所以**没有**
@@ -246,3 +360,15 @@ P A P E R  D O I  P D F  C O D E  C A P S U L E  D A T A  F I G U R E
   现在的做法是：ORCID 在 JSON-LD 与页面可见链接里**逐人绑定**，
   `citation_*` 里一律不给。若本人希望 Scholar 侧也带 ORCID，
   需要先在 Crossref 上把缺失的 ORCID 补全（作者本人操作）。
+- **数据集的引用条目用哪一种写法**：本轮按"**与已发表论文逐字一致**"处理
+  （标题用 v1.0 时期的 "Thunderstorms stage identification"、年份 2025、
+  DOI 用 v2.0、不写版本号），理由是读者照论文里的引用去查能查到同一条记录。
+  另一种写法是"**条目自身自洽**"（标题用 v2.0 的论文标题、年份 2026、
+  写 `version = {2.0}`），读者复制后去 Zenodo 查完全对得上，但与论文正文
+  里的那条引用对不上。两种都站得住，属引用口径的取舍，**没有替本人拍板**。
+  另已给出 "All versions" 概念 DOI（`10.5281/zenodo.16662143`），
+  指向最新一版、标题改了也不失效。
+- **OpenAlex 是否要放在页脚可见位置**：本轮已加（`A5121394231`，经 ORCID
+  反查核实）。它是聚合库的上游，放 `sameAs` 里对归属判读有利；
+  但页脚可见链接是"我承认这个身份"的意思，也可能不希望它跟 ORCID 并列。
+  删掉只需去掉 `site.author.openalex` 即可，页脚那行是判空渲染的。

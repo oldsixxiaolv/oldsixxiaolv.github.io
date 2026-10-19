@@ -25,7 +25,12 @@ function* walk(dir) {
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
     const p = path.join(dir, entry.name);
     if (entry.isDirectory()) yield* walk(p);
-    else if (entry.name.endsWith(".css")) yield p;
+    // ⚠️ 必须跳过 `._*`：本项目在外接 exFAT 盘上开发，macOS 会给每个文件
+    // 留一份 AppleDouble 资源叉（`._paper.css`），它也以 .css 结尾。
+    // 资源叉是二进制，头部随机字节里可能含一个未闭合的 `{`，
+    // 那样脚本会**失败退出并指向一个用户从没写过的文件**，极具误导性。
+    // .gitignore 已排除 `._*`，但那只管 git，管不到这个脚本。
+    else if (entry.name.endsWith(".css") && !entry.name.startsWith("._")) yield p;
   }
 }
 

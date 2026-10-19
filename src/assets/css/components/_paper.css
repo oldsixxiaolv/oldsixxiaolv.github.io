@@ -677,6 +677,12 @@ strong[data-annotation-ids] {
   margin: 0;
   display: grid;
   gap: var(--space-3);
+  /* 显式给一列 minmax(0, 1fr)。grid 的隐式列默认按 auto 定尺，
+     其最小值是子项的 min-content；下面 dd 里的 <pre> 是 white-space: pre
+     的长行，会把这个下限撑到 --measure（72ch ≈ 518px），
+     于是窄屏（390px）上整块被撑出屏幕，页面出现横向滚动条。
+     minmax(0, 1fr) 把下限钉死为 0，<pre> 自己 overflow-x: auto 滚动。 */
+  grid-template-columns: minmax(0, 1fr);
 }
 .paper-availability__list dt {
   font-family: var(--font-sans-en);
@@ -704,6 +710,9 @@ strong[data-annotation-ids] {
   line-height: 1.62;
   color: var(--text-secondary);
   max-inline-size: var(--measure);
+  /* grid 子项默认 min-width:auto（= min-content），会被 <pre> 的长行撑破
+     容器。钉成 0 后，宽度由网格轨道决定，<pre> 内部自己滚动。 */
+  min-inline-size: 0;
 }
 .paper-availability__list dd a {
   color: var(--link-color);
@@ -724,6 +733,17 @@ strong[data-annotation-ids] {
   font-size: 12.5px;
   color: var(--text-muted);
   margin-top: 2px;
+}
+/* 数据 / 胶囊的引用条目。
+   比"Cite this paper"里的那条窄一档：这里的 BibTeX 短（6~8 行），
+   字号再小就不好读了；用 --space-2 收紧上下留白，让这一块不喧宾夺主。 */
+.paper-availability__bibtex {
+  margin-top: var(--space-2);
+  font-size: 11.5px;
+  line-height: 1.55;
+}
+.paper-availability__list dd .paper-cite__actions {
+  margin-top: var(--space-2);
 }
 
 /* 资助与出版流程 */
