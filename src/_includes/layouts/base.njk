@@ -109,15 +109,28 @@
        （它同样是在声明"这个 URL 是某个语言版本的正式地址"）。
        错误页要的是 noindex（不收录这个 URL 本身）+ follow（仍沿链抓页内
        的有效链接，把权重传出去）。
-       ⚠️ 这个开关只挂在 404 页上，其他页面的 canonical / hreflang 一个字没动。 #}
-  {% if is404 %}
+       ⚠️ 这个开关只挂在 404 页上，其他页面的 canonical / hreflang 一个字没动。
+       ⚠️ 下面三个标签都带 `{%-`（空白控制），且**只限本块**：
+       Nunjucks 默认不裁空白（trimBlocks / lstripBlocks 都是 false），
+       `{% if %}` / `{% endif %}` 标签行自身的缩进会原样留在产物里，
+       于是**每一个走 else 分支的页面**都会凭空多出只含空格的行
+       （实测加这个分支时每页多 2 行、404 多 1 行；`{%-` 之后回到原样）。
+       ⚠️ 改动必须限定在 is404 块内：base.njk 里另有 13 处 else/endif
+       （28/159/217/219/234/236/251/278/291/294 等行），做全局替换会连
+       <title> 那处一起改掉，正常页的差异反而变大。
+       ⚠️ 这段说明必须**并进上面那个注释块**，不能另起一个注释块：
+       两个注释节点之间那一行缩进会变成产物里的一行纯空白行
+       （`{%-` 只吃掉紧贴它的那一个文本节点，前面那个不归它管）。
+       （顺带一条 Nunjucks 语法坑：注释里**不能出现注释的结束标记**，
+        写出来就等于提前关掉注释，后面的文字会被当成模板解析。） #}
+  {%- if is404 %}
   <meta name="robots" content="noindex, follow" />
-  {% else %}
+  {%- else %}
   <link rel="canonical" href="{{ site.url }}{{ page.url }}" />
   {# 备用 hreflang：主站点是中英混排，当前只声明默认 locale，避免误判多语言版本 #}
   <link rel="alternate" hreflang="{{ site.locale or 'zh-CN' }}" href="{{ site.url }}{{ page.url }}" />
   <link rel="alternate" hreflang="x-default" href="{{ site.url }}{{ page.url }}" />
-  {% endif %}
+  {%- endif %}
 
   {# —— RSS 订阅源（feed autodiscovery）——
        <link rel="alternate" type="application/rss+xml"> 是订阅源的标准发现方式：
@@ -400,9 +413,23 @@
      拼出来的是相对路径 "/#person" —— 相对路径不是合法 IRI，而且与
      Person 实体的绝对 @id 对不上，等于把"同一个人被读成 6 个人"这个坑
      换个形式再犯一次。第三轮踩过同一个坑（excludeKey 少传）。
-     门禁见 scripts/verify-site.cjs 第 11 条。 #}
+     门禁见 scripts/verify-site.cjs 第 10 条（@id/url 必须是绝对地址）
+     与第 12 条（全站"本人"的 @id 必须只有一个取值）。
+
+     ⚠️ **错误页不输出这一段**（开关是 404.njk 的 front matter `is404`）：
+     错误页的可见文案是 "Nothing here"——一个不存在的页面，却对外声明
+     "我是一篇有 NSFC 资助的论文"（连摘要、期刊、资助方都齐了）。这不是
+     "口味问题"，是**明确的误导信号**：消费方会把这些实体归到 404 这个
+     URL 上。而线上 /404.html 直接访问返回 **200**（不是靠不存在的路径
+     才 404），所以它是可以被抓取到的真实页面。
+     门禁见 scripts/verify-site.cjs 第 16 条。
+
+     ⚠️ 上面的 Person 实体（"我是谁"）**在错误页上仍然输出**：
+     那一条描述的是站点作者本人、url 指向站点根目录，与"这个 URL 是一篇
+     论文"无关；去掉它属于展示口径的取舍，留在"待决策"里由本人定，
+     这里不替他拍板。 #}
   {%- set articles = site.publications | jsonLdArticles(site.author.orcid, pubKey, site.url) -%}
-  {%- if articles.length %}
+  {%- if articles.length and not is404 %}
   <script type="application/ld+json">
   {{ { "@context": "https://schema.org", "@graph": articles } | dump | safe }}
   </script>
