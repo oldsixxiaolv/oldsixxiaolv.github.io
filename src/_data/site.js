@@ -5,6 +5,12 @@
 //  ⚠️ 改内容只改这个文件，不要在模板里硬编码——历史上多处硬编码导致了
 //     身份表述、姓名拼写、链接版本号在几处不一致。
 // =============================================================================
+// 身份句柄（ORCID / GitHub / ResearchGate / CSDN / OpenAlex）来自
+// scripts/lib/identity.cjs —— 那是清单的**单一真源**，门禁也从那里取。
+// 为什么不直接写在这里：门禁要拿同一份清单做"全集"判据，两处各抄一份
+// 就会出现"改一处忘另一处"（本仓库为 git 判据犯过同样的病，见 12dedb0）。
+const { OWNER_ORCID, IDENTITY_SAMEAS } = require("../../scripts/lib/identity.cjs");
+
 module.exports = {
   title: "Yihang Lyu",
   shortTitle: "MeteoHub",
@@ -114,7 +120,7 @@ module.exports = {
     // 联系方式
     email: "lvyihang26@mails.ucas.ac.cn",
     github: "https://github.com/oldsixxiaolv",
-    orcid: "https://orcid.org/0009-0005-3511-0546",
+    orcid: OWNER_ORCID,
     csdn: "https://blog.csdn.net/lvyihang200411",
     researchgate: "https://www.researchgate.net/profile/Yihang-Lyu",
     zenodo: "https://doi.org/10.5281/zenodo.18041880",
@@ -172,16 +178,7 @@ module.exports = {
     // "同一个人的其他身份主页"，邮箱不是主页，而且它已经在 Person 的
     // email 字段里了。搜索引擎解析 sameAs 时对非 http(s) 方案的容错很差，
     // 留着只会稀释这条属性的可信度。
-    sameAs: [
-      "https://orcid.org/0009-0005-3511-0546",
-      "https://github.com/oldsixxiaolv",
-      "https://www.researchgate.net/profile/Yihang-Lyu",
-      "https://blog.csdn.net/lvyihang200411",
-      // OpenAlex 作者实体（按 ORCID 精确反查得到，非手写猜测）。
-      // sameAs 的作用是让搜索引擎把散落各处的"同一个人"合并成一个实体；
-      // OpenAlex 正是这类聚合库的上游，加上它对本条的归属判读更有利。
-      "https://openalex.org/A5121394231",
-    ],
+    sameAs: IDENTITY_SAMEAS,
 
     // 页面可见的关键词标签。**保持纯英文**——之前这里中英混排（雷暴雷电 /
     // 数据同化 / 机器学习…），在已经全英文的关于页上会戳出刺眼的中文块。
