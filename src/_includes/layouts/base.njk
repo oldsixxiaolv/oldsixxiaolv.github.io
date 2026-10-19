@@ -130,12 +130,47 @@
      出现 "Yihang Lyu · PhD Student · Yihang Lyu, PhD Student" 这种重复。 #}
   {% set ogCardAlt = "MeteoHub — " + site.author.name + ", " + site.author.jobTitle + " at " + site.author.affiliationShort %}
 
-  <meta property="og:type" content="{% if page.url == '/' %}website{% else %}article{% endif %}" />
+  {# og:type 按**页面性质**判定。此前写的是"除首页外一律 article"，于是
+     /about/ 、/blog/ 、/papers/ 这三个档案页与列表页、以及 /404.html
+     统统自称 article —— 它们都不是文章，分享卡片与聚合器会按文章语义
+     解读它们。ogp.me 的 Types 段原文："Any non-marked up webpage should
+     be treated as og:type website"。
+     只有论文详情页（front-matter 有 pubKey）才是真文章。 #}
+  {%- set ogIsArticle = pubKey and pubKey != '' -%}
+  <meta property="og:type" content="{% if ogIsArticle %}article{% else %}website{% endif %}" />
   <meta property="og:site_name" content="{{ site.title }}" />
   <meta property="og:title" content="{{ ogTitle }}" />
   <meta property="og:description" content="{{ ogDesc }}" />
   <meta property="og:url" content="{{ site.url }}{{ page.url }}" />
   <meta property="og:locale" content="{{ site.locale or 'zh_CN' }}" />
+
+  {# —— Open Graph 的 article 扩展 ——
+     只有 og:type=article 的页面才带这些属性。论文页此前**一个都没有**：
+     声明了 article 却没有任何 article: 属性，分享卡片因此拿不到发表日期
+     与刊名（这两项数据 site.js 里都有权威出处：dates.published / journal）。
+
+     article:author 的取舍：ogp.me 说它"should be a URL to a profile"，
+     但 7 位作者里只有 3 位有 ORCID。给 3 个会让分享卡片上少 4 位作者，
+     给 7 个又都不是 profile URL。
+     这里的做法与 citation-meta.njk 保持一致的原则：**不编造身份句柄，
+     但也不给残缺的列表** —— 7 位作者一律按 published name 输出，
+     与同页 citation_author ×7 完全一致、事实完整。
+     （citation_author_orcid 不输出，是因为该标签按位置配对、给 3 个会错挂；
+       article:author 没有按位置配对的语义，所以不受那条限制。） #}
+  {%- if ogIsArticle -%}
+    {%- set ogPub = site.publications | pubByKey(pubKey) -%}
+    {%- if ogPub -%}
+      {%- if ogPub.dates and ogPub.dates.published %}
+  <meta property="article:published_time" content="{{ ogPub.dates.published }}" />
+      {%- endif %}
+      {%- if ogPub.journal %}
+  <meta property="article:section" content="{{ ogPub.journal }}" />
+      {%- endif %}
+      {%- for a in (ogPub.authorList or []) %}
+  <meta property="article:author" content="{{ a.name }}" />
+      {%- endfor %}
+    {%- endif -%}
+  {%- endif -%}
 
   {# ---------------------------------------------------------------------
        og:image override 机制（Phase 2B.1）：
@@ -270,7 +305,19 @@
     "familyName": "{{ site.author.familyName or '' }}",
     "jobTitle": "{{ site.author.jobTitle or site.author.role }}",
     "description": "{{ site.author.bio or site.author.research }}",
-    "url": "{{ site.url }}{{ page.url }}",
+    {# url 必须是**这个人的主页**，不是当前页面的地址。
+       此前写的是 "{{ site.url }}{{ page.url }}" —— 于是同一个人（Yihang Lyu）
+       在 6 个页面上分别声明了 6 个不同的 url：/ 、/about/ 、/blog/ 、/papers/ 、
+       /papers/<slug>/ 、/404.html。消费方（知识图谱、搜索引擎）会把这些
+       当成 6 个不同的人，而不是同一个人在不同页面上的描述。
+
+       @id 是 schema.org 里"同一个实体"的稳定标识：不同页面上描述同一个人的
+       节点，@id 相同就会被合并成一个节点。url 只是这个人的"主页地址"，
+       站点根就是他的主页（论文页里 article.author 那一处本来就是这么写的，
+       eleventy.config.js 的 jsonLdPaper 用 siteUrl + "/" —— 同一份站点两种
+       写法打架，这一处是漏改）。 #}
+    "@id": "{{ site.url }}/#person",
+    "url": "{{ site.url }}/",
     "sameAs": {{ site.author.sameAs | dump | safe }},
     "knowsAbout": {{ site.author.knowsAbout | dump | safe }},
     "affiliation": {
@@ -325,8 +372,16 @@
      excludeKey：当前页自己就是某篇论文时（/papers/<slug>/），那一篇由
      paper.njk 输出更完整的 ScholarlyArticle（含摘要、逐人 ORCID、ISSN）。
      若这里再输出一次，同一篇论文会在同一页上出现两个实体描述（url 一个
-     指向出版商、一个指向本页），容易让消费方当成两件不同的工作。 #}
-  {%- set articles = site.publications | jsonLdArticles(site.author.orcid, pubKey) -%}
+     指向出版商、一个指向本页），容易让消费方当成两件不同的工作。
+
+     ⚠️ 第三个实参 site.url **不能省**：filter 用它把"本人"这个人的
+     @id 拼成绝对地址（<站点根>/#person），与下面那个 Person 实体是
+     同一个节点。少传时 JS 把多余的实参**静默丢弃**（不报错、页面照出），
+     拼出来的是相对路径 "/#person" —— 相对路径不是合法 IRI，而且与
+     Person 实体的绝对 @id 对不上，等于把"同一个人被读成 6 个人"这个坑
+     换个形式再犯一次。第三轮踩过同一个坑（excludeKey 少传）。
+     门禁见 scripts/verify-site.cjs 第 11 条。 #}
+  {%- set articles = site.publications | jsonLdArticles(site.author.orcid, pubKey, site.url) -%}
   {%- if articles.length %}
   <script type="application/ld+json">
   {{ { "@context": "https://schema.org", "@graph": articles } | dump | safe }}

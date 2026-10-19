@@ -475,6 +475,43 @@ module.exports = function (eleventyConfig) {
     return `${type}{${key},\n${f.join("\n")}\n}`;
   });
 
+  /* ---------- 4b-3. 资助信息 → schema.org 的 funder / grant ----------
+     基金号是学术主页的硬性惯例，但"页面上看得见"不等于"机器读得到"：
+     资助方与项目号只有进了结构化数据，资助方的项目库、OpenAIRE 这类
+     聚合器才能检索到这一篇。
+
+     属性取自 schema.org 官方定义（2026-10-19 取自 schema.org/funder 的
+     RDF 段落）：
+       · funder —— "A person or organization that supports (sponsors)
+         something through some kind of financial contribution."，取值
+         Organization / Person。这里给资助机构本身。
+       · grant —— "A grant that supports the work, e.g. a series of grant
+         numbers from a funder."。schema.org 里有 **Grant** 这个类型
+         （funder 的 "Used on these types" 里列了它），它自带 funder
+         （资助方）与 award（项目号）两个字段，正是"机构 + 项目号"的写法。
+
+     数据源是 site.js 里已经有的 pub.funding，页面可见文本用的就是它，
+     两处同源，不会出现"页面写 NSFC、结构化数据写别的"。
+  */
+  const fundingProps = (funding) => {
+    if (!Array.isArray(funding) || !funding.length) return null;
+    const funders = [];
+    const grants = [];
+    for (const f of funding) {
+      if (!f || !f.agency || !f.id) continue;
+      const funder = { "@type": "Organization", name: f.agency };
+      funders.push(funder);
+      grants.push({
+        "@type": "Grant",
+        name: `${f.agency} No. ${f.id}`,
+        funder: { ...funder },
+        award: f.id,
+      });
+    }
+    if (!funders.length) return null;
+    return { funder: funders, grant: grants };
+  };
+
   /* ---------- 4c. jsonLdArticles filter：ScholarlyArticle 结构化数据 ----------
      输出 schema.org 的 ScholarlyArticle 数组，给 base.njk 的 <script
      type="application/ld+json"> 用。
@@ -501,9 +538,13 @@ module.exports = function (eleventyConfig) {
        · isAccessibleForFree 取数据里的 openAccess，**不再写死 true**：
          对付费墙内的论文写 true 是假声明。
   */
-  eleventyConfig.addFilter("jsonLdArticles", (pubs, ownerOrcid, excludeKey) => {
+  eleventyConfig.addFilter("jsonLdArticles", (pubs, ownerOrcid, excludeKey, siteUrl) => {
     if (!Array.isArray(pubs) || !pubs.length) return [];
     const ownerName = "Yihang Lyu"; // 与 site.author.nameAsPublished 一致
+    // 本人实体的稳定标识与主页地址：与 base.njk 里那个 Person 用**同一个**
+    // @id，两处描述才会合并成同一个节点，而不是散成多个"人"。
+    const ownerPersonId = `${siteUrl || ""}/#person`;
+    const ownerHomeUrl = `${siteUrl || ""}/`;
     // excludeKey：当前页自己就是某篇论文时（/papers/<slug>/），那篇由
     // paper.njk 输出更完整的 ScholarlyArticle，这里必须**排除掉**。
     // 否则同一页上会出现同一篇论文的两个实体描述（url 一个指向出版商、
@@ -523,7 +564,13 @@ module.exports = function (eleventyConfig) {
       const authors = authorList.map((a) => {
         const person = { "@type": "Person", name: a.name };
         if (a.orcid) person.sameAs = `https://orcid.org/${a.orcid}`;
-        if (a.name === ownerName && ownerOrcid) person.sameAs = ownerOrcid;
+        if (a.name === ownerName) {
+          if (ownerOrcid) person.sameAs = ownerOrcid;
+          // 复用 base.njk 的 @id → 跨页合并成同一个节点。
+          // url 是这个人的主页（站点根），不是论文页的地址。
+          person["@id"] = ownerPersonId;
+          person.url = ownerHomeUrl;
+        }
         return person;
       });
 
@@ -580,6 +627,12 @@ module.exports = function (eleventyConfig) {
       if (Array.isArray(p.keywords) && p.keywords.length) {
         article.keywords = p.keywords.join(", ");
       }
+      // 资助信息（资助方 + 项目号）：让机器也读得到基金号。
+      const fp = fundingProps(p.funding);
+      if (fp) {
+        article.funder = fp.funder;
+        article.grant = fp.grant;
+      }
       return article;
     });
   });
@@ -623,6 +676,10 @@ module.exports = function (eleventyConfig) {
         }
         if (A.jobTitle || A.role) person.jobTitle = A.jobTitle || A.role;
         person.url = `${siteUrl}/`;
+        // 与 base.njk 那个 Person 同一个 @id → 论文页上的这一个不是"另一个人"，
+        // 而是同一个人的另一处描述（此前论文页有两个同名 Person 节点，
+        // 且都没有 @id，消费方会读成两个人）。
+        person["@id"] = `${siteUrl}/#person`;
       } else if (a.orcid) {
         // 其他作者只给自己的那一条 ORCID，没有就不给（不编造）。
         person.sameAs = `https://orcid.org/${a.orcid}`;
@@ -676,10 +733,21 @@ module.exports = function (eleventyConfig) {
     if (pub.abstract) article.abstract = pub.abstract;
     if (Array.isArray(pub.keywords) && pub.keywords.length) article.keywords = pub.keywords;
     article.mainEntityOfPage = { "@type": "WebPage", "@id": selfUrl };
+    // 资助信息（资助方 + 项目号）：与页面可见的 "Funding and publication
+    // history" 同源（site.js 的 pub.funding），机器可读与页面所见一致。
+    const fp = fundingProps(pub.funding);
+    if (fp) {
+      article.funder = fp.funder;
+      article.grant = fp.grant;
+    }
 
     // —— 资源实体（数据集 / 可复现胶囊）——
     const creator = { "@type": "Person", name: ownerName };
     if (A.sameAs) creator.sameAs = A.sameAs;
+    // 数据集/胶囊的 creator 与文章作者、本人档案是**同一个人**，
+    // 用同一个 @id，三处描述才能合并成一个节点。
+    creator["@id"] = `${siteUrl}/#person`;
+    creator.url = `${siteUrl}/`;
     const resources = [];
 
     const sw = pub.software;
@@ -729,6 +797,15 @@ module.exports = function (eleventyConfig) {
       // 胶囊里打包的就是这份数据（代码 + 数据 + 运行环境），
       // 所以它基于该数据集；数据集没有就跳过这条关系。
       if (sw && sw.doi) code.isBasedOn = { "@id": `https://doi.org/${sw.doi}` };
+      // 胶囊 → 文章：DataCite 把这条记录登记为 **IsSupplementTo**
+      // （10.24433/CO.6720035.v1 的 relatedIdentifiers 实测：两条都指向
+      // 10.1029/2026JD046836，一条 URL 形式、一条裸 DOI）。
+      // schema.org **没有** isSupplementTo 这个属性（实测 schema.org/isSupplementTo
+      // → 404），对应的写法是 citation —— "A citation or reference to another
+      // creative work, such as another publication, web page, scholarly article"。
+      // 于是文章 citation → 胶囊、胶囊 citation → 文章，两边靠 @id 对上，
+      // 消费方双向可遍历。
+      code.citation = { "@id": selfUrl };
       resources.push(code);
     }
 
