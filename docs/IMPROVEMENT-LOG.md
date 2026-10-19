@@ -1284,7 +1284,7 @@ commit 落地**，否则 bisect 到 commit 1 会看到一份"说了 18/19、代�
 
 | URL | 实测 |
 |---|---|
-| `https://www.iap.cas.cn/` | **code=000，0.03 s 秒挂**（连接被拒/重置，**不是**超时） |
+| `https://www.iap.cas.cn/` | **code=000，0.03 s 秒挂**（**TLS 证书校验失败**，见下方病根；**不是**超时） |
 | `http://www.iap.cas.cn/` | code=200 —— 同一台机器，**明文 HTTP 是好的** |
 | `https://iap.cas.cn/` | **code=200** |
 | `https://www.iap.ac.cn/` | code=301 → `https://iap.cas.cn/` |
@@ -1293,6 +1293,29 @@ commit 落地**，否则 bisect 到 commit 1 会看到一份"说了 18/19、代�
 → **坏的不是这台机器，是 `www.` 这个主机名的 HTTPS 虚拟主机**；
 apex 主机名 `iap.cas.cn` 的 HTTPS 是好的，且 `www.iap.ac.cn` 官方 301 指向的
 也正是 `https://iap.cas.cn/` —— **apex 才是规范主机**。
+
+#### ⚠️ 病根是**证书**，不是"连接被拒"（第十二轮补正，证据差一档）
+
+本节原先把 `code=000` 写成"连接被拒/重置"——那是**症状**，不是病因。
+curl 的 `code=000` **不告诉你原因**：连不上 / 超时 / **TLS 校验失败** / DNS 失败，
+在 curl 眼里**全是 000**。再打一层 `openssl s_client` 才看清真相：
+
+| 主机 | `Verify return code` | subject | issuer |
+|---|---|---|---|
+| `www.iap.cas.cn` | **18（self-signed certificate）** | `C=CN, ST=BeiJing, L=BeiJing, O=CN, OU=CN, CN=cn` | **与 subject 完全相同** |
+| `iap.cas.cn` | **0（ok）** | `C=CN, ST=Beijing, O=中国科学院, CN=*.cas.cn` | `CN=CFCA OV OCA` |
+
+→ `www.iap.cas.cn` 用的证书是**自签名**的（subject == issuer，没有 CA 签发）；
+而 apex 的证书由 **CFCA** 签发，SAN 是 `DNS:*.cas.cn, DNS:cas.cn`。
+
+**而且通配符只覆盖一级**：X.509 的 `*` **不跨点**，`*.cas.cn` 覆盖
+`iap.cas.cn`，**不覆盖** `www.iap.cas.cn`（两级子域）→ **apex 才是唯一持证主机**。
+这也正好解释了官方 `https://www.iap.ac.cn/` 的 301 为什么指向 `https://iap.cas.cn/`。
+
+**为什么这值得写清楚**：只报"连接被拒"是**症状**，"自签名证书 + 通配符不覆盖"
+才是**病根**。写进日志的错误病因会让下一个照着排查的人去查错方向
+（去查防火墙、查 DNS，而不是去看那个主机名有没有证书）。
+→ **判"外链坏了"的病根，curl 的 000 之后必须再打一层 openssl。**
 
 **影响面**：`affiliationUrl` 同时出现在三处——
 `src/index.njk` 与 `src/about.njk` 的**可见链接**（点机构名就跳过去），
@@ -1989,7 +2012,7 @@ MeteoHub 会话（`mavis session list` 实测），且其中**至少一个仍在
 2. **论文页是否显示"论文署名单位"**（发表时兰州大学 / 现在中科院 / 两者并注）
    与 `pub.authorAffiliations` 数据字段。
 3. **`figure.alt` 是否保留 "Fig. 10 —" 前缀**（忠于作者原文 vs 只留描述）。
-4. **何时 push / 部署**（本地已领先远端 13 个 commit）。
+4. **何时 push / 部署**（截至本轮提交，本地已领先远端 16 个 commit，**均未 push**）。
 
 ### 留给下一轮
 
