@@ -19,8 +19,9 @@
       <a href="{{ site.drive.url }}" target="_blank" rel="noopener noreferrer">{{ site.drive.label or "Cloud drive" }}</a>
       {%- endif %}
       {# —— RSS 订阅 ——
-         技术笔记的订阅源。当前 collections.blog 为空，feed 里还没有 item，
-         等站内写出第一篇就自动有内容了（feed.njk 不用再动）。
+         订阅源同时收录**论文**与站内技术笔记（2026-10-19 第五轮改过：
+         原来只取 collections.blog，而那个集合是空的，feed 里一条都没有，
+         页脚却挂着一个 RSS 入口——点开永远是空白）。
          注意：本项目的 Nunjucks 没注册 comment 标签，全站注释一律用这种
          花括号井号写法，写成百分号 comment 会报 unknown block tag。 #}
       <a href="{{ '/feed.xml' | relUrl }}">RSS</a>

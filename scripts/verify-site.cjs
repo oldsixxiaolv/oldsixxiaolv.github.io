@@ -17,6 +17,9 @@
  *   5. 反过来：每个产物页面是否都进了 sitemap（除 404）
  *   6. 站内引用是否都是相对路径（"整个文件夹扔到哪都能跑"）
  *   7. 产物里有没有 macOS 资源叉 ._* 文件
+ *   8. feed.xml 里有没有 item、每条 item 的 link 是否指向真实页面
+ *   9. 论文页的 JSON-LD 里有没有 Dataset / SoftwareSourceCode 实体
+ *  10. 身份类 meta（twitter:site/creator）有没有写死的兜底值
  *
  * 用法：node scripts/verify-site.cjs   （有错 exit 1）
  */
@@ -189,6 +192,144 @@ for (const file of htmlFiles) {
   if (r === "404.html") continue;
   if (!sitemapPaths.has("/" + r) && !sitemapPaths.has("/" + r.replace(/\/$/, ""))) {
     fail(`${rel(file)}: 产物里有这个页面，但 sitemap.xml 没收录`);
+  }
+}
+
+/* ---------- 6) RSS 订阅源不能是空的 ----------
+   /feed.xml 此前只取 collections.blog，而那个集合是空的，feed 里一条 item
+   都没有，页脚却挂着一个 RSS 入口。一个点开永远是空白的订阅源，比没有
+   更糟——而且它不会报错，只会安静地空着，所以必须做成门禁。
+
+   同时校验每条 item 的 <link> 都能在产物里找到对应页面：订阅源里的
+   死链是读者唯一会踩到的路径，比页面里的死链更隐蔽。 */
+const feedPath = path.join(SITE, "feed.xml");
+if (!fs.existsSync(feedPath)) {
+  fail("产物里没有 feed.xml");
+} else {
+  const xml = fs.readFileSync(feedPath, "utf8");
+  const items = [...xml.matchAll(/<item>([\s\S]*?)<\/item>/g)];
+  if (!items.length) {
+    fail("feed.xml 里一条 item 都没有——订阅源是空的，页脚的 RSS 入口点开只有空白");
+  }
+  let feedItemCount = 0;
+  for (const m of items) {
+    feedItemCount++;
+    const body = m[1];
+    const title = (body.match(/<title>([\s\S]*?)<\/title>/) || [])[1];
+    const link = (body.match(/<link>([\s\S]*?)<\/link>/) || [])[1];
+    const pubDate = (body.match(/<pubDate>([\s\S]*?)<\/pubDate>/) || [])[1];
+    if (!title || !title.trim()) fail(`feed.xml 第 ${feedItemCount} 条 item 没有标题`);
+    if (!pubDate || !pubDate.trim()) {
+      fail(`feed.xml 第 ${feedItemCount} 条 item 没有 pubDate`);
+    }
+    if (!link || !link.trim()) {
+      fail(`feed.xml 第 ${feedItemCount} 条 item 没有 link`);
+      continue;
+    }
+    let p = link.trim();
+    try {
+      p = new URL(p).pathname;
+    } catch {
+      /* 保留原样 */
+    }
+    const target = path.join(SITE, p.replace(/^\//, ""), "index.html");
+    const flat = path.join(SITE, p.replace(/^\//, ""));
+    if (!fs.existsSync(target) && !fs.existsSync(flat)) {
+      fail(`feed.xml 第 ${feedItemCount} 条 item 的 link "${link}" 在产物里找不到对应页面`);
+    }
+  }
+  notes.push(`feed.xml ${feedItemCount} 条 item`);
+}
+
+/* ---------- 7) 论文页必须声明数据集与可复现胶囊 ----------
+   站点确实发布了两条带 DOI 的产出（Zenodo 数据集、Code Ocean 胶囊），
+   它们的 schema.org 实体类型是 DataCite 自己映射的
+   （types.schemaOrg = Dataset / SoftwareSourceCode）。
+   实体类型写错或整个消失，页面不会报错——只会安静地不再被数据集检索
+   工具发现，所以做成门禁。 */
+const paperHtml = allFiles
+  .filter((f) => /papers\/.+\/index\.html$/.test(rel(f)))
+  .map((f) => [rel(f), fs.readFileSync(f, "utf8")]);
+if (!paperHtml.length) {
+  fail("产物里没有论文独立页（papers/*/index.html）");
+}
+for (const [from, html] of paperHtml) {
+  const blocks = [
+    ...html.matchAll(
+      /<script[^>]*type\s*=\s*"application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/gi
+    ),
+  ];
+  const entities = [];
+  for (const b of blocks) {
+    let parsed;
+    try {
+      parsed = JSON.parse(b[1]);
+    } catch {
+      continue; // 解析失败已由第 2 条报过
+    }
+    const nodes = Array.isArray(parsed["@graph"])
+      ? parsed["@graph"]
+      : parsed["@type"]
+        ? [parsed]
+        : [];
+    entities.push(...nodes);
+  }
+  for (const type of ["Dataset", "SoftwareSourceCode"]) {
+    if (!entities.some((e) => e && e["@type"] === type)) {
+      fail(`${from}: JSON-LD 里没有 ${type} 实体——数据集/胶囊不再能被结构化检索发现`);
+    }
+  }
+}
+
+/* ---------- 8) 身份类 meta 不得声明没有数据支撑的账号 ----------
+   twitter:site / twitter:creator 不是普通外链：它的内容被搜索引擎当成
+   "这个账号属于本站作者"。写错的后果不是死链，而是**把本站归属挂到
+   别人名下**。此前 base.njk 写死了两个猜测值（@meteohub 是别人的账号、
+   @oldsixxiaolv 在 X 上不存在），页面照出、构建照过、没有任何报错。
+
+   这条门禁的判据：产物里出现的身份句柄，必须**在 site.js 数据里能找到
+   同样的值**。写死在模板里的兜底值一律拦下——它不来自数据，就是猜测。
+
+   只查身份类字段（twitter:site / twitter:creator）。普通外链写错顶多是
+   死链，交给人判断，不适合用脚本一票否决。 */
+const siteData = (() => {
+  try {
+    return require(path.resolve(__dirname, "../src/_data/site.js"));
+  } catch {
+    return null;
+  }
+})();
+if (siteData) {
+  // 收集数据里出现过的所有字符串（含嵌套），作为"有数据支撑"的证据集
+  const dataStrings = new Set();
+  (function collect(v) {
+    if (typeof v === "string") dataStrings.add(v.trim());
+    else if (Array.isArray(v)) v.forEach(collect);
+    else if (v && typeof v === "object") Object.values(v).forEach(collect);
+  })(siteData);
+
+  const IDENTITY_META = ["twitter:site", "twitter:creator"];
+  for (const file of htmlFiles) {
+    const html = fs.readFileSync(file, "utf8");
+    for (const key of IDENTITY_META) {
+      const re = new RegExp(
+        `<meta[^>]*name=["']${key}["'][^>]*content=["']([^"']*)["']`,
+        "gi"
+      );
+      for (const m of html.matchAll(re)) {
+        const value = m[1].trim();
+        if (!value) {
+          fail(`${rel(file)}: ${key} 的内容是空的——身份字段要么给真实句柄，要么整条不输出`);
+          continue;
+        }
+        if (!dataStrings.has(value)) {
+          fail(
+            `${rel(file)}: ${key}="${value}" 在 site.js 数据里找不到对应值——` +
+              `这是写死在模板里的兜底值，属于对外声明归属，必须改成数据驱动`
+          );
+        }
+      }
+    }
   }
 }
 

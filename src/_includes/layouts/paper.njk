@@ -39,101 +39,29 @@ layout: layouts/base.njk
 {%- set pYear = pub.year if pub else year -%}
 
 {# =====================================================================
-     ScholarlyArticle JSON-LD
+     论文页的结构化数据：ScholarlyArticle + Dataset + SoftwareSourceCode
      ⚠️ 注意职责边界：这块 JSON-LD 是给**通用 schema.org 消费方**用的
      （Bing 实体、Wikipedia、Google 普通检索的富结果）。
      **Google Scholar 不读 JSON-LD**——它只认 Highwire 的 citation_*
      <meta> 标签，那套在 partials/citation-meta.njk 里，由 base.njk 输出。
-     此前这个文件的注释把两者搞混了（写成"Google Scholar / Rich Results
-     关键"），已更正。两套都要有，但不是同一套。
+     两套都要有，但不是同一套。
+
+     2026-10-19 第五轮：这段原本是在模板里**手写 JSON 字符串**（逐字段
+     `| dump | safe` 拼逗号）。本轮搬进 eleventy.config.js 的
+     jsonLdPaper filter，因为要加两个新实体并让它们与文章互相引用：
+       · Dataset            ← Zenodo 数据集（10.5281/zenodo.18041880）
+       · SoftwareSourceCode ← Code Ocean 胶囊（10.24433/CO.6720035.v1）
+     实体类型沿用 DataCite 自己对这两条记录的 schema.org 映射
+     （types.schemaOrg 实测），不是自己另立的。
+     引用关系：
+       文章.citation → 数据集 / 胶囊   （本文用到的可引用产出）
+       数据集.isPartOf → 文章
+       胶囊.isBasedOn → 数据集         （胶囊里打包的就是这份数据）
      ===================================================================== #}
-{% if pub %}
+{%- set ldGraph = pub | jsonLdPaper(site, page.url) -%}
+{% if ldGraph %}
 <script type="application/ld+json">
-{
-  "@context": "https://schema.org",
-  "@type": "ScholarlyArticle",
-  "headline": {{ pTitle | dump | safe }},
-  "name": {{ pTitle | dump | safe }},
-  "url": "{{ site.url }}{{ page.url }}",
-  {%- if pYear %}
-  "datePublished": {% if pub.dates and pub.dates.published %}"{{ pub.dates.published }}"{% else %}"{{ pYear }}-01-01"{% endif %},
-  {%- endif %}
-  "inLanguage": "en",
-  {# isAccessibleForFree 取数据里的 openAccess。此前这里写死 true，
-     对一篇 Unpaywall 判定为 closed（付费墙内）的论文是**假声明**。 #}
-  {%- if pub.openAccess !== undefined %}
-  "isAccessibleForFree": {{ pub.openAccess | dump | safe }},
-  {%- endif %}
-  "author": [
-    {%- for a in pub.authorList %}
-    {
-      "@type": "Person",
-      "name": {{ a.name | dump | safe }}
-      {%- if a.name == site.author.nameAsPublished %},
-      {# 本人：sameAs 用 site.author.sameAs 全集（第一条就是本人的 ORCID）。
-         ⚠️ 这里**不能**再单独输出一条 a.orcid 的 sameAs —— 同一对象里出现
-         两个同名键，后一个会把前一个悄悄覆盖掉，JSON 虽然还能解析，但
-         结构已经脏了（而且严格校验器会报重复键）。 #}
-      "sameAs": {{ site.author.sameAs | dump | safe }},
-      "alternateName": {{ (site.author.alternateName or site.author.fullName or "") | dump | safe }},
-      "jobTitle": {{ (site.author.jobTitle or site.author.role or "") | dump | safe }},
-      "url": "{{ site.url }}/"
-      {%- elif a.orcid %},
-      {# 其他作者：只有自己那一条 ORCID，没有的就不给这个字段（不编造）。 #}
-      "sameAs": {{ [("https://orcid.org/" + a.orcid)] | dump | safe }}
-      {%- endif %}
-    }{% if not loop.last %},{% endif %}
-    {%- endfor %}
-  ],
-  {%- if pJournal %}
-  "isPartOf": {
-    "@type": "Periodical",
-    "name": {{ pJournal | dump | safe }}
-    {%- if pub and pub.issn %},
-    "issn": [
-      {%- if pub.issn.print %}"{{ pub.issn.print }}"{% endif -%}
-      {%- if pub.issn.electronic %}{% if pub.issn.print %},{% endif %}"{{ pub.issn.electronic }}"{% endif -%}
-    ]
-    {%- endif %}
-  },
-  {%- endif %}
-  {%- if pub and pub.publisher %}
-  "publisher": {
-    "@type": "Organization",
-    "name": {{ pub.publisher | dump | safe }}
-  },
-  {%- endif %}
-  {%- if pub and pub.volume %}
-  "volume": {{ pub.volume | dump | safe }},
-  {%- endif %}
-  {%- if pub and pub.issue %}
-  "issue": {{ pub.issue | dump | safe }},
-  {%- endif %}
-  {%- if pub and (pub.pages or pub.articleNumber) %}
-  "pageStart": {{ (pub.pages or pub.articleNumber) | dump | safe }},
-  {%- endif %}
-  {%- if pub and pub.doi %}
-  "identifier": {{ ("https://doi.org/" + pub.doi) | dump | safe }},
-  "sameAs": {{ ("https://doi.org/" + pub.doi) | dump | safe }},
-  {%- endif %}
-  {%- if pub and pub.pdf %}
-  "encoding": {
-    "@type": "MediaObject",
-    "contentUrl": {{ pub.pdf | dump | safe }},
-    "encodingFormat": "application/pdf"
-  },
-  {%- endif %}
-  {%- if pub and pub.abstract %}
-  "abstract": {{ pub.abstract | dump | safe }},
-  {%- endif %}
-  {%- if pub and pub.keywords and pub.keywords.length %}
-  "keywords": {{ pub.keywords | dump | safe }},
-  {%- endif %}
-  "mainEntityOfPage": {
-    "@type": "WebPage",
-    "@id": "{{ site.url }}{{ page.url }}"
-  }
-}
+{{ ldGraph | dump | safe }}
 </script>
 {% endif %}
 
@@ -226,8 +154,17 @@ layout: layouts/base.njk
       {%- if pub.software and pub.software.url %}
       <dt>Dataset <span class="paper-availability__badge">{{ pub.software.resourceType or "Dataset" }}</span></dt>
       <dd>
-        <a href="{{ pub.software.url }}" target="_blank" rel="noopener noreferrer">{{ pub.software.label }}</a>
+        {# 链接文字用**这一版在 Zenodo 登记的标题**（registeredTitle）——
+           读者点进去看到的就是它。论文引用里那条的写法（citeTitle）不同，
+           下面单独说明，两个标题都摆出来，读者自己对得上哪一条。 #}
+        <a href="{{ pub.software.url }}" target="_blank" rel="noopener noreferrer">{{ pub.software.registeredTitle or pub.software.label }}</a>
         <span class="paper-availability__meta">Zenodo · v{{ pub.software.version or "—" }} · {{ pub.software.license or "" }} · DOI {{ pub.software.doi }}</span>
+        {%- if pub.software.registeredTitle and pub.software.citeTitle and pub.software.registeredTitle != pub.software.citeTitle %}
+        {# ⚠️ 同一个 Zenodo 概念允许改标题，v2.0 发布时把标题改成了论文标题；
+           而论文参考文献表里那条引用用的是 v1.0 时期的写法。两边都成立，
+           但读者只看到一个名字会以为站点写错了，所以这里明确写出来。 #}
+        <span class="paper-availability__note">Cited in the paper as “{{ pub.software.citeTitle }}” — the Zenodo record was re-titled to match the paper when this version was published.</span>
+        {%- endif %}
         {%- if pub.software.conceptDoi %}
         {# "所有版本"DOI：Zenodo 的概念 DOI，永远指向最新版，标题改了也不失效。
            上面那个是"论文里引用的那一版"，这个是"这个数据集整体"——

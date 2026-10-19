@@ -341,6 +341,190 @@ MeteoHub 会话（09:35 / 09:40 / 09:45 / 09:50 / 09:55 / 10:00），它们各�
 
 ---
 
+## 2026-10-19 · 第五轮：订阅源补上论文 + 数据集/胶囊结构化数据 + 身份句柄纠错
+
+### ⚠️ 本轮的并发情况（归属先说清楚）
+
+巡检 cron 每 5 分钟起一个会话，本轮开始时工作区里同时跑着多个 MeteoHub 会话，
+工作树里堆着一批未提交改动。本轮**先停并发、再验收、最后统一提交**：
+
+- **10:10 场次（`mvs_f82683a6`）**：实现了下面「A. 订阅源」与「B. 结构化数据」
+  两组改动。硬证据：分界线 commit `43d41c5` = 10:10:11，7 个文件的 mtime
+  全部晚于它（10:14:34–10:15:29），且该会话自述与 10:05 场次的独立复核结论一致。
+- **10:20 场次（本会话，`mvs_92ad8886`）**：任唯一写者，逐条复核上述改动、
+  做了故障注入，并实现了下面「C. 身份句柄」这组改动。
+
+### A. 订阅源：把论文放进去，修掉一个"永远是空白"的 RSS
+
+**背景**：`/feed.xml` 第一轮就建好了，但数据源只有 `collections.blog`——
+而那个集合**是空的**（技术笔记都发在 CSDN 上）。于是这个 feed **一条 item 都没有**，
+页脚却实实在在挂着一个 RSS 入口：**点开永远是空白**。它不会报错，只会安静地空着。
+
+订阅一个学术主页的人，真正想收到的就是"有新论文了"。
+
+**改动**
+
+| 文件 | 改动 |
+|---|---|
+| `eleventy.config.js` | 新增 `feedItems` filter：把 `site.publications` 与 `collections.blog` 合并成按日期倒序的条目列表。论文条目链接指向**站内论文页**（不是出版商页面——站内页面才带摘要、关键词、数据与代码可用性、引用块） |
+| `src/feed.njk` | 换用 `feedItems`；加 `dc:creator` / `dc:identifier` / `category`；`<description>` 的转义**加了括号** |
+| `src/_includes/layouts/base.njk` | 加 RSS autodiscovery：`<link rel="alternate" type="application/rss+xml">`——浏览器与阅读器的"订阅"按钮会自动认它，不必只靠页脚那一个普通链接 |
+| `src/_includes/partials/footer.njk` | 页脚注释更新（说明 feed 现在收录什么） |
+
+**顺手修掉一个真 bug（转义括号）**
+
+`src/feed.njk` 原来写的是：
+
+```njk
+{{ item.description or "" | escape }}
+```
+
+Nunjucks 里 `|` 的优先级**高于** `or`，所以它实际解析成
+`item.description or ("" | escape)`——**escape 只作用在空串分支**，
+摘要原样输出。XML 里的 `&` `<` `>` 会把文档直接弄坏。
+
+**为什么这个 bug 以前没被发现**：`collections.blog` 是空的，那行**从来没被执行过**
+（和第三轮 `feed.njk:32` 的 `or`/`|` 优先级问题是同一个坑，但那一处因为集合为空
+而长期休眠）。本轮 feed 真的装上了论文摘要，这条分支第一次真正跑到——
+**如果不修，摘要里的 `&` 就会破坏整个 feed**。已改成
+`{{ (item.description or "") | escape }}`。
+
+### B. 结构化数据：论文页补上 Dataset 与 SoftwareSourceCode 两个实体
+
+**背景**：站点确实发布了两条带 DOI 的产出——Zenodo 数据集
+（`10.5281/zenodo.18041880`）与 Code Ocean 可复现胶囊（`10.24433/CO.6720035.v1`）。
+但结构化数据里**只有论文本身**，数据集和胶囊在 JSON-LD 里是**不存在**的：
+数据集检索工具（DataCite、Scholarly Data Commons 等）找不到它们。
+
+**改动**
+
+| 文件 | 改动 |
+|---|---|
+| `eleventy.config.js` | 新增 `jsonLdPaper` filter：输出整个 `@graph`（文章 + 数据集 + 胶囊），三者用 `@id` 互相引用 |
+| `src/_includes/layouts/paper.njk` | 论文页的手写 JSON 字符串**整体搬进 filter**（模板里逐字段 `\| dump \| safe` 拼逗号，字段一多极易错位；filter 走 `JSON.stringify`，`undefined` 的字段自动消失） |
+| `src/_data/site.js` | 数据集加 `registeredTitle`（v2.0 在 Zenodo 上的**当前登记标题**） |
+| `src/_includes/layouts/paper.njk` | 数据集链接文字改用 `registeredTitle`，并**同时列出论文引用里的那个标题**并说明差异 |
+| `scripts/verify-site.cjs` | 新增门禁：论文页 JSON-LD 里必须有 `Dataset` 与 `SoftwareSourceCode` 实体 |
+
+**实体类型不是自己另立的**——沿用 DataCite 自己对这两条记录的 schema.org 映射
+（`api.datacite.org` 实测）：
+
+| DOI | DataCite `types.schemaOrg` | 登记标题 | version |
+|---|---|---|---|
+| `10.5281/zenodo.18041880` | **Dataset** | 论文标题 | 2.0 |
+| `10.24433/CO.6720035.v1` | **SoftwareSourceCode** | 论文标题 | 1.0 |
+| `10.5281/zenodo.16662144` | Dataset | Thunderstorms stage identification | — |
+| `10.5281/zenodo.16662143` | Dataset | 论文标题 | 2.0（概念 DOI） |
+
+**引用关系**（三者靠 `@id` 对上，不是靠字符串）：
+
+```
+文章.citation  → Dataset @id / SoftwareSourceCode @id   （本文用到的可引用产出）
+Dataset.isPartOf   → 文章 @id
+胶囊.isBasedOn     → Dataset @id                          （胶囊里打包的就是这份数据）
+```
+
+**论文页现在有 1 个 ScholarlyArticle**（`@id` = 页面绝对地址），
+首页/列表页各有 1 个（指向出版商）——`base.njk` 的 `jsonLdArticles` 靠
+`excludeKey` 把当前页那篇排除掉，**没有重复实体**。
+
+#### ⚠️ 同一个 Zenodo 概念有两个标题，本轮把两个都摆出来
+
+同一个 Zenodo 概念允许改标题：v1.0（`16662144`）登记为
+"Thunderstorms stage identification"，v2.0（`18041880`）改成了论文标题
+（DataCite 实测）。而论文参考文献表里那条引用用的仍是 v1.0 时期的写法。
+
+这两个都成立，但读者只看到一个名字会以为站点写错了。**本轮不替作者选边**：
+页面把两个标题都写出来并说明差异，**引用条目**（BibTeX）仍用与论文逐字一致的那个。
+
+### C. 身份句柄纠错（本会话实现）
+
+**问题**：`base.njk:240-241` 写死了两个 Twitter/X 句柄：
+
+```njk
+<meta name="twitter:site" content="{{ site.author.twitterSite or '@meteohub' }}" />
+<meta name="twitter:creator" content="{{ site.author.twitterCreator or '@oldsixxiaolv' }}" />
+```
+
+而 `site.js` 里**根本没有这两个字段** → 两个句柄是凭空写死的。实测：
+
+| 句柄 | X 端点 | 含义 |
+|---|---|---|
+| `@meteohub` | **200** | 账号存在，但**几乎肯定不是本人的** |
+| `@oldsixxiaolv` | **404** | X 上查无此号（是把 GitHub 句柄直接复用过来的） |
+
+**为什么这条比死链严重**：普通外链写错，最坏结果是链接点不开；
+而 `twitter:site` / `twitter:creator` 是**身份标签**——它的内容会被搜索引擎
+当成"这个账号属于本站作者"。写错不是"链坏了"，是**归属声明错了**。
+站点当时正在对外声明归属给一个陌生人的账号和一个不存在的账号。
+
+**改法**：**没有真实句柄就整对不输出**，用数据字段驱动
+（`site.author.twitterSite` 为空 → 不渲染该 meta），
+不为了"看起来完整"而填一个猜测值。`site.js` 里加了两个 `null` 字段
+（沿用 `site.drive.url` 的既有写法），填上真实句柄即自动出现。
+
+**并加了一条门禁防它复发**（`scripts/verify-site.cjs` 第 10 项）：
+产物里出现的身份句柄，**必须在 `site.js` 数据里能找到同样的值**——
+写死在模板里的兜底值一律拦下。它不来自数据，就是猜测。
+
+### 调研来源与核实方式
+
+全部经官方 API 核对，不靠记忆：
+
+- `api.datacite.org/dois/10.5281/zenodo.18041880` → 标题、version 2.0、
+  `types.schemaOrg = "Dataset"`、许可 CC-BY-4.0、publisher Zenodo
+- `api.datacite.org/dois/10.24433/CO.6720035.v1` → 标题（= 论文标题，逐字）、
+  version 1.0、`types.schemaOrg = "SoftwareSourceCode"`、许可 Apache-2.0、
+  publisher Code Ocean、`publicationYear = 2026`、creator "Yihang Lyu"、
+  `dates = [(2026-06-08, Accepted), (2026, Issued)]`
+- `api.datacite.org/dois/10.5281/zenodo.16662144` → 标题
+  "Thunderstorms stage identification"（证明"改过标题"这件事）
+- `api.datacite.org/dois/10.5281/zenodo.16662143` → 概念 DOI
+- `x.com/meteohub` → 200；`x.com/oldsixxiaolv` → 404
+- ⚠️ 胶囊标题**不是 bug，本轮没有改它**：`site.js` 的 `capsule.citeTitle`
+  已经逐字等于 DataCite 登记标题，改了反而引入错。
+
+### 验证结果
+
+- `npm run build` **exit 0**；`check:css` 通过（15 个文件）；
+  `check:site` 通过（6 个 HTML 页、**126 条本地引用**、5 条 sitemap URL）
+- **三条新门禁都做过故障注入**（"永远通过的检查比没有检查更糟"）：
+
+  | 注入的故障 | 门禁反应 | 结果 |
+  |---|---|---|
+  | 清空 feed 的所有 `<item>` | 报"feed.xml 里一条 item 都没有" | exit 1 ✓ |
+  | 把 feed item 的 link 指向 `/papers/does-not-exist/` | 报"在产物里找不到对应页面" | exit 1 ✓ |
+  | 从论文页 `@graph` 里删掉 `Dataset` 实体 | 报"JSON-LD 里没有 Dataset 实体" | exit 1 ✓ |
+  | 往产物里塞写死的 `twitter:site="@meteohub"` | 报"在 site.js 数据里找不到对应值" | exit 1 ✓ |
+
+  另测了**正向路径**：把 `site.author.twitterSite` 临时设成
+  `@lv_test_handle` → 标签正常渲染且门禁**不误报**（exit 0）✓，测完已还原。
+- **注入会留下 `._*` 资源叉**（exFAT 卷上 Python 改产物文件的副作用，
+  与被测故障无关）。注入全部做完后 `npm run build` 重建 `_site`，
+  资源叉计数 **0** ✓
+- `feed.xml`：1 条 item，**合法 XML**（minidom 解析通过），
+  `<link>` 指向 `/papers/trmm-thunderstorm-stages/`（产物里存在）✓
+- JSON-LD 实体分布：
+  - 论文页 → `Person` + `ScholarlyArticle` + **`Dataset`** + **`SoftwareSourceCode`**
+  - 首页/列表页/博客/关于/404 → `Person` + `ScholarlyArticle`（无 Dataset/胶囊泄漏）
+- `canonical` 与 `og:url` **6 个页面全部一致** ✓
+- `sitemap.xml` 5 条 URL 与真实路由一一对应 ✓
+- **横向溢出检测**：6 个页面在 390px 视口下 `scrollWidth` 全部 = 390，
+  无横向溢出 ✓（本轮 `paper.njk` 的数据集链接文字换成了更长的登记标题，
+  专门复跑了这一项）
+- RSS autodiscovery 的 href 用 `| relUrl`（Eleventy **按深度**算相对路径）：
+  首页 `feed.xml`、`/about/` `../feed.xml`、论文页 `../../feed.xml`
+  ——都正确解析到 `/feed.xml`，"整个文件夹扔到哪都能跑"仍成立 ✓
+- 站点已**不再输出任何 `twitter:site` / `twitter:creator`** ✓
+
+### ⚠️ 线上仍是旧版本（待部署，非站点损坏）
+
+线上 `https://github.lvyihang.xyz/` 仍是 2026-10-16 的部署：`/papers/`、
+`/publications.bib`、`/feed.xml` 仍 **404**。本轮全部改动只在本地，未 push
+（本任务禁止 push，部署由本人决定）。
+
+---
+
 ## 待决策（需要本人拍板，任务不会自己动）
 
 
@@ -372,3 +556,14 @@ MeteoHub 会话（09:35 / 09:40 / 09:45 / 09:50 / 09:55 / 10:00），它们各�
   反查核实）。它是聚合库的上游，放 `sameAs` 里对归属判读有利；
   但页脚可见链接是"我承认这个身份"的意思，也可能不希望它跟 ORCID 并列。
   删掉只需去掉 `site.author.openalex` 即可，页脚那行是判空渲染的。
+- **Twitter/X 真实句柄（第五轮新增）**：此前 `base.njk` 写死了两个猜测值
+  （`@meteohub` 实测是别人的账号、`@oldsixxiaolv` 在 X 上 404），
+  已改为**没有真实句柄就整对不输出**。`site.js` 的
+  `site.author.twitterSite` / `twitterCreator` 现为 `null`，
+  **填上本人真实句柄（含 @）后两个 meta 会自动出现**，
+  并已加门禁防止写死的兜底值再回来。若本人确实没有 X 账号，就保持空着。
+- **数据集的"两个标题"在页面上怎么表述**：同一个 Zenodo 概念在 v2.0 时
+  把标题从 "Thunderstorms stage identification" 改成了论文标题。
+  第五轮把两个都摆出来并注明差异（读者点 DOI 看到的 / 论文里引用的），
+  属于**展示口径**的取舍。若本人更希望只显示其中一个，改 `paper.njk`
+  里那段 `registeredTitle` 判空即可。

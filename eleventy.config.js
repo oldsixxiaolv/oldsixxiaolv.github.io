@@ -584,6 +584,222 @@ module.exports = function (eleventyConfig) {
     });
   });
 
+  /* ---------- 4c. jsonLdPaper filter：论文页的完整 JSON-LD @graph ----------
+     输出一整个对象：{ "@context": ..., "@graph": [文章, 数据集, 胶囊] }。
+
+     为什么要从模板搬进 filter：
+       ① 模板里手写 JSON 字符串，转义全靠 `| dump | safe` 逐字段拼；
+          字段一多，逗号和引号很容易写错，而且错了 JSON.parse 才报。
+       ② 现在要给同一页加**两个新实体**（数据集 + 可复现胶囊），
+          它们要靠 @id 与文章互相引用（文章的 citation 指向数据集，
+          数据集的 isPartOf 指回文章）。手写 JSON 写这种交叉引用极易错位。
+       ③ filter 走 JSON.stringify，undefined 的字段自动消失，
+          不会出现 "url": undefined 这种脏输出。
+
+     实体类型**不是自己另立的**，而是沿用 DataCite 自己对这两条记录的
+     schema.org 映射（2026-10-19 用 api.datacite.org 实测）：
+       10.5281/zenodo.18041880 → types.schemaOrg = "Dataset"
+       10.24433/CO.6720035.v1  → types.schemaOrg = "SoftwareSourceCode"
+     DataCite 是 DOI 注册机构，它给的映射就是权威口径。
+  */
+  eleventyConfig.addFilter("jsonLdPaper", (pub, siteData, pageUrl) => {
+    if (!pub) return null;
+    const A = (siteData && siteData.author) || {};
+    const siteUrl = (siteData && siteData.url) || "";
+    const pagePath = pageUrl || "";
+    const selfUrl = `${siteUrl}${pagePath}`;
+    const ownerName = A.nameAsPublished || A.name || "";
+
+    // —— 作者：与原模板逐字段一致 ——
+    const authorList = Array.isArray(pub.authorList) ? pub.authorList : [];
+    const authors = authorList.map((a) => {
+      const person = { "@type": "Person", name: a.name };
+      if (a.name === ownerName) {
+        // 本人：sameAs 用全集（第一条就是 ORCID）。不能另加一条 a.orcid 的
+        // sameAs——同一对象里两个同名键，后者会静默覆盖前者。
+        if (A.sameAs) person.sameAs = A.sameAs;
+        if (A.alternateName || A.fullName) {
+          person.alternateName = A.alternateName || A.fullName;
+        }
+        if (A.jobTitle || A.role) person.jobTitle = A.jobTitle || A.role;
+        person.url = `${siteUrl}/`;
+      } else if (a.orcid) {
+        // 其他作者只给自己的那一条 ORCID，没有就不给（不编造）。
+        person.sameAs = `https://orcid.org/${a.orcid}`;
+      }
+      return person;
+    });
+
+    const article = {
+      "@type": "ScholarlyArticle",
+      // @id 用页面的绝对地址。数据集的 isPartOf 指回它，两边就能对上。
+      "@id": selfUrl,
+      headline: pub.title,
+      name: pub.title,
+      url: selfUrl,
+    };
+    if (pub.year) {
+      article.datePublished =
+        pub.dates && pub.dates.published ? pub.dates.published : `${pub.year}-01-01`;
+    }
+    article.inLanguage = "en";
+    // 开放获取状态取数据，不写死（付费墙内的论文写 true 是假声明）。
+    if (pub.openAccess !== undefined) article.isAccessibleForFree = !!pub.openAccess;
+    if (authors.length) article.author = authors;
+    if (pub.journal) {
+      const periodical = { "@type": "Periodical", name: pub.journal };
+      if (pub.issn) {
+        const issn = [pub.issn.print, pub.issn.electronic].filter(Boolean);
+        if (issn.length) periodical.issn = issn;
+      }
+      article.isPartOf = periodical;
+    }
+    if (pub.publisher) {
+      article.publisher = { "@type": "Organization", name: pub.publisher };
+    }
+    if (pub.volume) article.volume = pub.volume;
+    if (pub.issue) article.issue = pub.issue;
+    if (pub.pages || pub.articleNumber) {
+      article.pageStart = pub.pages || pub.articleNumber;
+    }
+    if (pub.doi) {
+      article.identifier = `https://doi.org/${pub.doi}`;
+      article.sameAs = `https://doi.org/${pub.doi}`;
+    }
+    if (pub.pdf) {
+      article.encoding = {
+        "@type": "MediaObject",
+        contentUrl: pub.pdf,
+        encodingFormat: "application/pdf",
+      };
+    }
+    if (pub.abstract) article.abstract = pub.abstract;
+    if (Array.isArray(pub.keywords) && pub.keywords.length) article.keywords = pub.keywords;
+    article.mainEntityOfPage = { "@type": "WebPage", "@id": selfUrl };
+
+    // —— 资源实体（数据集 / 可复现胶囊）——
+    const creator = { "@type": "Person", name: ownerName };
+    if (A.sameAs) creator.sameAs = A.sameAs;
+    const resources = [];
+
+    const sw = pub.software;
+    if (sw && sw.doi && sw.url) {
+      const dataset = {
+        "@type": "Dataset",
+        // @id 就是 DOI 解析地址——这条数据集的身份 IRI。文章的 citation
+        // 引用它时用同一个 IRI，两边自动对上。
+        "@id": `https://doi.org/${sw.doi}`,
+        // name 用**这一版在 DataCite 登记的标题**：读者点开 DOI 看到的就是它，
+        // 登记名与页面显示名不一致才是真问题。citeTitle（论文参考文献表里
+        // 那条的标题）是另一回事，页面上两个标题都摆出来并说明差异。
+        name: sw.registeredTitle || sw.citeTitle || sw.label,
+        url: sw.url,
+        identifier: `https://doi.org/${sw.doi}`,
+        sameAs: `https://doi.org/${sw.doi}`,
+        creator: { ...creator },
+        isPartOf: { "@id": selfUrl },
+      };
+      if (sw.version) dataset.version = sw.version;
+      if (sw.publisher) {
+        dataset.publisher = { "@type": "Organization", name: sw.publisher };
+      }
+      if (sw.licenseUrl || sw.license) dataset.license = sw.licenseUrl || sw.license;
+      if (Array.isArray(pub.keywords) && pub.keywords.length) dataset.keywords = pub.keywords;
+      resources.push(dataset);
+    }
+
+    const cap = pub.capsule;
+    if (cap && cap.doi && cap.url) {
+      const code = {
+        "@type": "SoftwareSourceCode",
+        "@id": `https://doi.org/${cap.doi}`,
+        name: cap.citeTitle || cap.label,
+        url: cap.url,
+        identifier: `https://doi.org/${cap.doi}`,
+        sameAs: `https://doi.org/${cap.doi}`,
+        codeRepository: cap.url,
+        creator: { ...creator },
+        runtimePlatform: cap.publisher || "Code Ocean",
+      };
+      if (cap.version) code.version = cap.version;
+      if (cap.publisher) {
+        code.publisher = { "@type": "Organization", name: cap.publisher };
+      }
+      if (cap.licenseUrl || cap.license) code.license = cap.licenseUrl || cap.license;
+      // 胶囊里打包的就是这份数据（代码 + 数据 + 运行环境），
+      // 所以它基于该数据集；数据集没有就跳过这条关系。
+      if (sw && sw.doi) code.isBasedOn = { "@id": `https://doi.org/${sw.doi}` };
+      resources.push(code);
+    }
+
+    // 文章 → 资源：用 @id 引用同一个 @graph 里的节点。
+    // 语义是"这篇文章用到的可引用产出"（schema.org 的 citation 属性）。
+    if (resources.length) {
+      article.citation = resources.map((r) => ({ "@id": r["@id"] }));
+    }
+
+    return { "@context": "https://schema.org", "@graph": [article, ...resources] };
+  });
+
+  /* ---------- 4d. feedItems filter：RSS 条目列表 ----------
+     输入 publications 与 blog 集合，输出**按日期倒序**的 feed 条目数组。
+
+     背景（2026-10-19 第五轮）：/feed.xml 此前只有 blog 集合这一个数据源，
+     而 collections.blog 是空的（技术笔记都发在 CSDN 上），于是
+     **feed 里一条 item 都没有**——页脚却实实在在挂着一个 RSS 入口。
+     一个点开永远是空白的订阅源，比没有订阅源更糟。
+     改法：把论文也放进 feed。学术访客订阅这个站，真正想收到的就是
+     "有新论文了"，而不是"有人在 CSDN 上写了 Python 笔记"。
+
+     论文条目的链接指向论文独立页（/papers/<slug>/），不是出版商页面——
+     站内页面才带摘要、关键词、数据与代码可用性、引用块。
+  */
+  const toMs = (value) => {
+    if (!value) return 0;
+    const d = value instanceof Date ? value : new Date(value);
+    const t = d.getTime();
+    return isNaN(t) ? 0 : t;
+  };
+
+  eleventyConfig.addFilter("feedItems", (pubs, posts, ownerName) => {
+    const items = [];
+    for (const p of Array.isArray(pubs) ? pubs : []) {
+      if (!p || !p.title) continue;
+      items.push({
+        kind: "paper",
+        title: p.title,
+        path: p.slug ? `/papers/${p.slug}/` : "/papers/",
+        // 出版日期取 DataCite/Crossref 登记的发表日，不是建站日。
+        date: (p.dates && p.dates.published) || p.date || null,
+        description: p.abstract || "",
+        creators: (Array.isArray(p.authorList) ? p.authorList : [])
+          .map((a) => a && a.name)
+          .filter(Boolean),
+        categories: (Array.isArray(p.keywords) ? p.keywords : []).slice(0, 5),
+        doi: p.doi || "",
+      });
+    }
+    for (const post of Array.isArray(posts) ? posts : []) {
+      const d = (post && post.data) || {};
+      // tags 里混着集合名（"blog"），那是内部标记，不该出现在订阅源里。
+      const cats = (Array.isArray(d.tags) ? d.tags : []).filter(
+        (t) => t && t !== "blog"
+      );
+      items.push({
+        kind: "note",
+        title: d.title || "",
+        path: (post && post.url) || "",
+        date: (post && post.date) || null,
+        description: d.excerpt || "",
+        creators: ownerName ? [ownerName] : [],
+        categories: cats.slice(0, 5),
+        doi: "",
+      });
+    }
+    // 新的在前。日期缺失的条目排到最后（toMs 返回 0）。
+    return items.sort((a, b) => toMs(b.date) - toMs(a.date));
+  });
+
   /* ---------- 5. markdown filter（11ty v3 默认 Markdown 模板引擎已内置，
                           这里额外注册一个 filter，便于在 Nunjucks 字符串上调用）*/
   const MarkdownIt = require("markdown-it");

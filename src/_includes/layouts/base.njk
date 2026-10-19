@@ -108,6 +108,12 @@
   <link rel="alternate" hreflang="{{ site.locale or 'zh-CN' }}" href="{{ site.url }}{{ page.url }}" />
   <link rel="alternate" hreflang="x-default" href="{{ site.url }}{{ page.url }}" />
 
+  {# —— RSS 订阅源（feed autodiscovery）——
+       <link rel="alternate" type="application/rss+xml"> 是订阅源的标准发现方式：
+       浏览器与阅读器的"订阅"按钮会自动认它，不必靠页脚那一个普通链接。
+       href 走 | relUrl（相对路径），与全站"整个文件夹扔到哪都能跑"的原则一致。 #}
+  <link rel="alternate" type="application/rss+xml" title="{{ site.title }} · Publications and notes" href="{{ '/feed.xml' | relUrl }}" />
+
   {# —— Google Scholar / Highwire 引用元数据 ——
        ⚠️ 这块和下面的 JSON-LD **不是一回事**：Google Scholar 只读
        citation_* <meta>，不读 JSON-LD。没有它，论文永远进不了
@@ -231,8 +237,23 @@
     <meta name="twitter:image" content="{{ site.url }}/assets/img/og/og-1200x630.png" />
     <meta name="twitter:image:alt" content="{{ ogTitle }} · {{ site.author.name }}, {{ site.author.jobTitle }}" />
   {% endif %}
-  <meta name="twitter:site" content="{{ site.author.twitterSite or '@meteohub' }}" />
-  <meta name="twitter:creator" content="{{ site.author.twitterCreator or '@oldsixxiaolv' }}" />
+  {# —— Twitter/X 身份句柄（2026-10-19 第五轮改）——
+       ⚠️ 身份类字段与普通外链**语义不同**：写错不是"死链"，
+       而是**向搜索引擎声明"本站/本文属于这个账号"**。
+       此前这里写死了两个猜测值：
+         twitter:site    = @meteohub     → x.com/meteohub 返回 200，
+                                          账号存在，但**不是本人的**；
+         twitter:creator = @oldsixxiaolv → x.com/oldsixxiaolv 返回 404，
+                                          X 上查无此号（是把 GitHub 句柄直接复用）。
+       也就是说，站点当时正在对外声明归属给一个陌生人的账号和一个不存在的账号。
+       正确做法：**没有真实句柄就整对不输出**，不拿猜测值凑"看起来完整"。
+       在 src/_data/site.js 的 site.author 里填上真实句柄即自动出现。 #}
+  {%- if site.author.twitterSite %}
+  <meta name="twitter:site" content="{{ site.author.twitterSite }}" />
+  {%- endif %}
+  {%- if site.author.twitterCreator %}
+  <meta name="twitter:creator" content="{{ site.author.twitterCreator }}" />
+  {%- endif %}
 
   {# =====================================================================
        Person JSON-LD（全站学术画像 · Google 知识图谱）

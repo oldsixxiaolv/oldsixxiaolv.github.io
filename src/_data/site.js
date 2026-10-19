@@ -125,6 +125,16 @@ module.exports = {
     // 一致——不是重名碰巧撞上的。
     openalex: "https://openalex.org/A5121394231",
 
+    // —— Twitter/X 句柄（2026-10-19 第五轮）——
+    // ⚠️ 留 null 是**刻意的**，不是漏填。
+    // twitter:site / twitter:creator 是**身份声明**：它的内容会被搜索引擎
+    // 当成"这个账号属于本站作者"。此前 base.njk 里写死了两个猜测值
+    // （@meteohub 实测是别人的账号、@oldsixxiaolv 在 X 上根本不存在），
+    // 站点等于在对外声明归属给陌生账号。已改为**没有真实句柄就不输出**。
+    // 填上本人真实的 X 句柄（含 @）后，base.njk 会自动输出这两个 meta。
+    twitterSite: null,
+    twitterCreator: null,
+
     // 源码仓库。页脚的「Edit on GitHub」用它拼 /edit/<branch>/<path> 直达
     // GitHub 网页编辑器——静态站没有后端，这是唯一不需要自建登录就能改内容的
     // 路径，且只有有推送权限的人能提交（改完由 CI 自动重新构建上线）。
@@ -367,6 +377,19 @@ module.exports = {
         // "Thunderstorms stage identification"（Crossref reference 实测）。
         // 少了 s 会和论文里的写法对不上，读者按论文去 Zenodo 核对时看着像另一个东西。
         label: "Thunderstorms stage identification",
+        // —— v2.0 在 Zenodo 上**当前登记的标题**（DataCite 逐字核对）——
+        // 读者点开 DOI 看到的就是这个标题。它与上面的 label（= citeTitle，
+        // 论文参考文献表里那条的写法）不同：同一个 Zenodo 概念允许改标题，
+        // v2.0 发布时把标题改成了论文标题。
+        //
+        // 页面与结构化数据都用这一条当"数据集的名字"——登记名与页面显示名
+        // 不一致才是真问题。而**引用条目**（BibTeX）仍用 citeTitle，与论文
+        // 参考文献表逐字一致：那是"读者在自己论文里怎么写"的问题，
+        // 两种口径各管各的，页面把两个标题都摆出来并说明差异，
+        // 不替作者选边（见 IMPROVEMENT-LOG.md 待决策段）。
+        registeredTitle:
+          "New Insights from TRMM Legacy: Stage-Dependent Relationships Between " +
+          "Lightning and Convective Structure in Thunderstorms Over Tropical Africa",
         author: "Lyu, Y. (2025)",
         doi: "10.5281/zenodo.18041880",
         url: "https://doi.org/10.5281/zenodo.18041880",

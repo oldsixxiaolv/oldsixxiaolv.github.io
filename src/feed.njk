@@ -1,35 +1,53 @@
 ---
-# /feed.xml —— 技术笔记的 RSS 订阅源
+# /feed.xml —— 论文与技术笔记的 RSS 订阅源
 #
-# 之前随内容归档一起删掉了，页脚里留过说明"将来要恢复订阅，重新加 feed.njk
-# 并在这里加回一行即可"。现在补上：订阅源是博客的标配，也是搜索引擎
-# 发现新文章的通道之一（比 sitemap 对"持续更新的内容"更友好）。
+# ⚠️ 2026-10-19 第五轮改过数据源。原来这里只取 collections.blog，
+# 而 collections.blog 是空的（技术笔记都发在 CSDN 上），于是这份 feed
+# **一条 item 都没有**——页脚却实实在在挂着一个 RSS 入口。
+# 一个点开永远是空白的订阅源，比干脆没有订阅源更糟。
 #
-# 数据源：collections.blog（src/content/blog/ 下的 .11tydata.cjs 声明了
-# layout / permalink / 前后篇链接）。目前集合是空的，所以这份 feed 现在
-# 还没有 item——等站内写出第一篇笔记，这里自动就有内容了，模板不用再动。
+# 现在订阅源同时收录：
+#   · 论文（site.publications）——链接指向站内论文页，带摘要、关键词、
+#     数据与代码可用性、引用块。学术访客订阅这个站，真正想收到的就是
+#     "有新论文了"。
+#   · 站内技术笔记（collections.blog）——将来写出第一篇就自动进来，
+#     模板不用再动。
 #
 # ⚠️ 不用 layout：本文件输出 XML，套 HTML 布局会把它包进 <html>。
 permalink: "/feed.xml"
 eleventyExcludeFromCollections: true
 ---
 <?xml version="1.0" encoding="utf-8"?>
-<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom" xmlns:dc="http://purl.org/dc/elements/1.1/">
   <channel>
-    <title>{{ site.title }} · Technical notes</title>
+    <title>{{ site.title }} · Publications and notes</title>
     <link>{{ site.url }}/</link>
-    <description>{{ site.description }}</description>
+    <description>Peer-reviewed papers and technical notes from {{ site.author.name }}.</description>
     <language>{{ site.locale }}</language>
-    {%- set latest = collections.blog[0] -%}
-    <lastBuildDate>{{ (latest.date if latest else page.date) | dateToRfc3339 }}</lastBuildDate>
+    {%- set items = site.publications | feedItems(collections.blog, site.author.name) -%}
+    <lastBuildDate>{{ (items[0].date if items.length else page.date) | dateToRfc3339 }}</lastBuildDate>
     <atom:link href="{{ site.url }}/feed.xml" rel="self" type="application/rss+xml" />
-    {%- for post in collections.blog %}
+    {%- for item in items %}
     <item>
-      <title>{{ post.data.title }}</title>
-      <link>{{ site.url }}{{ post.url }}</link>
-      <guid isPermaLink="true">{{ site.url }}{{ post.url }}</guid>
-      <pubDate>{{ post.date | dateToRfc3339 }}</pubDate>
-      <description>{{ post.data.excerpt or "" | escape }}</description>
+      <title>{{ item.title }}</title>
+      <link>{{ site.url }}{{ item.path }}</link>
+      <guid isPermaLink="true">{{ site.url }}{{ item.path }}</guid>
+      <pubDate>{{ item.date | dateToRfc3339 }}</pubDate>
+      {# ⚠️ 括号不能省：Nunjucks 里 `|` 的优先级高于 `or`，
+         写成 `{{ item.description or "" | escape }}` 实际解析成
+         `item.description or ("" | escape)`——escape 只作用在空串分支，
+         摘要原样输出，XML 里的 & < > 会把文档弄坏。
+         写成 `{{ (item.description or "") | escape }}` 才是整个表达式转义。 #}
+      <description>{{ (item.description or "") | escape }}</description>
+      {%- for c in item.creators %}
+      <dc:creator>{{ c }}</dc:creator>
+      {%- endfor %}
+      {%- if item.doi %}
+      <dc:identifier>https://doi.org/{{ item.doi }}</dc:identifier>
+      {%- endif %}
+      {%- for cat in item.categories %}
+      <category>{{ cat }}</category>
+      {%- endfor %}
     </item>
     {%- endfor %}
   </channel>
