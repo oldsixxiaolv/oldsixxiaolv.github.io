@@ -2799,3 +2799,213 @@ canonical）。**部署由本人决定。**
    本轮不抽象（站点只有一种语言，抽象反而是过度设计）。
 5. **巡检 cron 仍是每 5 分钟起一个会话** → 持续并发冲突（连续三轮都撞见）。
    建议改成 30–60 分钟 + 单写者锁。
+
+---
+
+## 2026-10-19 · 第十三轮（13:06 场次）：分享卡图 alt 同源 + 认人以 ORCID 为锚
+
+> ⚠️ **轮次编号与位置说明**：本场次（13:06）的订正**已经**以行内插入的形式落在
+> 第九轮 / 第十轮 / 「待决策」三处里（见下面 D 节），但**独立章节一直缺着**。
+> 第十四轮曾在段首注明此事。由于本仓库是**多场次并发写同一份日志**，
+> 中段插入（read → 改 → 全量写回）会有**覆盖掉别人并发追加内容**的风险，
+> 因此本段**补写在文末**——编号（第十三轮）才是权威，物理位置不是。
+> 段内引用的行号均为**本段写作时**的快照，追溯时以标识符为准。
+
+### A. 背景
+
+**线上巡检（只读）结论：线上不是新损坏，是旧部署。**
+
+```
+200  https://github.lvyihang.xyz/
+404  https://github.lvyihang.xyz/papers/
+200  https://github.lvyihang.xyz/blog/
+200  https://github.lvyihang.xyz/about/
+404  https://github.lvyihang.xyz/publications.bib
+404  https://github.lvyihang.xyz/feed.xml
+200  https://github.lvyihang.xyz/sitemap.xml
+```
+
+- sitemap 3 条 loc **全带旧前缀** `https://github.lvyihang.xyz/MeteoHub/{,about/,blog/}`；
+- 首页 canonical 与 og:url 均为 `https://github.lvyihang.xyz/MeteoHub/`；
+- 这与第十二轮记载的「待部署」状态**逐条一致** → 是**旧部署**，不是新故障；
+  `/feed.xml` 在线 404 是该状态的组成部分（第十一轮已把 feed 的时间戳改成说真话，
+  但要等部署才生效）。
+
+**外部调研（本轮做过的两件事）**：
+- web_search「og:image:alt twitter:image:alt same description」→ 同一张图在 og 与
+  twitter 上的 alt 应当是**同一句描述**（标准范例里两处同为一句）。
+  → 落成改进点 A。
+- web_search「academic homepage JSON-LD Person ORCID sameAs」→ 学术主页结构化数据
+  最佳实践是 Person 单一稳定 `@id`（`#person` fragment）+ `sameAs` 指向 ORCID。
+  站点**既有做法已符合**（稳定 @id + sameAs 指向 ORCID），**无重大缺口**，
+  → 不重复做，转而落成改进点 B（把「认人」这件事从写死改成有据可依）。
+- `mcp__agu-papers__search_papers` 两次调用均返回 `OpenAlex search failed (HTTP 429)`
+  （瞬时限流），**未取到 AGU 论文样本**。这一点如实记下，不当作"已调研过"。
+
+### B. 改了什么
+
+**改进点 A —— 分享卡图 alt 同源**（`src/_includes/layouts/base.njk`）
+
+- **原状**：`twitter:image:alt` 在"无 cover"分支**独立拼装**
+  `{{ ogTitle }} · {{ site.author.name }}, {{ site.author.jobTitle }}`；
+  而首页 `ogTitle` **本身就含姓名与职位** → 实际产出
+  `"Yihang Lyu · PhD Student · Yihang Lyu, PhD Student"`（姓名与职位重复出现），
+  同一张图在 og 侧却是 `"MeteoHub — Yihang Lyu, PhD Student at IAP-CAS"`。
+  → **同一张图，两处 alt 不是同一句**，且其中一句是重复拼接的。
+- **改动**：twitter 侧**复用 og 侧那一句**——无 cover 用 `{{ ogCardAlt }}`；
+  有 cover 用 `{{ coverAltText or ogCardAlt }}`（与 og 侧完全对称）。
+- **为什么这不是"口味问题"**：`base.njk` 里那段注释**自己就写明**要避免
+  `"Yihang Lyu · PhD Student · Yihang Lyu, PhD Student"` 这串。实现与**自己的注释**
+  相悖，属**代码缺陷**。且本次改动**不引入任何新措辞**——两句都已在站内发布，
+  只是消除分歧与重复。若本人想要 twitter 专属句，是**一行**改动（见 E 节）。
+
+**改进点 B —— 认人以 ORCID 为锚**（`eleventy.config.js`）
+
+- **原状**：`jsonLdArticles` 把 `ownerName` **写死**成 `"Yihang Lyu"`，而
+  `jsonLdPaper` 读 `site.js` → 同一件事（"这个人是不是本站主人"）有**两套**认人逻辑。
+- **第一版（commit `dead243`）只改成"从 site.js 派生"——实测发现更脆**：
+  只改 `site.js` 的 `nameAsPublished`、作者列表不动时（FI-G 场景），派生出的名字
+  与作者列表对不上 → 本人节点**照样丢** canonical @id。
+  也就是说：写死那版隐式钉在作者列表拼写上，派生那版反而把它**显式暴露**了出来。
+- **最终实现：ORCID 优先、姓名兜底**——
+  `ownerOrcidId = A.orcid.split("/").pop().trim()`（`site.js` 存完整 URL
+  `https://orcid.org/0009-0005-3511-0546`，作者列表存裸号 `0009-0005-3511-0546`），
+  `isOwnerAuthor = (a) => (ORCID 相同) || (姓名相同)`；
+  `jsonLdArticles` 与 `jsonLdPaper` **共用这一条**（各自函数体内一份，判据同源）。
+  理由：姓名可变（出版商登记名），**ORCID 稳定**。
+- `base.njk` 的调用改为 `site.publications | jsonLdArticles(site.author, pubKey, site.url)`。
+- **无回归**：重构后 6 个 HTML 产物与上一 commit **逐字一致**
+  （`feed.xml` / `robots.txt` 的差异仅因内嵌构建时刻，比对时本就排除）。
+
+**门禁 22**（`scripts/verify-site.cjs`）—— og/twitter 同图 → alt 必须逐字相同
+
+- 判据：`og:image` 与 `twitter:image` 指向**同一张图**时，两处 alt 必须逐字相同。
+- ⚠️ **不要求该图出现在页面的 `<img>` 里**：门禁 15 只在图出现时才比对 alt，
+  而**分享卡片图恰恰不出现在页面里**——这是门禁 15 看不见的一个盲区。
+- ⚠️ **按图片路径配对，不按出现顺序**：og 侧默认输出 3 个尺寸（1200×630 /
+  1080×1080 / 1500×500），twitter 侧只输出 1200×630；按顺序配对会**错位**。
+
+**门禁 23** —— 本人 ORCID ↔ canonical @id **双向**绑定
+
+- 方向 A：含本人 ORCID 的 Person 节点**必须**有 `SITE_URL + "/#person"`；
+- 方向 B：带该 @id 的 Person 节点**必须**含本人 ORCID。
+- `sameAs` 先归一成数组再判（`Array.isArray(raw) ? raw : raw ? [raw] : []`），
+  兼容**字符串形态**（`jsonLdArticles` 产出）与**数组形态**（`jsonLdPaper` 产出）；
+  比对用**严格相等**而非 `includes` 子串匹配（避免 `0009-...-0546` 命中
+  `0009-...-05461` 这类子串误判）。
+
+**门禁 24** —— 编号元门禁（编号漂移本身也要判红）
+
+- `scripts/verify-site.cjs` **自读本文件**，比对「文件头编号清单」与
+  「代码里的门禁段」必须一一对应、编号唯一、整数连续。
+- 提取规则**只认段首**（否则会把自己脚下的注释也算进去）：
+  清单 `^\s*\*\s+(\d+[a-z]?)\.\s`；代码 `^\s*(?:\/\/|\/\* -+)\s*(\d+[a-z]?)[.)]\s`。
+- 整数连续判定允许 **4b/4c 族**：整数 N 算"存在"可以是 `N` 本身或 `N`+字母后缀族
+  ——本项目**没有**独立的「4」，这一族由 4b（错误页索引控制）与 4c（标题）承担。
+  首版写成"严格连续"导致 build exit 1，已修正为一族判定。
+
+### C. 验证结果
+
+**故障注入 9 例全部通过**（隔离克隆 `/tmp/mh-fi2-mvs82596d`，HEAD 含本轮两个 commit）：
+
+| 编号 | 注入 | 期望 | 实测 |
+|---|---|---|---|
+| FI-A | twitter alt 退回旧写法 | 1 | **1**（命中 5 页：404/about/blog/papers/index） |
+| FI-B | 整条删掉 twitter:image:alt | 1 | **1**（"twitter 侧整条缺失"） |
+| FI-C | 含本人 ORCID 但 @id 指向 `#person-v2` | 1 | **1**（方向 A） |
+| FI-D | 有 canonical @id 但 ORCID 被抹掉 | 1 | **1**（方向 B，"脱钩"） |
+| FI-F | 别人作者节点（Xueke Wu）误挂本人 ORCID | 1 | **1**；**门禁 12 命中 0、门禁 23 命中 1** |
+| FI-E2'' | `jsonLdArticles` 完全退回修复前实现（写死姓名 + 只按姓名认人）+ 改名 | 1 | **1**（@id 节点数 13→9，多页报错） |
+| FI-G | 只改 site.js 的 `nameAsPublished` | 0 | **0**（13/13；**上一版实现这里红**） |
+| FI-H | 从文件头清单删掉门禁 23 登记 | 1 | **1**（"代码里有门禁 23，但文件头清单里没有登记"） |
+| FI-I | 清单里 24 写两遍 | 1 | **1**（"门禁编号在文件头清单里重复：24"） |
+
+> FI-F 同时**订正了日志里一句不准确的话**：原文称门禁 12 对"认不出本人"完全无感
+> ——**实测不准确**。门禁 12 会以另一条规则报「描述 X 的 Person 节点没有 @id」
+> （方向 A），但它**看不见**"名字不匹配的节点"（FI-F：门禁 12 命中 0、门禁 23 命中 1）。
+> 门禁 23 的价值在于**名字无关** + 反向判据 + 指向根因。
+
+**同伴场次的独立复验（13:2x，只读）**：
+- 门禁 22：改 twitter alt → exit 1；改 og alt → exit 1（**反向也拦**）；对照 exit 0。
+- 门禁 23：方向 A → exit 1；方向 B → exit 1；note 报「13 个节点带 ORCID /
+  13 个节点带 @id」→ 判据**非空转**。
+- 门禁 20 / 21 / 16 未回归：门禁 20 4/4 注入 exit 1；门禁 21 两条注入 exit 1；
+  门禁 16 双向——`identityOn404=false` → exit 0（合法口径**不误伤**）、
+  写成 `no` → exit 1。
+
+**干净克隆复验（本轮收尾，HEAD `3bb247e`）**：`npm run build` **exit 0**，
+`check:css` / `check:site` / `check:lang` 全绿。其中两条 note 直接印证本轮的门禁还活着：
+
+```
+· 本人 ORCID https://orcid.org/0009-0005-3511-0546 ↔ canonical @id 双向绑定（13 个节点带 ORCID / 13 个节点带 @id）
+· 门禁编号：文件头清单 27 条 / 代码段 27 条，一一对应且连续
+```
+
+### D. 顺手订正的 4 处过期指引（**已随并发场次的提交落地**）
+
+这 4 处都不是"轮次记录"，而是**本人照着改就会踩雷的操作指引**，优先级高于轮次记录。
+
+1. **第九轮「留给下一轮」第 1 条**（`hasOwnerOn404` 修法）→ 标为
+   **已关闭，且原修法现在照做是*有害的***：缺口已由第十一轮的 `identityOn404`
+   开关 + 门禁 16 双向判据闭合；`hasOwnerOn404` 会把"404 页要不要 Person"这个
+   **未拍板口径**写死进门禁，与开关的承诺冲突。
+2. **第十轮「留给下一轮」第 1 条**（同一处）→ 同样订正。
+3. 第九轮 / 第十轮「留给下一轮」第 2 条（编号元门禁）→ 标为
+   ✅ **第十三轮已做**（门禁 24）。
+4. **「待决策」段**两处**假指引**：
+   - 原文"只需回退 commit 2" → 改成**具体 hash** `54899f1`（= 那段里的 "commit 2"），
+     并补上实测结论：**`git revert 54899f1` 会冲突**
+     （`docs/IMPROVEMENT-LOG.md` 与 `scripts/verify-site.cjs` 两文件冲突；
+     `eleventy.config.js` / `src/sitemap.njk` / `.github/workflows/deploy.yml` 能自动合并）。
+   - 原文"要回退到 C 只需把 `lastCommitTime` filter 改成恒返回空" → **实测是假的**：
+     照做 build **exit 1**、5 条报错，因为**门禁 18 规则 E 正是抓这个**。
+     选 C 必须**同时撤掉门禁 18**，共四步：① filter 恒返回空；
+     ② 整段删门禁 18；③ `src/sitemap.njk` 不用动（`{% if lastmod %}` 自动不输出）；
+     ④ `deploy.yml` 的 `fetch-depth: 0` 可留可去。照此实测 **exit 0**、
+     sitemap 5 条 loc、0 条 lastmod。
+
+### E. 待决策（需要本人拍板，本轮**不擅自决定**）
+
+1. **【本轮新提】`og:image:alt` 与 `twitter:image:alt` 的最终措辞**：
+   本轮已让两处**同源**，消除了重复拼接与两处分歧（首页两处现在都是
+   `"MeteoHub — Yihang Lyu, PhD Student at IAP-CAS"`）。若本人想要 twitter 专属句，
+   改 `base.njk` **一行**即可（无 cover 分支的 `{{ ogCardAlt }}`）。
+2. （沿用）`figure.alt` 是否保留 "Fig. 10 —" 前缀。
+3. （沿用）404 页是否保留 Person 实体（`src/404.njk` 的 `identityOn404`，
+   默认 `true`，本人拍板时**只改这一行**）。
+4. （沿用）sitemap `lastmod` 口径三选一（**选 C 必须按 D 节第 4 条的四步走**）。
+5. （沿用）其余既有待决策项（Scholar/ADS/arXiv 真实 URL、`site.drive.url`、
+   OpenAlex 页脚可见性、X 句柄、数据集两种引用口径、`citation_author_institution`
+   口径、论文页是否显示署名单位、站点根目录用途、是否公开源码、
+   作者 affiliation 与论文 affiliation 不一致等）。
+6. （沿用）**何时 push / 部署**：本地已领先远端 **25** 个 commit
+   （远端仍是 `cfef8269`），线上仍是 2026-10-16 旧部署。
+   **本轮不 push**。
+
+### F. 留给下一轮
+
+1. **sameAs 形态门禁**（**本轮延后**）—— 同伴场次实测出一个盲区：
+   把 sameAs 里的 GitHub 条目改成**死链**（`https://github.com/lvyihang/definitely-not-a-repo`），
+   门禁 **exit 0**，而产物里**确有**这个死链。
+   方向建议（与同伴一致）：**只查形态、不做网络探测**——必须 `https://` 绝对地址，
+   且与 `site.js` **逐字一致**。理由：网络探测的 403 / 000 假阳性太多。
+   **待界定之处**：本人节点的 sameAs 是 `site.js` 里的**数组**（应逐字一致），
+   合著者节点的 sameAs 是 `https://orcid.org/${a.orcid}` **构造值**（只查形态），
+   两类判据要分别界定，不能一刀切。
+2. **加固 C 补丁**（**本轮延后**）—— 门禁 18 的 lastmod 双向加固，
+   补丁与生成脚本在 `/tmp/mvs_dd21f18c_r10/patch_C.diff` 与 `patch_C.py`
+   （同伴在 `dead243` / `02a4911` 两棵树上验过 6/6：V0 exit 0，V1–V5 exit 1）。
+   **重新生成步骤**（当前 HEAD 已改过 `verify-site.cjs`，需重验适用性）：
+   ```bash
+   git clone --no-hardlinks /Volumes/Kingston/Mac/MeteoHub /tmp/base
+   git -C /tmp/base checkout <commit>
+   python3 /tmp/mvs_dd21f18c_r10/patch_C.py /tmp/base /tmp/patch_C.diff
+   ```
+   ⚠️ **坑**：脚本必须传**干净未打补丁**的基线，否则命中 0 次而**作废**。
+   ⚠️ 旧补丁 `/tmp/mh_r9v2/gate18.patch` 基于旧版 `verify-site.cjs`，**不要 apply**。
+3. **「旧编号 → 新编号对照」表补行**（**本轮延后**）—— `scripts/verify-site.cjs`
+   文件头那张表只登记到 `（无）→ 新 19`，**20 / 21 / 22 / 23 / 24 / 25 / 26 都没有行**。
+   其中 **22 / 23 / 24 是本轮的**，理应由本轮补；但该文件此刻正被并发场次编辑
+   （门禁 27 未提交），**本轮不并入以免误伤他人改动**。补法：对齐既有写法，
+   在表尾追加 `（无）→ 新 22 / 23 / 24` 三行（**注意**：不要写成 `*` 开头的行，
+   否则会被门禁 24 的清单提取规则当成"清单条目"）。
