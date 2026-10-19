@@ -46,6 +46,9 @@
  *        Person 节点必须有 canonical @id；有 canonical @id 的必须有本人 ORCID）
  *    24. 门禁编号本身：文件头这份清单与代码里的门禁段必须一一对应、
  *        编号唯一且连续（防止"加了门禁忘了登记"这类漂移）
+ *    25. 每张真实 <img> 必须带 alt 属性（装饰性的图要显式写 alt="" 或
+ *        role="presentation" / role="none"；缺属性 = 判红）
+ *    26. 每张真实 <img> 必须有 width / height 属性（图片解码前的比例预留）
  *
  * 旧编号 → 新编号对照（历史日志/commit 里引用的是旧号，追溯时用这张表）：
  *   旧 1 / 2 / 3      → 新 1 / 2 / 3
@@ -776,14 +779,46 @@ function pairImageAlts(html, prefix) {
   return pairs;
 }
 
+/** 把页面里的 <style> 块与 HTML 注释剔掉，再取出**真实**的 <img> 标签。
+    这两处是"看起来像图、其实不是图"的两个来源：
+      · <style> 里的 CSS 注释 —— src/about.njk 的 .about-hero__photo 规则里
+        有一句字面 "<img> 上的 width/height 属性…"（实测产物里也在），
+        剔不掉就会被当成一张真图；
+      · HTML 注释 —— 模板注释里说明写法时也可能写到 <img>。
+    第 15 / 25 / 26 条共用这一个定义：三处各写一套，早晚有一处漏掉剔除。 */
+function realImgTags(html) {
+  const stripped = html
+    .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, " ")
+    .replace(/<!--[\s\S]*?-->/g, " ");
+  return [...stripped.matchAll(/<img\b[^>]*>/gi)].map((m) => m[0]);
+}
+
+/** 取标签上的某个属性值；没有这个属性返回 null（**空值与没有是两回事**）。 */
+function attrOf(tag, name) {
+  const re = new RegExp(`(?<![\\w:-])${name}\\s*=\\s*"([^"]*)"`, "i");
+  const m = tag.match(re);
+  if (m) return m[1];
+  const re2 = new RegExp(`(?<![\\w:-])${name}\\s*=\\s*'([^']*)'`, "i");
+  const m2 = tag.match(re2);
+  if (m2) return m2[1];
+  const re3 = new RegExp(`(?<![\\w:-])${name}\\s*=\\s*([^\\s>]+)`, "i");
+  const m3 = tag.match(re3);
+  return m3 ? m3[1] : null;
+}
+
+/** 标签上有没有这个属性（不管值是什么）。 */
+function hasAttr(tag, name) {
+  return new RegExp(`(?<![\\w:-])${name}\\s*=`, "i").test(tag);
+}
+
 for (const file of htmlFiles) {
   const html = fs.readFileSync(file, "utf8");
   const from = rel(file);
 
   // 页面上每一张 <img>：站内路径 → 该路径出现过的所有 alt
+  // （realImgTags 剔掉了 <style> 与 HTML 注释里的字面 <img>）
   const imgAlts = new Map();
-  for (const m of html.matchAll(/<img\b[^>]*>/gi)) {
-    const tag = m[0];
+  for (const tag of realImgTags(html)) {
     const src = (tag.match(/\bsrc="([^"]*)"/i) || [])[1];
     if (!src) continue;
     const alt = (tag.match(/\balt="([^"]*)"/i) || [])[1] || "";
@@ -866,7 +901,7 @@ for (const file of htmlFiles) {
    为 false 时豁免"至少一个实体"，只保留"自造类型"判据。开关定义在
    src/404.njk 的 front matter，与 base.njk 读的**是同一处**，不存在漂移可能。
    判据做成**双向**：
-     true  → 404 页必须�� ≥1 个身份类实体（少一个 = 被整块掏空）
+     true  → 404 页必须有 ≥1 个身份类实体（少一个 = 被整块掏空）
      false → 404 页必须**没有**身份类实体（多一个 = 开关与产物不一致）
    ⚠️ 必须双向：从产物侧看"整块掏空"与"按口径去掉"**完全一样**
    （都让 404 页零实体），单向只查"零实体"的话，既会误伤"去掉"的口径，
@@ -1678,6 +1713,100 @@ if (OWNER_ORCID && SITE_URL) {
           `${withOwnerId} 个节点带 @id）`
       : `本人 ORCID ${OWNER_ORCID} ↔ canonical @id 双向绑定（${withOrcid} 个节点带 ORCID / ` +
           `${withOwnerId} 个节点带 @id）`
+  );
+}
+
+/* ---------- 25. 每张真实 <img> 必须带 alt 属性 ----------
+   第 15 条管的是"同一张图在页面里时，og/twitter 的 alt 与 <img alt> 是不是
+   同一句话"；第 22 条管的是"og 与 twitter 的 alt 是不是同一句话"。
+   两条有一个共同的盲区：**这张图压根没有 alt 属性**。
+     · 第 15 条：没有 alt 的图，alt 被当成空串去和 og 侧比；可 og 卡片图
+       与页面里的图多数不在同一路径上 → 那几页**一条都不比对**（实测：
+       首页 / about / papers / blog 四页的 og 卡片图与页面里的图无交集，
+       只有论文页有判别力）→ 漏写 alt 照样全绿；
+     · 第 22 条：只比 og 与 twitter，与页面上的 <img> 无关。
+   → 所以现在补一张 `<img src="…">`（忘了写 alt），**没有任何东西会报**。
+
+   判据（W3C ACT 规则 "Image has non-empty accessible name" 的同一条语义）：
+     每张真实 <img> 至少满足其一：
+       ① 有非空 alt —— 有信息的图；
+       ② alt=""      —— 显式声明"这张图是装饰性的"，读屏软件会跳过它；
+       ③ role="presentation" / role="none" —— 同样表示装饰性。
+     缺 alt 属性（连空串都没有）= 判红：读屏软件会把文件名或 URL 念出来。
+
+   ⚠️ 本门禁只管**属性在不在**，不管**写得好不好**：
+     alt="" 的图到底是不是真的装饰性、alt 写得准不准，属于内容判断。
+   ⚠️ "真实 <img>" 的定义见 realImgTags()：<style> 里的 CSS 注释与
+     HTML 注释里的字面 <img> 都不算（src/about.njk 里就有一处字面 <img>，
+     不剔掉会误伤）。 */
+const allRealImgs = [];
+for (const file of htmlFiles) {
+  for (const tag of realImgTags(fs.readFileSync(file, "utf8"))) {
+    allRealImgs.push({ from: rel(file), tag });
+  }
+}
+{
+  let missing = 0;
+  let decorative = 0;
+  let described = 0;
+  for (const { from, tag } of allRealImgs) {
+    const alt = attrOf(tag, "alt");
+    const role = String(attrOf(tag, "role") || "").trim();
+    const isDecorative =
+      (alt !== null && alt.trim() === "") || /^(presentation|none)$/i.test(role);
+    if (isDecorative) {
+      decorative++;
+      continue;
+    }
+    if (alt === null || alt.trim() === "") {
+      missing++;
+      fail(
+        `${from}: <img> 缺 alt 属性（src="${attrOf(tag, "src") || "(无 src)"}"）—— ` +
+          `读屏软件会把文件名或 URL 念出来；有信息的图写 alt，` +
+          `装饰性的图显式写 alt="" 或 role="presentation"`
+      );
+      continue;
+    }
+    described++;
+  }
+  note(
+    missing === 0
+      ? `全站 ${allRealImgs.length} 张真实 <img>：${described} 张有非空 alt，` +
+          `${decorative} 张显式标记为装饰性，0 张缺 alt`
+      : `全站 ${allRealImgs.length} 张真实 <img>：${missing} 张缺 alt（见上方报错）`
+  );
+}
+
+/* ---------- 26. 每张真实 <img> 必须有 width / height 属性 ----------
+   这个站点多处把"width/height 属性 + CSS aspect-ratio 双保险"当成设计不变量
+   （pages.css 与 components/_paper.css 的注释都写着：width/height 负责图片
+   **解码前**的比例预留，aspect-ratio 兜底）——CLS 因此是 0。
+   但**没有任何门禁守着它**：换图时漏掉这两个属性，CLS 会从 0 变成正数，
+   而构建照过、门禁全绿，只有 Core Web Vitals 面板会悄悄变差。
+
+   判据：每张真实 <img> 必须同时有 width 与 height 属性。
+   ⚠️ 属性**值**不参与判定（本门禁只管"有没有"，不管"对不对"）——
+     尺寸与源图比例是否一致属于内容判断。
+   ⚠️ 为什么不能只靠 CSS aspect-ratio：它要等 CSS 解析完才生效，
+     在那之前盒子没有高度；width/height 是**解析 HTML 时**就能读到的，
+     这正是"解码前预留位置"的关键。 */
+{
+  let missing = 0;
+  for (const { from, tag } of allRealImgs) {
+    const hasW = hasAttr(tag, "width");
+    const hasH = hasAttr(tag, "height");
+    if (hasW && hasH) continue;
+    missing++;
+    const which = !hasW && !hasH ? "width 与 height" : !hasW ? "width" : "height";
+    fail(
+      `${from}: <img> 缺 ${which} 属性（src="${attrOf(tag, "src") || "(无 src)"}"）—— ` +
+        `图片解码前的比例预留靠这两个属性，缺了 CLS 会从 0 变成正数`
+    );
+  }
+  note(
+    missing === 0
+      ? `全站 ${allRealImgs.length} 张真实 <img> 都带了 width / height（解码前的比例预留）`
+      : `全站 ${allRealImgs.length} 张真实 <img>：${missing} 张缺 width / height（见上方报错）`
   );
 }
 
