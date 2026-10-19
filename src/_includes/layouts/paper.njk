@@ -118,6 +118,33 @@ layout: layouts/base.njk
     {%- endif %}
   </section>
   {%- endif %}
+
+  {# —— 成果图 ——
+     论文页此前**一张图都没有**：只有标题、刊名、摘要和一堆链接，
+     读者看不到这项工作"做出来的东西长什么样"。而首页的成果条里明明
+     有这张图（pub.figure，数据在 site.js），这里复用**同一份数据**，
+     不会两处走样。
+     图注标签只写 "Figure"，不写 "Fig. 10"——图号无法从权威元数据核实，
+     站点不替作者断言编号；图注文字与 alt 全部照搬 site.js 里作者自己的
+     原文。
+     src 是根绝对路径，必须走 | relUrl：全站"整个文件夹扔到哪都能跑"
+     靠它。 #}
+  {%- if pub and pub.figure and pub.figure.src %}
+  <figure class="paper-figure">
+    <div class="paper-figure__plate">
+      <img
+        class="paper-figure__img"
+        src="{{ pub.figure.src | relUrl }}"
+        {%- if pub.figure.width and pub.figure.height %} width="{{ pub.figure.width }}" height="{{ pub.figure.height }}"{% endif %}
+        alt="{{ pub.figure.alt }}"
+        loading="lazy"
+        decoding="async" />
+    </div>
+    {%- if pub.figure.caption %}
+    <figcaption class="paper-figure__caption"><span class="paper-figure__caption-tag">Figure</span><span>{{ pub.figure.caption }}</span></figcaption>
+    {%- endif %}
+  </figure>
+  {%- endif %}
   {%- endif %}
 
   {%- if not pub %}

@@ -525,6 +525,202 @@ Dataset.isPartOf   → 文章 @id
 
 ---
 
+## 2026-10-19 · 第六轮：结构化数据的"人"与"资助"、论文页成果图、导出口径对齐
+
+### ⚠️ 本轮的并发情况与**归属**（先说清楚，避免以后误判）
+
+巡检 cron **每 5 分钟起一个会话**，本轮开始时同一工作区里同时跑着 **4 个**
+MeteoHub 会话（10:10 / 10:20 / 10:25 / 10:30），它们各自按同一份任务书干活，
+工作树里因此堆着未提交改动。
+
+本场次（**10:35**，`mvs_b348dad6bacc4e88b0828bbcf619b257`）的处理：
+
+1. `mavis session list` 列出全部会话，按 `createdAt` 排出真实时序；
+2. 用 `session send --force_steer` 向 4 个在跑的会话发停手通知；
+3. 连续采样文件 mtime，确认工作树稳定（停在 10:35:32）；
+4. 与 **10:30** 会话协商**按文件所有权分工**，两边不重叠地并行推进。
+
+**归属（写进永久记录，不能含糊）：**
+
+| 场次 | 写了什么 | 提交在哪 |
+|---|---|---|
+| **10:20**（`mvs_92ad8886`） | 只提出两条改进点（论文页成果图 / `.bib` 导出口径），**未写文件** | — |
+| **10:25**（`mvs_f90f87c4`） | 只读核查，交接了一批已核实事实，**未写文件** | — |
+| **10:30**（`mvs_b804f0ae`） | `eleventy.config.js` + `base.njk` 的 A 部分（og:type / article:* / Person @id / funder·grant / 胶囊 citation） | `fff908a` |
+| **10:35**（本场次） | `base.njk` 补 `site.url` 那一行（随 `fff908a` 一并提交）、`paper.njk`、`_paper.css`、`publications.bib.njk`、`verify-site.cjs`、本日志 | 本轮提交 |
+
+### A. 结构化数据：把"同一个人"和"一笔资助"说清楚（10:30 写）
+
+**背景**：前五轮把论文页、可复现性、元数据都补齐了，但结构化数据里还有三处
+**说错了地方**，都是那种"页面照出、构建照过、没有任何报错"的静默缺陷：
+
+1. **`og:type` 判错了页面性质。** `base.njk` 写的是"除首页外一律 `article`"，
+   于是 `/about/`、`/blog/`、`/papers/` 列表页、`/404.html` **统统自称 article**
+   ——它们都不是文章。ogp.me 的 Types 段原文："Any non-marked up webpage should
+   be treated as og:type website"。现改为：**只有论文详情页**（front-matter 有
+   `pubKey`）才是 `article`，其余一律 `website`。
+2. **声明了 article 却没有一个 `article:` 属性。** 论文页此前 `article:*` 一个都没有，
+   分享卡片拿不到发表日期与刊名（这两项 `site.js` 里都有权威出处）。现补
+   `article:published_time`（2026-06-01）、`article:section`（刊名）、
+   `article:author` ×7。
+3. **同一个人被声明成了 6 个人。** `base.njk` 的 Person 实体写的是
+   `"url": "{{ site.url }}{{ page.url }}"`，于是 Yihang Lyu 在 6 个页面上分别
+   声明了 6 个不同的 url。现改为 `"@id": "<站点根>/#person"` + `"url": "<站点根>/"`，
+   并让 `jsonLdPaper` 的作者、数据集/胶囊的 `creator` **共用同一个 `@id`**——
+   schema.org 里 `@id` 相同才会被合并成一个节点。全站现在 14 个"本人"节点、
+   1 个 `@id`。
+
+**资助信息也进了结构化数据**：基金号此前只是页面上的可见文字，机器读不到。
+现按 schema.org 官方定义输出 `funder`（资助机构）与 `grant`
+（`Grant` 类型，自带 `funder` + `award`），数据源与页面可见文本同源
+（`site.js` 的 `pub.funding`），不会出现"页面写 NSFC、结构化数据写别的"。
+
+**胶囊与文章改成双向引用**：DataCite 把胶囊登记为 `IsSupplementTo` 指向本文，
+而 schema.org **没有** `isSupplementTo` 这个属性（实测 `schema.org/isSupplementTo`
+→ 404），对应写法是 `citation`。现文章 `citation` → 胶囊、胶囊 `citation` → 文章，
+两边靠 `@id` 对上。
+
+### B. 论文页补成果图 + 导出文件与页面对齐（10:35 写）
+
+**B-1 论文独立页此前一张图都没有。** 只有标题、刊名、摘要和一堆链接，读者
+看不到这项工作"做出来的东西长什么样"。而首页成果条里明明有这张图
+（`pub.figure`），**同一份数据、同一个资产**，论文页直接复用，不会两处走样。
+窄屏沿用首页的做法：图按 680px 最小宽度渲染、在容器内横向滑动
+（1400px 的图压到 390px 视口只有 0.26 倍，坐标轴刻度只剩 5px 高）。
+
+⚠️ **图号不自己编**：Crossref 的 JATS 摘要里 `<fig>` 数量为 0，无法核实
+"Fig. 10"这个编号，所以图注标签只写 "Figure"，**不新增任何可见的 "Fig. 10" 徽章**
+（那属于无法核实的断言）。图注文字与 alt 全部照搬 `site.js` 里作者自己的原文。
+
+**B-2 `/publications.bib` 只导出论文，漏了数据集与胶囊。** 论文页有 **3 个
+Copy 按钮**（论文 / 数据集 / 胶囊），而下载的 `.bib` 文件里**只有论文那一条**
+——读者下载后会以为数据没有引用条目。现三条都导出，与论文页的 Copy 按钮
+**逐字一致**（同一个 filter、同一份数据）。
+
+### ⚠️ 本轮修掉的一个真 bug：少传一个实参，作者实体变成相对路径
+
+10:30 把 `jsonLdArticles` 的签名改成 4 参
+（`eleventy.config.js:541` `(pubs, ownerOrcid, excludeKey, siteUrl)`），
+用 `siteUrl` 拼"本人"的 `@id`；但 `base.njk` 的调用**只传了 2 个**。
+JS 把多余的实参**静默丢弃**（不报错、页面照出、构建照过），
+于是作者实体输出 `"@id": "/#person"`、`"url": "/"`——**相对路径不是合法 IRI**，
+而且与同页 Person 实体的绝对 `@id` 对不上，等于把"同一个人被读成 6 个人"
+这个坑换个形式再犯一次。
+
+这与**第三轮**踩过的是同一个坑（`excludeKey` 少传 → 论文页出现重复论文实体）。
+**改法**：`| jsonLdArticles(site.author.orcid, pubKey, site.url)`。
+已由门禁第 11 条兜住（见下）。
+
+### 新增 4 条门禁（`scripts/verify-site.cjs`）
+
+历轮的验收都是手工做的，写错了不会自动拦下来。本轮把这一轮新引入的
+**四类静默缺陷**固化成门禁，并**逐条做了故障注入**——
+"永远通过的检查比没有检查更糟"：
+
+| # | 门禁 | 拦的是哪类 bug |
+|---|---|---|
+| 11 | JSON-LD 里所有 `@id` / `url` 必须是绝对 http(s) 地址 | filter 少传实参 → 相对路径 IRI |
+| 12 | `og:type` 与页面性质一致；`article:*` 只许出现在 article 页 | og:type 判错 / article 扩展挂错页 |
+| 13 | 全站描述"本人"的 Person 节点必须共用同一个 `@id` | 同一个人被读成多个人 |
+| 14 | `publications.bib` 的条目与论文页可复制的 BibTeX 块**逐字一致** | 页面加了 Copy 按钮、文件没同步 |
+
+⚠️ **第 13 条的第一版有个洞，被故障注入测出来了**：初版是"凡是 `@id` 以
+`#person` 结尾的都算本人节点"。注入时把某页的 `@id` 改成 `.../#person-v2`
+（形状变了、语义上仍是本人），门禁因为"结尾不再是 `#person`"而**根本没看见
+这个节点**，exit 0 —— 一个抓不到人的检查比没有检查更糟。改为**按人名
+（`site.author.nameAsPublished`）找节点**后，改形状也逃不掉。
+
+**故障注入结果（9 项，全部拦下）**：
+
+| 注入的故障 | 门禁反应 | 结果 |
+|---|---|---|
+| Person `@id` 改成相对路径 `/#person` | 报"JSON-LD 的 @id 是相对地址" | exit 1 ✓ |
+| `/about/` 的 `og:type` 改成 article | 报"非文章页的 og:type 应为 website" | exit 1 ✓ |
+| 某页的本人 `@id` 改成 `#person-v2` | 报"全站出现了 2 个不同的本人 @id" | exit 1 ✓ |
+| 非文章页挂上 `article:published_time` | 报"非文章页却带了 article:* 属性" | exit 1 ✓ |
+| 抽掉论文页作者节点的 `@id` | 报"描述 Yihang Lyu 的 Person 节点没有 @id" | exit 1 ✓ |
+| 数据集 creator 的 `@id` 改成另一个值 | 报"全站出现了 2 个不同的本人 @id" | exit 1 ✓ |
+| `.bib` 里删掉数据集那条 | 报"文件有 2 条但页面有 3 个可复制块" | exit 1 ✓ |
+| `.bib` 里数据集的 doi 改掉 | 报"有可复制块在 .bib 里找不到逐字相同的条目" | exit 1 ✓ |
+| `.bib` 条目类型改成 `@misc` | 报"条目不是 @article/@dataset/@software" | exit 1 ✓ |
+
+**顺带修掉的一处死代码**：`verify-site.cjs` 的 `notes` 是**只写不读**的累加器
+（`note()` 从未被调用，`notes.push` 写进去也没人打印）。现在统一走 `note()`，
+并在汇总里逐条打印。
+
+**新增 `SITE_DIR` 环境变量**：故障注入时如果直接改 `_site`，会与并发的 build
+抢同一个目录，还可能在 exFAT 卷上留下 `._*` 资源叉。指向 `/tmp` 下的副本就没有
+这两个问题。
+
+### 调研来源与核实方式
+
+- **og:type / article 扩展**：ogp.me 根页的 Types 段与 Article object 段
+  （`ogp.me/docs/article` 等路径已 404，站点改版）。
+- **schema.org 的 `funder` / `grant`**：schema.org 官方定义
+  （`funder` 的 RDF 段落；`Grant` 类型的 `funder` + `award` 字段）。
+- **`Grant` 类型的存在**：`funder` 的 "Used on these types" 里列了 `Grant`。
+- **胶囊与论文的关系**：DataCite 对 `10.24433/CO.6720035.v1` 的
+  `relatedIdentifiers` 登记为 `IsSupplementTo`；schema.org 无 `isSupplementTo`
+  属性（实测 404），故用 `citation`。
+- ⚠️ `mcp__agu-papers__search_papers` 仍持续 `OpenAlex search failed (HTTP 429)`
+  ——是**瞬时限流**，不代表"查无此论文"。AGU 侧一律以 Crossref / DataCite 的
+  官方记录为准。
+
+### 验证结果
+
+- `npm run build` **exit 0**；`check:css` 通过（15 个文件）；`check:site` 通过
+  （6 个 HTML 页、**127 条本地引用**、5 条 sitemap URL）
+- 4 条新门禁 + 9 项故障注入**全部按预期拦下**（见上表）
+- `publications.bib`：**3 条**（`@article` / `@dataset` / `@software`），条目间空一行；
+  与论文页 3 个 Copy 按钮**逐字一致**
+  - 数据集条目**不含 version 字段**（`citeVersion` 故意留空，与论文
+    reference[29] 逐字一致，见第四轮）
+  - 胶囊条目 `version = {1.0}`（标题/DOI/版本号三者本就一致）
+- 论文页 `<figure class="paper-figure">` **1 个**；`src` = `../../assets/img/publications/trmm-fig10.jpg`
+  （走 `| relUrl`，**零个根绝对路径**，"整个文件夹扔到哪都能跑"仍成立）；
+  `width=1400 height=745`（零 CLS）
+- **横向溢出检测**：6 个页面在 390px 视口下 `scrollWidth` 全部 = 390，
+  **无横向溢出**；成果图是**容器内**有意横滚（`img.paper-figure__img`），
+  不会让整页出现横向滚动条
+- JSON-LD：`@id` / `url` 全部为绝对地址；14 个"本人"节点共用一个 `@id`
+  `https://github.lvyihang.xyz/#person`
+- 打印样式**无需改动**：`print.css` 里已有裸 `figure` 选择器，
+  `.paper-figure` 是 `<figure>` 元素，已被 `break-inside: avoid` 覆盖
+
+### ⚠️ 线上仍是旧版本（待部署，**不是站点损坏**）
+
+本轮实测（10:35，**9 条**路由，逐条 `curl -w '%{http_code}'`）：
+
+| 线上路由 | 状态 |
+|---|---|
+| `/` | 200 |
+| `/papers/` | **404** |
+| `/papers/trmm-thunderstorm-stages/` | **404** |
+| `/blog/` | 200 |
+| `/about/` | 200 |
+| `/publications.bib` | **404** |
+| `/feed.xml` | **404** |
+| `/sitemap.xml` | 200 |
+| `/robots.txt` | 200 |
+
+即 **5 条 200 + 4 条 404**。4 条 404 全部是**本地已存在、本地正常**的产物
+（`/papers/` 列表页、论文详情页、`.bib` 导出、`feed.xml`），
+在**本地 `_site` 里都实测存在且内容正确**——这正是"待部署而非损坏"的判据。
+（论文详情页 `/papers/trmm-thunderstorm-stages/` 是第三轮新增的路由，
+前几轮日志只记了 3 条 404，本轮补齐为 9 条实测。）
+
+**比前几轮记录的"sitemap 还带前缀"更严重一层**：线上首页的
+`<link rel="canonical">` 与 `<meta property="og:url">` **都是**
+`https://github.lvyihang.xyz/MeteoHub/`（实测该 URL **404**），
+线上 `sitemap.xml` 的 3 条 `<loc>`（`/MeteoHub/`、`/MeteoHub/about/`、
+`/MeteoHub/blog/`）**全部 404**。
+
+性质是**待部署**——线上还是 2026-10-16 的部署，本地 `site.url` 已经是
+`https://github.lvyihang.xyz`（无前缀），本地 canonical / sitemap 全部正确。
+**本任务禁止 push，部署由本人决定**；本轮全部改动只在本地。
+
+---
+
 ## 待决策（需要本人拍板，任务不会自己动）
 
 
@@ -539,6 +735,8 @@ Dataset.isPartOf   → 文章 @id
   "中科院大气物理研究所"，而这篇论文的 affiliation 是 "Lanzhou University"。
   两者可能同时成立（读研单位 vs 论文单位），但学术主页上"我是谁"只有一个答案。
   属于事实性内容，不擅自改，需要本人确认该写哪个（或怎么表述）。
+  （**第六轮补充**：结构化数据层面已用 `alumniOf` 把两者分开了，见本节
+  "论文当时的单位要不要也显示出来"那条。）
 - **`citation_author_orcid` 暂不输出**：7 位作者里只有 3 位有 ORCID，而该标签是
   **按位置配对**的，只给 3 个会让 Zotero 把 ORCID 挂到错误的人身上。
   现在的做法是：ORCID 在 JSON-LD 与页面可见链接里**逐人绑定**，
@@ -567,3 +765,79 @@ Dataset.isPartOf   → 文章 @id
   第五轮把两个都摆出来并注明差异（读者点 DOI 看到的 / 论文里引用的），
   属于**展示口径**的取舍。若本人更希望只显示其中一个，改 `paper.njk`
   里那段 `registeredTitle` 判空即可。
+- **`citation_author_institution` 暂不输出——是"口径未定"，不是"会错挂"**（第六轮新增）：
+  ⚠️ 这里更正过一轮：最初的理由写的是"只给 1 条会把 'Lanzhou University'
+  错挂到第一作者 Xueke Wu 名下"，**该理由与 Crossref 出版商登记不符**。
+  2026-10-19 重新拉 `api.crossref.org/works/10.1029/2026JD046836` 逐作者打印，
+  实测结果是 **7 位作者（含第一作者 Wu, Xueke）的 affiliation 字符串逐字相同**，
+  7 条去重后**只剩 1 个值**：
+  `College of Atmospheric Sciences/Key Laboratory for Semi‐Arid Climate Change of the Ministry of Education Lanzhou University  Lanzhou China`
+  ——所以"给 7 条同值"恰恰**与出版商登记完全一致**，不构成错挂。
+  真正待定的是**口径**：
+  ① 出版商登记的是**完整串**（学院 + 重点实验室 + 城市 + 国家），
+     站内 `site.js` 只有短式 `pub.affiliation = "Lanzhou University"`（L357），
+     **完整串字段 `fullAffiliation` 全仓 0 命中**，要逐字输出需先建该字段
+     （还得把 U+2010 连字符换成 ASCII `-`、双空格并成单空格、补回逗号）；
+  ② `citation_*` 是**引用元数据**，按 Highwire 惯例应反映**发表时**的单位
+     （Lanzhou 口径），而 `site.author.affiliation = "中科院大气物理研究所"`（L77）
+     是**当前**单位——两者是不同时间点，不矛盾，也不能互相覆盖。
+  本轮选择**一条都不给**。要加的话请拍板：**短式 ×7**，还是**出版商原文 ×7**？
+- **404 页缺 `noindex`，还发着 canonical 和全站 JSON-LD**（第六轮新增，实测）：
+  404 页由 `src/404.njk`（布局 `layouts/page.njk` → `layouts/base.njk`）生成，
+  逐项实测产物 `_site/404.html`：
+  - `og:type` = **`website`** ✓ 正确——第三轮定的规则（只有带 `pubKey` 的论文页
+    才算 `article`）在 404 页上**没有**误判，这条**不用改**；
+  - **完全没有 `noindex`**（`grep -c noindex` = **0**）← 这是**真实缺陷**，
+    404 页面会被搜索引擎当正常页面收录；
+  - **发着 canonical** 指向 `https://github.lvyihang.xyz/404.html`（指向自身）；
+  - **带着全站 JSON-LD**，实测 `@type` 去重后含
+    `Person` / `ScholarlyArticle` / `Grant` / `MediaObject` / `Organization` /
+    `Periodical`——即 404 页上挂着一篇论文的实体。
+  规范做法是：**404 不发 canonical**、**保留 `noindex`**、**不发结构化数据**。
+  本轮**没有顺手改**：①超出"1–2 个改进点"的范围；②`base.njk` 的 meta 是
+  全站共用的，改错会让 404 页**连 noindex 都保不住**，反而更糟。
+  要改是独立一个小改动（`404.njk` 走一套独立的 meta 分支），可以下一轮做。
+- **`date:` 被同时用作三种含义，sitemap `lastmod` 与 robots "生成时间" 都不真实**（第六轮新增，实测）：
+  本机时区是 **PDT（UTC-7）**，以下时间已按此换算过：
+  - `sitemap.njk` 用的是 `entry.date`。对**模板页**而言 `entry.date` = 源文件的
+    **birthtime**（创建时间），不是 mtime、也不是提交时间。实测：
+    `src/index.njk` birth = 2026-10-01 20:35:40 PDT → sitemap `lastmod` =
+    `2026-10-02T03:35:40.690Z`；而它 mtime 是 2026-10-15、最后一次提交是
+    2026-10-19 10:39。**三者互不相等。**
+  - `robots.txt` 里那行 `# 生成时间：2026-10-02T04:29:21.600Z`，
+    **正好等于 `src/robots.njk` 的 birthtime**（实测 birth = 2026-10-01 21:29:21 PDT）。
+    它**不是构建时间**，而且**永远停在 10-02**——站点实际是 10-19 建的。
+    这是个**会误导人的标签**，比单纯"不准"更糟。
+  - `feed.xml` 的 `lastBuildDate` 取 `items[0].date`（最新条目的 date），
+    实测 = `2026-06-01T00:00:00.000Z`，也是**论文发表日**、不是构建时间。
+  - 根因：`date:` 这一份前置数据被**同时用作**①发表日期（feed `pubDate`、
+    `citation_publication_date`）②最后修改时间（sitemap `lastmod`）
+    ③生成/构建时间（robots 的"生成时间"、feed 的 `lastBuildDate`）。
+  - **不能直接改 `date:`**——它对 feed 的 `pubDate` 和论文引用是**对的**
+    （`paper.md` 的 `date: 2026-06-01` 就是发表日），改它会连带污染
+    `citation_publication_date` 等**语义正确**的字段。
+  - 正确改法：另加**只给 sitemap 用**的独立 filter（取 git 最后提交时间），
+    并把 robots 的"生成时间"改成真正的构建时间（需要给模板传入构建时刻）。
+  本轮**未实施**：属于"改一个 filter + 改一处标签"的独立小改动，
+  且需要本人确认是否值得（`lastmod` 本身对 SEO 影响有限，但 robots 那行
+  **标错了**）。
+- **"论文当时的单位"要不要在**论文页**也显示出来**（第六轮新增，实测后订正过一轮）：
+  ⚠️ 最初写的是"读者在论文页的作者信息里看到 Lanzhou University"——**实测不符**，
+  论文详情页的可见文本里**根本没有单位**（`grep -c home-pub__aff` = 0，作者行只有 7 个名字）。
+  实测后的真实情况是：
+  - **首页**的成果卡片（`partials/publications.njk:173` 的 `.home-pub__aff`）
+    **会显示** "Lanzhou University"，位置就在作者名下面——
+    这才是可能引起误读的地方：同一屏上方 hero 牌子写的是
+    "PhD Student · IAP-CAS"（**当前**单位），下方成果卡写的是兰州大学；
+  - **论文详情页**不显示任何单位；
+  - 论文的 `ScholarlyArticle.author` 节点**没有** `affiliation` 字段
+    （7 个 author 节点实测全部为 `None`）；
+  - **Person 节点的语义已经是分开的**（`base.njk:323-336`）：
+    `affiliation` = IAP-CAS（**现在在这里**），
+    `alumniOf` = `CollegeOrUniversity` "Lanzhou University"（**曾就读**）——
+    结构化数据层面**不矛盾**，`alumniOf` 的用法也准确。
+  所以真正要拍板的不是"两个单位哪个对"，而是**要不要在论文页补一行署名单位**，
+  以及补的话用哪个口径（发表时的兰州大学 / 现在的中科院 / 两个都写并注明
+  "论文署名单位"）。数据侧缺的是 `pub.authorAffiliations` 这类
+  **逐作者单位**字段（Crossref 里 7 位作者是同一个单位串，所以统一值也够用）。
+  本轮**没有擅自加**——这属于事实性内容 + 展示口径，需本人拍板。

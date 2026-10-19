@@ -10,6 +10,30 @@
 permalink: "/publications.bib"
 eleventyExcludeFromCollections: true
 ---
+{# 导出三类条目：论文本身、数据集、可复现胶囊。
+
+   为什么后两类也要在同一个文件里：论文页的 "Data and code availability"
+   给了 3 个 Copy 按钮（论文 / 数据集 / 胶囊），读者最省事的做法就是
+   **下载一个 .bib 文件全拿走**。此前这个文件只有论文那一条——论文页能
+   复制 3 条、文件里只有 1 条，两处口径不一致，读者下载后会以为数据
+   没有引用条目。
+   三条都走同一批 filter（bibtex / resourceBibtex）与同一份数据，
+   与论文页的 Copy 按钮**逐字一致**，不存在两处走样。
+
+   条目之间空一行（BibTeX 的通行分隔方式），末尾带一个换行。
+
+   ⚠️ 为什么用 `set _ = entries.push(...)` 而不是 `{{ entries.push(...) }}`：
+   前者求值后**不输出**（push 的返回值是数组长度，输出出来会变成 "1 2 3"）；
+   后者会把长度数字混进 .bib 文件里。写成 `{%- entries.push(...) -%}` 也不行
+   —— 那是**块标签**（`{% %}`），Nunjucks 会报 "unknown block tag"。 #}
+{%- set entries = [] -%}
 {%- for p in site.publications -%}
-{{ p | bibtex }}
-{% endfor -%}
+  {%- set _ = entries.push(p | bibtex) -%}
+  {%- if p.software and p.software.citeTitle -%}
+    {%- set _ = entries.push(p.software | resourceBibtex("dataset")) -%}
+  {%- endif -%}
+  {%- if p.capsule and p.capsule.citeTitle -%}
+    {%- set _ = entries.push(p.capsule | resourceBibtex("software")) -%}
+  {%- endif -%}
+{%- endfor -%}
+{{ entries | join("\n\n") }}

@@ -26,7 +26,12 @@
 const fs = require("fs");
 const path = require("path");
 
-const SITE = path.resolve(__dirname, "../_site");
+// 产物目录。默认是仓库里的 _site；SITE_DIR 只是给"故障注入"用的——
+// 改产物做注入测试时如果直接改 _site，会和并发的 build 抢同一个目录，
+// 也可能在 exFAT 卷上留下 ._* 资源叉。指向 /tmp 下的副本就没有这两个问题。
+const SITE = process.env.SITE_DIR
+  ? path.resolve(process.env.SITE_DIR)
+  : path.resolve(__dirname, "../_site");
 const problems = [];
 const notes = [];
 
@@ -91,6 +96,8 @@ function resolveLocal(fromFile, raw) {
 
 let refCount = 0;
 let absoluteCount = 0;
+// 每页解析成功的 JSON-LD 记录，供第 11 / 13 条门禁复查
+const ldRecords = [];
 
 for (const file of htmlFiles) {
   const html = fs.readFileSync(file, "utf8");
@@ -117,11 +124,13 @@ for (const file of htmlFiles) {
   // 2) JSON-LD 能否解析
   const ldBlocks = [...html.matchAll(/<script[^>]*type\s*=\s*"application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/gi)];
   for (const m of ldBlocks) {
+    let parsed = null;
     try {
-      JSON.parse(m[1]);
+      parsed = JSON.parse(m[1]);
     } catch (e) {
       fail(`${from}: JSON-LD 解析失败 —— ${e.message}`);
     }
+    if (parsed) ldRecords.push({ from, parsed });
   }
 
   // 3) canonical 与 og:url 是否一致
@@ -238,7 +247,7 @@ if (!fs.existsSync(feedPath)) {
       fail(`feed.xml 第 ${feedItemCount} 条 item 的 link "${link}" 在产物里找不到对应页面`);
     }
   }
-  notes.push(`feed.xml ${feedItemCount} 条 item`);
+  note(`feed.xml ${feedItemCount} 条 item`);
 }
 
 /* ---------- 7) 论文页必须声明数据集与可复现胶囊 ----------
@@ -333,9 +342,186 @@ if (siteData) {
   }
 }
 
+/* ---------- 9. JSON-LD 里的 @id / url 必须是绝对地址 ----------
+   这条门禁是被一个真 bug 逼出来的：eleventy.config.js 的 jsonLdArticles
+   签名有 4 个形参（pubs, ownerOrcid, excludeKey, siteUrl），但 base.njk
+   的调用只传了 2 个——JS 把多余的实参**静默丢弃**（不报错、页面照出），
+   于是"本人"的 @id 被拼成相对路径 "/#person"。
+
+   后果有两层，都很安静：
+     ① 相对路径不是合法 IRI，消费方按相对路径解析会失败；
+     ② 它与同一个页面上 Person 实体的绝对 @id 对不上——"同一个人被读成
+        6 个人"这个坑换个形式再犯一次。
+   页面不会报错、构建不会失败、页面照出，只有懂行的人读得出来。
+   所以这类"实参数量对不上"的 bug 必须有机器门禁兜住。 */
+const ABSOLUTE_URL = /^https?:\/\//i;
+function collectNodes(node, out = []) {
+  if (Array.isArray(node)) {
+    node.forEach((n) => collectNodes(n, out));
+    return out;
+  }
+  if (!node || typeof node !== "object") return out;
+  out.push(node);
+  for (const v of Object.values(node)) collectNodes(v, out);
+  return out;
+}
+for (const { from, parsed } of ldRecords) {
+  for (const node of collectNodes(parsed)) {
+    for (const key of ["@id", "url"]) {
+      const v = node[key];
+      if (typeof v !== "string") continue;
+      if (!v.trim()) continue;
+      if (!ABSOLUTE_URL.test(v.trim())) {
+        fail(
+          `${from}: JSON-LD 的 ${key} 是相对地址 "${v}" —— 必须是绝对 URL` +
+            `（多半是 filter 少传了一个实参，实参被 JS 静默丢弃）`
+        );
+      }
+    }
+  }
+}
+
+/* ---------- 10. og:type 要与页面性质一致 ----------
+   此前 base.njk 写的是"除首页外一律 article"，于是 /about/、/blog/、
+   /papers/ 列表页、/404.html 统统自称 article——它们都不是文章，
+   分享卡片与聚合器会按文章语义解读它们（取 article:published_time 等）。
+   ogp.me 的 Types 段原文："Any non-marked up webpage should be treated
+   as og:type website"。只有论文详情页（front-matter 有 pubKey）才是文章。
+
+   同时校验 article:* 只出现在 og:type=article 的页面上——这两件事是
+   一条规则的两面：声明自己是文章，就得带文章的属性；不是文章的页面，
+   就不许挂 article:* 冒充。 */
+const isPaperDetail = (r) => /^papers\/[^/]+\/index\.html$/.test(r);
+for (const file of htmlFiles) {
+  const from = rel(file);
+  const html = fs.readFileSync(file, "utf8");
+  const ogType = (html.match(/<meta[^>]*property\s*=\s*"og:type"[^>]*content\s*=\s*"([^"]*)"/i) || [])[1];
+  const wantsArticle = isPaperDetail(from);
+  if (!ogType) {
+    fail(`${from}: 缺 og:type`);
+    continue;
+  }
+  if (wantsArticle && ogType !== "article") {
+    fail(`${from}: 论文详情页的 og:type 应为 article，实际是 "${ogType}"`);
+  }
+  if (!wantsArticle && ogType !== "website") {
+    fail(`${from}: 非文章页的 og:type 应为 website，实际是 "${ogType}"`);
+  }
+  const articleMetas = [...html.matchAll(/<meta[^>]*property\s*=\s*"(article:[^"]+)"[^>]*content/gi)];
+  if (!wantsArticle && articleMetas.length) {
+    fail(
+      `${from}: 非文章页却带了 ${articleMetas.length} 个 article:* 属性` +
+        `（${articleMetas.map((m) => m[1]).join(", ")}）——og:type 与 article 扩展必须一致`
+    );
+  }
+  if (wantsArticle && !articleMetas.length) {
+    fail(`${from}: 论文页 og:type=article 却没有一个 article:* 属性——分享卡片拿不到发表日期/刊名/作者`);
+  }
+}
+
+/* ---------- 11. 全站"本人"的 @id 必须只有一个取值 ----------
+   schema.org 里 @id 是"同一个实体"的稳定标识：不同页面上描述同一个人的
+   节点，@id 相同才会被合并成一个节点；不同就会被当成多个人。
+   站点上描述"本人"的节点有好几处来源（base.njk 的 Person 实体、
+   jsonLdPaper 的作者、jsonLdArticles 的作者、数据集/胶囊的 creator），
+   必须共用同一个 @id。
+
+   ⚠️ 判据是**按人名找节点**，不是按 @id 的长相（不是"凡是 #person 结尾
+   的都算"）。早先的第一版就是这么写的，结果**故障注入测不出来**：
+   把某页的 @id 改成 ".../#person-v2"（形状变了，语义上仍是"本人"），
+   门禁因为"结尾不再是 #person"而根本没看见这个节点，exit 0 —— 一个
+   永远抓不到人的检查比没有检查更糟。改成人名匹配后，改形状也逃不掉。 */
+const OWNER_NAME = (siteData && siteData.author && siteData.author.nameAsPublished) || "Yihang Lyu";
+const ownerIds = new Set();
+let ownerNodes = 0;
+for (const { from, parsed } of ldRecords) {
+  for (const node of collectNodes(parsed)) {
+    if (node["@type"] !== "Person") continue;
+    if (String(node.name || "").trim() !== OWNER_NAME) continue;
+    ownerNodes++;
+    const id = node["@id"];
+    if (typeof id !== "string" || !id.trim()) {
+      fail(`${from}: 描述"${OWNER_NAME}"的 Person 节点没有 @id —— 消费方会把它当成另一个独立的人`);
+      continue;
+    }
+    ownerIds.add(id.trim());
+  }
+}
+if (ownerIds.size > 1) {
+  fail(
+    `全站出现了 ${ownerIds.size} 个不同的"本人" @id（${[...ownerIds].join(", ")}）` +
+      `——同一个实体必须用同一个 @id，否则会被读成多个人`
+  );
+} else if (ownerIds.size === 1) {
+  note(`"本人"实体 @id = ${[...ownerIds][0]}（${ownerNodes} 个节点，全站统一）`);
+} else if (ownerNodes === 0) {
+  fail(`产物里找不到任何描述"${OWNER_NAME}"的 Person 节点`);
+}
+
+/* ---------- 12. /publications.bib 必须与论文页的 Copy 按钮逐字一致 ----------
+   论文页给了 3 个 Copy 按钮（论文 / 数据集 / 胶囊），而 /publications.bib
+   是读者下载全部引用的入口。此前这个文件**只有论文那一条**：页面能复制
+   3 条、文件里只有 1 条，两处口径不一致——读者下载后会以为数据没有
+   引用条目。
+
+   判据不看"应该有几条"（那是写死的数），而看**两处文本是否逐字相同**：
+   把 .bib 的条目与论文页 <pre class="paper-cite__bibtex"> 块的内容一一
+   对比。这样将来加了新资源、加了论文，两边自动跟着变，不会再错位。 */
+const bibPath = path.join(SITE, "publications.bib");
+if (!fs.existsSync(bibPath)) {
+  fail("产物里没有 publications.bib");
+} else {
+  const bibText = fs.readFileSync(bibPath, "utf8");
+  const bibEntries = bibText
+    .split(/\n\s*\n/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (!bibEntries.length) {
+    fail("publications.bib 里一条条目都没有");
+  }
+  for (const e of bibEntries) {
+    if (!/^@(article|dataset|software)\{/.test(e)) {
+      fail(`publications.bib 的条目不是 @article/@dataset/@software：${e.slice(0, 40)}…`);
+    }
+    if (!/\n\s*doi\s*=\s*\{[^}]+\}/.test(e)) {
+      fail(`publications.bib 有条目没有 doi 字段：${e.split("\n")[0]}`);
+    }
+  }
+  // 论文页可复制的 BibTeX 块
+  const copyBlocks = [];
+  for (const file of htmlFiles) {
+    const html = fs.readFileSync(file, "utf8");
+    for (const m of html.matchAll(
+      /<pre[^>]*class="[^"]*paper-cite__bibtex[^"]*"[^>]*>([\s\S]*?)<\/pre>/gi
+    )) {
+      copyBlocks.push({ from: rel(file), text: m[1].trim() });
+    }
+  }
+  if (copyBlocks.length && copyBlocks.length !== bibEntries.length) {
+    fail(
+      `publications.bib 有 ${bibEntries.length} 条，但论文页有 ${copyBlocks.length} 个可复制的 BibTeX 块` +
+        `——读者下载的文件与页面上能复制的条目对不上`
+    );
+  }
+  for (const { from, text } of copyBlocks) {
+    if (!bibEntries.includes(text)) {
+      fail(`${from}: 有一个可复制的 BibTeX 块在 publications.bib 里找不到逐字相同的条目`);
+    }
+  }
+  note(`publications.bib ${bibEntries.length} 条，与论文页 ${copyBlocks.length} 个复制块逐字一致`);
+}
+
 /* ---------- 汇总 ---------- */
 console.log(`产物：${htmlFiles.length} 个 HTML 页，${refCount} 条本地引用，${sitemapUrls.length} 条 sitemap URL`);
 if (absoluteCount === 0) console.log("站内引用全部为相对路径 ✓");
+// notes 是给"检查通过但值得记一笔"的信息用的（例如 feed 的条数、
+// "本人"实体的 @id）。此前它是个**只写不读**的累加器（note() 从没被
+// 调用，notes.push 写进去也没人打印），白占一个变量还误导后来的人。
+// 现在统一走 note()，并在汇总里逐条打印出来。
+if (notes.length) {
+  console.log("—");
+  notes.forEach((n) => console.log(`  · ${n}`));
+}
 
 if (problems.length) {
   console.error(`\n✗ 自检未通过，共 ${problems.length} 个问题：`);

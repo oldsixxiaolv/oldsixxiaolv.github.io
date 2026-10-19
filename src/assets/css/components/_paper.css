@@ -793,3 +793,52 @@ strong[data-annotation-ids] {
   margin: 0;
 }
 
+
+/* ---------- 成果图（与首页 .home-pub__figure 同一套做法） ----------
+   论文页此前没有这张图，读者只看到标题、刊名和一堆链接，看不到这项工作
+   "做出来的东西长什么样"。样式与首页的 .home-pub__figure* 保持同构
+   （白纸衬底 + 细边框 + 暗色下的阴影），但不共用类名——论文页不该挂着
+   "home-pub" 的类名。 */
+.paper-figure { margin: var(--space-4) 0 0; }
+.paper-figure__plate {
+  overflow: hidden;
+  background: #ffffff;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+}
+/* 比例交给 <img> 的 width/height 属性：换图不用改 CSS，CLS 同样为 0。 */
+.paper-figure__img { display: block; width: 100%; height: auto; background: #ffffff; }
+.paper-figure__caption {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-1) var(--space-2);
+  /* base.css 有一条全局 `figcaption { text-align: center }`（为博客正文的
+     居中图注写的）。这里是多行英文说明，居中会让折行后的末行悬在中间，
+     读起来像排版事故，所以显式压回左对齐。 */
+  text-align: left;
+}
+.paper-figure__caption-tag { font: 600 10px/1.4 var(--font-mono); letter-spacing: .12em; text-transform: uppercase; color: var(--text-secondary); }
+
+/* 暗色下白纸是整页最亮的一块，hairline 单独框不住它——补一档阴影把它
+   "抬"到纸面之上。亮色不加：页面底色本来就是浅的，再加阴影只会发灰。
+   两条暗色入口与 pages.css 的 .home-pub__figure-plate 同构。 */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .paper-figure__plate {
+    box-shadow: var(--shadow-2);
+    border-color: var(--color-neutral-400);
+  }
+}
+:root[data-theme="dark"] .paper-figure__plate {
+  box-shadow: var(--shadow-2);
+  border-color: var(--color-neutral-400);
+}
+
+/* 1400px 宽的图在 390px 手机上被压到 0.26 倍，坐标轴刻度只剩 5px 高，
+   数值根本读不出来——那这张图就白挂了。窄屏改成"可横向滑动"：图按
+   680px 最小宽度渲染，触屏原生可滑。滚动发生在 .paper-figure__plate
+   内部，不会让整页出现横向滚动条（scripts/check-overflow.cjs 复验这一点）。 */
+@media (max-width: 760px) {
+  .paper-figure__plate { overflow-x: auto; }
+  .paper-figure__img { min-width: 680px; }
+}
