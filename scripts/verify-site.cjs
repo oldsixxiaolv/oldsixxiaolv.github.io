@@ -1893,6 +1893,120 @@ for (const file of htmlFiles) {
   }
 }
 
+/* ---------- 28. 专有名词不得被小写化（渲染文案层） ----------
+   这条是被一个**实测出来的真实 bug**逼出来的：首页 "A working archive" 段
+   渲染出来是 "Currently focused on extreme precipitation over north china." ——
+   模板对 site.author.currentFocusEn 加了 `| lower`，把专有名词 "North China"
+   压成了小写。about.njk 早就把这条决策写进了注释（"currentFocusEn 后面刻意
+   **不加 | lower**"），首页却漏了；全站 14 处 "North China" 只有这一处是小写。
+
+   判据：每个 HTML 产物的**人可见文案**里，清单里的专有名词都不得出现
+   "非规范大小写"的形式（全小写、全大写、句首大写都不允许）。
+
+   ⚠️ 为什么只取"人可见文案"、还要先剔掉 URL 型 token：
+     · 域名 / DOI / 路径里的字母按惯例本来就是小写（github.com、orcid.org、
+       doi:10.5281/zenodo.18041880）—— 那是 URL，不是大小写错误；
+     · 但这些 URL 有时**作为链接文字**出现在正文里（"Source lives in
+       github.com/oldsixxiaolv"），只靠"不查属性"躲不开；
+     · 产物里还有文件名（assets/img/publications/trmm-fig10.jpg）出现在
+       og:image 的 content 属性里，同样不是大小写问题。
+   故：取文本节点 + content/alt 属性值 → 剔掉 URL / 标识符型 token →
+   再查大小写。
+
+   ⚠️ 词组边界：错的大小写必须作为**独立词组**出现（左右都不是标识符字符）。
+   否则 "trmm-fig10.jpg" 里的 "trmm" 会被当成 "TRMM" 被小写化。
+
+   ⚠️ 清单的加入标准：只收**小写后不是普通英文词**的专有名词。
+   "North China" 可以；"Apple" 不行 —— 它的全小写形式是普通名词，会把
+   正常句子判红。
+
+   ⚠️ 清单条目必须**仍然在用**：产物里已经找不到规范写法的条目要报红。
+   理由与门禁 24 同构 —— 清单是显式契约；条目失效后本条会一直绿着，
+   看着像在把关、实际已经不拦任何东西，那比没有这条门禁更糟。
+   改内容时忘了同步清单，就该被提醒，而不是悄悄失效。 */
+{
+  const PROPER_NOUNS = [
+    "North China",
+    "Institute of Atmospheric Physics",
+    "Chinese Academy of Sciences",
+    "Lanzhou University",
+    "IAP-CAS",
+    "LZU",
+    "Zenodo",
+    "ORCID",
+    "TRMM",
+    "GPM",
+    "GitHub",
+    "Code Ocean",
+    "ResearchGate",
+    "OpenAlex",
+    "CSDN",
+    "Manuscript_Lvyh",
+    "Yihang Lyu",
+  ];
+
+  /** 人可见文案：文本节点 + content/alt 属性值（href/src 不在其中）。 */
+  const proseOf = (html) => {
+    const s = html
+      .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, " ")
+      .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, " ")
+      .replace(/<!--[\s\S]*?-->/g, " ");
+    const text = s.replace(/<[^>]*>/g, " ");
+    const attrs = [...s.matchAll(/\b(?:content|alt)="([^"]*)"/gi)].map((m) => m[1]).join(" ");
+    return decodeHtmlEntities(text + " " + attrs);
+  };
+
+  /** URL / 标识符型 token：域名、DOI、路径、文件名 —— 大小写按惯例，不算错。 */
+  const isUrlLike = (t) =>
+    t.includes("://") ||
+    t.includes("/") ||
+    /\.[a-z]{2,}$/i.test(t) ||
+    (/\d/.test(t) && /\./.test(t));
+
+  const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const seenCanonical = new Set();
+  const wrongCase = [];
+  const stale = [];
+
+  for (const file of htmlFiles) {
+    const html = fs.readFileSync(file, "utf8");
+    const from = rel(file);
+    const prose = proseOf(html)
+      .split(/\s+/)
+      .filter((w) => w && !isUrlLike(w))
+      .join(" ");
+    for (const P of PROPER_NOUNS) {
+      if (prose.includes(P)) seenCanonical.add(P);
+      // 先摘掉规范写法，剩下的才是"非规范写法"的候选
+      const rest = prose.split(P).join(" ");
+      const re = new RegExp(`(?<![\\w-])${escapeRe(P)}(?![\\w-])`, "i");
+      if (re.test(rest)) wrongCase.push({ from, P });
+    }
+  }
+
+  for (const w of wrongCase) {
+    fail(
+      `${w.from}: 专有名词 "${w.P}" 出现了非规范大小写 —— ` +
+        `专有名词（地名 / 机构名 / 品牌名 / 缩写）不能被小写化，` +
+        `检查模板里是不是给它加了 | lower 或 | capitalize`
+    );
+  }
+  for (const P of PROPER_NOUNS) {
+    if (!seenCanonical.has(P)) {
+      stale.push(P);
+      fail(
+        `门禁 28 的清单条目 "${P}" 已经失效：产物里找不到它的规范写法 —— ` +
+          `要么内容里删掉了这个词（把这条清单删掉），要么改名了（改成新写法）`
+      );
+    }
+  }
+  note(
+    wrongCase.length || stale.length
+      ? `专有名词大小写：${PROPER_NOUNS.length} 条清单，${wrongCase.length} 处非规范大小写、${stale.length} 条失效条目（见上方报错）`
+      : `专有名词大小写：${PROPER_NOUNS.length} 条清单全部在用，且都保持规范大小写`
+  );
+}
+
 /* ---------- 24. 门禁编号自身：文件头清单与代码段必须一一对应 ----------
    这条元门禁是被一个**真实案例**逼出来的：门禁 22/23 落地时，代码段已经
    写好，文件头那份「编号清单」却还停在 21 —— **清单与代码不一致**，
