@@ -764,6 +764,29 @@ module.exports = function (eleventyConfig) {
      数据源是 site.js 里已经有的 pub.funding，页面可见文本用的就是它，
      两处同源，不会出现"页面写 NSFC、结构化数据写别的"。
   */
+  /* ---------- 文件扩展名 → IANA 媒体类型 ----------
+     给 Dataset.distribution 里的每个 DataDownload 标 encodingFormat。
+     schema.org 的 encodingFormat 收 Text 或 URL，取 IANA 媒体类型是通行做法
+     （"application/zip" 而不是 "zip"）。这里只做扩展名的机械映射，
+     不猜内容 —— 猜错会让消费方按错误类型去解包。 */
+  const MEDIA_TYPES = {
+    pdf: "application/pdf",
+    zip: "application/zip",
+    gz: "application/gzip",
+    tar: "application/x-tar",
+    h5: "application/x-hdf5",
+    hdf5: "application/x-hdf5",
+    nc: "application/x-netcdf",
+    csv: "text/csv",
+    txt: "text/plain",
+    json: "application/json",
+  };
+  const mediaTypeFor = (name) => {
+    const m = /\.([A-Za-z0-9]+)$/.exec(String(name || ""));
+    if (!m) return null;
+    return MEDIA_TYPES[m[1].toLowerCase()] || "application/octet-stream";
+  };
+
   const fundingProps = (funding) => {
     if (!Array.isArray(funding) || !funding.length) return null;
     const funders = [];
@@ -1135,6 +1158,44 @@ module.exports = function (eleventyConfig) {
       }
       if (sw.licenseUrl || sw.license) dataset.license = sw.licenseUrl || sw.license;
       if (Array.isArray(pub.keywords) && pub.keywords.length) dataset.keywords = pub.keywords;
+      // —— 文件级分布（DataDownload）——
+      // 站上已经把 v2.0 的文件清单与 MD5 校验和摆给人看了（paper.njk 的
+      // "Files in v2.0"），但那只在**人读的路径**上。机器读的路径
+      // （Dataset 的 JSON-LD）此前一个文件都没有 —— 数据集检索工具
+      // （Google Dataset Search 之类）只看得见"有个数据集、DOI 是这个"，
+      // 看不见里面有哪些文件、多大、校验和是多少，也就无法自动验完整性。
+      //
+      // schema.org 的写法：Dataset.distribution → DataDownload
+      //   · contentUrl     下载地址（逐字取自 Zenodo 自己的 API）
+      //   · encodingFormat IANA 媒体类型
+      //   · contentSize    字节数（schema.org 的取值范围是 Text）
+      //   · description    校验和。⚠️ schema.org **没有** checksum 属性
+      //     （实测：schema.org/Checksum → "not found"，全量词表 3256 个
+      //     词条里 grep "checksum" = 0 命中），DataCite 的 DCAT 侧才有
+      //     dcat:checksum。所以这里用 description 承载 "md5:<hex>" ——
+      //     合法、且与页面上给读者看的那一串**逐字相同**，两条路径不会各说各话。
+      if (Array.isArray(sw.files) && sw.files.length) {
+        dataset.distribution = sw.files.map((f) => {
+          const dl = { "@type": "DataDownload", name: f.name };
+          if (f.url) dl.contentUrl = f.url;
+          const mt = mediaTypeFor(f.name);
+          if (mt) dl.encodingFormat = mt;
+          if (Number.isFinite(f.bytes)) dl.contentSize = String(f.bytes);
+          if (f.md5) dl.description = `md5:${f.md5}`;
+          return dl;
+        });
+      }
+      // —— 版本关系 ——
+      // DataCite 登记里，本版本记录（10.5281/zenodo.18041880）的关系是
+      // **IsVersionOf** 概念 DOI（10.5281/zenodo.16662143），实测：
+      //   https://api.datacite.org/dois/10.5281/zenodo.18041880
+      //   → relatedIdentifiers[0] = { relationType: "IsVersionOf", ... }
+      // 概念 DOI 此前只出现在页面的"All versions"那一行，结构化数据里没有
+      // → 消费方看不出"这一版属于哪一条版本链"。schema.org 的对应写法就是
+      // isVersionOf（domain: CreativeWork，Dataset 是它的子类）。
+      if (sw.conceptDoi) {
+        dataset.isVersionOf = { "@id": `https://doi.org/${sw.conceptDoi}` };
+      }
       resources.push(dataset);
     }
 

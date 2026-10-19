@@ -414,7 +414,16 @@ if (!fs.existsSync(feedPath)) {
    它们的 schema.org 实体类型是 DataCite 自己映射的
    （types.schemaOrg = Dataset / SoftwareSourceCode）。
    实体类型写错或整个消失，页面不会报错——只会安静地不再被数据集检索
-   工具发现，所以做成门禁。 */
+   工具发现，所以做成门禁。
+
+   ⚠️ 本条还管一件更要紧的事：**数据集的文件级清单在三条路径上必须逐字一致**。
+   ① 人读路径：paper.njk 的 "Files in v2.0"（文件名 + 大小 + md5）
+   ② 机读路径：JSON-LD 的 Dataset.distribution（DataDownload 数组）
+   ③ 数据源：  src/_data/site.js 的 pub.software.files
+   此前只有 ① 和 ③，② 一个文件都没有 —— 数据集检索工具（Google Dataset
+   Search 之类）看得见"有个数据集"，看不见里面有哪些文件、校验和是多少，
+   也就无法自动验完整性。补上 ② 之后，就必须守住三边不漂移：
+   只在页面上改 md5、或只在 JSON-LD 里改文件数，都是**静默**的错。 */
 const paperHtml = allFiles
   .filter((f) => /papers\/.+\/index\.html$/.test(rel(f)))
   .map((f) => [rel(f), fs.readFileSync(f, "utf8")]);
@@ -446,6 +455,100 @@ for (const [from, html] of paperHtml) {
     if (!entities.some((e) => e && e["@type"] === type)) {
       fail(`${from}: JSON-LD 里没有 ${type} 实体——数据集/胶囊不再能被结构化检索发现`);
     }
+  }
+
+  // —— 文件级清单的三边一致性 ——
+  const siteJs = (() => {
+    try {
+      return require(path.resolve(__dirname, "../src/_data/site.js"));
+    } catch {
+      return null;
+    }
+  })();
+  const pubs = (siteJs && siteJs.publications) || [];
+  for (const pub of pubs) {
+    const files = (pub.software && pub.software.files) || [];
+    if (!files.length) continue;
+    const slug = pub.slug;
+    const page = entities.find(
+      (e) => e && e["@type"] === "Dataset" && e["@id"] === `https://doi.org/${pub.software.doi}`
+    );
+    if (!page) continue; // 上面已报"没有 Dataset 实体"，不重复报
+
+    // ① 机读路径：distribution 必须与 site.js 逐字一致
+    const dist = page.distribution;
+    if (!Array.isArray(dist)) {
+      fail(
+        `${from}: Dataset 实体没有 distribution 数组——文件级清单只出现在页面上，` +
+          `数据集检索工具读不到（site.js 里这一版有 ${files.length} 个文件）`
+      );
+    } else if (dist.length !== files.length) {
+      fail(
+        `${from}: Dataset.distribution 有 ${dist.length} 项，site.js 里是 ${files.length} 项` +
+          `——两条路径说的文件数不一样`
+      );
+    } else {
+      for (let i = 0; i < files.length; i++) {
+        const f = files[i];
+        const d = dist[i] || {};
+        const want = {
+          name: f.name,
+          contentUrl: f.url,
+          contentSize: String(f.bytes),
+          description: `md5:${f.md5}`,
+        };
+        for (const [k, v] of Object.entries(want)) {
+          if (d[k] !== v) {
+            fail(
+              `${from}: Dataset.distribution[${i}].${k} = ${JSON.stringify(d[k])}，` +
+                `site.js 里是 ${JSON.stringify(v)}——机读路径与数据源不一致`
+            );
+          }
+        }
+        if (d["@type"] !== "DataDownload") {
+          fail(`${from}: Dataset.distribution[${i}] 的 @type 不是 DataDownload`);
+        }
+        if (!d.encodingFormat) {
+          fail(`${from}: Dataset.distribution[${i}] 没有 encodingFormat`);
+        }
+      }
+    }
+
+    // ② 版本关系：isVersionOf 必须指向 site.js 里的概念 DOI
+    const concept = pub.software.conceptDoi;
+    if (concept) {
+      const wantId = `https://doi.org/${concept}`;
+      const got = page.isVersionOf && page.isVersionOf["@id"];
+      if (got !== wantId) {
+        fail(
+          `${from}: Dataset.isVersionOf = ${JSON.stringify(got)}，site.js 里是 ` +
+            `${JSON.stringify(wantId)}——版本链关系缺失或指错`
+        );
+      }
+    }
+
+    // ③ 人读路径：页面上摆出来的文件名与 md5 必须与 site.js 一致。
+    //    ⚠️ 必须**剥掉 JSON-LD 块**再找：整页搜会命中 JSON-LD 里那**同一串**
+    //    （distribution[].description 就是 "md5:<hex>"），于是这条判据在
+    //    第①条（机读路径）已经保证过的地方又满足一次 → **它测不到人读路径**。
+    //    实测：只把页面上人读的那一串改掉（JSON-LD 不动），整页搜仍判绿。
+    //    剥掉 JSON-LD 块之后，这一条才真的在查"读者看到的那个校验和"。
+    const humanHtml = html.replace(
+      /<script[^>]*type="application\/ld\+json"[^>]*>[\s\S]*?<\/script>/g,
+      ""
+    );
+    for (const f of files) {
+      if (!humanHtml.includes(f.name)) {
+        fail(`${from}: 页面上找不到文件 ${JSON.stringify(f.name)}——与 site.js 不一致`);
+      }
+      if (f.md5 && !humanHtml.includes(`md5:${f.md5}`)) {
+        fail(
+          `${from}: 页面上找不到 ${JSON.stringify("md5:" + f.md5)}——` +
+            `页面上摆的校验和与 site.js 不一致`
+        );
+      }
+    }
+    if (slug) note(`${from}: 数据集文件清单三边一致（${files.length} 个文件）`);
   }
 }
 

@@ -8339,3 +8339,150 @@ T5/T6 证明合法的"没有 git"路径没被弄坏；T1 证明正常构建不�
   CAS），**不读真实索引**，别人的暂存区原封不动；提交前把内容**按当前 HEAD 重建**
   （只带自己的 hunk），避免基线漂移把别人的新内容回退掉。
 - **不 push**（部署由本人决定）。
+
+## 2026-10-19 · 15:45–16:15 场次（**不占轮次号**，避免与并发场次撞号）：数据集的**机器可读层**补齐（文件级 `distribution` + 版本链 `isVersionOf`）+ 门禁 8 判据扩展 + 两个新发现（**门禁 24 管不到「段内判据被卸掉」**；**门禁 8 的第③条原本名不副实**）
+
+### A. 背景：文件清单只站在人读的路径上
+
+720ed3e 已经把 v2.0 的文件清单与 MD5 校验和摆到了页面上（`paper.njk` 的 "Files in v2.0"）。
+但那只是**人读的路径**。机器读的路径 —— 论文页 JSON-LD 里的 `Dataset` 实体 —— 此前
+**一个文件都没有**：消费方（Google Dataset Search 之类）只看得见"有个数据集、DOI 是这个"，
+看不见里面有哪些文件、多大、校验和是多少，也就无法自动验完整性。
+
+同一条链上还有第二个缺口：**概念 DOI**（版本链的根）此前只出现在页面的 "All versions"
+那一行，结构化数据里没有 → 消费方看不出"这一版属于哪一条版本链"。
+
+### B. 改了什么（3 处代码 + 1 个自测脚本）
+
+1. **`src/_data/site.js`** —— `pub.software.files[]` 每项新增 `url` 字段。
+   值是**逐字照抄 Zenodo 自己的 API**（`https://zenodo.org/api/records/18041880` →
+   `files[].links.self`），不是自己拼的；注释里写明来源，并注明"这些地址只对 v2.0 成立"
+   （记录 id 就是这一版）。
+
+2. **`eleventy.config.js`** —— 新增 `MEDIA_TYPES` 映射表与 `mediaTypeFor()`（扩展名 → IANA
+   媒体类型，兜底 `application/octet-stream`）；`Dataset` 节点追加两样东西：
+   - `distribution`：`DataDownload[]`，每项 `name` / `contentUrl` / `encodingFormat` /
+     `contentSize`（字符串）/ `description: "md5:<hex>"`；
+   - `isVersionOf`：`{ "@id": "https://doi.org/10.5281/zenodo.16662143" }`。
+
+3. **`scripts/verify-site.cjs`** —— **扩展门禁 8 的判据**（**不新增编号**：工作树里编号已被
+   并发场次用到 32，新号会与门禁 24 撞）。门禁 8 现在查三边一致：
+   ① 机读路径 `Dataset.distribution` ↔ ② 数据源 `site.js` 的 `pub.software.files`
+   （逐字比 `name`/`contentUrl`/`contentSize`/`description` 里的 `md5:`，数量也要一致，
+   每项还要有 `@type: DataDownload` 与 `encodingFormat`）；
+   ③ 人读路径：页面上必须出现每个文件名与 `md5:<hex>`。
+   另查 `isVersionOf["@id"]` 必须等于 `https://doi.org/${pub.software.conceptDoi}`。
+
+4. **`scripts/test-dataset-files-gate.cjs`（新）** —— 可复跑自测脚本，见 D 节。
+
+### C. 外部取证（本轮实际调过的接口，结论都写进了代码注释）
+
+- **schema.org 没有 `checksum` 属性、也没有 `Checksum` 类型** —— 下载全量词表
+  `https://schema.org/version/latest/schemaorg-current-https.jsonld`（3256 个词条），
+  `grep "checksum"` = **0 命中**；`https://schema.org/Checksum` → "not found"。
+  `additionalProperty` 的 domain 也不含 `Dataset`/`DataDownload` → 都不能用。
+  **所以校验和只能落在 `description: "md5:<hex>"`**（合法，且与页面上人读的那一串**逐字相同**，
+  两条路径不会各说各话）。
+- **Zenodo** `https://zenodo.org/api/records/18041880`（200）：三个 key / size / md5 与
+  `site.js` 逐字一致；`files[].links.self` 逐字照抄进 `site.js`。
+- **DataCite** `https://api.datacite.org/dois/10.5281/zenodo.18041880`：
+  `relatedIdentifiers` **仅**一条 `IsVersionOf` → 概念 DOI `10.5281/zenodo.16662143`；
+  `types.schemaOrg` = `Dataset`。
+- **GitHub** `oldsixxiaolv/Manuscript_Lvyh`：`license` = **null**（→ **不编造** license）、
+  `language` = Python；README 只说 "16-year TRMM PR observations"、无明确年份区间
+  （→ **不写** `temporalCoverage`）。Zenodo 登记里也没有时空覆盖字段 → 一律不编造。
+
+### D. 验证结果
+
+**逐点故障注入（8 个用例，每次只注入一个点，注入后从磁盘回读自证，断言红因而非只看退出码）**
+—— 全部通过，每条判据都能被单独触发：
+
+| 用例 | 注入 | 结果 | 红因 |
+|---|---|---|---|
+| baseline | 不注入 | exit 0 | —— |
+| jsonld-md5 | 只改 JSON-LD 里的 md5 | ✅判红 | 机读路径与数据源不一致 |
+| page-md5 | 只改页面上人读的 md5 | ✅判红 | 页面上摆的校验和与 site.js 不一致 |
+| drop-distribution | 删掉整个 `distribution` | ✅判红 | Dataset 实体没有 distribution 数组 |
+| drop-one-file | 少一项 | ✅判红 | 两条路径说的文件数不一样 |
+| drop-encoding | 删 `encodingFormat` | ✅判红 | Dataset.distribution[0] 没有 encodingFormat |
+| break-isversionof | `isVersionOf` 指错 | ✅判红 | 版本链关系缺失或指错 |
+| wrong-bytes | `contentSize` 写错 | ✅判红 | 机读路径与数据源不一致 |
+
+**干净克隆复验**：隔离克隆（干净 HEAD + 仅本场次改动，不带工作树里别人的在途内容）
+`npm run build` = **EXIT 0**，门禁 8 输出 `数据集文件清单三边一致（3 个文件）`。
+
+#### D-1. 第一个新发现：**门禁 24 管不到「段内判据被卸掉」**
+
+把门禁 8 里那段「三边一致性」判据**整段删掉**（文件头描述保留）→ 门禁**仍然全绿**。
+原因：门禁 24（编号 ↔ 代码段一一对应）只保证"门禁 8 的**代码段**还在"，
+**管不到代码段内部的判据有没有被卸掉** —— 它是**段级**判据。
+这正是"注释承诺一个不存在的门禁，比没有注释更坏"的同一个病：文件头还写着
+"本条还管一件更要紧的事……三条路径上必须逐字一致"，但判据已经没了，**无人察觉**。
+
+→ 对策：新增 `scripts/test-dataset-files-gate.cjs` —— 它**自己**去注入、自己断言红因，
+判据一旦被卸掉，注入用例就红。**不接 build 链**（与 `scripts/test-log-sections.sh` 同；
+`GW1` 只管 `check-*.cjs` / `verify-*.cjs`，`test-` 前缀不在其列）。
+手动跑：`npm run build && node scripts/test-dataset-files-gate.cjs`。
+（**局限要说清**：它不在 build 链上，所以"判据被卸"要**有人跑它**才会被发现 ——
+这比"完全没人查"好，但不如"进 build 链"牢靠。进 build 链要动 `package.json`，
+而 `package.json` 正被并发场次在改，本轮不碰。）
+
+#### D-2. 第二个新发现：**门禁 8 的第③条原本名不副实（已修）**
+
+第③条（人读路径）原先用 `html.includes("md5:" + f.md5)` 在**整页**里搜 ——
+而 JSON-LD 的 `distribution[].description` **就是同一串** `md5:<hex>`，
+所以第①条（机读路径）已经保证过的地方，这条又满足一次 → **它根本测不到人读路径**。
+实测：只把页面上人读的那一串改掉（JSON-LD 不动），门禁**照样绿**。
+修法：第③条先**剥掉 JSON-LD 块**再找（`humanHtml`）→ 这一条才真的在查
+"读者看到的那个校验和"。修完 `page-md5` 用例即判红。
+**教训**：一条判据"名字说了它查什么"不算数；必须问"它实际比的是哪一段字节"。
+同一个字节串在两处出现时，整页搜会把两条路径混成一条。
+
+#### D-3. 注入脚本自己踩的坑（都记下来以免下一轮重犯）
+
+① 第一版注入脚本把 `sys.exit(0)` 写在写文件**之前** → 文件根本没落盘，却"自证说生效"；
+② 第一版自证用**全文搜字符串**（`"encodingFormat" not in html`）→ 三个 `DataDownload` 都带
+这个键，pop 掉其中一个后全文仍搜得到 → 误判成"场景没造出来"；
+③ `splice(1)` 不带 `deleteCount` 会**删到末尾**（剩 1 项而不是 2 项）→ 场景没造出来；
+④ 修好后的注入脚本若用**全量 replace** 改页面上的 md5，会把 JSON-LD 里的同一串一起改掉 →
+触发的是"机读路径"的红因，测的就不是第③条了 → 必须**先保护 JSON-LD 块**再替换。
+现在自证统一改成：**从磁盘回读后解析 JSON-LD、按结构核对**。
+
+### E. 归属与边界
+
+- 本轮提交 **5 个文件**：`src/_data/site.js`、`eleventy.config.js`、
+  `scripts/verify-site.cjs`、`scripts/test-dataset-files-gate.cjs`，
+  外加 `docs/IMPROVEMENT-LOG.md`（**只含本场次节**）。
+- **不碰**：`package.json`（并发场次在改）、`src/papers.njk`、`src/_includes/**`、
+  `scripts/check-*.cjs` 其余、`scripts/lib/`。
+- 提交方式：私有索引（`GIT_INDEX_FILE` + `read-tree HEAD` + `update-index --cacheinfo`
+  + `write-tree` + `commit-tree` + `update-ref` CAS），**不读真实索引**，
+  别人的暂存区原封不动；**不 push**。
+- **本场次写日志时还撞上了共享工作树的"旧基线覆盖"**：16:12 追加的本节
+  在 16:2x 被并发场次整节覆盖掉了（日志 8589 → 8289 行）。因此本节的正文
+  在提交时**不取工作树副本**，而是「HEAD 版日志 + 本节（/tmp 备份）」现取现拼 ——
+  这也正是本仓已有的教训：**共享追加文件绝不 `git add` 工作树副本**。
+
+- **不 push**（线上部署由本人决定；线上仍是 2026-10-16 的旧版本，
+  `/papers/`、`/publications.bib`、`/feed.xml` 404、canonical 指向 404 的 `/MeteoHub/`，
+  属待决策第 5 条，由本人拍板部署）。
+
+### F. 待本人拍板
+
+- **待拍板 1**：校验和落在 `description: "md5:<hex>"` —— schema.org 没有 `checksum` 属性，
+  这是**目前唯一合法**的写法，但它把"人读的说明字段"当机器字段用了。备选：
+  ① 就这么定（门禁 8 已把这一串与页面、与 `site.js` 三边锁死）；
+  ② 在 `DataDownload` 上加站点自定义属性（失去 schema.org 消费方的通用识别）；
+  ③ 等 schema.org 补 `checksum` 再迁。
+- **待拍板 2**：`contentUrl` 用的是 **API 形式**的地址
+  （`https://zenodo.org/api/records/18041880/files/<name>/content`）—— 实测直接 GET 200，
+  且体积固定（不会因为网页改版而变）；但不是浏览器下载页形式。备选：
+  ① 保持 API 形式；② 换成 `https://zenodo.org/records/18041880/files/<name>?download=1`
+  （浏览器形式，也实测 200）。
+- **待拍板 3**：版本链要不要在页面上也补一行可读说明？现状是结构化数据里有 `isVersionOf`，
+  页面可见文本里只有 "All versions" 一行指向概念 DOI。
+- **待拍板 4**：自测脚本**要不要进 build 链**？进了才"每次 build 都自检"，
+  但要动 `package.json`（正被并发场次在改）。
+- **待拍板 5**（可归到既有待决策）：门禁 24 只守**段级**（编号 ↔ 代码段存在），
+  守不到**段内判据**被卸。要不要给全站门禁补一条**段内判据的通用自证**
+  （例如：每个代码段必须自带"自证存活"的计数输出）？本轮只在门禁 8 这一条上做了示范。

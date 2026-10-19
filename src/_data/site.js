@@ -435,21 +435,34 @@ module.exports = {
         // ⚠️ 文件名是**逐字照抄** Zenodo 上的，连里面的拼写（refences
         // 少一个 e）也照抄——读者在 Zenodo 上看到的就是这个名字，
         // 改对了反而不认得。totalBytes = 三个文件的字节数之和。
+        // ⚠️ url 是**逐字照抄 Zenodo 自己的 API** 给的值，不是拼出来的：
+        //   https://zenodo.org/api/records/18041880 → files[].links.self
+        // （2026-10-19 重新拉取核对：三个 key、三个 size、三个 md5 与本表逐字一致。）
+        // 这条记录 id（18041880）就是 v2.0 这一版，所以这些地址**只对这一版成立**。
         files: [
           {
             name: "Thunderstorm_life_stages_refences_Byers(1949).pdf",
             bytes: 3032987,
             md5: "5acccbea49b5522de089f8a07a3ac134",
+            url:
+              "https://zenodo.org/api/records/18041880/files/" +
+              "Thunderstorm_life_stages_refences_Byers(1949).pdf/content",
           },
           {
             name: "TRMM_tropical_convection_dataset_202512.hdf.zip",
             bytes: 422858876,
             md5: "cff511fb23fc4d5ed49d30f8d2c0e2df",
+            url:
+              "https://zenodo.org/api/records/18041880/files/" +
+              "TRMM_tropical_convection_dataset_202512.hdf.zip/content",
           },
           {
             name: "TRMM_tropical_convection_dataset.zip",
             bytes: 417954218,
             md5: "944c784b00658aedf198e8e2fd620af9",
+            url:
+              "https://zenodo.org/api/records/18041880/files/" +
+              "TRMM_tropical_convection_dataset.zip/content",
           },
         ],
         totalBytes: 843846081,
