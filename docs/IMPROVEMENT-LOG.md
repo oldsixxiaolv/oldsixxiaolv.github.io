@@ -3772,8 +3772,11 @@ BI1 的新门禁报错（归因准确，直接说清后果）：
 ### E. 复验
 
 - 隔离克隆（`git clone` + 只叠加本轮三个文件到 `b86d7ff` 基线）`npm run build` → **exit 0**，
-  六条门禁全绿：check:css ✓ / check:site ✓（门禁编号 28 条一一对应且连续）/ check:lang ✓ /
+  **六个门禁脚本**全绿：check-css-braces ✓ / check-dead-css ✓ /
+  check:site ✓（门禁编号 28 条一一对应且连续 —— 该基线上并发场次尚未加门禁 28）/ check:lang ✓ /
   check:a11y ✓ / **check:copy ✓**。
+- **从本轮 commit `eb0cd16` 出发的干净克隆**再验一次 → **exit 0**，六个门禁脚本同样全绿
+  （此时 `verify-site.cjs` 已被并发场次推进到 **29 条**编号，一一对应且连续）。
 - 线上巡检（13:45 PDT）：`/` `/blog/` `/about/` `/sitemap.xml` `/404.html` = 200；
   `/papers/` `/publications.bib` `/feed.xml` = 404（**属待部署**，线上仍是 2026-10-16 那次部署）；
   线上 canonical 仍带 `/MeteoHub/` 前缀（旧产物）。
