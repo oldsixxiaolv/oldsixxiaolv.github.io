@@ -7968,3 +7968,118 @@ LS 抓得住"节被扫掉了"，抓不住"节正在被吃掉"。
   备选：① 维持现状（靠 LS4 兜底）；② 再加一条"写入前先核对基线"的约定（写进日志，无机器强制）。
 - **待拍板 3**：LS4 的判红文案要不要加一句"这是并发事故、不是代码问题"？
   现状文案已说明成因与恢复方式；加提示只是更好读，不改判定。
+
+## 2026-10-19 · 16:00–16:15 场次（**不占轮次号**，避免与并发场次撞号）：线上仍是旧部署的取证 + 「门禁脚本漏 add」事故的独立复现 + 接线门禁的一处盲区
+
+本场次是**只读核验者**（不写工作树代码、不 push）。本节记录三件事：
+① 线上仍是旧部署的硬证据；② 独立复现并发场次提级的「漏 add 未跟踪文件」事故；
+③ 由此暴露的一处门禁盲区（供后续场次修）。
+
+### A. 线上仍是旧部署（16:00 复测，与 14:5x 结论一致）
+
+12 个 URL 逐条状态码（`curl -o /dev/null -w '%{http_code}'`）：
+
+| 状态码 | 路径 |
+|---|---|
+| 200 | `/`、`/about/`、`/blog/`、`/sitemap.xml`、`/robots.txt` |
+| 404 | `/papers/`、`/papers/trmm-thunderstorm-stages/`、`/publications.bib`、`/feed.xml` |
+| 404 | `/MeteoHub/`、`/MeteoHub/papers/`、`/MeteoHub/index.html` |
+
+**线上 `sitemap.xml` 只有 3 条 `<loc>`，全部带 `/MeteoHub/` 前缀，且该前缀族 3 个 URL 全部 404**：
+`/MeteoHub/`、`/MeteoHub/about/`、`/MeteoHub/blog/`。3 条 `<lastmod>` 的时间戳
+都是 `2026-10-16T09:51:14.89xZ` —— 即**线上是 10-16 那一版构建**，本地 HEAD 已经又前进了很多。
+
+**线上 `robots.txt` 第 30 行**：`Sitemap: https://github.lvyihang.xyz/MeteoHub/sitemap.xml`
+→ 爬虫这条登记的路也是 404。
+
+对照**本地 HEAD（`25f7820`）干净克隆的构建产物**（`/tmp/mh_head_final`）：
+- `sitemap.xml` 5 条 `<loc>`，**无 `/MeteoHub/` 前缀**，且每条带 `<!-- source: ... -->` 标注与 `<lastmod>`；
+- `robots.txt` 末行为 `Sitemap: https://github.lvyihang.xyz/sitemap.xml`（无前缀）。
+
+→ **本地已修好，线上还是旧的**。这是「待部署」而不是「缺陷」，且**不能靠改代码解决**，
+只能靠本人决定何时 push / 部署。**本场次不 push。**
+
+### B. 独立复现：「门禁脚本漏 add」事故（并发场次已提级，我独立做实）
+
+**工作树现状**（`git status --porcelain -uall`）里有 2 个**未跟踪**文件，
+却被**已跟踪文件的改动**引用：
+
+- `scripts/lib/git-error.cjs` —— 被 `scripts/verify-site.cjs:119`（`require("./lib/git-error.cjs")`）
+  与 `eleventy.config.js:21`（`require("./scripts/lib/git-error.cjs")`）引用；
+- `scripts/check-jsonld.cjs` —— 被 `package.json:19`（`"check:jsonld": "node scripts/check-jsonld.cjs"`）引用，
+  且 `build` 链末尾已接上 `npm run check:jsonld`。
+
+**这两个文件都不是被 ignore 挡掉的**：`git check-ignore -v` 对两者均无输出，
+`.git/info/exclude` 也无相关条目 → 是**真的漏 `git add`**，不是规则挡的。
+
+**复现（`/tmp/mh_untracked_test`，干净克隆 `25f7820` + 只套用已跟踪文件的改动）**：
+
+| 副本状态 | `npm run build` | 失败点 |
+|---|---|---|
+| 两个未跟踪文件都**不**带 | **exit 1** | `Cannot find module './scripts/lib/git-error.cjs'`（eleventy 载入 config 时就炸） |
+| 只补 `git-error.cjs`，`check-jsonld.cjs` 仍缺 | **exit 1** | `MODULE_NOT_FOUND`（`scripts/check-jsonld.cjs`） |
+| 两个都补齐 | **exit 0** | —（门禁编号「文件头清单 33 条 / 代码段 33 条」、对照表 33 行、`✓ 结构化数据自检通过（门禁 J1–J7）`） |
+
+→ 与并发场次 15:55 的判断一致：**两处都要补，漏 `git-error.cjs` 会先撞**（在 eleventy 阶段，
+比 build 链末尾的 `check:jsonld` 早得多，报错形态也不同）。
+
+### C. 由此暴露的一处盲区：接线门禁认不出「script 指向的文件不存在」
+
+`scripts/check-gates-wired.cjs` 的 GW1 是**从文件出发**的
+（`readdirSync(SCRIPTS_DIR)` 列出 `scripts/` 下的门禁文件，再反查谁引用它）。
+所以「`package.json` 里有个 script 指向一个**不存在的文件**」**不在它的扫描范围内**。
+
+**故障注入（在 `/tmp/mh_untracked_test`，绿基线 = 两文件都在）**：
+
+| 注入 | `npm run check:gates` | 完整 `npm run build` |
+|---|---|---|
+| 基线（两文件都在） | exit 0，「12 个门禁脚本全部从 `npm run build` 可达」 | exit 0 |
+| **删掉 `scripts/check-jsonld.cjs`**（= 漏 add 的等效形态），`package.json` 仍指向它 | **exit 0 全绿**，还输出「**11 个**门禁脚本全部可达」 | exit 1（`MODULE_NOT_FOUND`） |
+| 把 `package.json` 指向改成 `scripts/check-jsonld-DOES-NOT-EXIST.cjs`（文件在，但引用被改错） | exit 1，但**红因指错了方向**：报「`scripts/check-jsonld.cjs` 没有被任何 npm script 引用」——它其实被引用了，只是被引用的那个名字不存在 | exit 1 |
+
+**判读**：
+1. 第一行是最危险的形态——**门禁自己数出了「12 → 11」这个变化却仍然全绿**。
+   计数变少本该是红因，但当前判据里"文件数"只是通过语的装饰，不是判据。
+2. 第二行是**红因误指**：说「没有被引用」，真因是「被引用了，但那个文件不存在」。
+   按红因去修（"加个 script 指向它"）会越修越乱。
+3. 也就是说：**"漏 add 未跟踪文件"这一类事故，`check:gates` 抓不到**，
+   抓它的是 build 链末尾的 `MODULE_NOT_FOUND`（而且是**报错**形态，不是门禁红），
+   或者根本抓不到——若 `package.json` 里的 script 没接进 build 链，那就静默了。
+
+**建议（供后续场次实施，本场次不改代码）**：给接线门禁补一条判据 ——
+**`package.json` 的每个 script 指向的本地文件必须存在**（且这个判据要能区分
+"文件不存在"与"没被引用"两种红因，别混成一条）。
+
+**判据输入的通用要求**（沿用既有纪律）：
+- 红因必须指名到**具体是哪个 script、哪个文件**，不能只说"有问题"；
+- 通过语里的**计数必须参与判定**（"从 12 变 11"本身就是证据），不能只当装饰；
+- 故障注入必须**先自证注入真的生效了**（本次已自证：基线 exit 0 且输出 12，注入后输出 11）。
+
+### D. 事实订正（对 15:55 场次裁定的确认）
+
+- 15:55 场次②「门禁 31 已在 HEAD」—— **属实**。`verify-site.cjs:2388` 起确有
+  「同一 @id 的同名字段必须一致（`sameAs` / `keywords` / `knowsAbout`）」整段判据。
+- 15:55 场次③「现在清单 33 条（编号 1–32，4 拆成 4b/4c）」—— **属实**。
+  本场次在 `25f7820` 干净克隆上独立复现：「文件头清单 33 条 / 代码段 33 条」、
+  「对照表：33 行，覆盖全部 33 个门禁编号且无重复行」。
+  ⚠️ 附带确认记忆里那条纪律仍然成立：**33 是条目数，最大编号是 32**，
+  「有第 31 号门禁」与「有第 32 号门禁」都成立。
+- 15:55 场次④「`"status" in e` 宽判据方向是反的」—— **与本场次 11:20 的独立结论一致**，
+  双向确认，不再有分歧。
+
+### E. 留给下一轮 / 待本人拍板
+
+- **待拍板（沿用并补充前几轮，不代本人决定）**：
+  - 线上何时 push / 部署（线上仍是 10-16 那版：`/papers/` 等 4 个路由 404、
+    `/MeteoHub/` 前缀残留、robots.txt 的 `Sitemap:` 指向 404）；
+  - `paper` 的 `@id` 里 `url` 口径、`datePublished` 精度（`2026-06` vs `2026-06-01`）；
+  - 门禁 31 边界是否按"只查真冲突"（缺失不查、`keywords` 归一化、覆盖差异不查）；
+  - CI 是否显式加一步 `npm run check:gates`（补上接线门禁的自指悖论）；
+  - lastmod 口径最终拍板（A 源文件真实提交时间 / B max 三者 / C 全站统一 HEAD 时间）；
+  - 404 页是否保留身份实体（`identityOn404` 开关）；
+  - og / `twitter:image:alt` 口径；
+  - **（新增）** 是否给接线门禁补 C 节那条判据（script 指向的文件必须存在），
+    以及漏 add 的两个文件由谁补 `git add`（**必须同一个 commit 一起进**，
+    分两次进则中间那个 commit 的 build 必红）。
+- **本场次零 commit、零 push**；工作树未被我改动。
+  下方 `git diff` 若出现本场次相关改动，说明有并发场次在同一时间动了同一个文件，需另行核对。
