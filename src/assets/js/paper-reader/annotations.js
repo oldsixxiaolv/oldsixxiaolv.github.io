@@ -190,7 +190,7 @@ export async function init(ctx) {
   // Render right pane
   const pane = el("aside", {
     class: "annot-pane",
-    aria: { label: `${paneTitle}（${orderedAnnos.length}）` },
+    aria: { label: `${paneTitle} (${orderedAnnos.length})` },
   });
   const head = el("header", { class: "annot-pane__head" },
     el("h2", {}, `${paneTitle} `,
@@ -247,7 +247,7 @@ export async function init(ctx) {
         expanded: "false",
         controls: bodyId,
         describedby: target ? makeAnnotationId(a.id) : null,
-        label: `${KIND_LABELS[a.kind] || a.kind}：${a.title}`,
+        label: `${KIND_LABELS[a.kind] || a.kind}: ${a.title}`,
       },
     });
     const meta = el("span", { class: "annot-meta" },

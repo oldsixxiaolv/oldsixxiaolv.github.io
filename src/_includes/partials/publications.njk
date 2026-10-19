@@ -172,6 +172,30 @@
 
         {%- if p.affiliation %}<p class="home-pub__aff">{{ p.affiliation }}</p>{% endif %}
 
+        {# —— 一句话摘要 ——
+           数据源：论文页自己的 front matter（src/content/papers/<slug>/paper.md 的
+           `summary` 字段），按 pubKey 关联。
+           为什么不用 site.js 里那条 abstract：那是出版商的**全文摘要**，论文详情页
+           已经完整展示，列表页再摆一遍是重复；也不用 front matter 的 description：
+           那个字段是给 SEO 的 meta description，写的其实就是标题的改写
+           （"Stage-dependent relationships between…"），放在标题正下方等于把标题
+           复读一遍——读者看到的是同一句话说两次。summary 写的是标题里**没有**的
+           信息（方法、样本、结论），一句话让人不点进去也知道这篇在做什么。
+           关联键用 pubKey（数据键）而不是 slug（URL 段）：slug 是为了可读性而允许
+           日后调整的，改了 slug 不该让摘要失联。
+           找不到对应论文页、或那一页没写 summary → 整行不输出（null 字段不渲染）。 #}
+        {%- set summary = null -%}
+        {%- if p.key -%}
+          {%- for paper in collections.papers -%}
+            {%- if paper.data.pubKey == p.key and paper.data.summary -%}
+              {%- set summary = paper.data.summary -%}
+            {%- endif -%}
+          {%- endfor -%}
+        {%- endif -%}
+        {%- if summary %}
+        <p class="home-pub__summary">{{ summary }}</p>
+        {%- endif %}
+
         {# —— 基金资助 ——
            学术主页标注基金号是硬性惯例：资助方与项目号要能被检索到、能被抄进
            申请书。判空后整行不输出；多笔之间用分号隔开，不用顿号（英文语境）。 #}

@@ -5,9 +5,7 @@
   padding: clamp(56px, 9vw, 128px) var(--gutter) 72px;
   color: var(--text-primary);
 }
-.home-eyebrow,
-.home-pillar__tag,
-.home-latest__label {
+.home-eyebrow {
   margin: 0;
   color: var(--text-muted);
   font: 600 11px/1.2 var(--font-mono);
@@ -244,60 +242,12 @@
   border-top: 1px solid color-mix(in srgb, var(--signal-ink) 35%, transparent);
 }
 
-/* —— 成果条 ——
-   位置：紧贴 hero 下方，跨整幅画布。上边框是它自己的，下边框直接借用
-   .home-intro 现成的 border-top —— 两条 hairline 把成果条夹成一个"版权页式"
-   的窄带，不用再单独画第三条线（原来那条 double rule 的方案会让两条线
-   相距 48px，读起来像画错了）。 */
-.home-achievements { border-top: 1px solid var(--border-default); padding-block: var(--space-4) var(--space-4); }
-.home-achievements__grid {
-  display: grid;
-  /* auto-fit + 最小列宽：4 项时桌面一行四列，手机自动折成 2×2，
-     以后 site.js 里补上 citations / hIndex / awards 变成 6~7 格也不用改 CSS。 */
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-  gap: var(--space-4) var(--space-3);
-  margin: var(--space-4) 0 0;
-  padding: 0;
-  list-style: none;
-}
-.home-achievement {
-  position: relative;
-  display: block;
-  padding-top: var(--space-2);
-  border-top: 1px solid var(--border-subtle);
-  color: inherit;
-  text-decoration: none;
-}
-.home-achievement:hover { text-decoration: none; }
-/* ::after 铺满整格命中区（和 .home-latest__title 同一套做法）：一格只有
-   80px 高、150px 宽，不铺满的话触屏命中率会明显低于 44px 的最小目标。 */
-a.home-achievement::after { content: ""; position: absolute; inset: 0; }
-.home-achievement__value {
-  display: block;
-  font-family: var(--font-serif-en);
-  /* 落点 --fs-h2(33px) ~ --fs-h1(39.8px)：低于 hero 大标题（106px）一个量级，
-     又高于本区块的小节标题（27.7px），读作"数据"而不是又一个小标题。 */
-  font-size: clamp(var(--fs-h2), 2.6vw, var(--fs-h1));
-  font-weight: 500;
-  line-height: 1;
-  letter-spacing: -.04em;
-  /* 统计数字用等宽数位：补上 citations(三位数) / h-index(一位数) 之后，
-     数字的宽度一致，竖着扫过去才不会歪。 */
-  font-variant-numeric: tabular-nums;
-  color: var(--color-brand-500);
-  transition: color var(--dur-base) var(--ease-out);
-}
-a.home-achievement:hover .home-achievement__value { color: var(--color-brand-700); }
-.home-achievement__label {
-  display: block;
-  margin-top: var(--space-2);
-  color: var(--text-secondary);
-  font: 600 10px/1.3 var(--font-mono);
-  letter-spacing: .12em;
-  text-transform: uppercase;
-}
-/* 中文注脚：这层是给中文读者的直译（"一作论文"），省掉"先扫英文标签再翻译"这一步。 */
-.home-achievement__gloss { display: block; margin-top: 2px; color: var(--text-muted); font-size: 12px; line-height: 1.4; }
+/* —— 成果条（已删）——
+   ACHIEVEMENTS 成果条整段拿掉了：site.author.achievements 字段已从 site.js 删除，
+   真实数字（被引数 / h 指数）本来也没有，挂着只会渲染出空 <ul> 加一个悬空标题。
+   这一段 CSS 是版块删掉后**留下的死规则**：类名在 pages.css 之外零引用
+   （.home-achievement* 6 个 + .home-achievements* 2 个，共 8 个）。
+   留着不报错，但会让人以为这些元素还在页面上；已连同注释一并清除。 */
 
 .home-intro { display: grid; grid-template-columns: 1fr 2.2fr auto; gap: 32px; padding: 36px 0; border-top: 1px solid var(--border-default); border-bottom: 1px solid var(--border-default); }
 .home-intro__label { margin: 0; color: var(--color-accent-600); font: 600 11px var(--font-mono); text-transform: uppercase; letter-spacing: .12em; }   /* P1.4 · was accent-500 (3.26:1) */
@@ -310,23 +260,20 @@ a.home-achievement:hover .home-achievement__value { color: var(--color-brand-700
 .home-intro__links a { color: var(--text-secondary); text-decoration: underline; text-decoration-color: color-mix(in srgb, var(--text-secondary) 40%, transparent); text-underline-offset: 3px; }
 .home-intro__links a:hover { text-decoration-color: var(--text-secondary); }
 
-/* —— 站点内容三栏 ——
-   间距从 clamp(72px,10vw,140px) 收到 clamp(64px, 7vw, 104px)：原来的最大值
-   140px 落在 --space-8(96px) 与 --space-9(128px) 之间，是个没有出处的新值，
-   三段区块的间距还各不相同（hero→intro 靠 padding，intro→pillars 和
-   pillars→latest 各走一个 clamp）。现在三段统一走 token 区间的 clamp。 */
-.home-index { margin-top: clamp(var(--space-7), 7vw, var(--space-8)); }
+/* 区块之间的垂直间距统一走 token 区间的 clamp：--space-7(64px) → --space-8(96px)，
+   视口 7vw 处取中间值。原来这里有三段各写各的 clamp（且最大值 140px 落在
+   --space-8 与 --space-9 之间，是个没有出处的新值）；其中两段随「三处入口」
+   「Recently collected」一起被删，只剩 publications 这一段。 */
 .home-blockhead { margin-bottom: var(--space-4); }
 /* —— 首页小节标题的唯一尺度规则 ——
    原来两个小节标题各写各的 clamp，结果是 "Recently collected" 43.2px
    比它正上方的 "三处入口" 31.7px 还大：后出现的次级区块反而比上级区块
    喊得更响，hero(106.6px) 之下第一眼就撞上的是 43px 的次级标题。
-   合成一条规则、两个选择器共用，尺度就不再可能各自漂移。
+   合成一条规则，尺度就不再可能各自漂移。
    落点 clamp(--fs-h4 23px → --fs-h3 27.7px)：1440px 实测 27.7px，
    正好是 tokens 里 h3 那一级，和站点正文内的 h2/h3 层级接得上；
    27.7 → 17（列表标题）→ hero 106.6 三级递减，每级差距都读得出来。 */
-.home-blockhead__title,
-.home-section-head h2 {
+.home-blockhead__title {
   font-family: var(--font-serif-en);
   font-size: clamp(var(--fs-h4), 2.2vw, var(--fs-h3));
   font-weight: 500;
@@ -335,64 +282,29 @@ a.home-achievement:hover .home-achievement__value { color: var(--color-brand-700
   text-wrap: balance;
 }
 .home-blockhead__title { margin: 10px 0 0; }
-.home-pillars { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; background: var(--border-default); border: 1px solid var(--border-default); }
-.home-pillar { position: relative; min-height: 330px; padding: 24px; background: var(--bg-page); color: var(--text-primary); text-decoration: none; transition: background var(--dur-base) var(--ease-out), color var(--dur-base) var(--ease-out); }
-.home-pillar:hover { background: var(--color-brand-900); color: var(--color-neutral-0); text-decoration: none; }
-.home-pillar--accent { background: var(--color-brand-400); color: var(--text-on-brand); }
-.home-pillar--accent:hover { background: var(--color-brand-500); }
-.home-pillar__number { display: block; margin-bottom: 70px; font: 600 11px var(--font-mono); }
-.home-pillar__tag { color: currentColor; opacity: .65; }
-/* 卡片标题原本是 clamp(2rem, 3vw, 3rem)（实测 43.2px）——和小节标题当初是同一个
-   clamp，所以两者曾经一样大、看不出问题；小节标题退到 27.65px 之后，卡片标题
-   反而比它所属的小节还响，整块区域变成"卡片在喊、标题在说话"。这里压到
-   clamp(fs-h4, 2.4vw, 2rem)：仍高于小节标题（卡片是主要入口，保留分量），
-   但不再压过它，页面读起来更安静。 */
-.home-pillar h2 { margin: 20px 0 14px; color: currentColor; font-family: var(--font-serif-en); font-size: clamp(var(--fs-h4), 2.4vw, 2rem); font-weight: 500; line-height: 1.02; letter-spacing: -.03em; text-wrap: balance; }
-
-.home-pillar p { max-width: 22ch; margin: 0; color: currentColor; opacity: .7; font-size: 13px; }
-.home-pillar__arrow { position: absolute; right: 24px; bottom: 20px; font-size: 24px; }
-.home-latest { margin-top: clamp(var(--space-7), 7vw, var(--space-8)); }
-.home-section-head { display: flex; align-items: end; justify-content: space-between; gap: 24px; margin-bottom: var(--space-4); }
-.home-section-head h2 { margin: 12px 0 0; }
-.home-section-head a { color: var(--text-secondary); font-size: 13px; text-decoration: none; }
-/* "All notes →" 的悬停态：箭头右移 + 文字加深，两处变化一起给，
-   纯位移在 hover 时容易被读成"卡了一下"。 */
-.home-section-head a:hover { color: var(--text-primary); text-decoration: underline; text-underline-offset: 4px; }
-.home-section-head a span { display: inline-block; transition: transform var(--dur-base) var(--ease-out); }
-.home-section-head a:hover span { transform: translateX(4px); }
-.home-latest__grid { display: grid; grid-template-columns: 1fr 1fr; gap: clamp(32px, 8vw, 120px); }
-.home-latest__label { padding-bottom: var(--space-2); border-bottom: 1px solid var(--border-default); }
-/* —— 列表密度：单项 106.5px → 78.6px（1440px 实测，2 行标题的 111.2px → 100.7px）——
-   松散不是内容造成的，是两处盒子模型：
-   1) 上下 18px 内边距不是 token，还比 --space-3(16px) 大，回落到 token。
-   2) 更主要的是 _list.css 给 .list__title 兜了 min-height:44px（触屏目标），
-      单行标题本来只有 23.8px，被硬撑到 44px，每行凭空多出 20px 空气。
-      这里把它去掉，改成"整行可点"：::after 铺满 li 的 padding box。
-      命中区从 44px 变成整行（78~120px 高 × 满栏宽），触屏目标不降反升，
-      悬停时整行都会点亮标题下划线，不需要 JS、也不用改模板。
-   3) 标题行高 1.4 → 1.35：3 行标题的项各省下 2.4px，1.35 对 17px 中英
-      混排仍不挤。
-   4) display:inline-block → block：inline-block 会跟 li 继承来的 strut 撑出一个
-      匿名行盒，底下凭空多出约 6px 下沉空隙（_list.css 的 .list--cards 也是用
-      display:block 解决同一个问题）。改成 block 后标题占满整行，::after 命中区
-      也从"文字宽度"变成整行满宽。 */
-.home-latest .list__item { position: relative; padding: var(--space-3) 0; }
-.home-latest .list__title { display: block; font-size: 17px; line-height: 1.35; min-height: 0; }
-.home-latest .list__title::after { content: ""; position: absolute; inset: 0; }
+/* —— 「三处入口」与「Recently collected」（已删）——
+   两块版块连同 /portfolio/、/papers/ 旧模板一起被删，页面里再没有
+   .home-pillars / .home-pillar* / .home-latest* / .home-section-head 这些节点，
+   它们在 pages.css 之外零引用——共 10 个类（.home-pillars、.home-pillar、
+   .home-pillar--accent、.home-pillar__number、.home-pillar__tag、
+   .home-pillar__arrow、.home-latest、.home-latest__grid、.home-latest__label、
+   .home-section-head）。留着不报错，但会让人以为这些元素还在页面上，已清除。
+   下面这三条 .home-latest .list__* 是同一批版块的收尾（列表密度调整），
+   它们的祖先 .home-latest 已不存在 → 永远匹配不到，一并清除。 */
 
 /* ===========================================================================
    论文区（partials/publications.njk）
    ---------------------------------------------------------------------------
-   位置：介绍段之后、SITE INDEX 之前。版式延续成果条的语言——条目之间
-   只用一道 hairline，不给每条套卡片底色/阴影：这一屏要读的是论文本身，
-   壳越少越好。字号层级刻意压在 .home-blockhead__title（clamp 23→27.7px）
-   之下，理由见 .home-pub__title 注释。
+   位置：hero 之后、介绍段（A working archive）之前。版式延续整站的细线语言
+   ——条目之间只用一道 hairline，不给每条套卡片底色/阴影：这一屏要读的是
+   论文本身，壳越少越好。字号层级刻意压在 .home-blockhead__title
+   （clamp 23→27.7px）之下，理由见 .home-pub__title 注释。
    =========================================================================== */
 .home-publications { margin-top: clamp(var(--space-7), 7vw, var(--space-8)); }
 .home-pub-list { margin: 0; padding: 0; list-style: none; }
 .home-pub { padding-block: var(--space-5); border-top: 1px solid var(--border-default); }
-/* 末条不补下内边距：区块下边界交给下一段（.home-index）的上间距，
-   免得同一段距离里再多出一截空白。 */
+/* 末条不补下内边距：区块下边界交给下一段（.home-intro 自带的 border-top 与
+   padding），免得同一段距离里再多出一截空白。 */
 .home-pub:last-child { padding-bottom: 0; }
 /* 正文列封顶 --measure(72ch)，但成果图与链接行不封顶：
    论文图是 1400×745 的横向多联图，缩到 72ch 宽坐标轴刻度就糊了，
@@ -486,8 +398,26 @@ a.home-achievement:hover .home-achievement__value { color: var(--color-brand-700
    基金号要能被检索和抄写，所以用等宽字体，不做成正文强调。 */
 .home-pub__funding { margin: var(--space-1) 0 0; color: var(--text-muted); font: 11px/1.6 var(--font-mono); }
 
+/* —— 一句话摘要 ——
+   位置：作者/刊名/单位之后、基金与链接行之前。读者扫列表的顺序
+   是"是什么 → 谁做的 → 哪发的 → 说了什么 → 拿资源"，这一段正好落在"说了什么"；
+   它也是整张卡片里**唯一的一段连续正文**，所以留白给它是值得的。
+   刻意不排成引文/斜体：这一句是**论文自己的结论**（第一人称陈述自己的研究），
+   排成引文会让读者误以为是转引别处。
+   颜色用次级文字色而不是 primary——要能读，但不跟标题抢；行高 1.6 是为长句换行
+   留的余量，orphans/widows 保证末行不只剩一两个词挂在段尾。 */
+.home-pub__summary {
+  margin: var(--space-3) 0 0;
+  color: var(--text-secondary);
+  font-size: 14px;
+  line-height: 1.6;
+  text-wrap: pretty;
+  orphans: 2;
+  widows: 2;
+}
+
 .home-pub__links { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-4); margin: var(--space-3) 0 0; padding-top: var(--space-2); border-top: 1px solid var(--border-subtle); }
-/* 链接用等宽全大写小字，与 .home-achievement__label / .home-eyebrow 同一套
+/* 链接用等宽全大写小字，与 .home-pub__funding / .home-eyebrow 同一套
    "机器读的元信息"语气；悬停除变色外加下划线（WCAG 1.4.1 不只靠颜色）。 */
 .home-pub__link {
   display: inline-flex;
@@ -559,8 +489,6 @@ a.home-achievement:hover .home-achievement__value { color: var(--color-brand-700
 @media (prefers-reduced-motion: no-preference) {
   .home-signal { transition: transform 700ms var(--ease-out); }
   .home-signal:hover { transform: rotate(0deg) translateY(-6px); }
-  .home-pillar { transition: background var(--dur-base) var(--ease-out), color var(--dur-base) var(--ease-out), transform var(--dur-base) var(--ease-out); }
-  .home-pillar:hover { transform: translateY(-4px); }
 }
 @media (max-width: 820px) {
   .home-hero { grid-template-columns: 1fr; min-height: 0; gap: 40px; align-items: start; }
@@ -580,10 +508,5 @@ a.home-achievement:hover .home-achievement__value { color: var(--color-brand-700
   .home-hero__actions .btn { width: 100%; }
   .home-portrait { max-width: 280px; }
   .home-signal { padding: var(--space-3); box-shadow: 6px 7px 0 color-mix(in srgb, var(--color-brand-400) 80%, transparent); }
-  .home-achievements__grid { grid-template-columns: 1fr 1fr; }
-  .home-intro__body, .home-pillars, .home-latest__grid { grid-template-columns: 1fr; }
-  .home-pillars { gap: 1px; }
-  .home-pillar { min-height: 250px; }
-  .home-pillar__number { margin-bottom: 42px; }
-  .home-section-head { align-items: start; flex-direction: column; }
+  .home-intro__body { grid-template-columns: 1fr; }
 }

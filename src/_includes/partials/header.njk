@@ -39,7 +39,9 @@
            {% if isCurrent %}aria-current="page"{% endif %}>{{ item.label }}</a>
       {% endfor %}
       <span class="topbar__sep" role="presentation" aria-hidden="true"></span>
-      <button class="topbar__theme" type="button" data-theme-toggle aria-label="Switch theme" aria-pressed="false">
+      {# aria-label 是**稳定**的可访问名（"Dark theme"），主题状态只由 aria-pressed
+         表达：名字若随状态变化，语音控制就再也点不到这个按钮（见 assets/js/theme.js）。 #}
+      <button class="topbar__theme" type="button" data-theme-toggle aria-label="Dark theme" aria-pressed="false">
         <svg class="icon-sun" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <circle cx="12" cy="12" r="4"></circle>
           <path d="M12 2v2"></path><path d="M12 20v2"></path>

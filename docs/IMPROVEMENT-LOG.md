@@ -2549,3 +2549,253 @@ canonical）。**部署由本人决定。**
 4. **巡检 cron 仍是每 5 分钟起一个会话** → 持续并发冲突（本轮又见十余个会话
    挤在工作区，多数被 TPM 限流卡在 `rate limit exceeded(1039)`）。
    建议改成 30–60 分钟 + 单写者锁。
+
+## 2026-10-19 · 第十六轮（13:20–13:40 场次）：界面语言一致性 + 文本层门禁（check:lang）
+
+### 本场次定位
+
+上一轮（第十五轮）补的是**图片元素的机械属性**（alt 存在性 / 尺寸预留），本轮换一条
+**互不重叠**的轴：**界面语言**。
+
+选它而不是继续加编号门禁，有两个理由：
+
+1. 站点早就有明文政策——`src/_data/site.js:31`："整站已统一为英文（正文、标签、
+   导航、页面文案）"。中文出现在界面里**不是口味取舍，是违反自家政策**，
+   不涉及任何待决策项。
+2. 编号体系已被并发场次占满（第十五轮刚排到门禁 27），本轮改用**独立脚本**
+   `scripts/check-lang.cjs`，**不碰 `scripts/verify-site.cjs`、不占门禁编号**。
+
+### A. 巡检结果（线上，13:37 PDT；与上一轮一致，**无新增损坏**）
+
+| 路由 | 状态 |
+|---|---|
+| `/` `/blog/` `/about/` `/sitemap.xml` `/404.html` | 200 |
+| `/papers/` `/publications.bib` `/feed.xml` | 404 |
+
+404 仍是**待部署**（线上还是 2026-10-16 那次部署，`origin/main` = `cfef826`，
+本地已领先 **24** 个 commit），不是站点损坏。线上 canonical 仍带 `/MeteoHub/`
+前缀（`https://github.lvyihang.xyz/MeteoHub/`）——同样是待部署的旧产物。
+
+### B. 改进点 A：界面语言一致性（7 处，其中 1 处是"改过又回退"）
+
+**B1. 主题按钮的可访问名（3 处，最实质的一处）**
+
+`src/assets/js/theme.js` 在每个页面加载后都会把主题按钮的 `aria-label` 覆写成
+**中文**（`切换到深色模式` / `切换到浅色模式`），而静态 HTML 写的是英文
+（`header.njk:42` / `theme-toggle.njk:7` 的 `aria-label="Switch theme"`）。
+`src/assets/js/main.js:2` 有 `import "./theme.js"`，所以**每页都跑**。
+
+后果有三层：
+
+- 同一个按钮的可访问名**取决于 JS 跑没跑**——静态 HTML 与运行时 DOM 不一致；
+- 名字随主题状态变化，破坏语音控制（"click Switch theme"在切换一次之后就不再
+  匹配这个按钮），也与 `aria-pressed` **双重编码**同一个状态，读屏会念重复；
+- 中文覆写直接违反 `site.js:31` 的全英文政策。
+
+→ 改为 **ARIA 切换按钮的标准模式**：可访问名**稳定不变**（`aria-label="Dark theme"`，
+  命名被切换的那个东西），状态**只**由 `aria-pressed` 表达；JS 侧不再写
+  `aria-label`。静态 HTML 两处（`header.njk` / `theme-toggle.njk`）同步改名。
+
+**B2. 博客列表页的阅读时长（1 处）**：`src/blog.njk:99` 写的是
+`{{ post.data.readingTime }} 分钟` → `min read`。这是**第一篇博客文章**将要用的
+模板。
+
+**B3. 详情页 layout 的翻页与返回（8 处）**：`src/_includes/layouts/detail.njk`
+的 `listLabel` 三种取值（作品集 / 博客 / 首页）、`{{ readingTime }} 分钟`、
+`aria-label="上一篇 / 下一篇"`、`← 上一篇` / `下一篇 →`、`← 回到{{ listLabel }}`
+——全部改成英文。**这个 layout 目前是"死模板"**：`src/content/blog/` 与
+`src/content/portfolio/` 只有 `11tydata.cjs`、没有内容项，所以这些字符串现在
+**一行都不会渲染**。正因如此才更要修——第一篇文章落地时它就会冒出来。
+
+**B4. 论文阅读器的 aria 标签（2 处）**：`src/assets/js/paper-reader/annotations.js`
+的 `` `${paneTitle}（${n}）` `` 与 `` `${KIND_LABELS[a.kind]}：${a.title}` `` 用的是
+**全角括号 / 全角冒号**。同文件的 `KIND_LABELS` 本身早已是英文
+（Question / Insight / Critique / Link / Figure / Correction），`aria` 标签也已是
+英文——这两处是英文化时漏掉的标点。
+
+**B5. `src/robots.njk`：改过，又回退（记录理由）**
+
+本轮一度把 robots.txt 的 `#` 注释行也英文化（`# 站点：` → `# Site:` 等 5 处），
+**随后回退**。两个原因：
+
+1. robots.txt 是**给爬虫读的纯文本**，那些 `#` 行按 robots.txt 约定是给维护者看的
+   注释，模板里明说"注释行在生产输出中保留"——它不是"页面文案"，不在
+   `site.js:31` 政策覆盖的那一类里；
+2. 更硬的一条：站点门禁 **17 与 20**（`scripts/verify-site.cjs:1088` 与 `:1475`）
+   **以 robots.txt 里那行中文标记「生成时间」为锚点**（正则
+   `/^#\s*生成时间[：:]\s*(.+?)\s*$/m`）。把它英文化会**直接把那两条门禁打红**
+   ——实测确实红了：`robots.txt: 找不到「生成时间」这一行`。
+   改一个模板却要连带改别人的两条门禁，属于跨门禁的连带改动，不该由本轮顺手做。
+
+→ 现在改用**在门禁里精确豁免**（见 C 节），既不碰 robots.njk，也不碰门禁 17/20。
+
+### C. 改进点 B：新门禁 `scripts/check-lang.cjs`（独立脚本，不占编号）
+
+接进 `package.json`：`"build": "npm run check:css && eleventy && npm run check:site && npm run check:lang"`。
+
+**扫描面**（= 用户看得见的文本）：
+
+- 源文件层：`src` 下的 `.njk` / `.md` / `.css` / `.js` / `.svg`
+- 产物层：`_site` 下的 `.html`
+
+**逐类剥离**（剥完再扫，所以注释里的中文不误报）：
+
+| 类别 | 处理 |
+|---|---|
+| YAML front matter 的**整行**注释 | 剥掉；**值保留**（`title` / `description` 会渲染进 `<title>` 和 `<meta name="description">`，属用户可见文本） |
+| Nunjucks `{# #}` | 剥掉 |
+| HTML `<!-- -->` | 剥掉 |
+| CSS `/* */`、JS `/* */` 与 `//` | 剥掉 |
+| `<script>` / `<style>` 块 | 剥掉（JSON-LD 在 `<script>` 里，不进可见文本） |
+
+**豁免**（各有明确理由，不是留口子）：
+
+- `src/_data/**` —— 数据层。`site.js` 刻意保留中文身份字段（`alternateName` /
+  `affiliation` / `affiliations[].name` / `research` / `currentFocus`），
+  那是**它们该待的地方**；数据层的中文不进正文，产物层扫描会兜住漏进来的。
+- `src/robots.njk` —— 见 B5。
+- `src/assets/img/og/*.svg` —— 三张 OG 分享图里的中文是**品牌文案**
+  （署名「吕亦航」+ 中文格言「以大气之名，写下可被验证的东西。」+ 中文单位），
+  属**本人拍板**范畴，已列入本轮「待决策」第 7 条；其它 SVG（`favicon.svg`）仍纳入门禁。
+- `.cjs` 与 `scripts/**` —— 构建工具链，不进产物。
+
+**第二项检查：U+FFFD（编码损坏）**。见 D 节。
+
+### D. 编码损坏：3 处 U+FFFD（静默损坏，无任何构建步骤会报）
+
+全仓扫 `U+FFFD`（坏字节被解码后的残骸）命中 3 处：
+
+| 文件 | 原文 | 修成 |
+|---|---|---|
+| `src/_data/site.js:83` | `现在在���科院大气所` | `现在在中科院大气所` |
+| `src/content/about.md:13` | `"为什么有��站"` | `"为什么有本站"` |
+| `scripts/verify-site.cjs` | `404 页必须�� ≥1 个身份类实体` | `404 页必须有 ≥1 个身份类实体` |
+
+三点说明：
+
+- **都在注释里**，不影响运行，也没有任何构建步骤会报——正是
+  `scripts/check-css-braces.cjs` 当初要拦的那一类**静默错误**（坏掉的不是
+  "能不能跑"，而是"跑出来的东西对不对"）。
+- 前两处的坏字节**自建站那次重构（`0252580`）就在了**，git 里存的就是 U+FFFD，
+  原文不可恢复：前一处按同文件 `affiliationShort: "IAP-CAS"` / 兄弟注释的
+  「现中科院大气所」补回"中"；后一处按**作者全仓一致的用词**补回——全仓
+  8 处用"本站"、0 处用"官网/网站"，且坏字正好 2 个字，与"本站"吻合。
+  ⚠️ 这是**语义复原**，不是逐字节还原。
+- 第三处（`verify-site.cjs`）**已被上一轮（第十五轮）先行修掉**并随其提交入库；
+  本轮编辑同一文件时是**独立发现的同一处**，改动一致，故此处仅作记录。
+
+→ 因此 `check:lang` 除语言外**顺带报 U+FFFD**（扫的是同一批文件，成本几乎为零）。
+
+### E. 故障注入（12 例矩阵，每例带**回读断言**）
+
+在 `/tmp` 隔离副本上做，工作区零写入。每例都做三件事：写入注入 → **回读断言**
+（确认注入真的落盘：锚点存在 + md5 变化 + 注入内容读得到）→ 跑门禁 → 判读退出码
+与输出指向。**只看退出码不算数**——"注入没生效"与"门禁没拦住"在结果上长得一样。
+
+| 用例 | 注入 | 期望 | 实测 |
+|---|---|---|---|
+| T1 | 模板可见文本有中文 | exit 1 并指名该文件 | ✅ |
+| T2 | 脚本字符串有中文 | exit 1 并指名该文件 | ✅ |
+| T3 | front matter **值**有中文 | exit 1 并指名该文件 | ✅ |
+| T4 | Nunjucks 注释有中文 | exit 0（不误伤） | ✅ |
+| T5 | HTML 注释有中文 | exit 0（不误伤） | ✅ |
+| T6 | YAML 整行注释有中文 | exit 0（不误伤） | ✅ |
+| T7 | 数据层中文 | exit 0（豁免生效） | ✅ |
+| T8 | OG 品牌图中文 | exit 0（豁免生效） | ✅ |
+| T9 | robots.txt 中文 | exit 0（豁免生效） | ✅ |
+| T10 | **产物**可见文本有中文 | exit 1 并指名该文件 | ✅ |
+| T11 | U+FFFD 编码损坏 | exit 1 并报 U+FFFD | ✅ |
+| T12 | markdown 正文有中文 | exit 1 并指名该文件 | ✅ |
+
+T3 特意验的是 **front matter 的值**而不是整块剥离——`title` / `description`
+会渲染进 `<title>` 与 `<meta name="description">`，整块剥掉就等于把这两处漏了。
+复位后基线复跑仍为 **exit 0（52 个文件）**。
+
+### F. 死模板走通验证（临时博客帖，验证完即删）
+
+`detail.njk` / `blog.njk` 的改动在当前仓库里**一行都不会渲染**（集合为空），
+所以"改了但没跑过"是没有意义的。在隔离副本里临时造两篇英文帖
+（`readingTime: 8 / 12`，两篇是为了让 `prev` / `next` 翻页也渲染出来），重新构建后实测：
+
+- 详情页：`Back to Blog` ✅、`aria-label="Previous / next"` ✅、`← Previous` ✅、
+  `Next →` ✅、`8 min read` ✅
+- 列表页徽标：`12 min read` / `8 min read` ✅
+- 三页可见中文合计 **0 处** ✅
+- `check:lang` 仍 exit 0（56 个文件）✅
+
+验证完删掉临时帖并**复跑完整构建**：exit 0（`check:css` + `check-dead-css` +
+`check:site` + `check:lang` 全绿），产物 5 个 HTML 页 / 5 条 sitemap URL，
+全站可见中文 **0 处**。
+
+### G. 排查方法上的一个坑（值得记下来）
+
+第一版 CJK 探针把**整份文件**涂白再找中文（`blank(re.sub(...))` 的顺序写反），
+于是**每个文件都报 0 处**——包括 `src/_data/site.js` 这种明明有 3319 个中文字符的
+文件。差点据此把 CSS / SVG / JS 三层整个排除出门禁覆盖。
+
+改正后（只把**匹配到的注释**涂白，其余原样保留）实测：
+
+- CSS：注释外 **0** 处；SVG：**只有 3 张 OG 品牌图**有中文；JS：只剩
+  `theme.js` 与 `annotations.js` 各一处（本轮已修），其余 7 个文件干净。
+
+**结论**：门禁的"豁免"必须基于**实测**，不能基于一个可能整片失效的探针。
+
+### H. 提交范围：为什么不是裸 `git add -A`
+
+任务书要求 `git add -A`，但本场次实测**并发场次正在同一个工作区写文件**，且
+`package.json` 的内容**一半是别人的**：本轮只加了 `check:lang`，而
+`check:css` 里那半截 `&& node scripts/check-dead-css.cjs` 是**并发场次**接的。
+
+更硬的一条约束：实测 `check-dead-css.cjs` 在**旧 CSS** 上会报 **17 个死类**
+（`.home-pillar` / `.home-achievements` / `.home-latest` 等）——它正是为并发场次
+正在删的那批 CSS 写的。**只提交 `package.json` + 门禁脚本而不提交那份 CSS 改动，
+commit 落地就是红的**（干净克隆上直接 exit 1）。
+
+→ 因此本场次提交**最小自洽集**：本轮自己改的 9 个文件 + `package.json`
+（含双方接线）+ `scripts/check-dead-css.cjs`（package.json 引用它，不提交就断链）
++ 并发场次那份**必须**配套的 CSS / `publications.njk` 改动（已随本轮在隔离副本上
+**复验构建 exit 0**）。
+
+**故意留下不提交**：`scripts/check-copy-export.cjs`（并发场次的未接线脚本，
+单独跑 exit 0，但未接进 `package.json`）——留给它自己的场次提交。
+
+### 待部署（本轮**不 push**，线上仍是旧版本）
+
+不变：线上仍是 2026-10-16 那次部署（`/papers/`、`/publications.bib`、`/feed.xml`
+在线 404；canonical / og:url / sitemap 带 `/MeteoHub/` 前缀；线上 404 页仍带
+canonical）。**部署由本人决定。**
+
+### 待决策（沿用上一轮 6 条，本轮**新增第 7 条**，不擅自拍板）
+
+1. **404 页要不要保留 Person 实体** —— 已参数化为 `src/404.njk` 的 `identityOn404`
+   （默认 `true`），本人拍板时只改那一行。
+2. **论文页是否显示"论文署名单位"**。
+3. **`figure.alt` 是否保留 "Fig. 10 —" 前缀**。
+4. **sitemap `lastmod` 口径三选一**（沿用第十二轮 L1646–1660 的三个选项）。
+5. **何时 push / 部署**（本地已领先远端 **24** 个 commit）。
+6. **门禁 25 的一处口径**（第十五轮新提）：`src/blog.njk:75` 博客卡片封面图的
+   `alt=""` 该不该给描述性替代文本（当前休眠：还没有带封面的文章）。
+7. **【本轮新提】OG 分享图里的中文品牌文案要不要英文化**：
+   `src/assets/img/og/og-1200x630.svg`、`og-1080x1080.svg`、`og-1500x500.svg`
+   三张图里各有中文——署名「吕亦航」、格言「以大气之名，写下可被验证的东西。」、
+   单位「BEIJING · 中科院大气物理研究所」。这是**分享到微信 / 推特 / Slack 时
+   对方看到的第一眼**，与页面正文语言直接相关；但它同时是**个人品牌文案**
+   （格言的中文写法是本人自己的句子），改成英文等于替本人重写一句自己的话，
+   **本轮不擅自动**。现状：`check:lang` 对这三张图**精确豁免**（理由写在该脚本里）。
+   附带信息：`src/_data/site.js:12` 已有英文 tagline
+   （"Thunderstorms, lightning, and the physics of extreme precipitation."），
+   若本人想保留中文格言，这句英文 tagline 可以并排用。
+
+### 留给下一轮
+
+1. **门禁 12 的补法**（第十四轮 C 节）：把"按名字找本人节点"反转为
+   "按本人 @id 兜住改名节点"。判据与门禁 12 同源、无需新数据源。
+   **先做故障注入**（R1 必须 exit 1、R3/R4 仍 exit 1、基线 exit 0）再提交。
+2. **门禁 21④ 的报错去重**、**门禁 15 在四个页面上空跑** —— 本轮未动。
+3. **`gitOut` 的 catch 加固**（第十四轮「留给下一轮」第 2 条，低严重性）。
+4. **本轮新提**：`src/_includes/partials/detail.njk` 的 `listLabel` 三种取值是
+   **写死的中/英文字符串**，而 `/portfolio/` 与 `/blog/` 两个列表页的**英文标题**
+   就在 `site.nav` 里（`site.js`）。若以后要支持 i18n，这里应改为从数据层取。
+   本轮不抽象（站点只有一种语言，抽象反而是过度设计）。
+5. **巡检 cron 仍是每 5 分钟起一个会话** → 持续并发冲突（连续三轮都撞见）。
+   建议改成 30–60 分钟 + 单写者锁。

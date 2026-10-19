@@ -4,9 +4,10 @@
   "description": "MeteoHub · 个人学术站点（学术主页 + 技术笔记 + 论文）",
   "private": true,
   "scripts": {
-    "check:css": "node scripts/check-css-braces.cjs",
+    "check:css": "node scripts/check-css-braces.cjs && node scripts/check-dead-css.cjs",
+    "check:lang": "node scripts/check-lang.cjs",
     "check:site": "node scripts/verify-site.cjs",
-    "build": "npm run check:css && eleventy && npm run check:site",
+    "build": "npm run check:css && eleventy && npm run check:site && npm run check:lang",
     "serve": "eleventy --serve --quiet --port=8080"
   },
   "engines": {

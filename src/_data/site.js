@@ -80,7 +80,7 @@ module.exports = {
     affiliationUrl: "https://iap.cas.cn/",
     affiliationEn: "Institute of Atmospheric Physics, Chinese Academy of Sciences",
 
-    // 双单位：博士在兰州大学，现在在���科院大气所
+    // 双单位：博士在兰州大学，现在在中科院大气所
     affiliations: [
       { short: "IAP-CAS", name: "中科院大气物理研究所", en: "Institute of Atmospheric Physics, CAS" },
       { short: "LZU", name: "兰州大学", en: "Lanzhou University" },

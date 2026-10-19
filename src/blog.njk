@@ -96,7 +96,7 @@ editPaths:
             {# 整组标签全空时不输出 .list__tags 容器：它是 flex 且带
                margin-block-start，空容器会凭空撑出 12px 的幽灵间距。 #}
             {% if post.data.readingTime or topicTags %}<span class="list__tags">
-              {% if post.data.readingTime %}<span class="badge badge--quiet">{{ post.data.readingTime }} 分钟</span>{% endif %}
+              {% if post.data.readingTime %}<span class="badge badge--quiet">{{ post.data.readingTime }} min read</span>{% endif %}
               {% for tag in topicTags %}{% if loop.index <= 3 %}<span class="badge badge--brand">{{ tag }}</span>{% endif %}{% endfor %}
             </span>{% endif %}
           </span>
