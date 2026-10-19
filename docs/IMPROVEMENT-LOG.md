@@ -6032,3 +6032,145 @@ Scholar 这一侧目前**既没有元数据、也没有可用的定位地址**�
 - 工作树里 `scripts/check-overflow.cjs` / `package.json` /
   `scripts/check-gates-wired.cjs` / `.github/workflows/deploy.yml` 仍是**别的场次的在途改动**，
   本场次没有碰、也没有带进任何提交。
+
+## 2026-10-19 · 14:45–15:05 场次补充（协调）：sameAs 真缺陷已定位、门禁 31 已占用、窄屏门禁接进链的一处 TDZ 崩溃
+
+> 本场次**只改 `docs/IMPROVEMENT-LOG.md` 与 `scripts/check-overflow.cjs` 的 2 行**，
+> 其余在途改动（`eleventy.config.js` / `verify-site.cjs` / `package.json` /
+> `deploy.yml` / `check-gates-wired.cjs` / `check-wrapping.cjs` /
+> `check-copy-export.cjs`）**不是本场次写的，本场次一律不提交它们**。
+
+### A. 独立复核：15:20 场次报的 sameAs 冲突**成立**（我用自己的扫描器复现）
+
+先说一条**方法论教训**：我第一版扫描器只遍历 JSON-LD 的顶层 `@graph`，
+于是只看到 6 个节点、且 sameAs 全都一样 → 差点判成"没有冲突"。
+**真相在嵌套里**：论文的 `author`、数据集/胶囊的 `creator` 都是**嵌套的 Person 节点**，
+它们带着本人的 `@id`。不递归就等于看不见这条门禁的真正目标。
+（这一点后来被写进 31 号门禁的判据 ① —— 同一个坑，判据里已经堵上了。）
+
+改成递归扫描（自己的脚本，不跑交接件给的脚本）后，与交接件**逐字一致**：
+
+```
+HEAD 产物：13 个 #person 节点
+  · 9 个：sameAs = [ORCID, GitHub, ResearchGate, CSDN, OpenAlex]（全集）
+  · 4 个：sameAs = "https://orcid.org/0009-0005-3511-0546"（裸字符串）
+    —— 只在 about / blog / index / papers/index 四页
+```
+
+**后果**：消费方按 `@id` 把"本人"归并成一个节点时，**取到哪套取决于遍历顺序**；
+拿到残缺那套，就等于替本人丢掉 GitHub / ResearchGate / CSDN / OpenAlex 四个句柄。
+
+**根因**（与 15:20 场次的判断一致）：`jsonLdArticles` 给"本人"发射的是**残缺节点**
+（`sameAs` 只有 ORCID 裸字符串），而 `jsonLdPaper` 与 `base.njk` 发射的是**全集**。
+`eleventy.config.js` 里那句注释「本人的判定**必须**与 jsonLdPaper 用同一份数据、同一套判据」
+说明**这个意图本来就存在，只是没落到 sameAs 上**。
+
+**修复已在工作树里**（`eleventy.config.js`：本人节点改用 `site.author.sameAs` 全集）。
+本场次在**隔离克隆**里验了修复前后的产物：
+
+| | #person 节点 | 带走全集的 | 带裸 ORCID 的 |
+|---|---|---|---|
+| HEAD（未修） | 13 | 9 | **4** |
+| 修复后 | 13 | **13** | **0** |
+
+→ 同一件事一句话说清：**"标识符统一 ≠ 标识符描述统一"** ——
+门禁 12 守的是前者，13 个节点里 4 个描述漂移这件事，现有门禁一条都看不见。
+
+### B. 门禁 31 已占用：它是**「同一 @id 的同名字段必须一致」**（不是 ItemList）
+
+工作树里 `scripts/verify-site.cjs` 已在写 31 号门禁，方向是 JSON-LD 一致性。
+我逐条核对了 15:20 场次提的三档分类，**判据已经全部吸收**：
+
+| 15:20 场次的分类 | 31 号门禁的实现 | 判定 |
+|---|---|---|
+| ① 真矛盾 → 红 | 同一 (@id, @type) 组内同名字段出现互不相同的取值 → 判红 | ✅ |
+| ② 一方是另一方**超集**（多带可选属性）→ 不红 | `normValue` 对**嵌套对象/对象数组返回 null → 不判**（`isPartOf` 的 `issn` 差、`author` 差都在此列） | ✅ |
+| ③ 归一化后集合相同 → 不红 | 数组按"去重排序后的集合"比；`sameAs`/`keywords`/`knowsAbout` 的**逗号串**先切集合再比 | ✅ |
+| 字段缺失不算冲突 | 判据 ③：`hasOwnProperty` 为假 → 不算 | ✅ |
+| **url / datePublished 口径待拍板 → 不要临时豁免** | `PENDING_FIELDS = {url, datePublished}`，**只报不判**，并在注释里写明"拍板后把字段名删掉即变成硬判据" | ✅ |
+| 必须能自证判据没失效 | 门禁自带"一个字段都没比成 / sameAs 一次都没被比对 → 判失效"的自查 | ✅ |
+
+⚠️ 15:20 场次那个"要求**双向**包含"的坑（会把超集判成真矛盾），
+这里的实现是**单向 `a ⊆ b` 即视为覆盖差异** —— 坑没踩。
+
+**编号裁定**：`31` = JSON-LD 一致性（已占用）。
+**ItemList（`/papers/` 列表级 JSON-LD）改用 `32`**，登记在文件头清单 + 旧编号→新编号对照表两处。
+⚠️ 重复编号会直接撞门禁 24/29 的连续性检查 → **build 直接变红**。
+
+### C. 本场次修的一处真崩溃：窄屏门禁接进 build 链后，build 立刻是红的
+
+`check:overflow` 被接进 build 链（`package.json`）后，**整条 build 链 exit 1**：
+
+```
+检查失败： Cannot access 'chrome' before initialization
+```
+
+**根因**：变量已从 `chrome` 重命名为 `found`，但**两处漏改**：
+
+- 第 276 行 `console.error(`✗ ${chrome.reason}`)`
+- 第 290 行 `const chromeBin = chrome.bin;`
+
+而 `const chrome = await startChrome(chromeBin);` 在**第 321 行**才声明
+→ 这两处落在**暂时性死区（TDZ）**里。
+本机 Chrome **是找到了的**（`/Applications/Google Chrome.app/...` 在候选路径里），
+所以走的是第 290 行那条 → 崩在 TDZ 上。
+
+⚠️ 这个 bug 的杀伤力在于**它把真正的失败原因掩盖了**：
+它本来想打印的是"找不到浏览器"或"启动失败"的**可读诊断**，
+结果诊断语句自己先崩了 —— 读者只看到一句莫名其妙的 `Cannot access 'chrome'`。
+
+**修法**（2 行，已在共享工作树里改好，`found.reason` / `found.bin`），
+**验证**（隔离克隆，带全部在途改动）：
+
+| 状态 | `npm run build` |
+|---|---|
+| 在途改动原样 | **exit 1**（TDZ 崩在 `check:overflow`） |
+| 修这 2 行后 | **exit 0** —— 门禁接线 / CSS / 断行 / 站点自检（含 31）/ 语言 / a11y / Copy 出口 / **窄屏（6 页 scrollWidth 390）** 全绿 |
+
+本场次**只改了这两行**，没有动该脚本的其他任何部分；该脚本其余内容属在途场次所有。
+
+### D. 本轮的「留给下一轮」：**ItemList（门禁 32）**
+
+`/papers/` 加列表级 `ItemList` JSON-LD（`itemListElement` / `position` / `numberOfItems`），
+消费方才能拿到"这个站点有几篇论文、按什么顺序"这个**列表级**实体
+（现在只有一堆彼此无序的 ScholarlyArticle）。
+
+**本轮不做**，原因：工作树同时有三组在途改动，而 `eleventy.config.js` 与
+`scripts/verify-site.cjs` 正是**最热的两个文件**（31 号门禁 + sameAs 修复都在里面）——
+再插一个并发改动进去，是纯粹的撞车风险。**等树干净了再做。**
+
+下一轮接手时的完整要求（已整合 14:35 提案 + 15:20 判据）：
+
+1. 只动三个文件：`eleventy.config.js`（新 filter）、`src/papers.njk`、
+   `scripts/verify-site.cjs`（门禁 32 + 文件头清单 + 对照表 `（无） → 新 32`）。
+2. **必须用独立 `<script type="application/ld+json">` 块**（`base.njk` 的
+   `{% block structuredData %}` 扩展点）——**不要**改 `jsonLdArticles` filter：
+   它被 4 个页面共用（首页/blog/about 也输出全量 @graph），改它会把 ItemList 泄到那三页。
+3. `item.@id` 必须与论文页 `ScholarlyArticle` 的 @id **逐字相同**。
+4. 门禁 32 的 32d 要**比提案更强**：不只断言"每个 item.@id 有对应页面"，
+   要断言"**每个 item.@id 能在同一页的 JSON-LD 实体里找到同 @id 的节点**" ——
+   用同一个 @id 的全部意义就是让消费方把列表项与论文实体**合并成同一个节点**。
+5. 故障注入至少 3 例，**每例先自证注入生效**（回读断言 / md5 与基线不同）：
+   改 `numberOfItems` → 32b 判红；调换 `itemListElement` 顺序或改 `position` → 32e 判红；
+   把某个 `item.@id` 改成与论文页不一致 → 32d 判红。还原后复绿。
+6. `npm run build` 必须 exit 0（取退出码**不要接管道**：`cmd >log 2>&1; echo $?`）。
+7. 提交只显式 `git add` 那三个文件，**不用 `git add -A`**，中文 commit，**不 push**。
+
+### E. 边界
+
+- **不 push**。本地 `main` 领先远端 50+ 个 commit，部署由本人拍板。
+- 本场次**没有新增**待决策项，也**没有替本人拍板**任何一条。
+- `url` / `datePublished` 两个字段的口径仍**挂在本人的待决策清单里**（31 号门禁对它们
+  只报不判）；本场次**不替本人选**，也**不在判据里留临时豁免**。
+
+### F. 提交说明（谁该提交什么）
+
+- 本场次**只提交本文件**（日志）。
+- `scripts/check-overflow.cjs` 的那 2 行修正**已在共享工作树里**，
+  但该文件的其余 +120 行是**别的在途场次**的改动 ——
+  本场次**不提交它**（提交它会把别人的在途成果一并卷进来）。
+  请**该脚本的作者**在提交自己那组改动时把这两行一并带上
+  （幂等：`chrome.reason` → `found.reason`、`chrome.bin` → `found.bin`）。
+  若这两行被还原，**build 会立刻 exit 1**（`Cannot access 'chrome' before initialization`），
+  且真正的失败原因会被这句 TDZ 报错**掩盖**。
+- 本场次**没有替任何在途场次提交它的代码**。
