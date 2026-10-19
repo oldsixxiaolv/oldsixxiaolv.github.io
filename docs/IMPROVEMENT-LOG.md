@@ -3807,3 +3807,157 @@ BI1 的新门禁报错（归因准确，直接说清后果）：
    已是"ORCID 优先、姓名兜底"）。⚠️ 换锚点前必须先确认 **R4（只改 @id 形状）仍被门禁 12 抓到**。
 5. 巡检 cron 仍是每 5 分钟起一个会话 → 持续并发冲突（连续五轮都撞见）。
    建议改成 30–60 分钟 + 单写者锁。
+
+## 2026-10-19 · 13:41–14:00 场次（**不占轮次号**，避免与并发场次撞号）：首页专有名词被小写化 + 门禁 28
+
+### 本场次定位
+
+本轮只做两件事，都是**同一个真 bug** 的两面：
+
+- **A**：修掉一个**肉眼可见的排版级错误** —— 首页 "A working archive" 段把专有名词
+  "North China" 渲染成了小写 "north china"。
+- **B**：给这类错误配一条**能拦住它、也能拦住同类错误**的门禁（门禁 28）。
+
+### A. 改进点 A：`currentFocusEn` 被 `| lower` 小写化（真 bug）
+
+**现象**（修复前 `_site/index.html` 的正文）：
+
+> Currently focused on extreme precipitation over **north china**.
+
+**根因**：`src/index.njk` 对 `site.author.currentFocusEn` 加了 `| lower`。
+`git log -S 'currentFocusEn | lower' -- src/index.njk` → 来自 `0252580`（站点重构那次），
+**不是有意为之**——全站 `| lower` 只有 3 处，另外 2 处（`researchEn`）是对的。
+
+**为什么这是"矛盾"而不只是"不好看"**：`src/about.njk:7-9` 早就把这条决策写成了明文注释：
+
+> ⚠️ currentFocusEn 后面刻意**不加 | lower**：它是专有名词 "Extreme
+>    precipitation over North China"，lowercase 会把 North China 变成
+>    north china，正文句子读着像地名普查表。
+
+也就是说 —— **同一个字段，about 页守住了，首页漏了**。
+（about 页与首页的 meta description 都正确；全站 HTML 产物里 15 处规范写法 + 1 处小写，
+小写的只有这一处。）
+
+**修法**：`src/index.njk` 去掉那一个 `| lower`，其余不动。
+
+⚠️ 顺带记一笔：`researchEn` 的 `| lower` **是对的**（"Thunderstorm Lightning · Data
+Assimilation · …" 是普通名词列表），不能一起去掉。
+
+### B. 改进点 B：门禁 28 —— 专有名词不得被小写化
+
+**为什么值得单配一条门禁**：这个 bug 的性质是"**人不该犯、但人一定会犯**"的错误
+（模板里加一个 `| lower` 而已）。它不会让构建失败、不会让链接失效、不会让门禁变红 ——
+它只是让页面读着像地名普查表，靠人记是守不住的。
+
+**判据**：每个 HTML 产物的**人可见文案**里，清单里的专有名词都不得出现"非规范大小写"
+的形式（全小写 / 全大写 / 句首大写都不允许）。
+
+**三层设计，每一层都是被实测逼出来的**：
+
+1. **只取"人可见文案"**（文本节点 + `content`/`alt` 属性值，剔除 `<script>`/`<style>`/HTML 注释）
+   —— `href`/`src` 里的域名（`github.com`、`orcid.org`、`doi:10.5281/zenodo.18041880`）
+   按惯例本来就是小写，那是 URL，不是大小写错误。
+   ⚠️ 但这些 URL 有时**作为链接文字**出现在正文里（"Source lives in github.com/oldsixxiaolv"），
+   只靠"不查属性"躲不开 → 所以还要第 2 层。
+2. **剔掉 URL / 标识符型 token**（含 `://`、含 `/`、以 `.tld` 结尾、或"数字+点"）
+   —— 顺带解决 `og:image` 的 `content` 里那个 `assets/img/publications/trmm-fig10.jpg`
+   （否则 "trmm" 会被当成被小写化的 "TRMM"）。
+3. **词组边界检查**（左右都不是标识符字符 `[A-Za-z0-9_-]`）
+   —— 否则 `trmm-fig10.jpg` 里的 "trmm" 仍会被误判。
+
+**清单自证存活**（与门禁 24 同构）：清单里某条词在产物里**已经找不到规范写法** → 判红。
+理由：清单是显式契约；条目失效后本条会一直绿着，**看着像在把关、实际已经不拦任何东西**，
+那比没有这条门禁更糟。改内容时忘了同步清单，就该被提醒，而不是悄悄失效。
+
+**清单的加入标准**（写进代码注释）：只收**小写后不是普通英文词**的专有名词。
+"North China" 可以；"Apple" 不行 —— 它的全小写形式是普通名词，会把正常句子判红。
+
+当前 17 条：North China / Institute of Atmospheric Physics / Chinese Academy of Sciences /
+Lanzhou University / IAP-CAS / LZU / Zenodo / ORCID / TRMM / GPM / GitHub / Code Ocean /
+ResearchGate / OpenAlex / CSDN / Manuscript_Lvyh / Yihang Lyu。
+
+### C. 我自己引入的一个副作用（如实记下）
+
+第一次改 `src/index.njk` 时，把说明注释写在了句子**中间**：
+
+```njk
+working on {{ site.author.researchEn | lower }}. Currently focused on
+{#- currentFocusEn 是含专有名词的整句…… -#}
+{{ site.author.currentFocusEn }}.
+```
+
+`{#-` 会把注释**前面**的空白一起吃掉 → 渲染成
+`Currently focused on**Extreme** precipitation over North China.`（"on" 与 "Extreme" 粘连）。
+
+- **是读产物时发现的，不是门禁发现的** —— 门禁 28 只管大小写，管不了"词和词粘在一起"。
+- 修法：注释挪到段落**之外**（`<p>` 之前），正文一字不动 → 第二个 commit `267135b`。
+- 教训已写进模板注释本身：**说明性注释放在句子中间时，空白控制会吃掉正文里的空格**。
+
+### D. 故障注入矩阵（4 例 + 复位，隔离克隆 `/tmp/mh-g28-verify/repo`，共享工作区零写入）
+
+每例都带回读断言：**先确认注入真的落盘**（源文件 grep + 产物回读），再读门禁结论
+（否则「注入没生效」与「门禁没拦住」在结果上长得一样）。
+
+| 用例 | 注入 | 期望 | 实测 |
+|---|---|---|---|
+| 基线 | 不注入（干净克隆 `267135b`） | exit 0 | **exit 0** ✓ |
+| A | `currentFocusEn` 加回 `\| lower`（还原原 bug） | exit 1 | **exit 1** ✓ 报 `index.html: 专有名词 "North China" 出现了非规范大小写` |
+| B | **不靠 `\| lower`**，模板里直接手写 "north china" | exit 1 | **exit 1** ✓（证明门禁不是只匹配 `\| lower` 这一种机制） |
+| C | 把 "Code Ocean" 从整棵 `src/` 改名（模拟清单条目失效） | exit 1 | **exit 1** ✓ 报 `门禁 28 的清单条目 "Code Ocean" 已经失效` |
+| D | 全大写 "NORTH CHINA" | exit 1 | **exit 1** ✓（门禁注释里声称"全大写也不允许"，这条要验过才算数） |
+| 复位 | 全部还原 | exit 0 | **exit 0** ✓ |
+
+⚠️ **C 用例第一次没落地**：只 sed 了 `src/_data/site.js` 与 `src/content/*.md`，
+而 "Code Ocean" 实际在 `src/_includes/layouts/paper.njk` → 源文件回读仍有命中、
+产物里仍有 2 处 → 门禁 exit 0。**是回读断言先发现的**（若只看门禁结论，
+会误判成"门禁抓不到清单失效"）。重做时改成 `grep -rl | xargs sed` 覆盖整棵 `src/`。
+
+### E. 复验
+
+- 隔离克隆（`git clone` + `node_modules` 符号链接）`npm run build` → **exit 0**，
+  门禁输出：`专有名词大小写：17 条清单全部在用，且都保持规范大小写`；
+  门禁编号：**文件头清单 29 条 / 代码段 29 条，一一对应且连续**。
+- 工作区 `npm run build` → **exit 0**（check:css ✓ / check:site ✓ / check:lang ✓ /
+  check:a11y ✓ / check:copy ✓）。
+- 产物正文回读（空白归一后）：`Currently focused on Extreme precipitation over North China.`
+  —— 空格在、大小写在。
+- 线上巡检（13:56 PDT）：`/` `/blog/` `/about/` `/sitemap.xml` `/robots.txt` `/404.html` = 200；
+  `/papers/` `/publications.bib` `/feed.xml` `/papers/trmm-thunderstorm-stages/` = 404
+  （**属待部署**，线上仍是 2026-10-16 那次部署）；线上 canonical 仍带 `/MeteoHub/` 前缀。
+
+### 本轮提交（**不 push**）
+
+- `53c8f6d` `fix(content): 修掉首页 currentFocusEn 被 | lower 小写化 + 新增门禁 28 守专有名词大小写`
+- `267135b` `fix(content): 把 currentFocusEn 的说明注释挪出句子——注释的空白控制曾把 "focused on" 的空格吃掉`
+- `docs(log)` 本段（**即本条提交**）
+
+⚠️ 并发提醒：本场次提交时，工作树里同时有另一场次在途的 `package.json` /
+`scripts/check-a11y.cjs` / `scripts/check-copy-export.cjs` 改动 ——
+**一律显式 `git add <path>`，不用 `git add -A`**（否则会把别人的在途改动扫进本轮提交）。
+
+### 待部署（本轮**不 push**，线上仍是旧版本）
+
+不变：`/papers/`、`/publications.bib`、`/feed.xml`、`/papers/trmm-thunderstorm-stages/`
+在线 404；canonical / og:url / sitemap 带 `/MeteoHub/` 前缀。**部署由本人决定。**
+
+### 待决策（**沿用第十六轮 7 条，本轮不新增、不擅自拍板**）
+
+1. 404 页要不要保留 Person 实体（`src/404.njk` 的 `identityOn404`）。
+2. 论文页是否显示"论文署名单位"。
+3. `figure.alt` 是否保留 "Fig. 10 —" 前缀。
+4. sitemap `lastmod` 口径三选一。
+5. 何时 push / 部署。
+6. `src/blog.njk:75` 博客卡片封面图的 `alt=""` 口径。
+7. OG 分享图里的中文品牌文案要不要英文化。
+
+### 留给下一轮
+
+1. **门禁 28 的清单要随内容同步**：改了机构名 / 仓库名 / 平台名，必须同时改
+   `scripts/verify-site.cjs` 里的 `PROPER_NOUNS`，否则 build 会报"清单条目已失效"。
+   这是**有意的摩擦**（让清单与内容显式对账），但要在改内容时记得。
+2. **门禁 21④ 的报错去重**、**门禁 15 在四个页面上空跑** —— 仍未动。
+3. **`gitOut` 的 catch 加固**（低严重性）。
+4. 门禁 27 的锚点仍依赖门禁 12 的**姓名**匹配，可改成 **ORCID**。⚠️ 换锚点前必须先确认
+   **R4（只改 @id 形状）仍被门禁 12 抓到**。
+5. 巡检 cron 仍是每 5 分钟起一个会话 → 持续并发冲突（连续多轮都撞见）。
+   建议改成 30–60 分钟 + 单写者锁。
