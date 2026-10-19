@@ -4533,3 +4533,176 @@ YAML 把 `0` 解析成**整数 0**（**假值**），`null` / `~` / 空同理；
    **R4（只改 @id 形状）仍被门禁 12 抓到**。
 5. 巡检 cron 仍是每 5 分钟起一个会话 → 持续并发冲突（连续多轮都撞见）。
    建议改成 30–60 分钟 + 单写者锁。
+
+## 2026-10-19 · 14:00–14:20 场次（**不占轮次号**，避免与并发场次撞号）：长串断行兜底（break-word → anywhere）+ 新增 `check:wrap` 门禁
+
+### 本场次定位
+
+只做 **1 个改进点**：把"一条长 DOI / 长 URL 不能把窄屏页面撑破"这条兜底规则改对，并给它配一条门禁。
+
+选它的理由：它是改进日志第二轮就记下、标着"**不能盲改**"的遗留项里，唯一一个
+**不在「待决策」清单上**、纯技术性的 TODO —— 不需要本人拍板，且有可验证的客观判据。
+（其余候选：404 页要不要保留 Person 实体、论文页是否显示署名单位、`figure.alt` 是否保留
+"Fig. 10 —" 前缀、sitemap `lastmod` 口径、博客封面 `alt=""` 口径、OG 图中文文案是否英文化、
+Twitter 句柄、Google Scholar/ADS/arXiv 档案、网盘 URL、OpenAlex 是否页脚可见、作者单位写法、
+数据集引用条目口径、ORCID 是否进 `citation_*` —— **全部需要本人拍板，本轮一律不碰**。）
+
+### ⚠️ 本轮的并发情况与归属
+
+同一工作树里同时有另一场次在做 **RIS 导出**（新增 `src/publications.ris.njk`，改
+`eleventy.config.js` / `src/_includes/layouts/paper.njk` / `src/assets/css/components/_paper.css` /
+`src/papers.njk`）。**文件不重叠**：本场次只动 `src/assets/css/base.css`、
+`src/assets/css/components/_list.css`、`scripts/check-wrapping.cjs`、`package.json`，
+加上本节日志。
+
+提交方式：**三个已跟踪文件用 `git apply --cached` 只打自己的 hunk**（不是 `git add <path>`），
+新脚本因为是本场次独占的新文件才直接 `git add`。理由见日志里那条老规矩：
+同一文件存在并发改动时 `git add <path>` 会把**整个文件**的工作树状态扫进 commit。
+
+### 背景：break-word 和 anywhere 的差别不是"好不好看"，是"能不能挡住"
+
+`overflow-wrap` 有两个值：
+
+| 值 | 放不下时断行 | 参与 min-content 宽度计算 |
+|---|---|---|
+| `break-word` | 是 | **否** |
+| `anywhere` | 是 | **是** |
+
+差这一点，在 flex/grid 里是天壤之别 —— **flex/grid 轨道的下限取自子项的 min-content**，
+所以 `break-word` 的那条长串**照样**把轨道撑宽。
+
+而本站几乎所有"并排排版"的区域都是 flex/grid（topbar / 页脚 / 论文头 / 首页引言 / 论文卡片 …），
+所以原来的兜底**在它最该生效的地方是失效的**。
+
+#### 实测方法（这一段值得留档，因为第一轮实验做错了）
+
+用一支自写的 CDP 探针（`/tmp/mh-probe2.cjs`）：起本地静态服务器 + 无头 Chrome，
+390px 视口，**一次只往一个元素里塞一条长 DOI 串**，测完删掉再测下一个，
+看整页 `scrollWidth` 是否被撑破。
+
+⚠️ **第一版探针（批量注入）是无效的**：它把长串同时塞进所有 flex/grid 的文字子项，
+只要其中**任何一个**元素（例如 `white-space: nowrap` 的导航链接）不可收缩，
+整页 `scrollWidth` 就爆 → 4 个 CSS 方案测出来的数字**完全相同**，
+分不清"方案无效"和"某个 nowrap 元素本来就不可收缩"。必须逐点注入。
+
+#### 同一套工具、同一口径的改前/改后
+
+| 版本 | 单点注入即撑破页面的元素数 |
+|---|---|
+| 改前（`break-word`） | **132** |
+| 改后（`anywhere`） | **30** |
+
+改后剩下的 30 个，**全部是 `white-space: nowrap` 的有意为之处**，只有 3 类：
+`a.topbar__link`（导航）、`a.btn.btn--primary`（按钮）、`a`（`div.home-intro__links` 里的
+右对齐联系链接）—— 都是短固定标签，nowrap 是有意为之，**不动**。
+
+### 改动
+
+1. **`src/assets/css/base.css`** —— 全局兜底规则：
+   - `overflow-wrap: break-word` → **`anywhere`**；
+   - 选择器**补上 `span`** —— 页脚的版权行就是一个**裸 `span`** 落在 flex 容器里，
+     原选择器列表没覆盖它 → 那一处**完全没有兜底**（实测仍是 `overflow-wrap: normal`）。
+2. **`src/assets/css/components/_list.css`**（`.list--cards .list__meta`）——
+   同样改为 `anywhere`（作者名单现在带 ORCID 链接，是实打实的长串，
+   而 `.list__meta` 落在弹性/网格容器里）。
+3. **新增 `scripts/check-wrapping.cjs`**（`check:wrap`），并接进 `package.json` 的 `build` 链。
+
+### 新门禁 `check:wrap` 的三条判据
+
+| 判据 | 内容 |
+|---|---|
+| **W1 覆盖** | 全局兜底规则必须覆盖 12 个标签类型（`p / li / dd / dt / td / th / figcaption / blockquote / pre / code / a / span`），且用 `anywhere` |
+| **W2 不退化** | 站内任何地方都不许再出现 `overflow-wrap: break-word` |
+| **W3 门禁自己没被卸掉** | `package.json` 的 `build` 链必须含 `check:wrap`，且 `check:wrap` 必须指向 `scripts/check-wrapping.cjs` |
+
+**为什么必须有 W3**：「门禁自己被卸掉」和「门禁没生效」在结果上**长得一模一样**
+（build 照过、门禁全绿、没有任何报错）。凡是靠"某处存在某样东西"做判据的门禁，
+都得自带这一条自查。这条老毛病在日志里已经犯过至少一次。
+
+**这条门禁为什么值得存在**：改对了**页面完全看不出差别** —— 现有内容里没有一条
+长到会触发的串（实测未注入时六页 `scrollWidth` 都 = 390）。
+这是一条"**改对了没人看得见、改错了要很久才爆**"的规则。门禁就是把这个"看不见"
+变成"每次 build 都查一遍"。
+
+### 故障注入矩阵（6 例，隔离克隆 `/tmp/mh-final-verify/repo`，共享工作区零写入）
+
+每例用**全新 rsync 副本**，并且**先自证注入真的生效**，再读门禁结论
+（"注入没生效"与"门禁没拦住"在结果上长得一模一样）。
+
+| 用例 | 注入 | 期望 | 实测 |
+|---|---|---|---|
+| C0 对照 | 不注入 | exit 0 | **exit 0** ✓ `长串断行门禁通过：全局兜底 = overflow-wrap: anywhere，覆盖 12 个标签类型（要求 12 个）；站内无 overflow-wrap: break-word。` |
+| I1 | 全局兜底 `anywhere` 改回 `break-word` | exit 1 | **exit 1** ✓ 报 `用了 overflow-wrap: break-word … 改成 anywhere` + `找不到"全局长串兜底"规则` |
+| I2 | 全局兜底选择器去掉 `span` | exit 1 | **exit 1** ✓ 报 `全局兜底规则「p, li, …, code, a」没有覆盖 span` |
+| I3 | `package.json` 的 build 链摘掉 `check:wrap` | exit 1 | **exit 1** ✓ 报 `门禁自己被卸掉了` |
+| I4 | `check:wrap` 改指向别的脚本 | exit 1 | **exit 1** ✓ 报 `门禁自己被卸掉了` |
+| I5 | 新组件偷偷用 `break-word` | exit 1 | **exit 1** ✓ 报 `src/assets/css/components/_evil.css: 选择器「.evil-x」用了 overflow-wrap: break-word` |
+| I6 | 卡片元信息退回 `break-word` | exit 1 | **exit 1** ✓ 报 `src/assets/css/components/_list.css: 选择器「.list--cards .list__meta」用了 …` |
+
+### 本轮修掉的两个"我自己犯的错"（都记下来，免得后人照抄）
+
+1. **探针版本用错** —— 见上文"第一版探针是无效的"。教训：
+   **批量注入会把"某个元素本来就不可收缩"伪装成"方案全部无效"**。
+   凡是"测 CSS 方案"的实验，必须**逐点注入**，否则四个方案测出同一个数字。
+2. **注入自证写反了** —— I3 第一次跑出"注入未生效"，查下来是**自证逻辑的退出码写反了**
+   （把"注入已生效"的条件写成了退出 0，实际是退出 1），**注入本身是生效的**。
+   顺带发现：`grep -q 'check:wrap' package.json` 也不可靠 —— 脚本**定义**还在文件里，
+   要查的是 **build 链**本身。修正自证后 I3 正常通过。
+   教训：**"注入没生效"这个结论本身也要自证**，否则会把"我的检查写错了"记成"我的注入写错了"。
+
+### 验证结果
+
+- 隔离克隆（`git clone --no-hardlinks` + `ln -s` node_modules）套入本轮 4 个文件 →
+  `npm run build` **exit 0**（含 `check:wrap` 实际执行）。
+- 克隆内 4 个文件与工作树**逐个 md5 一致**（自证"测的就是要交的那份"）。
+- 故障注入 6 例全被拦下（表见上）。
+- `node scripts/check-overflow.cjs`（真实内容、未注入）：6 页 `scrollWidth` **全部 = 390**
+  → **无横向溢出、无回归**。
+- 逐点注入探针：改前 132 → 改后 30（表见上）。
+
+### 线上巡检（14:17 PDT，curl 实测）
+
+```
+200  /                      200  /blog/       200  /about/
+200  /sitemap.xml           200  /robots.txt   200  /404.html
+404  /papers/               404  /publications.bib
+404  /feed.xml              404  /papers/trmm-thunderstorm-stages/
+```
+
+与历轮记录**完全一致**：这几个 404 都是**本地已存在、待部署**的路由，
+**不是站点损坏**；线上 canonical / og:url / sitemap 仍带 `/MeteoHub/` 前缀（指向 404 URL）。
+**部署由本人决定，本场次不 push。**
+
+### 本轮提交（**不 push**）
+
+- `9dea3ac` `fix(css): 长串断行兜底改用 anywhere 并补上 span + 新增 check:wrap 门禁`
+  （`package.json` / `src/assets/css/base.css` / `src/assets/css/components/_list.css` /
+  `scripts/check-wrapping.cjs`）
+- `docs(log)` 本节（**即本条提交**）
+
+### 待部署（本轮**不 push**，线上仍是旧版本）
+
+不变：`/papers/`、`/publications.bib`、`/feed.xml`、`/papers/trmm-thunderstorm-stages/`
+在线 404；canonical / og:url / sitemap 带 `/MeteoHub/` 前缀。**部署由本人决定。**
+
+### 待决策（**沿用既有清单，本轮不新增、不擅自拍板**）
+
+本轮**没有新增待决策项**。既有清单（404 页 Person 实体、论文页署名单位、`figure.alt` 前缀、
+sitemap `lastmod` 口径、博客封面 `alt=""` 口径、OG 图中文文案、Twitter 句柄、
+Google Scholar/ADS/arXiv 档案、网盘 URL、OpenAlex 是否页脚可见、作者单位写法、
+数据集引用条目口径、ORCID 是否进 `citation_*`、何时 push / 部署）**一律原样保留**。
+
+### 留给下一轮
+
+1. **`check:over`（`scripts/check-overflow.cjs`）仍未接进 build** —— 它需要 Chrome + 临时服务器，
+   比纯 Node 门禁重得多，所以**故意没接**。如果哪轮想接，先想清楚 CI 环境有没有 Chrome。
+2. **剩下 3 处 `white-space: nowrap`**（nav / 按钮 / 右对齐联系链接）**是有意为之，本轮不动**。
+   但如果以后往这些位置塞长内容，得回来改 —— 目前**没有门禁守着"别往 nowrap 里塞长串"**。
+3. **统一套件还没做**：现在有 6 个独立门禁脚本（`check:css` / `check:wrap` / `check:site` /
+   `check:lang` / `check:a11y` / `check:copy`）各跑各的，输出风格不统一。
+   可以考虑一个统一 runner，但这属于"可改性"优化，**优先级低于真缺陷**。
+4. **`min-inline-size: 0` 的通用解法仍被搁置**：实测 `anywhere` 已经把 132 → 30，
+   `min-inline-size: 0` 在其之上**没有额外收益**，所以本轮**没有**加通配
+   （通配有副作用）。若将来出现"`anywhere` 也挡不住"的场景（少见），
+   再回到 `min-inline-size: 0` + `minmax(0, 1fr)` 这条路
+   —— `components/_paper.css:715` 已有先例做法。
