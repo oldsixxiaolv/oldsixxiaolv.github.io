@@ -7,9 +7,10 @@
     "check:css": "node scripts/check-css-braces.cjs && node scripts/check-dead-css.cjs",
     "check:lang": "node scripts/check-lang.cjs",
     "check:site": "node scripts/verify-site.cjs",
-    "build": "npm run check:css && eleventy && npm run check:site && npm run check:lang && npm run check:a11y",
+    "build": "npm run check:css && eleventy && npm run check:site && npm run check:lang && npm run check:a11y && npm run check:copy",
     "serve": "eleventy --serve --quiet --port=8080",
-    "check:a11y": "node scripts/check-a11y.cjs"
+    "check:a11y": "node scripts/check-a11y.cjs",
+    "check:copy": "node scripts/check-copy-export.cjs"
   },
   "engines": {
     "node": ">=18"

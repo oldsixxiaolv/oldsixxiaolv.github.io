@@ -13,10 +13,11 @@
  * 这些都是"肉眼看截图看不出来、但真的挡人"的问题，所以必须做成门禁，
  * 否则下次改样式就会被悄悄改回去。
  *
- * 编号体系：与 scripts/verify-site.cjs 的 1–24 **续接**，从 25 起，
- * 不复用那边的号（那边的门禁 24 会自查"文件头清单与代码段一一对应"，
- * 两边撞号会让追溯日志时指错对象）。同门的 check-lang.cjs /
- * check-dead-css.cjs 也都不用数字编号，所以这里用**独立编号 A1–A4**：
+ * 编号体系：**独立编号 A1–A4**，与 scripts/verify-site.cjs 的数字编号
+ * **不续接**。理由：那边的门禁会自查"文件头清单与代码段一一对应且连续"，
+ * 两边撞号会让追溯日志时指错对象（⚠️ 也不要在这里写死对方的编号区间 ——
+ * 那个区间会随对方加门禁而过期，写死就是一句会变假的话）。
+ * 同门的 check-lang.cjs / check-dead-css.cjs 也都不用数字编号，沿用同一惯例：
  *   A1. 文本对比度（WCAG 1.4.3）：三套主题下正文 / 弱化 / 强调 / 链接色
  *       对两种底色都要 ≥ 4.5:1；徽标用的 accent 组合也不能被改坏；
  *       且两处暗色 token 定义必须逐项一致（零漂移）。
@@ -382,6 +383,56 @@ const htmlFiles = allFiles.filter(
     return set;
   };
 
+  /* ---- 源级兜底：容器在产物里没有实例时，第二道判据 ----
+   *
+   * 为什么需要它（这是本轮实测出来的真覆盖漏洞）：
+   *   .detail 是**博客/portfolio 详情页的正文容器**，而那两个集合目前是空的
+   *   → 详情页模板（detail.njk）从未被构建渲染 → 产物里永远没有 .detail。
+   *   → 上面那段"逐页"判据对 ".detail a" 只能"暂不判"（skipped）。
+   *   → 于是"正文链接带下划线"这条判据在**最该守的那一类内容上无人看守**：
+   *      谁把 base.css 那条规则里的 ".detail a," 删掉（"博客还没有内容，
+   *      这是个死选择器" —— 一个非常合理的编辑动机），门禁照样全绿；
+   *      等第一篇文章发出来，正文链接就只剩颜色区分（WCAG 1.4.1 违规），
+   *      而**没有任何门禁会报**。
+   *   实测：当前 base.css 里 .detail a 是在的（所以现在没问题），
+   *   但删掉它 A2 今天不会红 —— 这就是漏洞本身。
+   *
+   * 做法：容器在产物里没有实例时，改为**源级**判据 —— 在 src/assets/css/**
+   *   （以及 .njk 的 <style> 块）里找一条**恰好**以该选择器为目标、带
+   *   text-decoration: underline 的规则。
+   *   判据语义与产物级判据**同源**（两者都走 underlinedIn），
+   *   所以两条路径不会出现"一个说行、一个说不行"。
+   */
+  const sourceUnderlined = (() => {
+    const set = new Set();
+    const files = [];
+    (function walk(dir) {
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        const p = path.join(dir, entry.name);
+        if (entry.isDirectory()) walk(p);
+        else files.push(p);
+      }
+    })(path.join(ROOT, "src"));
+    for (const f of files) {
+      const ext = path.extname(f);
+      let text = "";
+      if (ext === ".css") {
+        text = fs.readFileSync(f, "utf8");
+      } else if (ext === ".njk") {
+        const blocks = [];
+        const re = /<style\b[^>]*>([\s\S]*?)<\/style>/gi;
+        let m;
+        while ((m = re.exec(fs.readFileSync(f, "utf8")))) blocks.push(m[1]);
+        text = blocks.join("\n");
+        if (!text.trim()) continue;
+      } else {
+        continue;
+      }
+      for (const s of underlinedIn(stripComments(text))) set.add(s);
+    }
+    return set;
+  })();
+
   let missing = 0;
   let skipped = 0;
   for (const c of containers) {
@@ -390,9 +441,22 @@ const htmlFiles = allFiles.filter(
     const pages = [...pageHtml.entries()].filter(([, html]) => clsRe.test(html)).map(([rel]) => rel);
     if (!pages.length) {
       // 容器当前不在任何产物里（例如空态列表页没有实例）：
-      // 这不是缺陷，是判据暂时用不上。记一笔，不判红。
+      // 产物级判据用不上，但**不能就此放过** —— 见上面"源级兜底"的说明。
       skipped++;
-      note(`门禁 A2：${c} 当前没有出现在任何产物页里，暂不判`);
+      if (sourceUnderlined.has(c)) {
+        note(
+          `门禁 A2：${c} 当前没有出现在任何产物页里（产物级判据空跑），` +
+            `但源码 CSS 里它的下划线规则在 —— 已按源级判据兜住`
+        );
+      } else {
+        missing++;
+        fail(
+          `门禁 A2：正文容器 ${c} 当前没有出现在任何产物页里（产物级判据用不上），` +
+            `而源码 CSS 里也找不到它的 text-decoration: underline 规则 —— ` +
+            `一旦它上线（详情页/列表页出现实例），正文链接就只剩颜色区分` +
+            `（WCAG 1.4.1 违规），而且不会有门禁报`
+        );
+      }
       continue;
     }
     for (const rel of pages) {
@@ -407,10 +471,10 @@ const htmlFiles = allFiles.filter(
     }
   }
   if (!missing) {
-    const checked = containers.length - skipped;
+    const byPage = containers.length - skipped;
     note(
-      `门禁 A2：${checked} 个正文容器（${containers.length - skipped}/${containers.length}）` +
-        `在各自出现的页面上都有非颜色区分（下划线）`
+      `门禁 A2：${containers.length} 个正文容器全部有非颜色区分（下划线）—— ` +
+        `${byPage} 个按产物逐页判、${skipped} 个产物里暂无实例、按源码 CSS 判`
     );
   }
 }
