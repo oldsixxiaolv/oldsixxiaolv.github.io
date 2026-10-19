@@ -218,6 +218,9 @@ P A P E R  D O I  P D F  C O D E  C A P S U L E  D A T A  F I G U R E
 - **外链状态实测**：ORCID ×3 与 GitHub 返回 200；Wiley / doi.org / Code Ocean /
   ResearchGate 返回 403，CSDN 521，`iap.cas.cn` 000——这些是**反爬或本机网络
   不可达**，**不能据此判定链接失效**，浏览器正常访问无碍。
+  （⚠️ **第九轮订正**：其中 **`iap.cas.cn` 这一条不成立**——换 apex 主机名
+  `https://iap.cas.cn/` 就 200，说明**是链接本身坏了**，已在本轮修掉，见 E 节。
+  其余几条的归类不变。）
 
 ### ⚠️ 线上仍是旧版本（待部署，非站点损坏）
 
@@ -1273,6 +1276,43 @@ commit 落地**，否则 bisect 到 commit 1 会看到一份"说了 18/19、代�
 （13 个 Person 节点、内容类实体 3 件、sitemap 5 条 URL 带 lastmod）→ 没有误伤。
 ⚠️ 本节**不关闭**下面"留给下一轮"第 1 条：那个缺口是"404 页把整个 Person 块删掉"
 （连 `@type` 都没有），与数组型 `@type` 是两回事。
+
+### E. `affiliationUrl` 指向一个 HTTPS 握手就死的 host（修：换成 apex）
+
+**线索来源**：12:03 场次报了一条"外链坏了"，顺带把第四轮 `iap.cas.cn 000`
+那条老结论推翻了一半。我独立复测（直连 `--noproxy '*'`，绕开本机 ClashX TUN）：
+
+| URL | 实测 |
+|---|---|
+| `https://www.iap.cas.cn/` | **code=000，0.03 s 秒挂**（连接被拒/重置，**不是**超时） |
+| `http://www.iap.cas.cn/` | code=200 —— 同一台机器，**明文 HTTP 是好的** |
+| `https://iap.cas.cn/` | **code=200** |
+| `https://www.iap.ac.cn/` | code=301 → `https://iap.cas.cn/` |
+| DNS | `www.iap.cas.cn` 与 `iap.cas.cn` 都解析到 159.226.242.62（同一台机器） |
+
+→ **坏的不是这台机器，是 `www.` 这个主机名的 HTTPS 虚拟主机**；
+apex 主机名 `iap.cas.cn` 的 HTTPS 是好的，且 `www.iap.ac.cn` 官方 301 指向的
+也正是 `https://iap.cas.cn/` —— **apex 才是规范主机**。
+
+**影响面**：`affiliationUrl` 同时出现在三处——
+`src/index.njk` 与 `src/about.njk` 的**可见链接**（点机构名就跳过去），
+以及 `src/_includes/layouts/base.njk` 里**站点级 `Person` 实体的 `affiliation.url`**
+（全站每页的 JSON-LD 都带着它，**404 页也带**）。
+消费方跟随结构化数据里的这个 url 会拿到连接错误。
+
+**修**：`src/_data/site.js` 一处字符串 `https://www.iap.cas.cn/` → `https://iap.cas.cn/`
+（该串自第一版提交 `b364fd2` 起就是这个写法，**从未被有意改过**，是打一开始就写错了）。
+
+⚠️ **方法论订正**（比这个链接本身更值钱）：第四轮把 `iap.cas.cn 000` 归进
+"反爬或本机网络不可达，**不能据此判定链接失效**"那一类（与 ResearchGate 403、
+CSDN 521 并列）。那个归类对 ResearchGate / CSDN 成立，但对这一条**不成立**——
+换 apex 主机名就 200，说明**是链接本身坏了**，不是"我这边访问不到"。
+→ **"我打不开"和"它坏了"必须分开**：先换主机名 / 换协议再复测，
+换完通了 → 该改的是**站点里的链接**；换完仍不通 → 才轮到我这边的网络。
+
+**验证**：改后 `npm run build` → exit 0；`check:site` 备注与改前**逐字一致**
+（不误伤）；产物里 JSON-LD 的 `affiliation.url` 已是 `https://iap.cas.cn/`，
+两处可见链接的 `href` 同步更新。
 
 ### 留给下一轮（本轮改进点已用满，**不在本轮扩**）
 

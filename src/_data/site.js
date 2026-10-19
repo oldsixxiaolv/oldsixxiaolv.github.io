@@ -27,6 +27,7 @@ module.exports = {
   // deploy.yml 里的断言则防止有人不小心把 CNAME 混进产物（一个自定义
   // 域名只能属于一个站点，重复声明会导致部署被 GitHub 判为域名占用）。
   url: "https://github.lvyihang.xyz",
+
   // 页面语言标记。整站已统一为英文（正文、标签、导航、页面文案），
   // 但这里曾一直是 zh-CN —— 后果有两个：屏幕阅读器会用中文发音规则去念
   // 英文（每个词都念得很怪），搜索引擎会把英文查询的相关性判断往下压。
@@ -76,7 +77,7 @@ module.exports = {
 
     affiliation: "中科院大气物理研究所",
     affiliationShort: "IAP-CAS",
-    affiliationUrl: "https://www.iap.cas.cn/",
+    affiliationUrl: "https://iap.cas.cn/",
     affiliationEn: "Institute of Atmospheric Physics, Chinese Academy of Sciences",
 
     // 双单位：博士在兰州大学，现在在���科院大气所
