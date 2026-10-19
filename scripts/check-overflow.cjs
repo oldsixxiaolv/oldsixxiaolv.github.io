@@ -239,8 +239,17 @@ const MEASURE = `(() => {
 
     const status = m.hasHScroll ? "✗ 横向可拖" : "✓";
     console.log(`${status} ${route}  (scrollWidth ${m.pageScrollWidth} / 视口 ${m.vw})`);
+    /* ⚠️ 退出码必须与打出来的 ✓/✗ **同源**：判据一律用 hasHScroll
+       （页面真的能横向滚动 = documentElement.scrollWidth > 视口）。
+       此前这里用的是 `m.overflow.length`（元素矩形扫描的结果）——两个条件
+       不是一回事，矩形扫描**抓不到"内容溢出"**：一个 div 的盒子宽度仍是
+       390px（超长内容撑在盒子里面），矩形扫描看不到它，但页面确实能横滚。
+       结果就是：脚本打印"✗ 横向可拖"、退出码却给 0。
+       ——"永远通过的检查比没有检查更糟"：谁把它接进 CI，谁就会拿到假绿。
+       2026-10-19 实测（注入一个 400 字符长串的 div）：
+         scrollWidth 4416 / 视口 390，输出 ✗，退出码 0。 */
+    if (m.hasHScroll) bad++;
     if (m.overflow.length) {
-      bad++;
       m.overflow.forEach((o) => console.log(`      越界 ${o.over}px  ${o.sel}`));
     }
     m.scrollers.forEach((o) => console.log(`      （容器内有意横滚）${o.sel}`));

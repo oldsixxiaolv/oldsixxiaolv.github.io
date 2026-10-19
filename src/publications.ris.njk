@@ -1,0 +1,57 @@
+---
+# /publications.ris —— RIS 格式的引用导出
+#
+# 数据源与 /papers/ 页、与 /publications.bib 完全一致（site.publications），
+# 所以三处不会出现"页面上一条、文件里没有"的错位。条目文本由
+# eleventy.config.js 的 `ris` / `resourceRis` 过滤器生成。
+#
+# 为什么要有 RIS（而 .bib 不够）：
+#   学术主页给引用条目是硬需求，但**只给 BibTeX 不够**。EndNote、NoteExpress、
+#   Mendeley、Zotero 的"从标识符导入"失败时的兜底、以及这些工具之间互导，
+#   用的都是 RIS；EndNote 导出的默认格式就是 RIS。用 EndNote 的访客拿不到
+#   可直接导入的条目，只能自己手敲——手敲的 DOI/卷期/页码很容易错，
+#   错一次的引用成本比没有这个功能高得多。
+#
+# ⚠️ 不用 layout：本文件输出的是纯文本，套 HTML 布局会把它包进 <html>。
+# eleventyExcludeFromCollections 让它不进任何 collection。
+permalink: "/publications.ris"
+eleventyExcludeFromCollections: true
+---
+{#- 导出三类条目：论文本身、数据集、可复现胶囊。
+
+   为什么后两类也要在同一个文件里：论文页的 "Data and code availability"
+   给了 3 个 Copy 按钮（论文 / 数据集 / 胶囊），读者最省事的做法就是
+   **下载一个 .ris 文件全拿走**。与 /publications.bib 同理——
+   文件里只有论文那一条、页面上能复制 3 条，读者下载后会以为数据
+   没有引用条目。
+
+   三条都走同一批 filter（ris / resourceRis）与同一份数据，
+   与论文页的 Copy 按钮**逐字一致**，不存在两处走样。
+
+   条目之间空一行（RIS 的通行分隔方式），末尾带一个换行。
+
+   ⚠️ 为什么用 `set _ = entries.push(...)` 而不是 `{{ entries.push(...) }}`：
+   前者求值后**不输出**（push 的返回值是数组长度，输出出来会变成 "1 2 3"）；
+   后者会把长度数字混进 .ris 文件里。写成 `{%- entries.push(...) -%}` 也不行
+   —— 那是**块标签**（`{% %}`），Nunjucks 会报 "unknown block tag"。 -#}
+{%- set entries = [] -%}
+{%- for p in site.publications -%}
+  {%- set _ = entries.push(p | ris) -%}
+  {%- if p.software and p.software.citeTitle -%}
+    {%- set _ = entries.push(p.software | resourceRis("dataset")) -%}
+  {%- endif -%}
+  {%- if p.capsule and p.capsule.citeTitle -%}
+    {%- set _ = entries.push(p.capsule | resourceRis("software")) -%}
+  {%- endif -%}
+{%- endfor -%}
+{#- ⚠️ 这里的 `| safe` 是**必需**的，不是偷懒。
+
+   Eleventy 3.1.6 的 nunjucks 默认开着 autoescape（eleventy.config.js 没有覆盖
+   它的 nunjucksEnvironmentOptions），于是标题里的 `&`（转义后的 &）会被
+   再转义成 `&#38;` —— 页面上的 <pre> 看着正常（浏览器解码后仍是原文），
+   但**下载下来的 .ris 文件里字面就是 `&#38;`**，那不是合法 RIS，
+   EndNote / Zotero 之类的导入器会读出乱码。
+
+   页面侧（paper.njk 的 <pre>）**不能**加 | safe：那里的 `&` 需要 HTML 转义，
+   否则就是裸 & 落进 HTML。所以只有"下载文件"这条路径可以关掉转义。 -#}
+{{ entries | join("\n\n") | safe }}

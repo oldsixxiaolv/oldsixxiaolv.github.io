@@ -208,6 +208,14 @@ layout: layouts/base.njk
         <p class="paper-cite__actions">
           <button type="button" class="btn btn--ghost btn--sm" data-copy-target="paper-bibtex-dataset">Copy dataset BibTeX</button>
         </p>
+        {# RIS 条目：与上面那条 BibTeX **同源同字段**（同一个 filter 的另一半）。
+           两种格式都给，是因为引用管理器各有各的偏好：Zotero 认 BibTeX，
+           EndNote / NoteExpress / Mendeley 认 RIS。只给一种，另一半读者
+           只能手敲——手敲的 DOI / 卷期很容易错，错一次的引用成本比没有高。 #}
+        <pre class="paper-cite__ris paper-availability__ris" id="paper-ris-dataset" tabindex="0">{{ pub.software | resourceRis("dataset") }}</pre>
+        <p class="paper-cite__actions">
+          <button type="button" class="btn btn--ghost btn--sm" data-copy-target="paper-ris-dataset">Copy dataset RIS</button>
+        </p>
         {%- endif %}
       </dd>
       {%- endif %}
@@ -221,6 +229,10 @@ layout: layouts/base.njk
         <pre class="paper-cite__bibtex paper-availability__bibtex" id="paper-bibtex-capsule" tabindex="0">{{ pub.capsule | resourceBibtex("software") }}</pre>
         <p class="paper-cite__actions">
           <button type="button" class="btn btn--ghost btn--sm" data-copy-target="paper-bibtex-capsule">Copy capsule BibTeX</button>
+        </p>
+        <pre class="paper-cite__ris paper-availability__ris" id="paper-ris-capsule" tabindex="0">{{ pub.capsule | resourceRis("software") }}</pre>
+        <p class="paper-cite__actions">
+          <button type="button" class="btn btn--ghost btn--sm" data-copy-target="paper-ris-capsule">Copy capsule RIS</button>
         </p>
         {%- endif %}
       </dd>
@@ -257,14 +269,21 @@ layout: layouts/base.njk
 
   {# —— 引用本篇 ——
      访客最常做的事就是"引用这一篇"。BibTeX 与 /publications.bib 同源，
-     复制即可用；不另做 APA/MLA 格式切换——那类小工具维护成本高、
-     收益低，BibTeX 才是领域内的通用语言。 #}
+     RIS 与 /publications.ris 同源，两者字段逐条对齐（同一份 site.js、
+     同一套"引用时用哪个标题/年份"的取舍），复制即可用；不另做 APA/MLA
+     格式切换——那类小工具维护成本高、收益低，BibTeX 与 RIS 才是领域内
+     与文献管理器之间真正流通的两种机器可读格式。 #}
   <section class="paper-cite" aria-labelledby="paper-cite-title">
     <h2 id="paper-cite-title">Cite this paper</h2>
     <pre class="paper-cite__bibtex" id="paper-bibtex" data-copy-source="paper-bibtex" tabindex="0">{{ pub | bibtex }}</pre>
     <p class="paper-cite__actions">
       <button type="button" class="btn btn--ghost btn--sm" data-copy-target="paper-bibtex">Copy BibTeX</button>
       <a class="btn btn--ghost btn--sm" href="{{ '/publications.bib' | relUrl }}" download>Download all BibTeX</a>
+    </p>
+    <pre class="paper-cite__ris" id="paper-ris" data-copy-source="paper-ris" tabindex="0">{{ pub | ris }}</pre>
+    <p class="paper-cite__actions">
+      <button type="button" class="btn btn--ghost btn--sm" data-copy-target="paper-ris">Copy RIS</button>
+      <a class="btn btn--ghost btn--sm" href="{{ '/publications.ris' | relUrl }}" download>Download all RIS</a>
     </p>
   </section>
   {%- endif %}

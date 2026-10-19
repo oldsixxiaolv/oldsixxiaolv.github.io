@@ -736,8 +736,11 @@ strong[data-annotation-ids] {
 }
 /* 数据 / 胶囊的引用条目。
    比"Cite this paper"里的那条窄一档：这里的 BibTeX 短（6~8 行），
-   字号再小就不好读了；用 --space-2 收紧上下留白，让这一块不喧宾夺主。 */
-.paper-availability__bibtex {
+   字号再小就不好读了；用 --space-2 收紧上下留白，让这一块不喧宾夺主。
+   RIS 条目与 BibTeX 条目同宽同字号——两种格式是并列的选项，
+   读者挑一种用，不该在视觉上分出主次。 */
+.paper-availability__bibtex,
+.paper-availability__ris {
   margin-top: var(--space-2);
   font-size: 11.5px;
   line-height: 1.55;
@@ -766,13 +769,22 @@ strong[data-annotation-ids] {
   font-variant-numeric: tabular-nums;
 }
 
-/* 引用块：BibTeX 原文，代码块样式（等宽 + 可横向滚动 + 保留缩进）。 */
+/* 引用块：BibTeX / RIS 原文，代码块样式（等宽 + 可横向滚动 + 保留缩进）。
+   RIS 与 BibTeX 是**并列的两种引用格式**，读者挑一种用 —— 所以两块必须
+   长得像同一件东西（字号 / 底色 / 内边距 / 宽度全一致），不能一个 12px、
+   一个 0.92em，也不能一个窄一档一个通栏。
+
+   ⚠️ base.css 里已经有全局的 `pre { overflow-x: auto }`——那是"长行不会
+   把整页撑破"的兜底，**不是**这里这条规则的分工：全局规则只保证"能滚"，
+   这条规则决定"长什么样"（字号 / 底色 token / 内边距 / 与 BibTeX 块同宽）。
+   两条规则缺一不可，去掉这条只是外观不统一，不会溢出。 */
 .paper-cite {
   margin: var(--space-6) 0 0;
   padding-top: var(--space-5);
   border-top: 1px solid var(--border-subtle);
 }
-.paper-cite__bibtex {
+.paper-cite__bibtex,
+.paper-cite__ris {
   font-family: var(--font-code);
   font-size: 12px;
   line-height: 1.62;

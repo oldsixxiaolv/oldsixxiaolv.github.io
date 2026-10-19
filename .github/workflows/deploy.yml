@@ -41,6 +41,17 @@ jobs:
       - name: Build (Eleventy → _site/)
         run: npm run build
 
+      # ⚠️ 门禁接线门禁（check:gates）必须**显式**跑一次，不能只靠 build 链。
+      #
+      # 为什么：build 链里已经含 `npm run check:gates`，看起来是接上了。
+      # 但那正是这个门禁的**自指盲区**——如果有人把 check:gates 从 build 链里
+      # 摘掉，那么 build 不会再调用它，而"它没被调用"这件事**没有任何门禁
+      # 能发现**：不跑的门禁不会报错，build 照样 exit 0，部署照样发出去。
+      # （14:36 场次实测：摘掉后完整 build exit 0、无人报错。）
+      # CI 显式调它，它就会看到自己不在 build 链上（GW3）并判红。
+      - name: Check that every gate is wired into the build
+        run: npm run check:gates
+
       # 清理 macOS Finder 自动生成的 ._* 资源叉备份（与本地 dev 一致）
       - name: Strip macOS resource forks from _site/
         run: find _site -name '._*' -type f -delete || true

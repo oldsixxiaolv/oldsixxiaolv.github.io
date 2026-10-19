@@ -485,6 +485,11 @@ const htmlFiles = allFiles.filter(
 {
   let checked = 0;
   let missing = 0;
+  /* 可横向滚动的引用块 = BibTeX 块 + RIS 块。两者是并列的两种引用格式，
+     都是 overflow-x: auto 的横向滚动容器，键盘可聚焦的要求完全一样。
+     ⚠️ 只认 paper-cite__bibtex 的话，后加的 RIS 块就成了 a11y 的盲区 ——
+     块照样渲染、页面照样过，只有键盘用户滚不动。 */
+  const SCROLLABLE_CITE_CLASSES = ["paper-cite__bibtex", "paper-cite__ris"];
   for (const f of htmlFiles) {
     const html = stripNonContent(fs.readFileSync(f, "utf8"));
     const re = /<pre\b[^>]*>/g;
@@ -492,13 +497,15 @@ const htmlFiles = allFiles.filter(
     while ((m = re.exec(html))) {
       const tag = m[0];
       const cls = /class=["']([^"']*)["']/.exec(tag);
-      if (!cls || !cls[1].split(/\s+/).includes("paper-cite__bibtex")) continue;
+      if (!cls) continue;
+      const clsList = cls[1].split(/\s+/);
+      if (!SCROLLABLE_CITE_CLASSES.some((c) => clsList.includes(c))) continue;
       checked++;
       if (!/\btabindex=["']0["']/i.test(tag)) {
         missing++;
         const id = /id=["']([^"']*)["']/.exec(tag);
         fail(
-          `门禁 A3：${path.relative(SITE, f)} 里横向可滚动的 BibTeX 块${
+          `门禁 A3：${path.relative(SITE, f)} 里横向可滚动的引用块（RIS / BibTeX）${
             id ? ` #${id[1]}` : ""
           } 没有 tabindex="0"（键盘用户没法滚动它）`
         );
@@ -506,7 +513,7 @@ const htmlFiles = allFiles.filter(
     }
   }
   if (!missing) {
-    note(`门禁 A3：${checked} 个 BibTeX 代码块都可键盘聚焦`);
+    note(`门禁 A3：${checked} 个引用代码块（RIS / BibTeX）都可键盘聚焦`);
   }
 }
 

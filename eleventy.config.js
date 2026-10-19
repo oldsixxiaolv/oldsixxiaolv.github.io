@@ -629,6 +629,109 @@ const isGitProcessFailure = (e) =>
     return `${type}{${key},\n${f.join("\n")}\n}`;
   });
 
+  /* ---------- 4b-2b. RIS filter：RIS 格式的引用条目 ----------
+     为什么要有 RIS：学术主页给引用条目是硬需求，但**只给 BibTeX 不够**。
+     Zotero / EndNote / Mendeley / NoteExpress / 文献管理层都吃 RIS，
+     而且 RIS 才是这些工具之间交换的通用格式（EndNote 导出的默认是 RIS，
+     NoteExpress、Zotero 的"从标识符导入"失败时的兜底也是 RIS）。
+     只提供 BibTeX 意味着：**用 EndNote 或文献管理器的访客拿不到可直接
+     导入的条目**，只能自己手敲——而手敲出来的 DOI/卷期/页码很容易错，
+     错一次的引用成本比没有这个功能高得多。
+
+     字段口径与 bibtex / resourceBibtex **逐条同源**（同一份 site.js 数据、
+     同一套"引用时用哪个标题/年份"的取舍），所以两个导出不可能对不上——
+     门禁 30 就是盯着这一点的。
+
+     RIS 格式的几条硬规矩（错了导入器会读不出来）：
+       · 标签是**两个大写字母**，后面两个空格，再 "- "，再是值：
+         `TY  - JOUR`。
+       · **一条记录里每个值只能占一行**。摘要、标题里若有换行，必须压成
+         空格——RIS 的解析器是按行读的，多行值会被当成两个字段。
+       · 记录以 `ER  -` 结束。
+       · 类型码：期刊论文 JOUR、数据集 DATA、软件/计算胶囊 COMP。
+       · 作者用「姓, 名」（与 BibTeX 侧一致，也是 Zotero/EndNote 的首选形态）。
+     ⚠️ **摘要不输出**：BibTeX 那侧本来也没有 abstract 字段，两边保持同一
+     口径；读者要摘要，页面上方就有原文段落；而 Zotero 导入 DOI 时自己会
+     通过内容协商取摘要。RIS 的 AB 行是一条 2000 字符的单行文本，
+     放在 <pre> 里会变成一条极宽的横向滚动条，读起来反而更差。 */
+  const risLine = (tag, value) => {
+    if (value == null) return null;
+    // 压掉换行与多余空白：RIS 的值必须单行。
+    const v = String(value).replace(/\s+/g, " ").trim();
+    if (!v) return null;
+    return `${tag}  - ${v}`;
+  };
+
+  const risRecord = (type, lines) =>
+    [`TY  - ${type}`, ...lines.filter(Boolean), "ER  -"].join("\n");
+
+  eleventyConfig.addFilter("ris", (pub) => {
+    if (!pub) return "";
+    const lines = [];
+
+    // 作者：与 bibtex filter 同一套取法（authorList 优先，旧的字符串 split 兜底）
+    const list =
+      Array.isArray(pub.authorList) && pub.authorList.length
+        ? pub.authorList
+        : String(pub.authors || "")
+            .split(",")
+            .map((n) => n.trim())
+            .filter(Boolean)
+            .map((n) => ({ name: n }));
+    for (const a of list) {
+      const name = a.name || [a.given, a.family].filter(Boolean).join(" ");
+      const parts = name.split(/\s+/);
+      // 单名（没有空格）就原样输出：硬拆成 "Last," 是错的。
+      const last = parts.length > 1 ? parts.pop() : "";
+      lines.push(risLine("AU", last ? `${last}, ${parts.join(" ")}` : name));
+    }
+
+    lines.push(risLine("TI", pub.title));
+    // T2 = 刊名（Zotero / EndNote 的 RIS 导出都用 T2 表示 publication title）
+    lines.push(risLine("T2", pub.shortJournal || pub.journal));
+    lines.push(risLine("VL", pub.volume));
+    lines.push(risLine("IS", pub.issue));
+    // AGU 用 e-locator 代替连续页码，放 SP（起始页）位置
+    lines.push(risLine("SP", pub.pages || pub.articleNumber));
+    lines.push(risLine("PY", pub.year));
+    if (pub.dates && pub.dates.published) {
+      lines.push(risLine("DA", String(pub.dates.published).replace(/-/g, "/")));
+    }
+    lines.push(risLine("DO", pub.doi));
+    lines.push(risLine("UR", pub.url));
+    if (pub.issn) lines.push(risLine("SN", pub.issn.print || pub.issn.electronic));
+    for (const k of Array.isArray(pub.keywords) ? pub.keywords : []) {
+      lines.push(risLine("KW", k));
+    }
+    // LA：论文正文语言。与 citation-meta.njk 的 citation_language 同源判断
+    //（AGU 期刊论文一律英文），不新造一个数据字段。
+    lines.push(risLine("LA", "en"));
+    lines.push(risLine("PB", pub.publisher));
+    return risRecord("JOUR", lines);
+  });
+
+  eleventyConfig.addFilter("resourceRis", (res, kind) => {
+    if (!res) return "";
+    // 数据集 → DATA；软件 / 可复现胶囊 → COMP（RIS 的"计算机程序"类型）
+    const type = kind === "software" ? "COMP" : "DATA";
+    const lines = [];
+    // citeAuthor 已是「姓, 名」形态；多作者时用 " and " 分隔（与 BibTeX 侧一致）
+    for (const a of String(res.citeAuthor || "").split(/\s+and\s+/).filter(Boolean)) {
+      lines.push(risLine("AU", a.trim()));
+    }
+    lines.push(risLine("TI", res.citeTitle));
+    lines.push(risLine("PY", res.citeYear));
+    lines.push(risLine("DO", res.doi));
+    lines.push(risLine("UR", res.url));
+    lines.push(risLine("PB", res.publisher));
+    // 版本号：与 BibTeX 侧的 version 字段同一个来源（citeVersion），
+    // citeVersion 缺省即不输出——论文参考文献表里那条本身也没有版本号。
+    // ET 是 RIS 里最接近"版本/版次"的标签（EndNote 的版本号也走这里）。
+    lines.push(risLine("ET", res.citeVersion));
+    lines.push(risLine("LA", "en"));
+    return risRecord(type, lines);
+  });
+
   /* ---------- 4b-3. 资助信息 → schema.org 的 funder / grant ----------
      基金号是学术主页的硬性惯例，但"页面上看得见"不等于"机器读得到"：
      资助方与项目号只有进了结构化数据，资助方的项目库、OpenAIRE 这类

@@ -39,6 +39,11 @@ editPaths:
       <a class="btn btn--ghost btn--sm" href="{{ '/publications.bib' | relUrl }}" download>
         Download BibTeX
       </a>
+      {# RIS 是文献管理器的通用交换格式（EndNote / NoteExpress / Mendeley
+         都吃它），与 .bib 同源同字段。两种都给，读者不用手敲。 #}
+      <a class="btn btn--ghost btn--sm" href="{{ '/publications.ris' | relUrl }}" download>
+        Download RIS
+      </a>
     </p>
   </header>
 

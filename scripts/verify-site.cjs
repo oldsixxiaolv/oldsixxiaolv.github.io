@@ -57,6 +57,10 @@
  *        "north china"）；清单条目本身也必须仍然在用，否则本条会报"清单已失效"
  *    29. 旧编号 → 新编号对照表必须覆盖全部门禁编号，且不得有重复行
  *        （对照表自第九轮起就没再更新过，20–28 号全缺；本条让它不能再漂移）
+ *    30. /publications.ris 必须与论文页的 RIS 复制块**双向**逐字一致；
+ *        下载的 .ris 里不得出现 HTML 实体；每条记录必须以 "ER  -" 收尾、
+ *        每行只能是一个 "XX  - 值" 字段（RIS 解析器按行读，多行值会被
+ *        读成两个字段）
  *
  * 旧编号 → 新编号对照（历史日志/commit 里引用的是旧号，追溯时用这张表）：
  *   旧 1 / 2 / 3      → 新 1 / 2 / 3
@@ -90,6 +94,7 @@
  *   （无）            → 新 27   （13:45 场次补记新增：按 @id 兜住本人节点姓名）
  *   （无）            → 新 28   （13:41 场次新增：专有名词不得被小写化）
  *   （无）            → 新 29   （13:41 场次新增：对照表自身的覆盖度自检）
+ *   （无）            → 新 30   （本轮新增：RIS 导出与论文页复制块逐字一致）
  *
  * 用法：node scripts/verify-site.cjs   （有错 exit 1）
  */
@@ -2205,6 +2210,121 @@ note(
       dupRows.length || missingInTable.length || extraInTable.length
         ? `对照表：${tableRows.length} 行 / 覆盖 ${tableSet.size} 个编号 —— 不一致（见上方报错）`
         : `对照表：${tableRows.length} 行，覆盖全部 ${tableSet.size} 个门禁编号且无重复行`
+    );
+  }
+}
+
+/* ---------- 30. /publications.ris 必须与论文页的 RIS 复制块逐字一致 ----------
+   RIS 导出是本轮新加的（EndNote / NoteExpress / Mendeley 吃 RIS，EndNote
+   导出的默认格式就是它），但它**一开始没有门禁**——而门禁 13/14 守着的
+   .bib 那一对是有的。没有门禁的导出文件坏起来是这样：页面 Copy 按钮
+   复制的是 A，下载到的 .ris 里是 B，读者喂进 EndNote 才发现 DOI 错了。
+   这种错不会让 build 变红，也不会让任何现有门禁变红。
+
+   五条判据：
+     30a 产物里有 publications.ris
+     30b 页面上的每个 RIS 块，都能在 .ris 文件里找到逐字相同的记录
+     30c .ris 文件里的每条记录，都能在页面上的某个块里找到逐字相同的
+         ——**双向**：只查一边的话，"文件里多了一条 / 少了一条"查不出来
+     30d .ris 里不得出现 HTML 实体（下载文件必须是原始 RIS）
+     30e 每条记录首行 "TY  - XXX"、末行 "ER  -"，且每行都是
+         "XX  - 值" 的形状 —— RIS 解析器**按行读**，一个值占两行
+         会被读成两个字段（标题里混进换行就会踩到）
+
+   比对前解码页面侧的 HTML 实体，理由同门禁 13：页面侧被 nunjucks 的
+   autoescape 加工过（& → &amp;），.ris 侧是原文（模板里有 | safe）。
+   只解页面侧、不解 .ris 侧——.ris 侧是原文，解它等于把原文改掉。 */
+const risPath = path.join(SITE, "publications.ris");
+const risExists = fs.existsSync(risPath);
+const risText = risExists ? fs.readFileSync(risPath, "utf8") : "";
+// 本节开始前的问题数：用来决定"逐字一致"那句 note 能不能打印
+// （失败时还打印它，就是同一屏上既报错又宣称一致——自相矛盾）。
+const problemsBeforeRisCheck = problems.length;
+if (!risExists) {
+  fail("产物里没有 publications.ris");
+} else {
+  // 条目之间用空行分隔（模板 join("\n\n")），条内不含空行
+  const risRecords = risText
+    .split(/\n\s*\n/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (!risRecords.length) {
+    fail("publications.ris 里一条记录都没有");
+  }
+
+  /* 30e 记录形状：首行 TY、末行 ER、每行一个字段 */
+  for (const rec of risRecords) {
+    const lines = rec.split("\n").map((l) => l.trim()).filter(Boolean);
+    if (!/^TY {2}- [A-Z]+$/.test(lines[0] || "")) {
+      fail(
+        `publications.ris 有记录的第一行不是 "TY  - XXX"：${(lines[0] || "").slice(0, 40)}…`
+      );
+    }
+    if (lines[lines.length - 1] !== "ER  -") {
+      fail(
+        `publications.ris 有记录没有以 "ER  -" 收尾：${(lines[0] || "").slice(0, 40)}…`
+      );
+    }
+    for (const l of lines) {
+      if (l === "ER  -") continue;
+      if (!/^[A-Z][A-Z0-9] {2}- \S/.test(l)) {
+        fail(
+          `publications.ris 里有一行不是 RIS 字段格式（应为 "XX  - 值"）：${l.slice(0, 60)}`
+        );
+      }
+    }
+  }
+
+  /* 30d 下载文件里不得含 HTML 实体 */
+  const risEntityHit = risText.match(HTML_ENTITY_RE);
+  if (risEntityHit) {
+    fail(
+      `publications.ris 里出现了 HTML 实体 "${risEntityHit[0]}" —— 下载文件必须是原始 RIS，` +
+        `不能带 HTML 转义（多半是模板漏了 | safe）`
+    );
+  }
+
+  /* 页面侧的 RIS 块（class 含 paper-cite__ris；BibTeX 那边是 paper-cite__bibtex） */
+  const risBlocks = [];
+  for (const file of htmlFiles) {
+    const html = fs.readFileSync(file, "utf8");
+    for (const m of html.matchAll(
+      /<pre[^>]*class="[^"]*paper-cite__ris[^"]*"[^>]*>([\s\S]*?)<\/pre>/gi
+    )) {
+      risBlocks.push({ from: rel(file), text: decodeHtmlEntities(m[1].trim()) });
+    }
+  }
+  if (!risBlocks.length) {
+    fail(
+      "页面上找不到任何 RIS 复制块（class 含 paper-cite__ris）—— " +
+        "复制入口和下载文件对不上"
+    );
+  }
+
+  /* 30b / 30c 双向逐字一致 */
+  for (const { from, text } of risBlocks) {
+    if (!risRecords.includes(text)) {
+      fail(`${from}: 这个 RIS 块在 publications.ris 里找不到逐字相同的记录`);
+    }
+  }
+  for (const rec of risRecords) {
+    if (!risBlocks.some((b) => b.text === rec)) {
+      fail(
+        `publications.ris 里有记录在页面上找不到逐字相同的 RIS 块：${rec.split("\n")[0]}…`
+      );
+    }
+  }
+  if (risBlocks.length && risRecords.length && risBlocks.length !== risRecords.length) {
+    fail(
+      `publications.ris 有 ${risRecords.length} 条，但论文页有 ${risBlocks.length} 个 RIS 块` +
+        `——下载的文件与页面上能复制的条目对不上`
+    );
+  }
+
+  if (problems.length === problemsBeforeRisCheck) {
+    note(
+      `publications.ris ${risRecords.length} 条，与论文页 ${risBlocks.length} 个 RIS 块双向逐字一致，` +
+        `不含 HTML 实体，每条以 "ER  -" 收尾`
     );
   }
 }
