@@ -5097,3 +5097,116 @@ C2 已由 `f59fec4` 单独提交，本条**不含** C2（避免把同一件事�
    这是有意的（接线错了就别构建了），但要注意：并发场次若新加一个门禁脚本而**还没接线**，
    本门禁会立刻把 build 判红——**这是正确行为**（那正是一个没接线的门禁），
    修法是把它接进 `package.json` 或在 `EXEMPT` 里显式登记并写明理由。
+
+---
+
+## 2026-10-19 · 14:30 场次（**只读巡检 + 写权限让出**；本轮不改代码）
+
+### 本场次定位
+
+本轮开始时，工作树里已叠着另一个场次（`mvs_69609eaf`，14:25 起）的在途成果
+（RIS 导出、门禁 30/31、`check-copy-export.cjs` 加固、git 探针 catch 收窄）。
+该场次主动提出**协调**：请本场次**不要动工作树、不要 `git add` / `git commit`**，
+由它统一复核并提交。
+
+→ **本场次接受让位**：全程**零代码写入**、零 `git add`、零 `git commit`、零 push。
+本场次只做**只读**工作：① 线上巡检（任务书第 1 步，必做）；
+② 在**隔离克隆**里验证已提交 HEAD 的完整构建（不与共享工作树抢 `_site/`）。
+
+### A. 线上巡检：站点**没坏**，但"爬虫用来定位站点"的整条链都指到 404
+
+| URL | 状态 | | URL | 状态 |
+|---|---|---|---|---|
+| `/` | 200 | | `/papers/` | **404** |
+| `/about/` | 200 | | `/papers/trmm-thunderstorm-stages/` | **404** |
+| `/blog/` | 200 | | `/publications.bib` | **404** |
+| `/404.html` | 200 | | `/feed.xml` | **404** |
+| `/sitemap.xml` | 200 | | `/robots.txt` | 200 |
+| 8 个 CSS/JS/图片资源 | 全部 200 | | | |
+
+→ 页面本身**能看**（资源全通，首页/关于/博客都正常渲染）。
+但**爬虫靠它定位站点的每一条线，在线上都指到 404**。
+此前各轮只记了"sitemap 仍带 `/MeteoHub/` 前缀"，**没把后果写全**：
+
+| 爬虫读的东西 | 线上实际值 | 指向的地址 | 状态 |
+|---|---|---|---|
+| `robots.txt` 的 `Sitemap:` | `https://github.lvyihang.xyz/MeteoHub/sitemap.xml` | 404 | ❌ |
+| `sitemap.xml` 的 3 条 `<loc>` | `/MeteoHub/`、`/MeteoHub/about/`、`/MeteoHub/blog/` | **全部 404** | ❌ |
+| 每页的 `canonical` / `og:url` | `https://github.lvyihang.xyz/MeteoHub/...` | 404 | ❌ |
+| JSON-LD `Person` 的 `url` / `image` | `https://github.lvyihang.xyz/MeteoHub/...` | 404 | ❌ |
+| 首页的 `citation_*` 元标签 | **0 个**（第三轮才加的） | — | ⚠️ |
+
+三点要害：
+
+1. **`sitemap.xml` 里 0 条有效 URL。** 它列的 3 条全是 404；而线上**真正在服务的**
+   3 条路由（`/`、`/about/`、`/blog/`）**一条都不在 sitemap 里**
+   → 这个 sitemap 现在的实际作用是"告诉爬虫这个站不存在"。
+2. **`robots.txt` 声明的 sitemap 地址本身也 404。** 爬虫按 robots.txt 去找 sitemap，
+   拿到的同样是 404 → **两条路都断**。
+3. **每一页的 `canonical` 都指向 404。** Google Scholar 正是按 canonical 定位条目；
+   线上又**一个 `citation_*` 标签都没有** → Scholar 这一侧目前
+   **既没有元数据、也没有可用的定位地址**。
+
+⚠️ 结论不变：**这不是站点损坏，是待部署**。本轮只是把后果**测全**了。
+
+### B. 根因与自愈条件（实测，非推断）
+
+线上产物是 **2026-10-16** 那次部署，构建时站点还是"项目页"形态，
+绝对 URL 带 `/MeteoHub/` 前缀；而 Pages 的 base_path 早已是域名根 `/`。
+
+关键在于**相对路径不受影响、绝对 URL 全部受害** ——
+所以"页面能看"与"爬虫定位不到"可以**同时成立**：
+
+- 资源引用是**相对**的（`assets/css/a11y.css`）→ 按当前页地址解析 → 200 ✓
+- `canonical` / `og:url` / JSON-LD / sitemap / robots 是**绝对**的
+  （`site.url` + 旧前缀）→ 404 ✗
+
+**自愈条件：一次 `git push` 即可全部消掉，不需要改任何代码。**
+（部署链路：`.github/workflows/deploy.yml` 在 `push` 到 `main` 时构建并发布到
+GitHub Pages；本任务禁止 push，部署由本人决定。）
+
+### C. 为什么确定"是旧部署、不是代码回归"：**门禁 21 已经守着这一类**
+
+`scripts/verify-site.cjs` 的**门禁 21**（第十三轮新增）正是这条判据：
+
+> 绝对 URL 口径：`site.url` 必须是域名根（无子路径）；产物里所有指向本站地址的
+> 绝对 URL（canonical / og:url / JSON-LD 的 @id 与 url / sitemap 的 loc /
+> feed 的 link）必须以 `site.url` 为前缀
+
+→ **现行代码已经产不出这种坏状态**；且门禁 21 **晚于** 2026-10-16 那次部署。
+所以线上那份产物属于"门禁存在之前"的东西。
+
+本轮**在隔离克隆里实测**了现行 HEAD 的完整构建
+（`git clone --no-hardlinks` → 软链 `node_modules` → `npm run build`，
+**全程不碰共享工作树的 `_site/`**）：
+
+- **exit 0**；`check:gates` / `check:css` / `check:wrap` / `check:site` /
+  `check:lang` / `check:a11y` / `check:copy` **全部通过**
+- `check:site` 实测：**6 个 HTML 页、127 条本地引用全部解析成功**、
+  **5 条 sitemap URL**（`/`、`/about/`、`/blog/`、`/papers/`、
+  `/papers/trmm-thunderstorm-stages/`，全部**无前缀**且带 `lastmod`）、
+  门禁编号 30 条一一对应
+- 产物里 `canonical` = `https://github.lvyihang.xyz/`（无前缀）；
+  `robots.txt` 的 `Sitemap:` = `https://github.lvyihang.xyz/sitemap.xml`
+
+→ **本地是对的，线上是旧的。** 部署后应一次消掉 A 节的全部差异。
+
+### D. 本轮**没有**实施任何改进（写权限已让出）
+
+可做的改进（RIS 导出、门禁 30/31、复制出口加固）已由 `mvs_69609eaf` 认领并在途，
+本场次**不重复、不抢写**。本轮**也未新增任何待决策项**。
+
+调研侧补一句：`mcp__agu-papers__search_papers` 本轮调用仍返回
+`OpenAlex search failed (HTTP 429)`（**瞬时限流**，与第十三轮同因），
+不代表"查无此论文"；AGU 侧实践依据仍以 Crossref 原始登记为准。
+
+### E. 留给下一轮
+
+1. **线上部署仍是本人拍板项**（沿用待决策第 5 条）。本轮把后果测全了：
+   不只是"三个路由 404"，而是**整条爬虫定位链都指到 404**。
+2. **部署后的验收清单**（本轮实测得出，可直接照着查）：
+   - `sitemap.xml` 里每条 `<loc>` 都应 200；
+   - `robots.txt` 的 `Sitemap:` 应指向**不带 `/MeteoHub/`** 的地址，且该地址本身 200；
+   - 抽任一页，`canonical` 应等于该页自身的公开地址；
+   - `/papers/`、`/publications.bib`、`/feed.xml` 应由 404 变 200；
+   - 论文页的 `citation_*` 应为 22 个（15 类），且 `canonical` 不再指向 404。
