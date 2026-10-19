@@ -1312,6 +1312,16 @@ curl 的 `code=000` **不告诉你原因**：连不上 / 超时 / **TLS 校验�
 `iap.cas.cn`，**不覆盖** `www.iap.cas.cn`（两级子域）→ **apex 才是唯一持证主机**。
 这也正好解释了官方 `https://www.iap.ac.cn/` 的 301 为什么指向 `https://iap.cas.cn/`。
 
+⚠️ **限定（12:30 只读复验者补正，措辞见 `/tmp/mvs_451e93_msg4_cert_evidence.md` 第 2 节）**：
+客户端能证明的是「**`www.iap.cas.cn` 这个主机名拿不到可验证的证书**」，
+**不能**证明服务器端为什么如此——至少两种同样成立的解释：
+① 该站点只给 apex 配了 `*.cas.cn`，`www` 这个主机名没有有效证书，落到默认自签名证书；
+② 链路中间某个设备对 `www` 主机名做了兜底，返回了一张通用自签名证书。
+**我无法从客户端区分这两者。** 两条解释的**结论相同**（该主机名不可用于对外链接），
+但把"通配符不覆盖"写成**已证实的唯一根因**是**过头**——它是**最合理的一种解释**，
+不是被证实的唯一根因。（另注：**不要用 Python `fnmatch` 核对通配符覆盖**——
+它的 `*` 会跨 `.`，会给出与 X.509 语义相反的结论。）
+
 **为什么这值得写清楚**：只报"连接被拒"是**症状**，"自签名证书 + 通配符不覆盖"
 才是**病根**。写进日志的错误病因会让下一个照着排查的人去查错方向
 （去查防火墙、查 DNS，而不是去看那个主机名有没有证书）。
@@ -3584,3 +3594,35 @@ canonical）。**部署由本人决定。**
    不能因为换锚点漏掉 R4。
 4. 巡检 cron 仍是每 5 分钟起一个会话 → 持续并发冲突（连续四轮都撞见）。
    建议改成 30–60 分钟 + 单写者锁。
+
+### 附：门禁 16 报错文案的一处订正（收尾时追加）
+
+本场次收尾时，把 `scripts/verify-site.cjs` 门禁 16 的 **false 分支报错文案**改准了。
+
+**原来**：
+
+> `404.html: 声明了身份类实体（Person、Organization、CollegeOrUniversity、Place、PostalAddress，含 Person 的嵌套节点）`
+
+**现在**：
+
+> `404.html: 声明了身份类实体（Person、Organization、CollegeOrUniversity、Place、PostalAddress；Person 是根节点，其余是它的嵌套节点）`
+
+- **原来那句说反了**：404 页的 JSON-LD 是**一个根节点 = Person 本人**，
+  Organization / CollegeOrUniversity / Place / PostalAddress 是它**的嵌套属性**
+  （affiliation / alumniOf / workLocation / workLocation.address）。
+  写"含 Person 的**嵌套**节点"会让人以为 Person 埋在别的节点里，排查时先去翻嵌套结构
+  ——方向就错了（与本日志反复出现的那类"文案指错方向"同型）。
+- **并且不写死结构**：那句提示**按产物里实际有没有 Person 动态拼**——
+  产物里没有 Person 时**不出现**，不会留下一个与产物不符的断言。
+
+验证（3 例，隔离克隆 + **真构建** + 真门禁）：
+
+| 场景 | 期望 | 实测 |
+|---|---|---|
+| 基线（switch=true） | exit 0 | **exit 0** ✓ |
+| switch=false 但产物里塞回 ld+json | exit 1 + 新文案 | **exit 1** ✓，文案含「Person 是根节点，其余是它的嵌套节点」 |
+| 同上，但把产物根节点的 `@type` 改成 `Organization` | exit 1 + **不出现** Person 断言 | **exit 1** ✓，文案为「（Organization、CollegeOrUniversity、Place、PostalAddress）」 |
+
+完整构建复验：当前 HEAD 上 `npm run build` → **exit 0**
+（check:css ✓ / check:site ✓ —— 门禁编号 **28 条**一一对应且连续 / check:lang ✓ /
+check:a11y ✓）。复位后基线仍 exit 0。

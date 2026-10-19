@@ -52,6 +52,9 @@
  *    27. 凡是挂着"本人" @id 的 Person 节点，name 必须落在数据源认可的姓名集合内
  *        （@id 才是本人身份的唯一权威；门禁 12 是按姓名找节点的，方向相反，
  *        天然看不见"只改姓名"的节点）
+ *    28. 专有名词不得被小写化：渲染出来的人可见文案里，清单里的地名 / 机构名 /
+ *        品牌名 / 缩写必须保持规范大小写（| lower 会把 "North China" 压成
+ *        "north china"）；清单条目本身也必须仍然在用，否则本条会报"清单已失效"
  *
  * 旧编号 → 新编号对照（历史日志/commit 里引用的是旧号，追溯时用这张表）：
  *   旧 1 / 2 / 3      → 新 1 / 2 / 3
@@ -1026,10 +1029,13 @@ if (fs.existsSync(identity404SrcPath)) {
     } else if (!/^(true|false|True|False|TRUE|FALSE)$/.test(m[1])) {
       fail(
         `src/404.njk: identityOn404 的值 "${m[1]}" 不是合法布尔（只接受 true / false / True / False / TRUE / FALSE）—— ` +
-          `YAML 1.2 只把 true/True/TRUE/false/False/FALSE 这六种写法当布尔；` +
-          `"${m[1]}" 会被解析成别的类型（字符串 / 数字 / null），而 Nunjucks 只看真值——` +
-          `非空字符串与数字都是真值，于是"写 no 以为关掉了"实际**没关**，` +
-          `且门禁与模板对不上、谁也发现不了。请写成 true 或 false。`
+          `YAML 1.2 只把 true/True/TRUE/false/False/FALSE 这六种写法当布尔，` +
+          `"${m[1]}" 会被解析成别的类型（字符串 / 数字 / null），而 Nunjucks 只看真值：` +
+          `**非空字符串**（no / on / off / yes / "false"）与**非零数字**是**真值**，` +
+          `于是"写 no 以为关掉了"实际**没关**，且门禁与模板对不上、谁也发现不了。` +
+          `（⚠️ 唯独 null 与 0 是**假值**——模板照常**不输出** Person，"以为关掉了"那种坑不成立；` +
+          `但它们同样不是合法布尔，本门禁照样判红。）` +
+          `请写成 true 或 false（大小写皆可）。`
       );
     } else {
       identityOn404 = m[1].toLowerCase() === "true";
@@ -1050,8 +1056,20 @@ if (has404File && identityOn404 === true && types404.size === 0) {
   );
 }
 if (has404File && identityOn404 === false && types404.size > 0) {
+  // ⚠️ 这句括号里原来写的是"含 Person 的**嵌套**节点"——**说反了**：
+  //    404 页的 JSON-LD 是**一个根节点 = Person 本人**，Organization /
+  //    CollegeOrUniversity / Place / PostalAddress 是它**的嵌套属性**
+  //    （affiliation / alumniOf / workLocation / workLocation.address）。
+  //    写"Person 的嵌套节点"会让人以为 Person 埋在别的节点里，
+  //    排查时先去翻嵌套结构，方向就错了。
+  //    → 改成"根节点是 Person，其余是它的嵌套节点"，并**按实际类型动态拼**：
+  //    万一以后 404 页换成了别的结构（根节点不是 Person），这句不会出现，
+  //    不会留下一个与产物不符的断言。
+  const nestedHint = types404.has("Person")
+    ? "；Person 是根节点，其余是它的嵌套节点"
+    : "";
   fail(
-    `404.html: 声明了身份类实体（${[...types404].join("、")}，含 Person 的嵌套节点），` +
+    `404.html: 声明了身份类实体（${[...types404].join("、")}${nestedHint}），` +
       `但 src/404.njk 的 identityOn404 = ${identityOn404Raw} ` +
       `声明错误页**不**声明身份 —— 开关与产物不一致`
   );
