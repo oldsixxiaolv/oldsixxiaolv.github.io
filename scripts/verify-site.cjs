@@ -55,6 +55,8 @@
  *    28. 专有名词不得被小写化：渲染出来的人可见文案里，清单里的地名 / 机构名 /
  *        品牌名 / 缩写必须保持规范大小写（| lower 会把 "North China" 压成
  *        "north china"）；清单条目本身也必须仍然在用，否则本条会报"清单已失效"
+ *    29. 旧编号 → 新编号对照表必须覆盖全部门禁编号，且不得有重复行
+ *        （对照表自第九轮起就没再更新过，20–28 号全缺；本条让它不能再漂移）
  *
  * 旧编号 → 新编号对照（历史日志/commit 里引用的是旧号，追溯时用这张表）：
  *   旧 1 / 2 / 3      → 新 1 / 2 / 3
@@ -78,6 +80,16 @@
  *   （无）            → 新 16   （第九轮新增：404 页不得声明内容类实体）
  *   （无）            → 新 18   （第九轮新增：sitemap lastmod 必须是真实提交时间）
  *   （无）            → 新 19   （第九轮新增：内容类实体的 @id 全站一致）
+ *   （无）            → 新 20   （第十一轮新增：订阅源时间戳说真话）
+ *   （无）            → 新 21   （第十一轮新增：绝对 URL 口径统一到域名根）
+ *   （无）            → 新 22   （第十三轮新增：og/twitter 同图的 alt 必须逐字一致）
+ *   （无）            → 新 23   （第十三轮新增：本人 ORCID ↔ canonical @id 双向绑定）
+ *   （无）            → 新 24   （第十三轮新增：门禁编号自身的自检）
+ *   （无）            → 新 25   （第十五轮新增：真实 <img> 必须带 alt 属性）
+ *   （无）            → 新 26   （第十五轮新增：真实 <img> 必须有 width / height）
+ *   （无）            → 新 27   （13:45 场次补记新增：按 @id 兜住本人节点姓名）
+ *   （无）            → 新 28   （13:41 场次新增：专有名词不得被小写化）
+ *   （无）            → 新 29   （13:41 场次新增：对照表自身的覆盖度自检）
  *
  * 用法：node scripts/verify-site.cjs   （有错 exit 1）
  */
@@ -2100,6 +2112,89 @@ note(
     ? `门禁编号：文件头清单 ${headerNums.length} 条 / 代码段 ${codeNums.length} 条，一一对应且连续`
     : `门禁编号：文件头清单 ${headerNums.length} 条 / 代码段 ${codeNums.length} 条 —— 不一致（见上方报错）`
 );
+
+/* ---------- 29. 旧编号 → 新编号对照表必须覆盖全部门禁编号，且不得有重复行 ----------
+   这条是被**一张停更的表**逼出来的（13:06 场次发现并交接）：
+   文件头那张「旧编号 → 新编号对照」表自第九轮理顺编号体系之后就**再没更新过** ——
+   第九轮之后新增的门禁（20–28）一行都没进去。
+
+   为什么这不是"排版小事"：
+     · 这张表是**追溯用的**。历史日志 / commit message 里引用的是门禁号，
+       有人拿一个号来问"这条当时是干什么的"，先查的就是这张表；
+     · 表停更 = 追溯时会**查不到**，而查不到的人只会以为"没有这条门禁"，
+       于是把一条真实存在的防线当成不存在 —— 这跟"门禁没接线"是同一类病：
+       **看起来在、其实不生效**；
+     · 而且它是**静默**的：门禁 24 只查"文件头清单 ↔ 代码段"，查不到对照表，
+       所以这张表缺 9 行，build 照样全绿。
+
+   判据（双向 + 不许有字面重复行）：
+     ① 文件头清单里的每个门禁编号，都必须在对照表里出现（缺一行 = 判红）；
+     ② 对照表里的每个编号，都必须在文件头清单里（多出一行 = 判红）；
+     ③ 对照表里不得有**字面完全相同的两行**（重复 = 判红）。
+
+   ⚠️ ③ 为什么查"重复行"而不是"重复编号"（这一条是被本门禁自己抓出来的）：
+   表里"旧 3b → 新 4b"与"旧 15 → 新 4b"是**两条都合法的旧号→新号映射**
+   （两个旧号都指向同一条新门禁），按"新编号出现两遍"判重会误报。
+   真正要抓的是"两个场次各自补了同一行"——那才会产生**逐字相同**的两行。
+   ⚠️ 提取规则只认"→ 新 N"这一段：
+     · 标记行"旧编号 → 新编号对照"里的"新编号"后面不是数字，匹配不上；
+     · 表里的"旧 N → 新 M"是多对一/一对多（"旧 1 / 2 / 3 → 新 1 / 2 / 3"），
+       所以要把"新"后面的数字串按 " / " 拆开逐个算；
+     · 只有以"旧"或"（无）"开头的行才算表里的行（标记行与续行都不算）。 */
+{
+  const tableStart = SELF_SRC.indexOf("旧编号 → 新编号对照");
+  const tableEnd = SELF_SRC.indexOf("用法：node scripts/verify-site.cjs");
+  const tableBlock =
+    tableStart >= 0 && tableEnd > tableStart ? SELF_SRC.slice(tableStart, tableEnd) : "";
+
+  // 表里的"行"：以"旧"或"（无）"开头、且含"→"的那几行（续行与标记行都不算）
+  const tableRows = [
+    ...tableBlock.matchAll(/^\s*\*\s*(?:旧|（无）)[^\n]*→[^\n]*$/gm),
+  ].map((m) => m[0].replace(/\s+/g, " ").trim());
+
+  const tableNums = [];
+  for (const row of tableRows) {
+    const m = row.match(/→\s*新\s+([0-9]+[a-z]?(?:\s*\/\s*[0-9]+[a-z]?)*)/);
+    if (!m) continue;
+    for (const n of m[1].split("/").map((s) => s.trim()).filter(Boolean)) tableNums.push(n);
+  }
+
+  if (!tableBlock) {
+    fail(
+      "找不到文件头的「旧编号 → 新编号对照」表（标记行或结尾标记被改掉了）—— " +
+        "对照表是追溯门禁号的唯一入口，删掉它等于让所有门禁号查不到出处"
+    );
+  } else {
+    const dupRows = dupOf(tableRows);
+    if (dupRows.length) {
+      fail(
+        `对照表里有 ${dupRows.length} 行逐字重复 —— ` +
+          `同一个号只能有一行（若你刚补了一行、而本表已由别人补全，撤掉你那一行）`
+      );
+    }
+    const tableSet = new Set(tableNums);
+    const missingInTable = [...headerSet].filter((n) => !tableSet.has(n));
+    const extraInTable = [...tableSet].filter((n) => !headerSet.has(n));
+    if (missingInTable.length) {
+      fail(
+        `对照表里没有门禁 ${missingInTable.join(", ")} —— ` +
+          `每加一条门禁都要在文件头那张「旧编号 → 新编号对照」表里补一行，` +
+          `否则拿这个号去追溯历史日志会查不到出处`
+      );
+    }
+    if (extraInTable.length) {
+      fail(
+        `对照表里有门禁 ${extraInTable.join(", ")}，但文件头清单里没有 —— ` +
+          `要么门禁被删了（表里那行也删掉），要么表里写错了号`
+      );
+    }
+    note(
+      dupRows.length || missingInTable.length || extraInTable.length
+        ? `对照表：${tableRows.length} 行 / 覆盖 ${tableSet.size} 个编号 —— 不一致（见上方报错）`
+        : `对照表：${tableRows.length} 行，覆盖全部 ${tableSet.size} 个门禁编号且无重复行`
+    );
+  }
+}
 
 /* ---------- 汇总 ---------- */
 console.log(`产物：${htmlFiles.length} 个 HTML 页，${refCount} 条本地引用，${sitemapUrls.length} 条 sitemap URL`);
