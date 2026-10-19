@@ -279,7 +279,10 @@
 .list--cards .list__meta {
   margin: 0;
   color: var(--text-secondary);
-  overflow-wrap: break-word;
+  /* anywhere 而非 break-word：作者名单现在带 ORCID 链接，是实打实的长串，
+     而 .list__meta 落在弹性/网格容器里——break-word 在那里不参与
+     min-content 计算，挡不住（理由见 base.css 的同款说明）。 */
+  overflow-wrap: anywhere;
   /* 作者名单可能很长（TRMM 那篇 8 位），钳到 2 行保证各行高度接近。 */
   display: -webkit-box;
   -webkit-box-orient: vertical;

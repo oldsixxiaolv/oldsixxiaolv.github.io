@@ -102,10 +102,23 @@ p {
    论文正文里直接写了裸 URL（"…（https://github.com/xxx/yyy）"）。默认
    overflow-wrap: normal 不允许在长串内部断行，于是一个 URL 就能把整行撑到
    容器外——实测 trmm 论文页在 390px 视口下 scrollWidth 475px，整页横向可拖。
-   break-word 只在「确实放不下」时才断，不会影响正常段落的断行位置。
-   覆盖到 li / td / th / figcaption / blockquote 这些同样会出现长串的位置。 */
-p, li, dd, dt, td, th, figcaption, blockquote, pre, code, a {
-  overflow-wrap: break-word;
+   覆盖到 li / td / th / figcaption / blockquote 这些同样会出现长串的位置。
+
+   ⚠️ 这里用 `anywhere` 而不是 `break-word`，差别不在"好不好看"，在**能不能挡住**：
+     · break-word：只在「确实放不下」时断行，但**不参与 min-content 宽度计算**；
+     · anywhere：同样只在放不下时断，但**会**把软断行机会算进 min-content。
+   差这一点，在 flex/grid 里就是天壤之别——flex/grid 轨道的下限取自子项的
+   min-content，break-word 的那条长串**照样**把轨道撑宽。
+   实测（390px 视口，逐个注入一条长 DOI 串，看整页 scrollWidth）：
+     break-word  → 全站 132 个元素单点即把整页撑破；
+     anywhere    → 降到 30 个（剩下的 3 类都是 white-space:nowrap 的短标签，
+                   nav 链接 / 按钮 / 右对齐联系链接——那里本来就该 nowrap）。
+   换句话说：break-word 挡得住**块级**流里的长串，挡不住**弹性/网格**里的；
+   本站几乎所有"并排排版"的区域都是 flex/grid，所以必须是 anywhere。
+   ⚠️ `span` 也补进选择器：页脚的版权行就是一个裸 span 落在 flex 容器里，
+   它不在原列表中 → 完全没有兜底（实测那一处仍是 overflow-wrap:normal）。 */
+p, li, dd, dt, td, th, figcaption, blockquote, pre, code, a, span {
+  overflow-wrap: anywhere;
 }
 
 
