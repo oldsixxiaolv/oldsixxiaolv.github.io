@@ -49,6 +49,9 @@
  *    25. 每张真实 <img> 必须带 alt 属性（装饰性的图要显式写 alt="" 或
  *        role="presentation" / role="none"；缺属性 = 判红）
  *    26. 每张真实 <img> 必须有 width / height 属性（图片解码前的比例预留）
+ *    27. 凡是挂着"本人" @id 的 Person 节点，name 必须落在数据源认可的姓名集合内
+ *        （@id 才是本人身份的唯一权威；门禁 12 是按姓名找节点的，方向相反，
+ *        天然看不见"只改姓名"的节点）
  *
  * 旧编号 → 新编号对照（历史日志/commit 里引用的是旧号，追溯时用这张表）：
  *   旧 1 / 2 / 3      → 新 1 / 2 / 3
@@ -592,7 +595,7 @@ if (ownerIds.size > 1) {
       `——同一个实体必须用同一个 @id，否则会被读成多个人`
   );
 } else if (ownerIds.size === 1) {
-  note(`"本人"实体 @id = ${[...ownerIds][0]}（${ownerNodes} 个节点，全站统一）`);
+  note(`"本人"实体 @id = ${[...ownerIds][0]}（按姓名找到 ${ownerNodes} 个节点，@id 全站统一）`);
 } else if (ownerNodes === 0) {
   fail(`产物里找不到任何描述"${OWNER_NAME}"的 Person 节点`);
 }
@@ -1808,6 +1811,68 @@ for (const file of htmlFiles) {
       ? `全站 ${allRealImgs.length} 张真实 <img> 都带了 width / height（解码前的比例预留）`
       : `全站 ${allRealImgs.length} 张真实 <img>：${missing} 张缺 width / height（见上方报错）`
   );
+}
+
+/* ---------- 27. 凡是挂着"本人" @id 的 Person 节点，name 必须是数据源认可的姓名 ----------
+   门禁 12 是**按姓名找节点**（只认 name === OWNER_NAME 的 Person）。
+   于是"只改姓名"这个动作能让那个节点从门禁 12 的视野里整个消失 ——
+   而它并没有变成本人：@id 还挂着本人 @id，消费方照样按 @id 把它并进本人
+   这个实体，合并出来的人就带着一个陌生名字（第十四轮 R1 实测：exit 0）。
+   换个方向说：门禁 12 是"按名字找 @id"，本条是"按 @id 找名字"，
+   两条互补，缺一条就有一半的逃逸看不见。
+
+   判据：先用门禁 12 定出的本人 @id 当锚，再扫全站所有 Person 节点，
+   凡是用本人 @id 的，其 name 必须落在**数据源认可的姓名集合**内。
+
+   ⚠️ 认可的不是**一个**名字，是**几个**：姓名是**可变**的 —— 出版商登记名
+   可能与本站写法不同（nameAsPublished 就是为此存在的），中文名在
+   fullName / alternateName。若把判据写成"name 必须等于 nameAsPublished"，
+   作者一旦把 nameAsPublished 改成出版商登记名，canonical 节点
+   （base.njk 取的是 site.author.name）就会**合法地**与之不等 → 假阳性。
+   所以这里取 site.author 里所有身份姓名字段的并集。
+
+   ⚠️ 本条只管"是不是本人"，不管"名字写得好不好"（那是内容判断）。
+   ⚠️ 局限：锚点来自门禁 12 的**姓名**匹配。若作者把 site.author 的姓名
+   字段全改到产物里一个都对不上，门禁 12 会先报红（"找不到任何描述本人的
+   Person 节点"），本条随之跳过并记一条 note，不会静默放过。 */
+{
+  const ownerAuthor = (siteData && siteData.author) || {};
+  const acceptedNames = new Set(
+    [ownerAuthor.name, ownerAuthor.nameAsPublished, ownerAuthor.fullName, ownerAuthor.alternateName]
+      .map((s) => String(s == null ? "" : s).trim())
+      .filter(Boolean)
+  );
+  const ownerIdSet = new Set([...ownerIds].map((s) => s.trim()).filter(Boolean));
+  let ownerIdNodes = 0;
+  const drifted = [];
+  if (ownerIdSet.size) {
+    for (const { from, parsed } of ldRecords) {
+      for (const node of collectNodes(parsed)) {
+        if (!typesOf(node).includes("Person")) continue;
+        const id = typeof node["@id"] === "string" ? node["@id"].trim() : "";
+        if (!id || !ownerIdSet.has(id)) continue;
+        ownerIdNodes++;
+        const nm = String(node.name || "").trim();
+        if (!acceptedNames.has(nm)) drifted.push({ from, name: nm, id });
+      }
+    }
+  }
+  if (drifted.length) {
+    for (const d of drifted) {
+      fail(
+        `${d.from}: 该 Person 节点挂着本人 @id（${d.id}），但 name 是 "${d.name}" —— ` +
+          `本人 @id 的节点姓名必须取自 src/_data/site.js 的 author ` +
+          `（当前认可：${[...acceptedNames].join(" / ")}）`
+      );
+    }
+  } else if (ownerIdSet.size) {
+    note(
+      `本人 @id 的 ${ownerIdNodes} 个 Person 节点，姓名都在 site.js 认可集合内` +
+        `（${[...acceptedNames].join(" / ")}）`
+    );
+  } else {
+    note("本人 @id 未能确定 → 「按 @id 兜底姓名」这一条本轮跳过（见门禁 12 的报错）");
+  }
 }
 
 /* ---------- 24. 门禁编号自身：文件头清单与代码段必须一一对应 ----------
