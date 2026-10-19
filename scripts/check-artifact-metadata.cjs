@@ -31,10 +31,23 @@
  *                      都等于 site.js 的 pub.code；creator 挂本人 @id 且带
  *                      本人 ORCID；citation 指回论文页；
  *   M4 可见层与机器层同源 —— 论文页上必须真的有一个 href 等于 pub.code
- *                      （结构化数据宣称有的仓库，页面得真的给得出来）；
+ *                      （结构化数据宣称有的仓库，页面得真的给得出来），
+ *                      **且首页正文里那行"分析流水线在某个仓"也必须等于
+ *                      同一个 pub.code**（此前首页那行是硬编码字面量，与
+ *                      site.js 各写一份 → 仓库改名/转移时只改一处，首页与
+ *                      论文卡片就指向两个不同的仓库，且没有门禁会叫。
+ *                      与身份句柄那次同族：同一事实两份副本，其中一份没人看守）；
  *   M5 复用条款必须是可解析的绝对 URL —— 读者要照着它去读许可证；
  *   M6 门禁自己没被卸掉 + **自证存活** —— 一处都没比过就判红
  *                      （"没报错"和"没问题"长得一模一样）。
+ *
+ * ⚠️ M4 首页那段的两个前提（改判据时记得一起看）：
+ *   ① 前提是"首页会给出每篇论文的代码仓入口"。当前站点首页 intro 段落确实
+ *      逐篇给出了（1 篇）。若将来首页改为只列部分论文，这条要同步放宽。
+ *   ② 期望值取自 site.js 的 pub.code，与被判数据**同源** → 本条只能挡
+ *      "**两份副本漂移**"（首页 ≠ 论文卡片），挡不住"两处一致地改成别的仓"。
+ *      后者是协同篡改，落在已声明的诚实边界内（靠 git 历史审计 + 日志复核），
+ *      本门禁**不声称**能挡。
  *
  * ⚠️ 为什么不写进 scripts/verify-site.cjs：那里的门禁是**一个连续编号**
  *   的整体（文件头清单 + 代码段 + 对照表三处必须一一对应，见门禁 24/29），
@@ -245,6 +258,67 @@ for (const pub of pubs) {
         `结构化数据宣称有这份代码仓库，页面却给不出入口（可见层与机器层不是同一份）。`
     );
   }
+}
+
+/* ---------- M4（续）首页那行代码仓链接也必须等于 pub.code ---------- */
+// ⚠️ 按**产物上的标记**（data-code-repo）定位首页那一行，**不**用"页面上任意
+// 一个 href 等于 pub.code"那种存在性判据——
+// 存在性判据有实测出来的盲区：只要页面上**别处**还留着一条正确链接，
+// 改坏了的那条就没人管（实测：模板改回硬编码字面量 → 首页同时存在
+// 正确链接与坏链接 → 存在性判据放行，坏的那条漂移了没人叫）。
+// 标记必须**有且只有一个**：漏了 → 判据定位不到；重复了 → 判据有歧义。
+// 自证存活（下面 homeCompared）也只覆盖"跑过没"，覆盖不了"整段被删"——
+// 整段被删时自证代码自己也没了 → 那由仓库内的外部注入自测脚本兜
+// （scripts/test-gates-selfcheck.cjs）。
+let homeCompared = 0;
+{
+  const homeFile = path.join(SITE, "index.html");
+  if (!fs.existsSync(homeFile)) {
+    note("index.html：首页产物不存在（_site/index.html）——无法核对首页上的代码仓库链接。");
+  } else {
+    const homeHtml = fs.readFileSync(homeFile, "utf8");
+    const marked = [...homeHtml.matchAll(/<a\b[^>]*\bdata-code-repo\b[^>]*>/g)].map((m) => m[0]);
+    for (const pub of pubs) {
+      if (!pub || !pub.code) continue;
+      homeCompared++;
+      if (marked.length !== 1) {
+        note(
+          `index.html：首页上带 data-code-repo 标记的链接有 ${marked.length} 条（应为 1 条）—— ` +
+            `标记漏了或重复了，判据定位不到首页正文那一行代码仓链接。`
+        );
+        continue;
+      }
+      const hrefMatch = marked[0].match(/href\s*=\s*"([^"]*)"/);
+      const href = hrefMatch ? hrefMatch[1] : "";
+      if (href !== pub.code) {
+        note(
+          `index.html：首页正文那行代码仓链接指向 ${href || "（取不到 href）"}，` +
+            `与 publications[].code = ${pub.code} 不相等 —— ` +
+            `首页与论文卡片说的是同一份代码仓库，两处必须一致。`
+        );
+      }
+    }
+    // 数据层也要钉住：site.author.paperCodeRepo（首页那一行取的值）
+    // 必须与 pub.code 相等 —— 否则首页会指向另一个仓，而产物上看着"有链接"。
+    const authorCode = (siteData.author && siteData.author.paperCodeRepo) || "";
+    for (const pub of pubs) {
+      if (!pub || !pub.code) continue;
+      homeCompared++;
+      if (authorCode !== pub.code) {
+        note(
+          `src/_data/site.js：author.paperCodeRepo = ${authorCode || "（空）"}，` +
+            `与 publications[].code = ${pub.code} 不相等 —— ` +
+            `首页正文与论文卡片会指向两个不同的代码仓库。`
+        );
+      }
+    }
+  }
+}
+if (!homeCompared) {
+  note(
+    "首页代码仓库链接那段一处都没比过——判据可能已经失效" +
+      "（与 M6 的自证存活是同一类病：'没报错'和'没问题'长得一模一样）。"
+  );
 }
 
 /* ---------- M6 门禁自己没被卸掉 + 自证存活 ---------- */

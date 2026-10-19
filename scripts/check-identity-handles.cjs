@@ -372,9 +372,16 @@ if (anchorTrustworthy) {
   );
 }
 
-/* ---------- I5：人读路径（页面上看得见的身份链接）必须与登记清单一致 ---------- */
+/* I5 结果的输出变量：**声明在 I5 段之外**——
+   这样"整段 I5 被删掉"时，门禁不会因为 ReferenceError 崩掉，
+   而是走"本轮未判定"分支 → 与真实的静默放行**同构**，
+   由 scripts/test-gates-selfcheck.cjs 精确发现"判据被卸了"。
+   （红因指错地方比没有红因更坏：崩在 undefined 上，人只会当成脚本 bug，
+     反而看不出有人把判据整段删了。） */
 let visibleIdentityCount = 0;
 let visibleIdentityChecked = false;
+
+/* ---------- I5：人读路径（页面上看得见的身份链接）必须与登记清单一致 ---------- */
 if (anchorTrustworthy) {
   /* 身份"主页形态"：某主机上**指向一个账号主页**的 URL 形态。
      同一主机上的深层链接（github.com/<user>/<repo>、researchgate.net/publication/...）
@@ -488,7 +495,7 @@ console.log(
     `${[...expectedSet].join(" / ")}）；数据源清单与期望集逐项一致；` +
     (visibleIdentityChecked
       ? `页面上可见的身份链接 ${visibleIdentityCount} 条，与登记清单一致。`
-      : `页面上可见的身份链接本轮未判定（期望集自身失守）`)
+      : `页面上可见的身份链接本轮未判定（期望集自身失守，或 I5 判据不在本文件里）`)
 );
 if (notes.length) {
   console.log("—");

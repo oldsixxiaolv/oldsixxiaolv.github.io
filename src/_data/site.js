@@ -11,6 +11,56 @@
 // 就会出现"改一处忘另一处"（本仓库为 git 判据犯过同样的病，见 12dedb0）。
 const { OWNER_ORCID, IDENTITY_SAMEAS } = require("../../scripts/lib/identity.cjs");
 
+// ---------------------------------------------------------------------------
+// 身份清单的**唯一真源**是 scripts/lib/identity.cjs。JSON-LD 的 sameAs 与
+// 页面上**看得见**的身份链接，都必须从它派生——
+//
+// 为什么"看得见的那一份"也必须派生（一次实测漏洞，不是假想）：
+//   此前 author.github / author.csdn / author.researchgate / social[] 各自
+//   写了一份**字面量**，与 sameAs 那份互不相干。实测（隔离克隆 + 源码级注入）：
+//   只把页面上可见的 GitHub 链接换成 https://github.com/impersonator
+//   （sameAs 不动）→ **整条 build 链 exit 0**，没有任何一道门禁判红。
+//   后果：页面上写着"这是我的 GitHub"，结构化数据里却是另一个账号——
+//   机器读的那条（sameAs）有人看守，人读的那条没人管，两条路径对不上。
+//
+// 下面两张表只决定"**哪条怎么称呼、在哪显示**"（展示层），**不复制清单内容**：
+// 增删句柄只改 scripts/lib/identity.cjs 一处，页面自动跟着变。
+// ---------------------------------------------------------------------------
+const IDENTITY_BY_HOST = {
+  "github.com": "GitHub",
+  "orcid.org": "ORCID",
+  "www.researchgate.net": "ResearchGate",
+  "blog.csdn.net": "CSDN",
+  "openalex.org": "OpenAlex",
+};
+// 页脚 / 首页那一行要显示哪几条，以及显示顺序（**只是顺序与取舍**）。
+// OpenAlex 不在这里：它在页脚有独立入口（footer.njk），是否显眼由本人定，
+// 见日志「待决策」段。
+const SOCIAL_ORDER = ["github.com", "orcid.org", "www.researchgate.net", "blog.csdn.net"];
+
+/** 从身份清单里按主机名取那一条；取不到返回 null（不静默兜底成别的值）。 */
+const identityUrl = (host) => {
+  const hit = IDENTITY_SAMEAS.find((u) => {
+    try {
+      return new URL(u).host === host;
+    } catch {
+      return false;
+    }
+  });
+  return hit || null;
+};
+
+// ---------------------------------------------------------------------------
+// TRMM 论文分析流水线的代码仓。**同一个 URL 有两处消费**：
+//   ① 首页正文（src/index.njk，页面上"看得见"的那一行）
+//   ② 论文条目 publications[0].code（论文卡片上的 "Code" 链接）
+// 此前两处各写一份字面量 → 仓库改名、账号改名或转移时只改一处，
+// 首页与论文卡片就会指向**两个不同的仓库**，而且没有任何门禁会叫
+// （与身份句柄那次同族：同一事实的两份副本，其中一份没人看守）。
+// 字面量只在这里写一次，两处都从它派生。
+// ---------------------------------------------------------------------------
+const TRMM_CODE_REPO = "https://github.com/oldsixxiaolv/Manuscript_Lvyh";
+
 module.exports = {
   title: "Yihang Lyu",
   shortTitle: "MeteoHub",
@@ -118,11 +168,14 @@ module.exports = {
       "Currently focused on extreme precipitation over North China.",
 
     // 联系方式
+    // ⚠️ 下面这五个身份句柄**全部从身份清单派生**（scripts/lib/identity.cjs），
+    //    不要在这里写回字面量——写回字面量就等于建了第二份清单，
+    //    "改一处忘另一处"会静默漂移（实测：只改可见链接 → 全链 exit 0，无人判红）。
     email: "lvyihang26@mails.ucas.ac.cn",
-    github: "https://github.com/oldsixxiaolv",
+    github: identityUrl("github.com"),
     orcid: OWNER_ORCID,
-    csdn: "https://blog.csdn.net/lvyihang200411",
-    researchgate: "https://www.researchgate.net/profile/Yihang-Lyu",
+    csdn: identityUrl("blog.csdn.net"),
+    researchgate: identityUrl("www.researchgate.net"),
     zenodo: "https://doi.org/10.5281/zenodo.18041880",
     // OpenAlex：开放学术图谱的作者实体，Semantic Scholar / CORE / 众多机构
     // 检索系统的上游数据源。本人的档案是**按 ORCID 精确反查**出来的
@@ -130,7 +183,7 @@ module.exports = {
     // 档案里的 works 正是本论文 + Zenodo 数据集 + Code Ocean 胶囊这三条，
     // topics 落在 "Lightning and Electromagnetic Phenomena" 一带，与研究方向
     // 一致——不是重名碰巧撞上的。
-    openalex: "https://openalex.org/A5121394231",
+    openalex: identityUrl("openalex.org"),
 
     // —— Twitter/X 句柄（2026-10-19 第五轮）——
     // ⚠️ 留 null 是**刻意的**，不是漏填。
@@ -147,6 +200,12 @@ module.exports = {
     // 路径，且只有有推送权限的人能提交（改完由 CI 自动重新构建上线）。
     repo: "https://github.com/oldsixxiaolv/oldsixxiaolv.github.io",
     repoBranch: "main",
+
+    // TRMM 论文分析流水线的代码仓（首页正文那一行引用它）。
+    // ⚠️ 别在这里写回字面量——字面量在文件顶部的 TRMM_CODE_REPO，
+    //    publications[0].code 也从那一个常量派生。
+    //    和上面的 repo 不是一回事：repo 是**站点**的源码仓，paperCodeRepo 是**论文**的代码仓。
+    paperCodeRepo: TRMM_CODE_REPO,
 
     // 教育经历。⚠️ 上一版 about.md 里写的「本科/硕士：南京信息工程大学」查不到
     // 任何佐证，且与「兰大本科 → 现中科院大气所」的实际路径冲突，已整段移除。
@@ -471,7 +530,7 @@ module.exports = {
         ],
         totalBytes: 843846081,
       },
-      code: "https://github.com/oldsixxiaolv/Manuscript_Lvyh",
+      code: TRMM_CODE_REPO,
       // Code Ocean 可复现计算胶囊：整篇论文的代码 + 数据 + 运行环境打包成
       // 一个可一键重跑的 capsule，DOI 已注册（DataCite，10.24433 前缀）。
       // 这是同行评审里最认的"可复现性"证据，比单纯给个 GitHub 仓硬得多。
@@ -530,11 +589,13 @@ module.exports = {
   //  （feed.njk / footer.njk），那是浏览器的"订阅"语义，不是"社交身份"。
   //  ⚠️ 此前这里留着一句"站点已不再提供 RSS"的注释——那是内容归档期的状态，
   //  2026-10-19 第一轮已把 /feed.xml 恢复，注释没跟着改，属于过期文档。
+  // ⚠️ 身份链接**从身份清单派生**（scripts/lib/identity.cjs），不写死 URL；
+  //    SOCIAL_ORDER 只决定"显示哪几条、按什么顺序"（展示层的取舍）。
   social: [
-    { label: "GitHub", href: "https://github.com/oldsixxiaolv" },
-    { label: "ORCID", href: "https://orcid.org/0009-0005-3511-0546" },
-    { label: "ResearchGate", href: "https://www.researchgate.net/profile/Yihang-Lyu" },
-    { label: "CSDN", href: "https://blog.csdn.net/lvyihang200411" },
+    ...SOCIAL_ORDER.map((host) => {
+      const href = identityUrl(host);
+      return href ? { label: IDENTITY_BY_HOST[host], href } : null;
+    }).filter(Boolean),
     { label: "Email", href: "mailto:lvyihang26@mails.ucas.ac.cn" },
   ],
 };
