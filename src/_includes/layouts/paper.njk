@@ -2,142 +2,287 @@
 layout: layouts/base.njk
 ---
 {# ============================================================================
-  paper.njk · 论文精读详情页 layout（简约高级版）
+  paper.njk · 论文详情页 layout
   ----------------------------------------------------------------------------
-  - 顶部 h1 + 一行 metadata（title / authors / year / venue / DOI 链接）
-  - 正文：paper-reader.js 双栏精读
-  - 底部：回到 papers 列表
-  - 顶部注入 ScholarlyArticle JSON-LD（Google Scholar / Rich Results 关键）
-    （注：base.njk 用 {{ content | safe }} 注入，JSON-LD 写在这里的 <script>
-     会进入 <main> 末尾，对 Google 解析没有影响——脚本型 LD 放 body 仍合法。）
+  这个 layout 此前**从未被渲染过**：src/content/papers/ 只有目录数据和
+  papers.11tydata.cjs，没有任何内容文件，所以 /papers/<slug>/ 这类路由
+  一条都没生成，paper-reader 的整套 CSS / JS 也一直闲置。
+  2026-10-19 补上第一篇论文后，这条路径才第一次真正跑起来。
+
+  —— 元数据从哪来 ——
+  页面**不自己写**标题/作者/期刊，而是用 front-matter 的 `pubKey` 指回
+  src/_data/site.js 里的那一条论文：
+
+      ---
+      pubKey: trmm-stages
+      ---
+
+  于是同一份元数据同时喂给四处：论文页、列表页卡片、BibTeX 导出、
+  以及 base.njk 里的 Google Scholar citation_* 标签。四处同源，不会两处走样。
+
+  —— 为什么每篇论文要单独一页 ——
+  Google Scholar 明确建议「每篇文章一个页面」：把多篇论文的 citation_*
+  标签混在一个列表页上，Google 只会认其中一组，其余静默丢失。
+  所以 /papers/ 是索引，/papers/<slug>/ 才是可被收录的条目。
+
+  —— paper-reader（双栏精读）复用到这一页 ——
+  目录、阅读进度条、批注框架都是现成的，这里直接复用：
+    · 目录自动从页内 h2/h3 生成（toc.js），没有标题就自动撤掉，不留空壳；
+    · 批注需要 annotations.json，本页没有就不传 URL，main.js 会整段跳过，
+      不会每次访问都打一个 404 再刷一条 console 警告。
   ========================================================================== #}
+
+{# —— 解析论文条目：优先走 pubKey；没有 pubKey 的旧内容页退回 front-matter —— #}
+{%- set pub = site.publications | pubByKey(pubKey) -%}
+{%- set pTitle = pub.title if pub else title -%}
+{%- set pJournal = pub.journal if pub else (journal or venue) -%}
+{%- set pYear = pub.year if pub else year -%}
+
+{# =====================================================================
+     ScholarlyArticle JSON-LD
+     ⚠️ 注意职责边界：这块 JSON-LD 是给**通用 schema.org 消费方**用的
+     （Bing 实体、Wikipedia、Google 普通检索的富结果）。
+     **Google Scholar 不读 JSON-LD**——它只认 Highwire 的 citation_*
+     <meta> 标签，那套在 partials/citation-meta.njk 里，由 base.njk 输出。
+     此前这个文件的注释把两者搞混了（写成"Google Scholar / Rich Results
+     关键"），已更正。两套都要有，但不是同一套。
+     ===================================================================== #}
+{% if pub %}
 <script type="application/ld+json">
 {
   "@context": "https://schema.org",
   "@type": "ScholarlyArticle",
-  "headline": {{ title | dump | safe }},
-  "name": {{ title | dump | safe }},
+  "headline": {{ pTitle | dump | safe }},
+  "name": {{ pTitle | dump | safe }},
   "url": "{{ site.url }}{{ page.url }}",
-  "datePublished": "{{ year or (page.date | date('yyyy')) }}-01-01",
-  "dateModified": "{{ page.date | dateToIso }}",
-  "inLanguage": "{% if site.locale and 'zh' in site.locale %}zh-CN{% else %}en{% endif %}",
-  "isAccessibleForFree": true,
-  "license": "https://creativecommons.org/licenses/by-nc/4.0/",
+  {%- if pYear %}
+  "datePublished": {% if pub.dates and pub.dates.published %}"{{ pub.dates.published }}"{% else %}"{{ pYear }}-01-01"{% endif %},
+  {%- endif %}
+  "inLanguage": "en",
+  {# isAccessibleForFree 取数据里的 openAccess。此前这里写死 true，
+     对一篇 Unpaywall 判定为 closed（付费墙内）的论文是**假声明**。 #}
+  {%- if pub.openAccess !== undefined %}
+  "isAccessibleForFree": {{ pub.openAccess | dump | safe }},
+  {%- endif %}
+  "author": [
+    {%- for a in pub.authorList %}
+    {
+      "@type": "Person",
+      "name": {{ a.name | dump | safe }}
+      {%- if a.name == site.author.nameAsPublished %},
+      {# 本人：sameAs 用 site.author.sameAs 全集（第一条就是本人的 ORCID）。
+         ⚠️ 这里**不能**再单独输出一条 a.orcid 的 sameAs —— 同一对象里出现
+         两个同名键，后一个会把前一个悄悄覆盖掉，JSON 虽然还能解析，但
+         结构已经脏了（而且严格校验器会报重复键）。 #}
+      "sameAs": {{ site.author.sameAs | dump | safe }},
+      "alternateName": {{ (site.author.alternateName or site.author.fullName or "") | dump | safe }},
+      "jobTitle": {{ (site.author.jobTitle or site.author.role or "") | dump | safe }},
+      "url": "{{ site.url }}/"
+      {%- elif a.orcid %},
+      {# 其他作者：只有自己那一条 ORCID，没有的就不给这个字段（不编造）。 #}
+      "sameAs": {{ [("https://orcid.org/" + a.orcid)] | dump | safe }}
+      {%- endif %}
+    }{% if not loop.last %},{% endif %}
+    {%- endfor %}
+  ],
+  {%- if pJournal %}
+  "isPartOf": {
+    "@type": "Periodical",
+    "name": {{ pJournal | dump | safe }}
+    {%- if pub and pub.issn %},
+    "issn": [
+      {%- if pub.issn.print %}"{{ pub.issn.print }}"{% endif -%}
+      {%- if pub.issn.electronic %}{% if pub.issn.print %},{% endif %}"{{ pub.issn.electronic }}"{% endif -%}
+    ]
+    {%- endif %}
+  },
+  {%- endif %}
+  {%- if pub and pub.publisher %}
   "publisher": {
     "@type": "Organization",
-    "name": {{ site.author.affiliation | dump | safe }},
-    "url": "{{ site.author.affiliationUrl or '' }}"
+    "name": {{ pub.publisher | dump | safe }}
   },
-  "author": [
-    {# authors 既可能是数组（trmm / microphysics）也可能是单个字符串（holton）。
-       字符串直接进 for 循环会拿到一个"整串作者名"元素，a.affiliation 永远是
-       undefined，下面两个 affiliation 分支都走不到。统一包成数组。 #}
-    {% set authorList = authors if (authors and authors is not string) else [authors] %}
-    {% if authors and authors.length %}
-      {% for a in authorList %}
-        {% set aname = a.name or a %}
-        {% set isMe = (aname == site.author.name) or (aname == site.author.alternateName) or (aname == 'Yihang Lv') or (aname == site.author.nameAsPublished) %}
-        {
-          "@type": "Person",
-          "name": {{ aname | dump | safe }}
-          {% if isMe %},
-          "alternateName": {{ (site.author.alternateName or site.author.fullName or '') | dump | safe }},
-          "jobTitle": {{ (site.author.jobTitle or site.author.role or '') | dump | safe }},
-          "url": "{{ site.url }}/",
-          "sameAs": {{ site.author.sameAs | dump | safe }},
-          "affiliation": {
-            "@type": "Organization",
-            "name": {{ site.author.affiliation | dump | safe }},
-            "url": "{{ site.author.affiliationUrl or '' }}"
-          }
-          {% elif a.affiliation %},
-          "affiliation": {
-            "@type": "Organization",
-            "name": {{ a.affiliation | dump | safe }}
-          }
-          {% elif affiliation %},
-          "affiliation": {
-            "@type": "Organization",
-            "name": {{ affiliation | dump | safe }}
-          }
-          {% endif %}
-        }{% if not loop.last %},{% endif %}
-      {% endfor %}
-    {% else %}
-      {
-        "@type": "Person",
-        "name": {{ site.author.name | dump | safe }},
-        "url": "{{ site.url }}/",
-        "sameAs": {{ site.author.sameAs | dump | safe }},
-        "affiliation": {
-          "@type": "Organization",
-          "name": {{ site.author.affiliation | dump | safe }},
-          "url": "{{ site.author.affiliationUrl or '' }}"
-        }
-      }
-    {% endif %}
-  ],
-  {% if journal or venue %}
-  "publication": {
-    "@type": "Periodical",
-    "name": {{ (journal or venue) | dump | safe }}
+  {%- endif %}
+  {%- if pub and pub.volume %}
+  "volume": {{ pub.volume | dump | safe }},
+  {%- endif %}
+  {%- if pub and pub.issue %}
+  "issue": {{ pub.issue | dump | safe }},
+  {%- endif %}
+  {%- if pub and (pub.pages or pub.articleNumber) %}
+  "pageStart": {{ (pub.pages or pub.articleNumber) | dump | safe }},
+  {%- endif %}
+  {%- if pub and pub.doi %}
+  "identifier": {{ ("https://doi.org/" + pub.doi) | dump | safe }},
+  "sameAs": {{ ("https://doi.org/" + pub.doi) | dump | safe }},
+  {%- endif %}
+  {%- if pub and pub.pdf %}
+  "encoding": {
+    "@type": "MediaObject",
+    "contentUrl": {{ pub.pdf | dump | safe }},
+    "encodingFormat": "application/pdf"
   },
-  {% endif %}
-  {% if doi %}
-  {# doi 走 dump | safe：Nunjucks 不知道这里在 <script> 里，会按 HTML 转义，
-     DOI 里的 <1414:OTROMC> 会变成 &lt;1414:OTROMC&gt; 写进 JSON-LD，
-     Google 侧拿到的就是一个坏掉的标识符。 #}
-  "identifier": {{ ("https://doi.org/" + doi) | dump | safe }},
-  "sameAs": [
-    {{ ("https://doi.org/" + doi) | dump | safe }}
-  ],
-  {% endif %}
-  "keywords": {{ (keywords or tags or []) | dump | safe }},
-  {# description / excerpt 都可能缺失（如 holton）。| dump 对 undefined 输出空串，
-     会渲染成 "description": , 让整块 JSON-LD 语法失效、Google 直接丢弃
-     ScholarlyArticle，所以必须兜底到一定存在的 title。 #}
-  "description": {{ (description or excerpt or title or '') | dump | safe }},
+  {%- endif %}
+  {%- if pub and pub.abstract %}
+  "abstract": {{ pub.abstract | dump | safe }},
+  {%- endif %}
+  {%- if pub and pub.keywords and pub.keywords.length %}
+  "keywords": {{ pub.keywords | dump | safe }},
+  {%- endif %}
   "mainEntityOfPage": {
     "@type": "WebPage",
     "@id": "{{ site.url }}{{ page.url }}"
   }
 }
 </script>
+{% endif %}
 
 <div class="paper-reader-wrap">
 <article class="paper">
-  <div class="reading-progress" data-reading-progress aria-hidden="true"></div>
+  {%- if pub %}
   <header class="paper-head">
-    <h1>{{ title }}</h1>
-    {# 元信息分三层：作者 / 出处+状态 / 链接。
-       原来把 7 个作者 + 期刊 + 年份 + 状态挤在同一行 14px 灰字里，
-       作者和出处同字号同色，谁也认不出来；这里拆开之后「谁写的」和
-       「登在哪」各自成行，中间那栏正文才是页面上最重的一层。 #}
-    {% if authors %}
-    <p class="paper-head__authors">{% if authors is string %}{{ authors }}{% else %}{{ authors | join(", ") }}{% endif %}</p>
-    {% endif %}
+    <h1>{{ pTitle }}</h1>
+
+    {# 作者：带 ORCID 的做成链接（orcid.org 是作者身份的权威入口），
+       本人加粗。没有 ORCID 的作者照常列名——不编造。 #}
+    <p class="paper-head__authors">
+      {%- for a in pub.authorList -%}
+        {%- if not loop.first %}, {% endif -%}
+        {%- set isMe = (a.name == site.author.nameAsPublished) -%}
+        {%- if a.orcid -%}
+          <a href="https://orcid.org/{{ a.orcid }}" rel="noopener noreferrer">{{ a.name }}</a>
+        {%- else -%}
+          {{ a.name }}
+        {%- endif -%}
+      {%- endfor -%}
+    </p>
+
     <p class="paper-head__meta">
-      {# frontmatter 里写的是 journal（三篇论文都是），模板原来只读 venue，
-         结果期刊名一次都没渲染出来 —— 上面 JSON-LD 用的是 journal or venue，
-         这里对齐成同一个顺序。 #}
-      {% if journal or venue %}<span class="paper-head__venue">{{ journal or venue }}</span>{% endif %}
-      {% if year %}<span class="dot" aria-hidden="true">·</span><span>{{ year }}</span>{% endif %}
-      {% if readingStatus %}<span class="dot" aria-hidden="true">·</span><span class="paper-head__status status--{{ readingStatus }}">{{ readingStatus | statusLabel }}</span>{% endif %}
-      {% if doi or pdf %}
-      <span class="dot" aria-hidden="true">·</span>
-      <span class="paper-head__links">
-        {% if doi %}<a href="https://doi.org/{{ doi }}" target="_blank" rel="noopener noreferrer">DOI</a>{% endif %}
-        {% if pdf %}<a href="{{ pdf }}" target="_blank" rel="noopener noreferrer">PDF</a>{% endif %}
-      </span>
-      {% endif %}
+      {%- if pJournal %}<span class="paper-head__venue">{{ pJournal }}</span>{% endif -%}
+      {%- if pub and pub.volume %}<span class="dot" aria-hidden="true">·</span><span>{{ pub.volume }}{% if pub.issue %}({{ pub.issue }}){% endif %}</span>{% endif %}
+      {%- if pYear %}<span class="dot" aria-hidden="true">·</span><span>{{ pYear }}</span>{% endif %}
+      {%- if pub and pub.articleNumber %}<span class="dot" aria-hidden="true">·</span><span class="paper-head__eid">{{ pub.articleNumber }}</span>{% endif %}
+    </p>
+
+    {# 链接行：论文 / DOI / PDF / 代码 / 数据 / 胶囊。每一项都判空。 #}
+    <p class="paper-head__links">
+      {%- if pub.url %}<a href="{{ pub.url }}" target="_blank" rel="noopener noreferrer">Paper ↗</a>{% endif -%}
+      {%- if pub.doi %}<a href="https://doi.org/{{ pub.doi }}" target="_blank" rel="noopener noreferrer">DOI ↗</a>{% endif -%}
+      {%- if pub.pdf %}<a href="{{ pub.pdf }}" target="_blank" rel="noopener noreferrer">PDF ↗</a>{% endif -%}
+      {%- if pub.code %}<a href="{{ pub.code }}" target="_blank" rel="noopener noreferrer">Code ↗</a>{% endif -%}
+      {%- if pub.software and pub.software.url %}<a href="{{ pub.software.url }}" target="_blank" rel="noopener noreferrer">Data ↗</a>{% endif -%}
+      {%- if pub.capsule and pub.capsule.url %}<a href="{{ pub.capsule.url }}" target="_blank" rel="noopener noreferrer">Capsule ↗</a>{% endif -%}
     </p>
   </header>
+
+  {# —— 摘要 ——
+     此前站点上根本没有摘要：一个学术主页只列标题和刊名，读者无从判断
+     这篇工作做了什么、跟自己有没有关系。摘要取自 Crossref 登记的
+     出版商版本原文（不是本站改写版）。 #}
+  {%- if pub.abstract %}
+  <section class="paper-abstract" aria-labelledby="paper-abstract-title">
+    <h2 id="paper-abstract-title">Abstract</h2>
+    <p>{{ pub.abstract }}</p>
+    {%- if pub.keywords and pub.keywords.length %}
+    <ul class="paper-keywords" aria-label="Keywords">
+      {%- for k in pub.keywords %}<li>{{ k }}</li>{% endfor -%}
+    </ul>
+    {%- endif %}
+  </section>
+  {%- endif %}
+  {%- endif %}
+
+  {%- if not pub %}
+  {# 没有 pubKey 的内容页：只渲染 front-matter 里有的东西，不摆空槽。 #}
+  <header class="paper-head">
+    <h1>{{ pTitle or title }}</h1>
+    {%- if authors %}<p class="paper-head__authors">{% if authors is string %}{{ authors }}{% else %}{{ authors | join(", ") }}{% endif %}</p>{% endif %}
+    <p class="paper-head__meta">
+      {%- if pJournal %}<span class="paper-head__venue">{{ pJournal }}</span>{% endif -%}
+      {%- if pYear %}<span class="dot" aria-hidden="true">·</span><span>{{ pYear }}</span>{% endif -%}
+    </p>
+    {%- if doi or pdf %}
+    <p class="paper-head__links">
+      {%- if doi %}<a href="https://doi.org/{{ doi }}" target="_blank" rel="noopener noreferrer">DOI ↗</a>{% endif -%}
+      {%- if pdf %}<a href="{{ pdf }}" target="_blank" rel="noopener noreferrer">PDF ↗</a>{% endif -%}
+    </p>
+    {%- endif %}
+  </header>
+  {%- endif %}
 
   <div class="paper-body">
     {{ content | safe }}
   </div>
 
-  <p class="paper-footer"><a href="{{ '/papers/' | relUrl }}">← 回到论文精读列表</a></p>
+  {%- if pub %}
+
+  {# —— 数据与代码可用性 ——
+     学术主页上这块的权重很高：编辑和评委会直接找"数据在哪、代码在哪、
+     能不能重跑"。三条资源各带 DataCite 登记的权威元数据（版本、许可），
+     不是空泛的三个链接。 #}
+  <section class="paper-availability" aria-labelledby="paper-availability-title">
+    <h2 id="paper-availability-title">Data and code availability</h2>
+    <dl class="paper-availability__list">
+      {%- if pub.software and pub.software.url %}
+      <dt>Dataset <span class="paper-availability__badge">{{ pub.software.resourceType or "Dataset" }}</span></dt>
+      <dd>
+        <a href="{{ pub.software.url }}" target="_blank" rel="noopener noreferrer">{{ pub.software.label }}</a>
+        <span class="paper-availability__meta">Zenodo · v{{ pub.software.version or "—" }} · {{ pub.software.license or "" }} · DOI {{ pub.software.doi }}</span>
+      </dd>
+      {%- endif %}
+      {%- if pub.capsule and pub.capsule.url %}
+      <dt>Reproducible capsule <span class="paper-availability__badge">{{ pub.capsule.resourceType or "Capsule" }}</span></dt>
+      <dd>
+        <a href="{{ pub.capsule.url }}" target="_blank" rel="noopener noreferrer">Code Ocean capsule</a>
+        <span class="paper-availability__meta">Code Ocean · v{{ pub.capsule.version or "—" }} · {{ pub.capsule.license or "" }} · DOI {{ pub.capsule.doi }}</span>
+        <span class="paper-availability__note">Code, data and the compute environment are packaged together, so the analysis can be re-run as published.</span>
+      </dd>
+      {%- endif %}
+      {%- if pub.code %}
+      <dt>Source code</dt>
+      <dd>
+        <a href="{{ pub.code }}" target="_blank" rel="noopener noreferrer">{{ pub.code | replace("https://github.com/", "") }}</a>
+        <span class="paper-availability__meta">GitHub</span>
+      </dd>
+      {%- endif %}
+    </dl>
+  </section>
+
+  {# —— 资助与出版流程 ——
+     基金号是硬性惯例（资助方与项目号要能被检索到、能被抄进申请书）；
+     出版流程日期对同行判断稿件成熟度也有用。 #}
+  {%- if (pub.funding and pub.funding.length) or (pub.dates and pub.dates.received) %}
+  <section class="paper-meta-notes" aria-labelledby="paper-meta-notes-title">
+    <h2 id="paper-meta-notes-title">Funding and publication history</h2>
+    {%- if pub.funding and pub.funding.length %}
+    <p class="paper-meta-notes__funding">
+      Funding:
+      {%- for f in pub.funding %} {{ f.agency }} No. {{ f.id }}{% if not loop.last %};{% endif %}{% endfor -%}
+    </p>
+    {%- endif %}
+    {%- if pub.dates and pub.dates.received %}
+    <p class="paper-meta-notes__dates">
+      Received {{ pub.dates.received }} · Accepted {{ pub.dates.accepted or "—" }} · Published {{ pub.dates.published or "—" }}
+    </p>
+    {%- endif %}
+  </section>
+  {%- endif %}
+
+  {# —— 引用本篇 ——
+     访客最常做的事就是"引用这一篇"。BibTeX 与 /publications.bib 同源，
+     复制即可用；不另做 APA/MLA 格式切换——那类小工具维护成本高、
+     收益低，BibTeX 才是领域内的通用语言。 #}
+  <section class="paper-cite" aria-labelledby="paper-cite-title">
+    <h2 id="paper-cite-title">Cite this paper</h2>
+    <pre class="paper-cite__bibtex" id="paper-bibtex" data-copy-source="paper-bibtex">{{ pub | bibtex }}</pre>
+    <p class="paper-cite__actions">
+      <button type="button" class="btn btn--ghost btn--sm" data-copy-target="paper-bibtex">Copy BibTeX</button>
+      <a class="btn btn--ghost btn--sm" href="{{ '/publications.bib' | relUrl }}" download>Download all BibTeX</a>
+    </p>
+  </section>
+  {%- endif %}
+
+  <p class="paper-footer"><a href="{{ '/papers/' | relUrl }}">← Back to publications</a></p>
 </article>
 </div>
 
@@ -151,14 +296,20 @@ layout: layouts/base.njk
 {# paper-reader/main.js 是拆分后的入口（Phase 2B.6）。
    · 动态 import：仅 paper 页加载，其他页面零开销
    · 浏览器自动并行 fetch 子模块（toc / annotations / highlight / reading-progress / theme）
-   · 解析完 annotations 再挂 highlight，二者通过返回值解耦 #}
+   · 解析完 annotations 再挂 highlight，二者通过返回值解耦
+
+   annotationsUrl 只在**确实有批注**时才传：本页没有 annotations.json，
+   传一个必然 404 的地址只会让浏览器白打一个请求再刷一条 console 警告。
+   main.js 见到没有 annotationsUrl 就整段跳过批注模块。 #}
 <script type="module">
   const paperRoot = document.querySelector("article.paper");
   if (paperRoot) {
     const { initPaperReader } = await import("{{ '/assets/js/paper-reader/main.js' | relUrl }}");
     initPaperReader({
       paperRoot,
+      {%- if hasAnnotations %}
       annotationsUrl: "{{ '/content/papers/' | relUrl }}{{ slug or page.fileSlugStem }}/annotations.json",
+      {%- endif %}
     });
   }
 </script>

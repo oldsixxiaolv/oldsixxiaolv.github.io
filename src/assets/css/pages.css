@@ -425,7 +425,47 @@ a.home-achievement:hover .home-achievement__value { color: var(--color-brand-700
   letter-spacing: -.015em;
   text-wrap: pretty;
 }
+/* 标题链到论文详情页。链接态不能变品牌蓝——那会和"本人高亮"的
+   品牌蓝撞色，读者会分不清哪块是"点进去看详情"、哪块是"这是我"。
+   改成：颜色不变，靠 hover 时加下划线 + 箭头提示可点。 */
+.home-pub__title a {
+  color: inherit;
+  text-decoration: none;
+}
+.home-pub__title a:hover {
+  text-decoration: underline;
+  text-decoration-color: var(--color-accent-400);
+  text-underline-offset: 4px;
+}
+.home-pub__title a:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+  border-radius: 2px;
+}
 .home-pub__authors { margin: var(--space-2) 0 0; color: var(--text-secondary); font-size: 14px; line-height: 1.6; }
+/* 作者里的 ORCID 链接：低调处理——点线 + 弱色下划线，不跟标题链接抢注意力。
+   本人那条保持品牌蓝 + 暖橙实线下划线（三重线索不变）。 */
+.home-pub__authors a {
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  text-decoration-color: var(--border-default);
+  text-underline-offset: 3px;
+}
+.home-pub__authors a:hover {
+  text-decoration-style: solid;
+  text-decoration-color: var(--color-accent-400);
+}
+.home-pub__authors a:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+  border-radius: 2px;
+}
+.home-pub__self a {
+  color: inherit;
+  text-decoration-style: solid;
+  text-decoration-color: var(--color-accent-400);
+}
 /* 本人高亮三重线索：品牌蓝 + 字重 + 暖橙下划线。去掉任一项仍认得出是谁。
    用品牌蓝而不是强调橙：橙色留给"在审"这类状态语义，两者不抢。 */
 .home-pub__self {

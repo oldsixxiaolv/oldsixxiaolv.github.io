@@ -26,11 +26,11 @@
 
 /* ---------- Premium reading motion ---------- */
 @media (prefers-reduced-motion: no-preference) {
-  .paper-reader h2[id],
-  .paper-reader h3[id] {
+  .paper-body h2[id],
+  .paper-body h3[id] {
     transition: opacity 500ms var(--ease-out), transform 500ms var(--ease-out), background-color var(--dur-base) var(--ease-out);
   }
-  .paper-reader h2[id], .paper-reader h3[id] { animation: reader-section-in linear both; animation-timeline: view(); animation-range: entry 0% cover 20%; }
+  .paper-body h2[id], .paper-body h3[id] { animation: reader-section-in linear both; animation-timeline: view(); animation-range: entry 0% cover 20%; }
   .annot-item {
     transition: opacity 500ms var(--ease-out), background-color var(--dur-base) var(--ease-out),
                 border-color var(--dur-base) var(--ease-out), color var(--dur-base) var(--ease-out);
@@ -49,6 +49,14 @@
   padding-inline: var(--gutter);
   padding-block: var(--space-6) var(--space-7);
 }
+/* 没有批注面板时退化成两栏（TOC + 正文）。
+   论文详情页（/papers/<slug>/）不启用批注——没有 annotations.json——
+   若仍按三栏排版，右侧会空出整整一列（约 280px+），正文被挤成一条窄带，
+   白白浪费横向空间。:has() 现代浏览器均已支持；不支持时退回三栏，
+   布局仍然成立（只是右侧留白），不会破版。 */
+.paper-reader-wrap:not(:has(.annot-pane)) {
+  grid-template-columns: minmax(200px, 1fr) minmax(0, 3.4fr);
+}
 @media (max-width: 1024px) {
   .paper-reader-wrap {
     grid-template-columns: minmax(0, 1fr);
@@ -61,7 +69,7 @@
    1280px 视口下中栏实测 ~596px，17px 衬线体 ≈ 35 个汉字 / ~70 个拉丁字符，
    两侧都落在中文 30~40 字、英文 65~75 字符的舒适区间，不需要再套 --measure
    （套上去只会在栏内多出一截死白）。--measure 仍然留给页头作者行。 */
-.paper-reader {
+.paper-body {
   font-family: var(--font-editorial);
   font-size: 17px;
   /* 中文衬线（Songti / Noto Serif SC）字面框比拉丁小，行高要比纯拉丁正文
@@ -73,8 +81,8 @@
 /* 标题层级：三级差（字号 / 字重 / 颜色），不再用色块。
    h3 特意降到 secondary 色 —— 学术小节标题是"次级信息"，
    跟 h2 用同一个 primary 黑会让整篇的层级塌成一片。 */
-.paper-reader h2[id],
-.paper-reader h3[id] {
+.paper-body h2[id],
+.paper-body h3[id] {
   margin-bottom: var(--space-3);
   font-weight: 700;
   letter-spacing: -0.01em;
@@ -83,15 +91,15 @@
   /* paper h2/h3 多为学术小节标题，长度跨 2 行常见；balance 避免单字末尾。 */
   text-wrap: balance;
 }
-.paper-reader h2[id] { margin-top: 56px; font-size: 21px; line-height: 1.3; }
-.paper-reader h3[id] { margin-top: 40px; font-size: 16.5px; line-height: 1.4; font-weight: 600; color: var(--text-secondary); }
+.paper-body h2[id] { margin-top: 56px; font-size: 21px; line-height: 1.3; }
+.paper-body h3[id] { margin-top: 40px; font-size: 16.5px; line-height: 1.4; font-weight: 600; color: var(--text-secondary); }
 /* 第一个标题不需要 56px 的顶部留白，那会把页头和正文推得更远。 */
-.paper-reader > h2[id]:first-child,
-.paper-reader > h3[id]:first-child { margin-top: 0; }
-.paper-reader p {
-  /* line-height 必须写在 p 上而不是只写在 .paper-reader 上：base.css 有
+.paper-body > h2[id]:first-child,
+.paper-body > h3[id]:first-child { margin-top: 0; }
+.paper-body p {
+  /* line-height 必须写在 p 上而不是只写在 .paper-body 上：base.css 有
      `p { line-height: var(--lh-base) }`（1.7），直接命中元素会盖掉继承值
-     —— 之前 .paper-reader 里的 1.7 正好和它同值，所以没人发现这条其实没生效。 */
+     —— 容器上的 1.7 正好和它同值，所以没人发现这条其实没生效。 */
   line-height: 1.78;
   /* 段距用 em 而不是 --space-3：改字号时节奏自动跟着变。
      只留 margin-block-start，让相邻段落的 margin 折叠成 0.95em 一份，
@@ -107,11 +115,11 @@
   font-variant-numeric: tabular-nums;
 }
 /* 标题后紧跟的段落不需要额外的 0.95em，否则标题和正文之间会空一块。 */
-.paper-reader :is(h2, h3, blockquote, ul, ol, pre, figure) + p { margin-block-start: 0; }
-.paper-reader p + :is(ul, ol, blockquote, pre, figure) { margin-block-start: 0.95em; }
-.paper-reader :is(ul, ol) { margin-block: 0.95em; padding-inline-start: var(--space-5); }
-.paper-reader li { line-height: 1.78; margin-block: 0.3em; }
-.paper-reader blockquote {
+.paper-body :is(h2, h3, blockquote, ul, ol, pre, figure) + p { margin-block-start: 0; }
+.paper-body p + :is(ul, ol, blockquote, pre, figure) { margin-block-start: 0.95em; }
+.paper-body :is(ul, ol) { margin-block: 0.95em; padding-inline-start: var(--space-5); }
+.paper-body li { line-height: 1.78; margin-block: 0.3em; }
+.paper-body blockquote {
   margin-block: 0.95em;
   padding-inline-start: var(--space-4);
   border-inline-start: 2px solid var(--color-accent-400);
@@ -126,7 +134,7 @@
   orphans: 2;
   widows: 2;
 }
-.paper-reader pre {
+.paper-body pre {
   margin-block: 0.95em;
   line-height: 1.6;
 }

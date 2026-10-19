@@ -601,3 +601,175 @@ strong[data-annotation-ids] {
 }
 .paper-footer a:hover { color: var(--text-primary); text-decoration: underline; text-underline-offset: 3px; }
 
+/* ---------- 论文详情页新增区块（2026-10-19） ----------
+   摘要 / 关键词 / 数据与代码可用性 / 资助与出版流程 / 引用块。
+   这五块是论文页的"学术元数据"部分：此前站点上只有标题和刊名，
+   读者看不到这篇工作做了什么、数据在哪、怎么引用。 */
+.paper-head__eid {
+  font-family: var(--font-code);
+  font-size: 0.92em;
+  color: var(--text-secondary);
+}
+
+/* 摘要：左竖线 + 浅底，与正文的"叙述"层区分开——摘要是引用来的，
+   不是作者自己的话，视觉上要能看出这是引文块。 */
+.paper-abstract {
+  margin: 0 0 var(--space-5);
+  padding: var(--space-4) var(--space-4) var(--space-4) var(--space-5);
+  border-left: 3px solid var(--border-default);
+  background: var(--color-neutral-50);
+  border-radius: 0 var(--radius-md) var(--radius-md) 0;
+}
+.paper-abstract h2 {
+  font-family: var(--font-sans-en);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin: 0 0 var(--space-2);
+}
+.paper-abstract p {
+  font-family: var(--font-editorial);
+  font-size: 15.5px;
+  line-height: 1.72;
+  color: var(--text-primary);
+  margin: 0;
+  max-inline-size: var(--measure);
+}
+.paper-keywords {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-2);
+  list-style: none;
+  margin: var(--space-3) 0 0;
+  padding: 0;
+}
+.paper-keywords li {
+  font-family: var(--font-sans-en);
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+  background: var(--color-neutral-100);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-pill);
+  padding: 2px 9px;
+}
+
+/* 数据与代码可用性：定义列表，术语 + 条目两列。 */
+.paper-availability {
+  margin: var(--space-6) 0 0;
+  padding-top: var(--space-5);
+  border-top: 1px solid var(--border-subtle);
+}
+.paper-availability h2,
+.paper-meta-notes h2,
+.paper-cite h2 {
+  font-family: var(--font-sans-en);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin: 0 0 var(--space-3);
+}
+.paper-availability__list {
+  margin: 0;
+  display: grid;
+  gap: var(--space-3);
+}
+.paper-availability__list dt {
+  font-family: var(--font-sans-en);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.paper-availability__badge {
+  font-family: var(--font-code);
+  font-size: 10.5px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  background: var(--color-neutral-100);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: 1px 6px;
+}
+.paper-availability__list dd {
+  margin: 2px 0 0;
+  padding-left: 0;
+  font-size: 13.5px;
+  line-height: 1.62;
+  color: var(--text-secondary);
+  max-inline-size: var(--measure);
+}
+.paper-availability__list dd a {
+  color: var(--link-color);
+  text-decoration: none;
+  border-bottom: 1px solid currentColor;
+}
+.paper-availability__list dd a:hover { color: var(--link-hover); border-bottom-width: 2px; }
+.paper-availability__list dd a:focus-visible { outline: none; box-shadow: var(--shadow-focus); }
+.paper-availability__meta {
+  display: block;
+  font-family: var(--font-code);
+  font-size: 11.5px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+.paper-availability__note {
+  display: block;
+  font-size: 12.5px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+/* 资助与出版流程 */
+.paper-meta-notes {
+  margin: var(--space-6) 0 0;
+  padding-top: var(--space-5);
+  border-top: 1px solid var(--border-subtle);
+}
+.paper-meta-notes p {
+  margin: 0 0 var(--space-1);
+  font-size: 13px;
+  line-height: 1.62;
+  color: var(--text-secondary);
+  max-inline-size: var(--measure);
+}
+.paper-meta-notes__dates {
+  font-family: var(--font-code);
+  font-size: 11.5px !important;
+  color: var(--text-muted) !important;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 引用块：BibTeX 原文，代码块样式（等宽 + 可横向滚动 + 保留缩进）。 */
+.paper-cite {
+  margin: var(--space-6) 0 0;
+  padding-top: var(--space-5);
+  border-top: 1px solid var(--border-subtle);
+}
+.paper-cite__bibtex {
+  font-family: var(--font-code);
+  font-size: 12px;
+  line-height: 1.62;
+  color: var(--text-primary);
+  background: var(--color-neutral-50);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: var(--space-3) var(--space-4);
+  margin: 0 0 var(--space-3);
+  overflow-x: auto;
+  white-space: pre;
+  max-inline-size: var(--measure);
+}
+.paper-cite__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin: 0;
+}
+

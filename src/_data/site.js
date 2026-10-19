@@ -241,12 +241,39 @@ module.exports = {
   // ===========================================================================
   publications: [
     {
+      // 唯一键。论文独立页（src/content/papers/<slug>/paper.md）用 front-matter
+      // 的 `pubKey` 指回这里，页面与列表页共用同一份元数据，不会两处走样。
+      key: "trmm-stages",
+      // 论文详情页的 URL 段。必须与 src/content/papers/ 下的目录名一致
+      // （papers.11tydata.cjs 用目录名生成 permalink），否则链接会 404。
+      // 两处名字不同是有意的：key 是数据键（稳定语义），slug 是 URL 段
+      // （可读性优先，允许日后调整而不动数据键）。
+      slug: "trmm-thunderstorm-stages",
+
       title:
         "New Insights From TRMM Legacy: Stage-Dependent Relationships Between Lightning and Convective Structure in Thunderstorms Over Tropical Africa",
-      authors:
-        "Xueke Wu, Yihang Lyu, Xiaoqun Hu, Zihao Zhang, Yuhang Hu, Guohao Hu, Xingyi Lin",
+
+      // 作者改为**结构化数组**（此前是一个逗号分隔的字符串）。
+      // 原因：要输出 `citation_author`（Google Scholar 逐条读）、BibTeX 的
+      // "姓, 名"、以及作者各自的 ORCID，这三样都需要「名/姓/ORCID 分开」，
+      // 从字符串里 split 再猜很容易错位。字符串形式由 authorNames filter
+      // 派生，模板不再自己拼。
+      // ORCID 来自 Crossref 官方记录（作者自己带 ORCID 提交的那三条）；
+      // 没有 ORCID 的作者 orcid 写 null——不编造。
+      authorList: [
+        { name: "Xueke Wu",  given: "Xueke",  family: "Wu",  orcid: "0000-0001-6144-0120" },
+        { name: "Yihang Lyu", given: "Yihang", family: "Lyu", orcid: "0009-0005-3511-0546" },
+        { name: "Xiaoqun Hu", given: "Xiaoqun", family: "Hu", orcid: null },
+        { name: "Zihao Zhang", given: "Zihao", family: "Zhang", orcid: null },
+        { name: "Yuhang Hu",  given: "Yuhang", family: "Hu",  orcid: null },
+        { name: "Guohao Hu",  given: "Guohao", family: "Hu",  orcid: "0009-0002-2576-1108" },
+        { name: "Xingyi Lin", given: "Xingyi", family: "Lin", orcid: null },
+      ],
+
       journal: "Journal of Geophysical Research: Atmospheres",
       shortJournal: "JGR: Atmospheres",
+      publisher: "American Geophysical Union (AGU)",
+      issn: { print: "2169-897X", electronic: "2169-8996" },
       volume: "131",
       issue: "11",
       articleNumber: "e2026JD046836",
@@ -255,17 +282,74 @@ module.exports = {
       month: 6,          // 2026-06-01 在线发表
       doi: "10.1029/2026JD046836",
       url: "https://agupubs.onlinelibrary.wiley.com/doi/10.1029/2026JD046836",
-      pdf: "https://agupubs.onlinelibrary.wiley.com/doi/epdf/10.1029/2026JD046836",
+      // PDF 直链用 Wiley 的 /doi/pdf/ 形式。Crossref 登记的 vor PDF contentUrl
+      // 就是这条（content-type: application/pdf）；此前用的 /doi/epdf/ 是
+      // "下载 PDF"的中间页，喂给 Google 的 citation_pdf_url 会被当成网页。
+      pdf: "https://agupubs.onlinelibrary.wiley.com/doi/pdf/10.1029/2026JD046836",
+      // 出版流程日期（Crossref assertion 字段）。审稿过程对学术主页读者有用。
+      dates: { received: "2026-04-04", accepted: "2026-05-22", published: "2026-06-01" },
+      // 摘要取自 Crossref 登记的 VOR 摘要（JATS 标签已剥离）。此前站点只有
+      // 标题+刊名，读者看不出这篇做了什么；摘要是最缺的那一块。
+      abstract:
+        "The Tropical Rainfall Measuring Mission (TRMM) satellite provides simultaneous " +
+        "radar and lightning observations, offering critical insights into severe convection " +
+        "across regional and global scales; however, its snapshot nature constrains research on " +
+        "thunderstorm evolution. To address this, establishing a clustering framework is " +
+        "essential for understanding the stage-dependent relationship between lightning and " +
+        "radar echo structural features and for improving lightning parameterization schemes. " +
+        "Using 16 years of TRMM observations from tropical Africa, the global hotspot for " +
+        "lightning and thunderstorms, we developed a machine learning-based K-means clustering " +
+        "method that classifies snapshot thunderstorms by their radar echo structure. Based on " +
+        "this classification, compact storms were further grouped into three clusters, which " +
+        "effectively capture the physical processes of thunderstorm evolution and are " +
+        "consistent with the known life cycle characteristics; therefore, they are identified as " +
+        "Pre-Mature, Mature, and Post-Mature stages. Mature-stage storms are, unsurprisingly, the " +
+        "strongest. In comparison, the other two stages, reflecting the trade-off between " +
+        "convective intensity and horizontal scale, Pre-Mature storms show smaller horizontal " +
+        "scales yet higher lightning density (per unit area) despite comparable lightning flash " +
+        "rates, while Post-Mature storms exhibit the reverse (larger scales accompanied by lower " +
+        "lightning density). Accordingly, the stage-dependent relationships between lightning " +
+        "activity and convective intensity are examined. Similar correlation coefficients, but " +
+        "distinct linear fitting parameters, are observed across stages, revealing stage-specific " +
+        "electrification mechanisms and emphasizing the necessity of stage-dependent analysis. By " +
+        "emphasizing stage-dependent analysis, this work advances the understanding of severe " +
+        "storm dynamics over tropical Africa and extends the utility of snapshot observations " +
+        "from precipitation radar onboard low-Earth-orbit satellites.",
+      // 关键词：论文主题 + 站点 knowsAbout 的交集。citation_keywords 供
+      // Google Scholar 检索用，页面上也作为可见标签展示。
+      keywords: [
+        "thunderstorm",
+        "lightning",
+        "TRMM",
+        "radar echo structure",
+        "convective organization",
+        "data assimilation",
+        "machine learning",
+        "tropical Africa",
+      ],
+      // 开放获取状态。Unpaywall 查得 oa_status = closed（付费墙内）。
+      // ⚠️ 此前 paper.njk 的 JSON-LD 把 isAccessibleForFree 写死成 true，
+      // 对一篇非开放获取的论文来说那是**假声明**，搜索引擎会当真。改为数据驱动。
+      openAccess: false,
       status: "published",     // 已于 2026-06-01 在线发表，2026-05-22 接收
       role: "co",              // 第二作者
       affiliation: "Lanzhou University",
       affiliationZh: "兰州大学 · 干旱区教育部重点实验室",
-      // 本人的数据/软件产出：Zenodo 上第一作者
+      // 本人的数据/软件产出：Zenodo 上第一作者。
+      // label / author 沿用**论文参考文献表里的写法**（"Lyu Y.(2025).
+      // Thunderstorms stage identification[Software].Zenodo"）——引用必须与
+      // 原文对得上才查得到；下面几个字段则是 DataCite 登记的权威元数据。
       software: {
         label: "Thunderstorm stage identification",
         author: "Lyu, Y. (2025)",
         doi: "10.5281/zenodo.18041880",
         url: "https://doi.org/10.5281/zenodo.18041880",
+        // ↓ 以下取自 https://api.datacite.org/dois/10.5281/zenodo.18041880
+        resourceType: "Dataset",
+        version: "2.0",
+        publisher: "Zenodo",
+        license: "CC BY 4.0",
+        licenseUrl: "https://creativecommons.org/licenses/by/4.0/",
       },
       code: "https://github.com/oldsixxiaolv/Manuscript_Lvyh",
       // Code Ocean 可复现计算胶囊：整篇论文的代码 + 数据 + 运行环境打包成
@@ -277,6 +361,12 @@ module.exports = {
         label: "Code Ocean capsule",
         doi: "10.24433/CO.6720035.v1",
         url: "https://codeocean.com/capsule/5084350/tree/v1",
+        // ↓ 以下取自 https://api.datacite.org/dois/10.24433/CO.6720035.v1
+        resourceType: "Capsule",
+        version: "1.0",
+        publisher: "Code Ocean",
+        license: "Apache-2.0",
+        licenseUrl: "http://www.apache.org/licenses/LICENSE-2.0",
       },
       // 基金资助。学术主页标注基金号是硬性惯例——资助方与项目号要能被检索到。
       // 来源：兰州大学大气科学学院对该成果的官方报道。
@@ -299,7 +389,10 @@ module.exports = {
   // ===========================================================================
   //  社交 / 页脚链接
   // ===========================================================================
-  //  ⚠️ 这里不要出现 feed / RSS：站点已不再提供 RSS。
+  //  RSS 不放在这里：订阅源走 <link rel="alternate"> 与页脚的独立入口
+  //  （feed.njk / footer.njk），那是浏览器的"订阅"语义，不是"社交身份"。
+  //  ⚠️ 此前这里留着一句"站点已不再提供 RSS"的注释——那是内容归档期的状态，
+  //  2026-10-19 第一轮已把 /feed.xml 恢复，注释没跟着改，属于过期文档。
   social: [
     { label: "GitHub", href: "https://github.com/oldsixxiaolv" },
     { label: "ORCID", href: "https://orcid.org/0009-0005-3511-0546" },

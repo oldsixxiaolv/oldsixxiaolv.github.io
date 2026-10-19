@@ -94,6 +94,12 @@
   <link rel="alternate" hreflang="{{ site.locale or 'zh-CN' }}" href="{{ site.url }}{{ page.url }}" />
   <link rel="alternate" hreflang="x-default" href="{{ site.url }}{{ page.url }}" />
 
+  {# —— Google Scholar / Highwire 引用元数据 ——
+       ⚠️ 这块和下面的 JSON-LD **不是一回事**：Google Scholar 只读
+       citation_* <meta>，不读 JSON-LD。没有它，论文永远进不了
+       Google Scholar 的索引。文件内部有详细说明。 #}
+  {% include "partials/citation-meta.njk" %}
+
   {# =====================================================================
        Open Graph（所有页必备；paper 页可设置 front-matter `cover: "/path/to/img"` 覆盖）
        ===================================================================== #}
@@ -137,10 +143,36 @@
     {% else %}
       {% set coverUrl = site.url + page.url + cover %}
     {% endif %}
+    {# og:image:type 必须与实际文件格式一致：cover 可能是 jpg/png/svg/webp，
+       写死 image/png 会让部分抓取器按错误的 MIME 解析图片（论文页用的是
+       JPEG 成果图，之前被标成 png）。这里按扩展名推导。 #}
+    {% set coverExt = coverUrl.split('?')[0].split('.').pop() | lower %}
+    {% if coverExt == 'jpg' or coverExt == 'jpeg' %}
+      {% set coverMime = 'image/jpeg' %}
+    {% elif coverExt == 'png' %}
+      {% set coverMime = 'image/png' %}
+    {% elif coverExt == 'webp' %}
+      {% set coverMime = 'image/webp' %}
+    {% elif coverExt == 'gif' %}
+      {% set coverMime = 'image/gif' %}
+    {% elif coverExt == 'svg' %}
+      {% set coverMime = 'image/svg+xml' %}
+    {% else %}
+      {% set coverMime = 'image/png' %}
+    {% endif %}
     <meta property="og:image" content="{{ coverUrl }}" />
     <meta property="og:image:secure_url" content="{{ coverUrl }}" />
-    <meta property="og:image:type" content="image/png" />
-    <meta property="og:image:alt" content="{{ ogCardAlt }}" />
+    <meta property="og:image:type" content="{{ coverMime }}" />
+    {%- if coverWidth %}
+    <meta property="og:image:width" content="{{ coverWidth }}" />
+    {%- endif %}
+    {%- if coverHeight %}
+    <meta property="og:image:height" content="{{ coverHeight }}" />
+    {%- endif %}
+    {# alt 描述的是**这张图**。默认 alt 描述的是作者身份，论文页的 cover 是
+       论文成果图，用作者身份当 alt 属于图文不符；内容页可用 front-matter
+       `coverAlt` 覆盖。 #}
+    <meta property="og:image:alt" content="{{ coverAlt or ogCardAlt }}" />
   {% else %}
     {# 多尺寸 og:image（默认 fallback；社交平台按 slot 尺寸自动选图）：
          1. 1200×630  — FB / LinkedIn / Twitter summary_large_image 默认
@@ -180,7 +212,7 @@
   <meta name="twitter:description" content="{{ ogDesc }}" />
   {% if cover %}
     <meta name="twitter:image" content="{{ coverUrl }}" />
-    <meta name="twitter:image:alt" content="{{ ogTitle }} · {{ site.author.name }}, {{ site.author.jobTitle }}" />
+    <meta name="twitter:image:alt" content="{{ coverAlt or (ogTitle + ' · ' + site.author.name + ', ' + site.author.jobTitle) }}" />
   {% else %}
     <meta name="twitter:image" content="{{ site.url }}/assets/img/og/og-1200x630.png" />
     <meta name="twitter:image:alt" content="{{ ogTitle }} · {{ site.author.name }}, {{ site.author.jobTitle }}" />
@@ -239,17 +271,27 @@
   </script>
 
   {# —— ScholarlyArticle：论文的结构化数据 ——
-     上面那段 Person 描述"我是谁"，这段描述"我产出过什么"。Google Scholar
-     读的就是 ScholarlyArticle——学术主页上的论文能不能被检索到、被正确归到
-     名下，靠它。两边用同一个 ORCID 串起来，搜索引擎才能把它们识别成同一实体。
+     上面那段 Person 描述"我是谁"，这段描述"我产出过什么"。两边用同一个
+     ORCID 串起来，搜索引擎才能把它们识别成同一实体。
+
+     ⚠️ 职责边界（2026-10-19 更正）：**Google Scholar 不读 JSON-LD**，
+     它只认 Highwire 的 citation_* <meta> 标签（partials/citation-meta.njk）。
+     这段 JSON-LD 服务的是通用 schema.org 消费方（Bing 实体、Wikipedia、
+     Google 普通检索的富结果）。两套都得有，但不是同一套——此前这里
+     注释写成"Google Scholar 读的就是 ScholarlyArticle"，是错的。
 
      数据源与 /papers/ 页、BibTeX 导出完全一致（site.publications），三处
      不可能出现"这里有、那里没有"。每条缺字段就不输出该字段，不留空值。
 
      顶层用 @graph 而不是裸数组：@graph 是 schema.org 表示"一组实体"的
      规范写法（Google 官方文档推荐），裸数组虽然也是合法 JSON-LD，但
-     在多实体场景下兼容性不如 @graph。 #}
-  {%- set articles = site.publications | jsonLdArticles(site.author.orcid) -%}
+     在多实体场景下兼容性不如 @graph。
+
+     excludeKey：当前页自己就是某篇论文时（/papers/<slug>/），那一篇由
+     paper.njk 输出更完整的 ScholarlyArticle（含摘要、逐人 ORCID、ISSN）。
+     若这里再输出一次，同一篇论文会在同一页上出现两个实体描述（url 一个
+     指向出版商、一个指向本页），容易让消费方当成两件不同的工作。 #}
+  {%- set articles = site.publications | jsonLdArticles(site.author.orcid, pubKey) -%}
   {%- if articles.length %}
   <script type="application/ld+json">
   {{ { "@context": "https://schema.org", "@graph": articles } | dump | safe }}

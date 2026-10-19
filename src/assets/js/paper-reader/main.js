@@ -40,15 +40,19 @@ export async function initPaperReader(opts = {}) {
   //       批注点击联动、←/→ 键盘导航、以及移动端的 .annot-toggle 开面板按钮
   //       全部不会挂载（移动端批注面板被 translateY(105%) 推出屏幕且没有按钮
   //       能拉回来，等于完全不可达）。
-  try {
-    const annos = await import("./annotations.js");
-    const built = await annos.init(opts);
-    const highlightMod = await import("./highlight.js");
-    highlightMod.init({ ...opts, ...built });
-  } catch (err) {
-    // Annotations missing or network error — keep TOC + progress alive.
-    // eslint-disable-next-line no-console
-    console.warn("[paper-reader] annotations disabled:", err);
+  //       没有 annotationsUrl（页面确实没有批注）时整段跳过：否则等于对着
+  //       一个必然 404 的地址发一次请求，再刷一条 console 警告。
+  if (opts.annotationsUrl) {
+    try {
+      const annos = await import("./annotations.js");
+      const built = await annos.init(opts);
+      const highlightMod = await import("./highlight.js");
+      highlightMod.init({ ...opts, ...built });
+    } catch (err) {
+      // Annotations missing or network error — keep TOC + progress alive.
+      // eslint-disable-next-line no-console
+      console.warn("[paper-reader] annotations disabled:", err);
+    }
   }
 
   // ---- 3. Mark page as paper-ready (CSS hooks, instrumentation) ----

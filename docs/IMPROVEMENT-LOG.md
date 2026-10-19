@@ -131,7 +131,105 @@ P A P E R  D O I  P D F  C O D E  C A P S U L E  D A T A  F I G U R E
 
 ---
 
+## 2026-10-19 · 第三轮：Google Scholar 引用元数据 + 论文独立页
+
+### 背景
+
+上一轮把 `/papers/` 列表页和 BibTeX/RSS 补齐了，但**论文仍没有独立页面**——
+所有论文挤在一张列表页上。这对学术主页是硬伤，有两个层面：
+
+1. **Google Scholar 收不进去。** Scholar 的收录要求是"每篇文章一个页面"，
+   列表页上它只认一组 `citation_*`，其余静默丢失。而且它**不读 JSON-LD**——
+   只认 Highwire Press 约定的 `citation_*` <meta> 标签。此前 `base.njk` 里
+   的注释写着"Google Scholar 读的就是这个类型"（指 ScholarlyArticle），**是错的**，
+   本轮已更正。
+2. **读者看不到论文本身。** 此前论文页只有标题+刊名，没有摘要、没有 ORCID、
+   不知道数据代码在哪、不知道怎么引用。
+
+### 改动
+
+| 文件 | 改动 |
+|---|---|
+| `src/_includes/partials/citation-meta.njk` | **新建**。按 Highwire 规范输出 22 个 `citation_*` <meta>（15 类，其中 `citation_author` ×7、`citation_issn` ×2）。只在论文独立页生效（front-matter 有 `pubKey` 才输出），不在列表页/首页混输——混输会让 Scholar 丢条目 |
+| `src/content/papers/trmm-thunderstorm-stages/paper.md` | **新建**。论文独立页正文：4 节（做了什么 / 阶段分类怎么做的 / 为什么阶段依赖重要 / 数据与代码），全部可回溯到 Crossref 摘要；front-matter 带 `coverAlt`（这张是论文成果图，不写会回落到站点默认的作者身份文案，图文不符） |
+| `src/_data/site.js` | `publications[0]` 的作者从逗号分隔字符串改为结构化 `authorList`（含每人 ORCID）；补 `key`/`slug`/`publisher`/`issn`/`dates`/`abstract`/`keywords`/`openAccess`；PDF 由 `/doi/epdf/` 改为 `/doi/pdf/`；software/capsule 补 DataCite 登记元数据 |
+| `eleventy.config.js` | 新增 `pubByKey` / `authorNames` / `authorBibtex` 三个 filter；`bibtex` 与 `jsonLdArticles` 改从 `authorList` 取作者；`jsonLdArticles` 补 `abstract`/`isAccessibleForFree`/`issn`/`publisher`/`keywords` |
+| `src/_includes/layouts/base.njk` | 引入 `citation-meta.njk`；`og:image:type` 按扩展名推导（此前写死 `image/png`，而论文页用的是 JPEG 成果图）；补 `og:image:width/height`；`og:image:alt` 允许 front-matter 覆盖 |
+| `src/_includes/layouts/paper.njk` | 重写。以 `pubKey` 为唯一数据源；摘要、关键词、逐人 ORCID、Data and code availability、Funding and publication history、Cite this paper（BibTeX + 复制按钮）全部落地 |
+| `src/_includes/partials/publications.njk` | 标题链到论文详情页；作者走 `authorList`，带 ORCID 的挂 orcid.org 链接，本人仍加粗高亮 |
+| `src/assets/js/main.js` | 新增 `[data-copy-target]` 复制按钮（clipboard API + execCommand 兜底） |
+| `src/assets/js/paper-reader/main.js` | 无 `annotationsUrl` 时整段跳过批注模块——论文详情页没有 `annotations.json`，否则必然 404 + console 警告 |
+| `src/assets/js/paper-reader/{toc,highlight}.js` | UI 文案汉译英（目录/批注/返回正文 → Contents/View annotations/Back to text） |
+| `src/assets/css/components/_paper.css` | 新增 172 行论文页样式（摘要/关键词/引用块/数据可用性） |
+| `src/assets/css/pages.css` | 新增标题链接与 ORCID 作者链接样式 |
+
+### 顺手修掉的 2 个既有 bug（都是本轮改动踩出来的）
+
+1. **`jsonLdArticles` 的 `excludeKey` 从来没生效** → 论文页上同一篇论文出现
+   **两个 `ScholarlyArticle` 实体**（一个 url 指向出版商、一个指向本站）。
+   `base.njk` 传了第三个实参，但 filter 签名只有两个 —— JS 把多余的实参
+   **静默丢弃**，不报错，页面照出，只有实体重复。本轮给 filter 补上
+   `excludeKey` 参数并真正过滤。
+2. **`paper-reader.css` 的正文样式全是死代码** —— 选择器写的是
+   `.paper-reader h2[id]` / `.paper-reader p`，但 DOM 里只有
+   `.paper-reader-wrap` 和 `.paper-body`，**`.paper-reader` 这个类根本不存在**。
+   于是正文标题层级、段落行高 1.78、列表缩进、引文样式、代码块样式
+   全部没生效（该文件是上一轮 `9145197` 引入的）。本轮把选择器统一指向
+   真实容器 `.paper-body`——它正是 markdown 渲染内容的直接父级，
+   而 `paper-availability` / `paper-cite` 在它之外，不会被误伤。
+
+### 调研来源与核实方式
+
+论文元数据**全部**经官方 API 核对，不靠记忆：
+
+- `api.crossref.org/works/10.1029/2026JD046836` → 标题、刊名、卷期
+  （vol 131 / issue 11）、e-locator `e2026JD046836`、出版社
+  "American Geophysical Union (AGU)"、ISSN `2169-897X`(print)/`2169-8996`(electronic)、
+  `published` 2026-06-01、`published-print` 2026-06-16、
+  审稿历程（received 2026-04-04 / accepted 2026-05-22 / published 2026-06-01）、
+  三条 ORCID、JATS 摘要原文、`link` 里 `application/pdf` 的 contentUrl。
+- `api.openalex.org/works/doi:10.1029/2026JD046836` → 复核三条 ORCID 逐字一致，
+  `oa_status: closed`（据此定 `openAccess: false`）。
+- `api.datacite.org/dois/10.5281/zenodo.18041880` 与 `.../10.24433/CO.6720035.v1`
+  → 补 software/capsule 的 version / publisher / licence。
+  ⚠️ `site.js` 里的 `https://codeocean.com/capsule/5084350/tree/v1` 与 DataCite
+  记录的 `url` 字段**逐字一致**，`5084350` 是 Code Ocean 的内部编号，
+  与 DOI 后缀 `6720035` 不同号是正常的——**不要"修正"它**。
+- Unpaywall 查询未返回有效字段，**未采信**；开放获取状态改以 OpenAlex 判定。
+- Highwire Press 的 `citation_*` 字段清单经官方收录说明核对。
+- ⚠️ AGU 官方检索工具（`mcp__agu-papers__search_papers`）本轮两次调用均返回
+  `OpenAlex search failed (HTTP 429)`，是**瞬时限流**，不代表"查无此论文"。
+  AGU 侧的实践依据改以 Crossref 的 AGU 原始登记记录为准（元数据逐项核过）。
+
+### 验证结果
+
+- `npm run build` exit 0，check:css 通过（15 个文件）
+- 6 个 HTML 页、**120 条站内引用全部**在磁盘上解析成功，**0 失效**
+- 12 块 JSON-LD 全部 `JSON.parse` 通过
+- `citation_*` 标签分布：论文页 **22 个**（15 类），首页/列表页/博客/关于/404 **各 0 个**（无泄漏）
+- 论文页 `ScholarlyArticle` 实体数 **1**（修复前是 2），首页 **1**
+- `canonical` 与 `og:url` 6 个页面**全部一致**；`sitemap.xml` 已含新论文页
+- 论文页摘要/关键词/数据与代码/基金与出版历程/引用块/复制按钮 **全部渲染**
+- 站内引用**零个根绝对路径**（`../../assets/...` 相对路径），"整个文件夹扔到哪都能跑"仍成立
+- 首页作者回归：7 位作者**全部渲染**，本人加粗高亮 ✓，3 个 ORCID 链接 ✓
+- 论文页 `og:image:type` = `image/jpeg`（按扩展名推导，此前写死 `image/png` 而
+  论文页用的是 JPEG 成果图），`og:image:width/height` = 1400×745 ✓，
+  `og:image:alt` 已改为描述图内容而非作者身份 ✓
+- **外链状态实测**：ORCID ×3 与 GitHub 返回 200；Wiley / doi.org / Code Ocean /
+  ResearchGate 返回 403，CSDN 521，`iap.cas.cn` 000——这些是**反爬或本机网络
+  不可达**，**不能据此判定链接失效**，浏览器正常访问无碍。
+
+### ⚠️ 线上仍是旧版本（待部署，非站点损坏）
+
+线上 `https://github.lvyihang.xyz/` 目前是 2026-10-16 的部署：`/papers/`、
+`/publications.bib`、`/feed.xml` 三个路由 **404**，sitemap 仍带 `/MeteoHub/`
+前缀。原因是本地 `9145197` 及其后的改动**尚未部署**（本任务禁止 push，
+部署由本人决定）。本轮全部改动同样只在本地，未部署。
+
+---
+
 ## 待决策（需要本人拍板，任务不会自己动）
+
 
 - **Google Scholar / ADS / arXiv 主页**：调研没找到本人的公开档案，所以**没有**
   擅自加链接。要加的话需要提供真实 URL，否则宁可空着。
@@ -139,3 +237,12 @@ P A P E R  D O I  P D F  C O D E  C A P S U L E  D A T A  F I G U R E
 - **站点根目录的用途**：目前根目录就是学术主页。原先的设想是"根目录放网盘、
   `/MeteoHub/` 放学术主页"，现在用户站仓库只能挂在根，两者不能兼得。
 - **是否公开源码**：Actions 模式要求源码在 GitHub 上；用户站仓库已是 public。
+- **`site.author.affiliation` 与论文 affiliation 不一致**：站点作者档案写的是
+  "中科院大气物理研究所"，而这篇论文的 affiliation 是 "Lanzhou University"。
+  两者可能同时成立（读研单位 vs 论文单位），但学术主页上"我是谁"只有一个答案。
+  属于事实性内容，不擅自改，需要本人确认该写哪个（或怎么表述）。
+- **`citation_author_orcid` 暂不输出**：7 位作者里只有 3 位有 ORCID，而该标签是
+  **按位置配对**的，只给 3 个会让 Zotero 把 ORCID 挂到错误的人身上。
+  现在的做法是：ORCID 在 JSON-LD 与页面可见链接里**逐人绑定**，
+  `citation_*` 里一律不给。若本人希望 Scholar 侧也带 ORCID，
+  需要先在 Crossref 上把缺失的 ORCID 补全（作者本人操作）。

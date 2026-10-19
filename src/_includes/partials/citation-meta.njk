@@ -1,0 +1,92 @@
+{# ============================================================================
+  citation-meta.njk · Google Scholar / Highwire Press 引用元数据
+  ----------------------------------------------------------------------------
+  为什么单独一个 partial：这些 <meta> 标签**必须**在 <head> 里，而论文的
+  正文是在 <main> 里渲染的，所以只能由 base.njk 的 head 片段输出。
+
+  ⚠️ 一条容易搞错的事实（本站此前就搞错了，2026-10-19 更正）：
+  **Google Scholar 不读 JSON-LD。** 它只认 Highwire Press 约定的
+  `citation_*` <meta> 标签。base.njk 里那块 Person/ScholarlyArticle 的
+  JSON-LD 是给通用 schema.org 消费方用的（Bing 实体、Wikipedia、
+  Google 普通检索的富结果），两套都得有——但让论文真正进 Google Scholar
+  的是这个文件，不是 JSON-LD。
+
+  标签取自 Google Scholar 的官方收录说明（citation_title / citation_author /
+  citation_publication_date / citation_journal_title / citation_volume /
+  citation_issue / citation_firstpage / citation_doi / citation_pdf_url /
+  citation_abstract / citation_issn / citation_keywords / citation_language /
+  citation_publisher）。写成 <meta name="...">，不是 property="og:..."。
+
+  —— 数据来源与生效范围 ——
+  · 只在**论文独立页**（/papers/<slug>/）生效：该页 front-matter 用
+    `pubKey` 指回 site.js 里的那一条论文，元数据与列表页、BibTeX 导出
+    同源，不会两处走样。
+  · 一篇论文一个页面。Google Scholar 明确建议"每篇文章一个页面"；
+    把多篇论文的 citation_* 混在一个列表页上，Google 只会认其中一组，
+    其余的静默丢失。
+  · 没有 pubKey 的页面（首页、博客、关于页）整块不输出——不摆空标签。
+
+  —— 几个刻意的取舍 ——
+  1) **不输出 citation_author_orcid**：7 位作者里只有 3 位在 Crossref 里
+     带 ORCID，而该标签是**按位置配对**的。只给 3 个会让 Zotero 把
+     ORCID 挂到错误的人身上。宁可不给——ORCID 在 JSON-LD 与页面可见链接
+     里是逐人绑定的，那里才是它的正确位置。
+  2) **citation_abstract 用出版商登记的摘要原文**，不是本站改写版。
+     Google 拿它跟出版商那边比对，改写会导致摘要不匹配。
+  3) 字段一律判空。缺就是缺，不写空串——空标签比没有标签更糟。
+  ========================================================================== #}
+
+{%- if pubKey -%}
+  {%- set pub = site.publications | pubByKey(pubKey) -%}
+  {%- if pub -%}
+    {%- set pubAuthors = pub | authorNames -%}
+    {%- set pubDate = pub.dates and pub.dates.published -%}
+
+    <meta name="citation_title" content="{{ pub.title }}" />
+    {%- for name in pubAuthors %}
+    <meta name="citation_author" content="{{ name }}" />
+    {%- endfor %}
+    {%- if pubDate %}
+    <meta name="citation_publication_date" content="{{ pubDate | replace("-", "/") }}" />
+    {%- endif %}
+    {%- if pub.journal %}
+    <meta name="citation_journal_title" content="{{ pub.journal }}" />
+    {%- endif %}
+    {%- if pub.volume %}
+    <meta name="citation_volume" content="{{ pub.volume }}" />
+    {%- endif %}
+    {%- if pub.issue %}
+    <meta name="citation_issue" content="{{ pub.issue }}" />
+    {%- endif %}
+    {# AGU 用 e-locator（e2026JD046836）代替连续页码，Google 期望的
+       "first page" 字段对这类文章就填 e-locator。 #}
+    {%- if pub.pages or pub.articleNumber %}
+    <meta name="citation_firstpage" content="{{ pub.pages or pub.articleNumber }}" />
+    {%- endif %}
+    {%- if pub.doi %}
+    <meta name="citation_doi" content="{{ pub.doi }}" />
+    {%- endif %}
+    {# PDF 必须是**直接指向 PDF 文件**的地址，不能是"下载 PDF"中间页。
+       这里用 Crossref 登记的 vor PDF contentUrl（Wiley 的 /doi/pdf/ 形式）。 #}
+    {%- if pub.pdf %}
+    <meta name="citation_pdf_url" content="{{ pub.pdf }}" />
+    {%- endif %}
+    {%- if pub.abstract %}
+    <meta name="citation_abstract" content="{{ pub.abstract }}" />
+    {%- endif %}
+    {%- if pub.issn %}
+      {%- if pub.issn.print %}<meta name="citation_issn" content="{{ pub.issn.print }}" />{% endif -%}
+      {%- if pub.issn.electronic %}<meta name="citation_issn" content="{{ pub.issn.electronic }}" />{% endif -%}
+    {%- endif %}
+    {%- if pub.keywords and pub.keywords.length %}
+    <meta name="citation_keywords" content="{{ pub.keywords | join('; ') }}" />
+    {%- endif %}
+    <meta name="citation_language" content="en" />
+    {%- if pub.publisher %}
+    <meta name="citation_publisher" content="{{ pub.publisher }}" />
+    {%- endif %}
+    {%- if pub.url %}
+    <meta name="citation_abstract_html_url" content="{{ pub.url }}" />
+    {%- endif %}
+  {%- endif -%}
+{%- endif -%}

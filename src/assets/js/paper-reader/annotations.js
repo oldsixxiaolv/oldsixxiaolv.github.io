@@ -11,12 +11,12 @@
  * ------------------------------------------------------------------------- */
 
 const KIND_LABELS = {
-  question: "疑问",
-  insight:  "洞见",
-  critique: "质疑",
-  link:     "外链",
-  figure:   "配图",
-  typo:     "勘误",
+  question: "Question",
+  insight:  "Insight",
+  critique: "Critique",
+  link:     "Link",
+  figure:   "Figure",
+  typo:     "Correction",
 };
 
 const KIND_ICONS = {
@@ -121,7 +121,7 @@ function makeAnnotationId(id) {
 
 // ---- Public API ----
 export async function init(ctx) {
-  const { paperRoot, annotationsUrl, paneTitle = "批注" } = ctx;
+  const { paperRoot, annotationsUrl, paneTitle = "Annotations" } = ctx;
   if (!paperRoot || !annotationsUrl) {
     return { annoMap: new Map(), itemNodes: new Map(), pane: null };
   }
@@ -164,7 +164,7 @@ export async function init(ctx) {
     target.dataset.annotationIds = annos.map((a) => a.id).join(" ");
     const badge = el("span", {
       class: "paper-anchor__count",
-      aria: { label: `${annos.length} 条批注` },
+      aria: { label: `${annos.length} annotations` },
     }, String(annos.length));
     target.appendChild(badge);
     decorated.push({ target, annos, primary });
@@ -198,14 +198,14 @@ export async function init(ctx) {
     ),
     el("input", {
       type: "search",
-      placeholder: "筛选标题 / 正文 / 标签…",
-      aria: { label: "筛选批注" },
+      placeholder: "Filter by title / body / tag…",
+      aria: { label: "Filter annotations" },
       class: "annot-pane__filter",
     })
   );
   const kinds = [...new Set(orderedAnnos.map((a) => a.kind).filter(Boolean))];
-  const filterBar = el("div", { class: "annot-filters", role: "group", aria: { label: "按批注类型筛选" } },
-    el("button", { class: "annot-filter is-active", type: "button", dataset: { kind: "all" }, aria: { pressed: "true" } }, "全部"),
+  const filterBar = el("div", { class: "annot-filters", role: "group", aria: { label: "Filter annotations by type" } },
+    el("button", { class: "annot-filter is-active", type: "button", dataset: { kind: "all" }, aria: { pressed: "true" } }, "All"),
     ...kinds.map((kind) => el("button", { class: `annot-filter annot-filter--${kind}`, type: "button", dataset: { kind }, aria: { pressed: "false" } }, KIND_LABELS[kind] || kind))
   );
   head.appendChild(filterBar);

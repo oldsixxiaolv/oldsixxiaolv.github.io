@@ -33,7 +33,7 @@ export function init(ctx) {
   if (!host && wrap) {
     host = document.createElement("aside");
     host.className = "paper-toc";
-    host.setAttribute("aria-label", "目录");
+    host.setAttribute("aria-label", "Contents");
     host.dataset.tocHost = "";
     wrap.insertBefore(host, paperRoot);
   }
@@ -50,7 +50,7 @@ export function init(ctx) {
   // aria-label on the <aside> already conveys the TOC's role to assistive tech.
   const title = document.createElement("p");
   title.className = "paper-toc__title";
-  title.textContent = "目录";
+  title.textContent = "Contents";
   host.appendChild(title);
 
   const list = document.createElement("ol");

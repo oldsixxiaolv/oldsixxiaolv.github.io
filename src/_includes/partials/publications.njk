@@ -82,7 +82,11 @@
       {# —— 逐条取字段，缺失即空 —— #}
       {%- set st = STATUS[p.status] if p.status and p.status in STATUS else null -%}
       {%- set roleInfo = ROLE[p.role] if p.role and p.role in ROLE else null -%}
-      {%- set names = p.authors.split(", ") if p.authors else [] -%}
+      {# 作者名：走结构化 authorList（filter 派生），不再自己 split 字符串。
+         原来这里 `p.authors.split(", ")` 假设了"逗号+空格"的分隔格式，
+         换成 authorList 后名字与 ORCID 一一对应，渲染作者时能顺带挂上
+         ORCID 链接。 #}
+      {%- set names = p | authorNames -%}
 
       {# —— 本人位次：数出来的，不是写死的 ——
          Nunjucks 的 {% set %} 在 {% for %} 之后仍然可见（不像 Jinja2 的
@@ -115,11 +119,39 @@
           {%- if p.note %}<span class="home-pub__note">{{ p.note }}</span>{% endif -%}
         </p>
 
-        <h3 class="home-pub__title">{{ p.title }}</h3>
+        {# 标题：有 slug 就连到论文详情页（摘要、数据与代码可用性、引用块
+           都在那一页），没有就退回纯文本。 #}
+        <h3 class="home-pub__title">
+          {%- if p.slug -%}
+            {%- set pubUrl = "/papers/" + p.slug + "/" -%}
+            <a href="{{ pubUrl | relUrl }}">{{ p.title }}</a>
+          {%- else -%}
+            {{ p.title }}
+          {%- endif -%}
+        </h3>
 
         {# 作者串：逐个渲染而不是整串输出，这样才能把本人挑出来高亮。
-           分隔符在前一位后面输出，最后一位不会拖尾逗号。 #}
-        {%- if names.length %}
+           分隔符在前一位后面输出，最后一位不会拖尾逗号。
+           带 ORCID 的作者挂 orcid.org 链接——那是作者身份的权威入口，
+           也是把"这篇论文"和"这个人"在检索侧绑定的最短路径。 #}
+        {%- if p.authorList and p.authorList.length %}
+        <p class="home-pub__authors">
+          {%- for a in p.authorList -%}
+            {%- if not loop.first %}, {% endif -%}
+            {%- if a.orcid -%}
+              {%- if a.name == SELF -%}
+                <strong class="home-pub__self"><a href="https://orcid.org/{{ a.orcid }}" rel="noopener noreferrer">{{ a.name }}</a></strong>
+              {%- else -%}
+                <a class="home-pub__author" href="https://orcid.org/{{ a.orcid }}" rel="noopener noreferrer">{{ a.name }}</a>
+              {%- endif -%}
+            {%- elif a.name == SELF -%}
+              <strong class="home-pub__self">{{ a.name }}</strong>
+            {%- else -%}
+              {{ a.name }}
+            {%- endif -%}
+          {%- endfor -%}
+        </p>
+        {%- elif names.length %}
         <p class="home-pub__authors">
           {%- for n in names -%}
             {%- if not loop.first %}, {% endif -%}

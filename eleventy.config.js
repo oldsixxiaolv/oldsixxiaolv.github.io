@@ -311,26 +311,76 @@ module.exports = function (eleventyConfig) {
   */
   const BIB_MONTHS = ["jan", "feb", "mar", "apr", "may", "jun",
                       "jul", "aug", "sep", "oct", "nov", "dec"];
+
+  /* ---------- 4b-1. 论文数据访问的三个小 filter ----------
+     论文元数据现在有两处消费方：列表页卡片（partials/publications.njk）、
+     论文独立页（content/papers/<key>/paper.md → layouts/paper.njk），
+     再加上 BibTeX 导出和 JSON-LD。四处都从**同一份** authorList 取作者，
+     不要再各自 split 字符串——那正是此前"两处走样"的根源。
+
+     · pubByKey(pubs, key)  按 key 取一条论文（论文页 front-matter 用 pubKey 指回来）
+     · authorNames(pub)     → ["Xueke Wu", "Yihang Lyu", ...]（显示用）
+     · authorBibtex(pub)    → "Wu, Xueke and Lyu, Yihang and ..."（BibTeX 用）
+  */
+  eleventyConfig.addFilter("pubByKey", (pubs, key) => {
+    if (!Array.isArray(pubs) || !key) return null;
+    return pubs.find((p) => p && p.key === key) || null;
+  });
+
+  eleventyConfig.addFilter("authorNames", (pub) => {
+    const list = (pub && pub.authorList) || [];
+    return list.map((a) => a.name || [a.given, a.family].filter(Boolean).join(" ")).filter(Boolean);
+  });
+
+  eleventyConfig.addFilter("authorBibtex", (pub) => {
+    const list = (pub && pub.authorList) || [];
+    return list
+      .map((a) => {
+        const name = a.name || [a.given, a.family].filter(Boolean).join(" ");
+        const parts = name.split(/\s+/);
+        if (parts.length < 2) return name;
+        const last = parts.pop();
+        return `${last}, ${parts.join(" ")}`;
+      })
+      .join(" and ");
+  });
+
   eleventyConfig.addFilter("bibtex", (pub) => {
     if (!pub) return "";
     const esc = (v) =>
       v == null ? "" : String(v).replace(/[&%$#_]/g, (c) => "\\" + c);
 
-    // "Xueke Wu, Yihang Lyu" → "Wu, Xueke and Lyu, Yihang"
-    const authors = String(pub.authors || "")
-      .split(",")
-      .map((n) => n.trim())
-      .filter(Boolean)
-      .map((n) => {
-        const parts = n.split(/\s+/);
-        if (parts.length < 2) return n;
-        const last = parts.pop();
-        return `${last}, ${parts.join(" ")}`;
-      })
-      .join(" and ");
+    // 作者：优先用结构化 authorList（"Wu, Xueke and Lyu, Yihang"）；
+    // 没有 authorList 的旧条目退回字符串 split，两种写法都吃。
+    let authors = "";
+    if (Array.isArray(pub.authorList) && pub.authorList.length) {
+      authors = pub.authorList
+        .map((a) => {
+          const name = a.name || [a.given, a.family].filter(Boolean).join(" ");
+          const parts = name.split(/\s+/);
+          if (parts.length < 2) return name;
+          const last = parts.pop();
+          return `${last}, ${parts.join(" ")}`;
+        })
+        .join(" and ");
+    } else {
+      authors = String(pub.authors || "")
+        .split(",")
+        .map((n) => n.trim())
+        .filter(Boolean)
+        .map((n) => {
+          const parts = n.split(/\s+/);
+          if (parts.length < 2) return n;
+          const last = parts.pop();
+          return `${last}, ${parts.join(" ")}`;
+        })
+        .join(" and ");
+    }
 
     // 引用键：第一作者姓 + 年份 + 标题里第一个有意义的实词
-    const firstAuthor = String(pub.authors || "").split(",")[0].trim();
+    const firstAuthor = (Array.isArray(pub.authorList) && pub.authorList.length
+      ? pub.authorList[0].name
+      : String(pub.authors || "").split(",")[0].trim()) || "";
     const surname = (firstAuthor.split(/\s+/).pop() || "anon");
     const STOP = new Set(["the", "and", "for", "from", "with", "into", "over", "a", "an"]);
     const word = String(pub.title || "")
@@ -358,39 +408,68 @@ module.exports = function (eleventyConfig) {
     put("pages", pub.pages || pub.articleNumber);
     put("doi", pub.doi);
     put("url", pub.url);
+    // ISSN：AGU 同时有 print / electronic 两个，Zotero 等管理器认 issn 字段
+    if (pub.issn) put("issn", pub.issn.print || pub.issn.electronic);
+    // ORCID：只有**每一位**作者都有 ORCID 时才整体输出。
+    // 部分作者有、部分没有时输出会错配（Zotero 按位置配对），宁可不给。
+    if (Array.isArray(pub.authorList) && pub.authorList.length &&
+        pub.authorList.every((a) => a && a.orcid)) {
+      put("orcid", pub.authorList.map((a) => a.orcid).join(" "));
+    }
     return `@article{${key},\n${f.join("\n")}\n}`;
   });
 
   /* ---------- 4c. jsonLdArticles filter：ScholarlyArticle 结构化数据 ----------
      输出 schema.org 的 ScholarlyArticle 数组，给 base.njk 的 <script
-     type="application/ld+json"> 用。Google Scholar 读的就是这个类型——
-     研究者主页上"论文列表"这一块能不能被检索到，靠它。
+     type="application/ld+json"> 用。
+
+     ⚠️ **重要更正**：此前这段注释写着"Google Scholar 读的就是这个类型——
+     研究者主页上'论文列表'这一块能不能被检索到，靠它"。**这是错的。**
+     Google Scholar **不读 JSON-LD**，它只认 Highwire Press 的
+     `citation_*` <meta> 标签（见 partials/citation-meta.njk）。
+     JSON-LD 是给通用 schema.org 消费方（Bing 实体、Wikipedia、Google
+     的普通检索富结果）用的；两套都得有，缺一不可，但不是同一套。
+     真正让论文进 Google Scholar 的是 citation-meta.njk 里的 meta 标签。
 
      和 Person 那一段（base.njk 里）配合：Person 描述"我是谁"，
      ScholarlyArticle 描述"我产出过什么"，两边用同一个 ORCID 串起来，
      搜索引擎才能把论文和作者识别成同一实体。
 
      几个细节：
-       · 作者列表要从 "Xueke Wu, Yihang Lyu" 这种串还原成 Person 数组。
-       · 本人那条多挂一个 sameAs → ORCID，这是把论文和本人绑定的关键。
+       · 作者从结构化 authorList 取，每人一个 Person 对象；带 ORCID 的
+         额外挂 sameAs → 这是把论文和本人绑定的关键。
        · 没有 DOI 的条目照样输出，只是少 identifier 字段——schema.org
          允许缺字段，但不允许字段值为空字符串。
        · datePublished 用 "YYYY-MM" 的粒度：AGU 论文的日期粒度就到月，
          写成天反而是编造。
+       · isAccessibleForFree 取数据里的 openAccess，**不再写死 true**：
+         对付费墙内的论文写 true 是假声明。
   */
-  eleventyConfig.addFilter("jsonLdArticles", (pubs, ownerOrcid) => {
+  eleventyConfig.addFilter("jsonLdArticles", (pubs, ownerOrcid, excludeKey) => {
     if (!Array.isArray(pubs) || !pubs.length) return [];
     const ownerName = "Yihang Lyu"; // 与 site.author.nameAsPublished 一致
-    return pubs.map((p) => {
-      const authors = String(p.authors || "")
-        .split(",")
-        .map((n) => n.trim())
-        .filter(Boolean)
-        .map((n) => {
-          const a = { "@type": "Person", name: n };
-          if (n === ownerName && ownerOrcid) a.sameAs = ownerOrcid;
-          return a;
-        });
+    // excludeKey：当前页自己就是某篇论文时（/papers/<slug>/），那篇由
+    // paper.njk 输出更完整的 ScholarlyArticle，这里必须**排除掉**。
+    // 否则同一页上会出现同一篇论文的两个实体描述（url 一个指向出版商、
+    // 一个指向本页），消费方容易当成两件不同的工作。
+    // ⚠️ 少写这个参数会让排除静默失效——base.njk 传的第三个实参会被
+    //   JS 直接丢弃，不报错，页面照出，只有实体重复。
+    const list = excludeKey ? pubs.filter((p) => p && p.key !== excludeKey) : pubs;
+    return list.map((p) => {
+      const authorList = Array.isArray(p.authorList) && p.authorList.length
+        ? p.authorList
+        : String(p.authors || "")
+            .split(",")
+            .map((n) => n.trim())
+            .filter(Boolean)
+            .map((n) => ({ name: n, orcid: null }));
+
+      const authors = authorList.map((a) => {
+        const person = { "@type": "Person", name: a.name };
+        if (a.orcid) person.sameAs = `https://orcid.org/${a.orcid}`;
+        if (a.name === ownerName && ownerOrcid) person.sameAs = ownerOrcid;
+        return person;
+      });
 
       const article = {
         "@type": "ScholarlyArticle",
@@ -427,6 +506,24 @@ module.exports = function (eleventyConfig) {
         contentUrl: p.pdf,
         encodingFormat: "application/pdf",
       };
+      // 摘要：有就写。ScholarlyArticle 的 abstract 字段是摘要的规范落点，
+      // 缺失时搜索引擎会用 og:description 顶替（那句是站点自我介绍，不是摘要）。
+      if (p.abstract) article.abstract = p.abstract;
+      // 开放获取状态：数据驱动。见 openAccess 字段的注释。
+      if (p.openAccess !== undefined) article.isAccessibleForFree = !!p.openAccess;
+      // ISSN：print / electronic 都登记，schema.org 用 issn 数组。
+      if (p.issn) {
+        const issn = [p.issn.print, p.issn.electronic].filter(Boolean);
+        if (issn.length) article.issn = issn;
+      }
+      // 出版方：AGU 是出版方本人，标出来读者才知道该往哪投稿/找编辑。
+      if (p.publisher) {
+        article.publisher = { "@type": "Organization", name: p.publisher };
+      }
+      // 关键词。
+      if (Array.isArray(p.keywords) && p.keywords.length) {
+        article.keywords = p.keywords.join(", ");
+      }
       return article;
     });
   });

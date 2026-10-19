@@ -23,11 +23,11 @@ export function init(ctx) {
   toggle.className = "annot-toggle";
   toggle.setAttribute("aria-expanded", "false");
   toggle.setAttribute("aria-controls", pane.id);
-  toggle.textContent = "查看批注";
+  toggle.textContent = "View annotations";
   const close = document.createElement("button");
   close.type = "button";
   close.className = "annot-close";
-  close.textContent = "返回正文";
+  close.textContent = "Back to text";
   const setPaneOpen = (open) => {
     wrap.classList.toggle("is-pane-open", open);
     toggle.setAttribute("aria-expanded", String(open));
