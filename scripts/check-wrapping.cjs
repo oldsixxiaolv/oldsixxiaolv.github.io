@@ -24,14 +24,24 @@
  *
  * 三条判据：
  *   W1 覆盖 —— 全局兜底规则必须覆盖全部"承载文字的元素类型"，且用 anywhere；
- *   W2 不退化 —— 站内任何地方都不许再出现 `overflow-wrap: break-word`；
+ *   W2 不退化 —— 站内**会进产物的**样式里都不许再出现 `overflow-wrap: break-word`；
  *   W3 门禁自己没被卸掉 —— 本脚本必须真的在 build 链上。
+ *
+ * W2 说的"站内"有多大？样式进产物有三条路，三条都要扫 ——
+ * 少扫一条，汇总里那句"站内无 break-word"就是一句空话，而坏样式已经进了产物：
+ *   ① src/assets/css/ 下的 .css 文件（多数走 <link>，部分走 inlineCss）；
+ *   ② 模板里直接写的内联 <style> 块（本站 src/about.njk 就有一整块，295 行）；
+ *   ③ 模板里的 style="..." 内联样式属性。
+ *   另外 eleventy 的 {% inlineCss %} 短码能把**任意路径**的 CSS 以 <style>
+ *   塞进产物，所以它引用的文件也必须落在 ① 的范围内，否则就是一个门禁永远
+ *   看不见的盲区（这条也归在 W2 下：它直接决定"站内"这个范围划得对不对）。
  */
 const fs = require("fs");
 const path = require("path");
 
 const ROOT = path.resolve(__dirname, "..");
 const CSS_DIR = path.join(ROOT, "src/assets/css");
+const SRC_DIR = path.join(ROOT, "src");
 const PKG = path.join(ROOT, "package.json");
 
 /* 承载文字、且会出现在 flex/grid 容器里的元素类型。
@@ -59,6 +69,18 @@ function cssFiles(dir) {
   return out;
 }
 
+/* ---------- 收集模板文件（.njk / .html） ---------- */
+function templateFiles(dir) {
+  const out = [];
+  for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+    if (e.name.startsWith("._")) continue; // AppleDouble 资源叉
+    const p = path.join(dir, e.name);
+    if (e.isDirectory()) out.push(...templateFiles(p));
+    else if (/\.(njk|html)$/.test(e.name)) out.push(p);
+  }
+  return out;
+}
+
 /**
  * 把一段 CSS 拆成 (选择器, 声明块) 对。
  * 只做本门禁需要的浅解析：够用即可，不追求完整 CSS 解析器。
@@ -81,59 +103,145 @@ function tagOf(compound) {
   return m ? m[1].toLowerCase() : null;
 }
 
+/**
+ * 一段 CSS 里所有 overflow-wrap 声明。
+ * W1（全局覆盖）与 W2（禁 break-word）共用这一份判读 ——
+ * 同一套判据只写一遍，两边不会各自漂移。
+ */
+function wrapDecls(css) {
+  const out = [];
+  for (const rule of rules(css)) {
+    const decl = rule.body
+      .split(";")
+      .map((d) => d.trim())
+      .find((d) => /^overflow-wrap\s*:/i.test(d));
+    if (!decl) continue;
+    out.push({
+      selector: rule.selector.replace(/\s+/g, " "),
+      value: decl.slice(decl.indexOf(":") + 1).trim().toLowerCase(),
+    });
+  }
+  return out;
+}
+
+/* ---------- 样式来源清单：三类都要进扫描范围 ---------- */
+function styleSources() {
+  const sources = [];
+  const templates = templateFiles(SRC_DIR);
+
+  /* ① CSS 文件 */
+  for (const f of cssFiles(CSS_DIR)) {
+    sources.push({
+      rel: path.relative(ROOT, f),
+      kind: "CSS 文件",
+      css: fs.readFileSync(f, "utf8"),
+    });
+  }
+
+  /* ②③ 模板：内联 <style> 块 + style 属性 */
+  for (const f of templates) {
+    // Nunjucks 注释 {# ... #} 不渲染，先剥掉，免得注释里的字样被当成真样式
+    const text = fs
+      .readFileSync(f, "utf8")
+      .replace(/\{#[\s\S]*?#\}/g, (m) => m.replace(/[^\n]/g, " "));
+    const rel = path.relative(ROOT, f);
+
+    const styleRe = /<style[^>]*>([\s\S]*?)<\/style>/gi;
+    let m;
+    while ((m = styleRe.exec(text)) !== null) {
+      sources.push({ rel, kind: "模板内联 <style>", css: m[1] });
+    }
+
+    // style="..." 属性的值本身是一段声明列表，补一对花括号塞回同一个解析器
+    const attrRe = /(?<![\w-])style\s*=\s*(["'])([\s\S]*?)\1/gi;
+    while ((m = attrRe.exec(text)) !== null) {
+      const v = m[2];
+      if (/\{\{|\$\{/.test(v)) continue; // 动态值：判不了就不猜
+      sources.push({ rel, kind: "style 属性", css: `[style]{${v}}` });
+    }
+  }
+  return { sources, templates };
+}
+
 /* ---------- W1 / W2 ---------- */
-const files = cssFiles(CSS_DIR);
+const { sources, templates } = styleSources();
+
+/* 全部来源里的 overflow-wrap 声明（带出处） */
+const decls = [];
+for (const src of sources) {
+  for (const d of wrapDecls(src.css)) {
+    decls.push({ ...d, rel: src.rel, kind: src.kind, inCssFile: src.kind === "CSS 文件" });
+  }
+}
+
+/* —— W2 的第一半：扫描范围不能有盲区 ——
+   eleventy 的 {% inlineCss %} 短码把指定文件以 <style> 塞进产物；引用一个
+   src/assets/css/ 之外的文件，那份文件里的 overflow-wrap 门禁就永远看不见，
+   而 W2 汇总里那句"站内无 break-word"就成了一句空话。 */
+for (const f of templates) {
+  const text = fs
+    .readFileSync(f, "utf8")
+    .replace(/\{#[\s\S]*?#\}/g, (m) => m.replace(/[^\n]/g, " "));
+  const re = /\{%\s*inlineCss\s+["']([^"']+)["']\s*%\}/g;
+  let m;
+  while ((m = re.exec(text)) !== null) {
+    const relFromCssDir = path.relative(CSS_DIR, path.resolve(ROOT, m[1]));
+    if (relFromCssDir.startsWith("..") || path.isAbsolute(relFromCssDir)) {
+      note(
+        `${path.relative(ROOT, f)}: inlineCss 引用了 ${m[1]}，它不在 src/assets/css/ 下 ——` +
+          `这个文件里的 overflow-wrap 门禁扫不到，等于开了一个盲区。` +
+          `把它放进 src/assets/css/，或改走 <link>。`
+      );
+    }
+  }
+}
+
+/* —— W2 的第二半：所有来源里都不许有 break-word —— */
+for (const d of decls) {
+  if (d.value === "break-word") {
+    note(
+      `${d.rel}（${d.kind}）: 选择器「${d.selector}」用了 overflow-wrap: break-word —— ` +
+        `它不参与 min-content 宽度计算，在 flex/grid 容器里挡不住长串` +
+        `（实测：390px 视口下全站有 132 处单点注入就能把页面撑破）。改成 anywhere。`
+    );
+  } else if (!OK_VALUES.includes(d.value)) {
+    note(
+      `${d.rel}（${d.kind}）: 选择器「${d.selector}」的 overflow-wrap: ${d.value} ` +
+        `不是受支持的兜底值（应为 ${OK_VALUES.join(" / ")}）。`
+    );
+  }
+}
+
+/* —— W1：全局兜底规则 ——
+   只认 CSS 文件：全局兜底必须对全站生效，模板内联 <style> 是页面级的，
+   拿它顶替会让别的页面失去保护、而门禁还绿着。 */
 let globalRule = null;
 
-for (const file of files) {
-  const css = fs.readFileSync(file, "utf8");
-  const rel = path.relative(ROOT, file);
+for (const d of decls) {
+  if (!d.inCssFile) continue;
+  if (!OK_VALUES.includes(d.value)) continue; // break-word / 非法值已在 W2 报过
 
-  for (const rule of rules(css)) {
-    const decls = rule.body.split(";").map((d) => d.trim());
-    const ow = decls.find((d) => /^overflow-wrap\s*:/i.test(d));
-    if (!ow) continue;
-    const value = ow.split(":")[1].trim().toLowerCase();
+  // 找出这条规则覆盖的标签类型
+  const tags = new Set();
+  for (const compound of d.selector.split(",")) {
+    // 只取**最后一个**简单选择器上的标签（`a p` 里标签在后者）
+    const parts = compound.trim().split(/\s+/);
+    const t = tagOf(parts[parts.length - 1]);
+    if (t) tags.add(t);
+  }
 
-    // —— W2：不允许 break-word ——
-    if (value === "break-word") {
-      note(
-        `${rel}: 选择器「${rule.selector.replace(/\s+/g, " ")}」用了 ` +
-          `overflow-wrap: break-word —— 它不参与 min-content 宽度计算，` +
-          `在 flex/grid 容器里挡不住长串（实测：390px 视口下全站有 132 处` +
-          `单点注入就能把页面撑破）。改成 anywhere。`
-      );
-      continue;
-    }
-
-    if (!OK_VALUES.includes(value)) {
-      note(
-        `${rel}: 选择器「${rule.selector.replace(/\s+/g, " ")}」的 ` +
-          `overflow-wrap: ${value} 不是受支持的兜底值（应为 ${OK_VALUES.join(" / ")}）。`
-      );
-      continue;
-    }
-
-    // 找出这条规则覆盖的标签类型
-    const tags = new Set();
-    for (const compound of rule.selector.split(",")) {
-      // 只取**最后一个**简单选择器上的标签（`a p` 里标签在后者）
-      const parts = compound.trim().split(/\s+/);
-      const t = tagOf(parts[parts.length - 1]);
-      if (t) tags.add(t);
-    }
-
-    const hit = REQUIRED_TAGS.filter((t) => tags.has(t));
-    if (hit.length > REQUIRED_TAGS.length / 2 && (!globalRule || hit.length > globalRule.hit.length)) {
-      globalRule = { rel, selector: rule.selector.replace(/\s+/g, " "), value, hit, tags };
-    }
+  const hit = REQUIRED_TAGS.filter((t) => tags.has(t));
+  if (hit.length > REQUIRED_TAGS.length / 2 && (!globalRule || hit.length > globalRule.hit.length)) {
+    globalRule = { rel: d.rel, selector: d.selector, value: d.value, hit, tags };
   }
 }
 
 if (!globalRule) {
   note(
     `src/assets/css 下找不到"全局长串兜底"规则——` +
-      `需要一条选择器覆盖 ${REQUIRED_TAGS.join(" / ")} 的 overflow-wrap: anywhere。`
+      `需要一条选择器覆盖 ${REQUIRED_TAGS.join(" / ")} 的 overflow-wrap: anywhere。` +
+      `（全局兜底必须放在 src/assets/css/ 下：模板内联 <style> 是页面级的，` +
+      `顶替不了全站兜底。）`
   );
 } else {
   const missing = REQUIRED_TAGS.filter((t) => !globalRule.tags.has(t));
@@ -178,8 +286,12 @@ if (problems.length) {
   process.exit(1);
 }
 
+const countOf = (kind) => sources.filter((s) => s.kind === kind).length;
+
 console.log(
   `长串断行门禁通过：全局兜底 = overflow-wrap: ${globalRule.value}，` +
     `覆盖 ${globalRule.tags.size} 个标签类型（要求 ${REQUIRED_TAGS.length} 个）；` +
-    `站内无 overflow-wrap: break-word。`
+    `已扫 ${countOf("CSS 文件")} 个 CSS 文件 + ` +
+    `${countOf("模板内联 <style>")} 个模板内联 <style> 块 + ` +
+    `${countOf("style 属性")} 处 style 属性，其中无 overflow-wrap: break-word。`
 );

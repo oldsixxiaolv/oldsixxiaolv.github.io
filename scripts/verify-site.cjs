@@ -2160,10 +2160,27 @@ note(
        所以要把"新"后面的数字串按 " / " 拆开逐个算；
      · 只有以"旧"或"（无）"开头的行才算表里的行（标记行与续行都不算）。 */
 {
-  const tableStart = SELF_SRC.indexOf("旧编号 → 新编号对照");
-  const tableEnd = SELF_SRC.indexOf("用法：node scripts/verify-site.cjs");
+  /* 锚点只在**文件头块注释**里找：本文件自己的代码段也含这两个字符串
+     （判据代码里就写着它们），全文件搜会把判据自己的代码当成表。 */
+  const headerEnd = SELF_SRC.indexOf("\n */");
+  const header = headerEnd > 0 ? SELF_SRC.slice(0, headerEnd) : "";
+
+  /* 两个锚点都必须**恰好命中一次**：
+     0 次 = 标记被改掉；>1 次 = 锚点不再唯一，取哪一个都是猜。
+     两种情况都让判据本身失效 —— 必须报错，不能硬取第一个位置。 */
+  const START_ANCHOR = "旧编号 → 新编号对照（";
+  const END_ANCHOR = "用法：node scripts/verify-site.cjs";
+  const nStart = header.split(START_ANCHOR).length - 1;
+  const nEnd = header.split(END_ANCHOR).length - 1;
+  const atStart = header.indexOf(START_ANCHOR);
+  const atEnd = header.indexOf(END_ANCHOR);
+  /* 从**行首**起切：切在字符串中间会把标题行的 " * " 前缀切掉，那行就不再
+     被当成表行（"对照表：N 行"会少 1），行为就变了。 */
+  const lineStart = atStart >= 0 ? header.lastIndexOf("\n", atStart) + 1 : -1;
   const tableBlock =
-    tableStart >= 0 && tableEnd > tableStart ? SELF_SRC.slice(tableStart, tableEnd) : "";
+    nStart === 1 && nEnd === 1 && lineStart >= 0 && atEnd > lineStart
+      ? header.slice(lineStart, atEnd)
+      : "";
 
   // 表里的"行"：以"旧"或"（无）"开头、且含"→"的那几行（续行与标记行都不算）
   const tableRows = [
@@ -2177,10 +2194,19 @@ note(
     for (const n of m[1].split("/").map((s) => s.trim()).filter(Boolean)) tableNums.push(n);
   }
 
-  if (!tableBlock) {
+  if (nStart !== 1 || nEnd !== 1) {
     fail(
-      "找不到文件头的「旧编号 → 新编号对照」表（标记行或结尾标记被改掉了）—— " +
-        "对照表是追溯门禁号的唯一入口，删掉它等于让所有门禁号查不到出处"
+      `对照表的锚点不对：文件头里「${START_ANCHOR}」出现 ${nStart} 次、` +
+        `「${END_ANCHOR}」出现 ${nEnd} 次（两者都必须恰好 1 次）—— ` +
+        (nStart === 0 || nEnd === 0
+          ? "对照表被删掉或标记被改写了。它是追溯门禁号的唯一入口，" +
+            "删掉它等于让所有门禁号查不到出处。"
+          : "锚点不唯一，取哪一个都是猜 —— 判据不能这么用。")
+    );
+  } else if (!tableBlock) {
+    fail(
+      "对照表的结尾标记出现在标记行之前 —— 表头结构被改乱了。" +
+        "对照表是追溯门禁号的唯一入口，结构乱了就等于让所有门禁号查不到出处。"
     );
   } else {
     const dupRows = dupOf(tableRows);
