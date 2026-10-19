@@ -290,7 +290,14 @@ module.exports = {
       ],
 
       journal: "Journal of Geophysical Research: Atmospheres",
-      shortJournal: "JGR: Atmospheres",
+      // 刊名缩写 = 出版商**登记的** short-container-title。
+      // Crossref 对本文登记的 short-container-title 实测是 "JGR Atmospheres"
+      // （**没有冒号**）。此前这里写的是 "JGR: Atmospheres"（带冒号），
+      // 那是旧刊名的写法，与登记值对不上——读者按缩写去检索会查不到。
+      // ⚠️ 用途仅限**页面可见的紧凑引用行**（about 页那条）。
+      //    引用**导出条目**（BibTeX / RIS）一律用上面的登记全称 journal，
+      //    理由见 eleventy.config.js 里 bibtex/ris 两条 filter 的注释。
+      shortJournal: "JGR Atmospheres",
       publisher: "American Geophysical Union (AGU)",
       issn: { print: "2169-897X", electronic: "2169-8996" },
       volume: "131",

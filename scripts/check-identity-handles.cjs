@@ -21,26 +21,50 @@
  *     · **分歧形态**（部分节点残缺、其余完整）→ 门禁 31 抓得到（那是真冲突）；
  *     · **一致退化形态**（全站一起残缺）→ 门禁 31 **抓不到**，要靠本条。
  *
+ * ⚠️ 本门禁自己也踩过一次同族的坑：**判据在自己的数据源里找期望值**。
+ *   2026-10-19 16:05–16:25 场次落的初版，期望集直接取
+ *   `require("./lib/identity.cjs")` 的 IDENTITY_SAMEAS——而那个共享模块
+ *   **正是产物的发射源**（src/_data/site.js 从它取 author.sameAs）。于是：
+ *     有人把模块里的 GitHub 句柄换成 https://example.com/impersonator
+ *     （**条数不变、ORCID 仍在**）→ 重建后产物的 sameAs 与期望集**一起**变 →
+ *     判据在"拿被改过的东西和它自己比" → **全绿**。
+ *   实测（隔离克隆，源码级注入 + 全量重建）：build exit 0，门禁输出里直接把
+ *   冒名账号当"登记清单"打印了出来——对外声明的作者身份就此被改写。
+ *   形态上这叫**等长替换**：改短 / 改长 / 整片消失两版都抓得到，
+ *   **只有"长度不变、内容换掉"这一形态被"把 oracle 搬进可变数据源"吃掉**。
+ *   修法（就在本文件里）：**期望集必须是本判据自己的、独立于数据源的写死清单**
+ *   （ORACLE_SAMEAS）；数据源那份只用来做**漂移核对**（I2d）。
+ *
  * 四条判据：
  *   I1 产物侧全集 —— 全站 @id == site.url + "/#person" 的 Person 节点，
- *                    sameAs 归一化集合必须**等于**共享模块 scripts/lib/identity.cjs
- *                    的清单集合：缺项红（丢信息才是坏事）。
+ *                    sameAs 归一化集合必须**等于**本文件内置的独立期望集
+ *                    ORACLE_SAMEAS：缺项红（丢信息才是坏事）。
  *                    **多出**未登记句柄 → 只报 note（多出来不丢信息）。
- *   I2 锚 —— 期望集合的**条数 == EXPECTED_COUNT**、且**必须含本人 ORCID**。
- *            这两条**不依赖清单内容**，所以只能住在**本文件**里：
- *            写在共享模块里的话，模块被改短时期望集合跟着变短，判据就红不了
- *            ——那等于判据把自己卸掉了。**清单内容单一来源；不依赖清单内容的
- *            锚留在判据里。**
+ *   I2 锚与独立期望集 —— 四条**互不依赖**的检查：
+ *        I2a 期望集条数 == EXPECTED_COUNT（写死在本文件）
+ *        I2b 期望集必须含本人 ORCID（写死在本文件）
+ *        I2c 期望集的 sha256 == ORACLE_SET_SHA256（期望集**自己**被改动也要红）
+ *        I2d 共享模块 scripts/lib/identity.cjs 的清单必须与期望集**逐项一致**
+ *            （漂移核对：数据源改了而期望集没改 → 判红，逼人把两处一起改）
  *   I3 口径 —— 字段缺失（没有 sameAs 字段 / 显式 null）**不算缺失、不算冲突**，
  *              沿用门禁 31 的口径；这种形态由门禁 23 兜（带 canonical @id 的
  *              节点必须带本人 ORCID）。
  *   I4 自证存活 —— 本人节点组 ≥ 2 个，且本条至少比过一处 sameAs，
  *              否则判红（"没报错"和"没问题"长得一模一样）。
  *
- * ⚠️ ANCHOR_ORCID 故意**不**从共享模块取：锚必须独立于被判据的数据源，
- *   否则有人把模块里的 ORCID 换成别人的，本条会跟着一起变，红不了。
- *   代价是：ORCID 换了要同时改本文件与共享模块；忘了改本文件 → 本条判红
- *   （这是有意的：锚失守就该叫）。
+ * ⚠️ 为什么要留两份清单（共享模块 + 本文件的独立期望集）：
+ *   仓库的规矩是"判据两处各抄一份 → 改一处忘另一处"，但那条规矩治的是
+ *   **静默漂移**，靠**逐字核对**兜底；这里两处恰恰就是"逐字核对"的关系（I2d），
+ *   漂了就红 → 不会静默。而"清单只留一份"会让期望集与被判数据同源 →
+ *   等长替换全盲（上面那次实测）。代价是**合法增删要改两处**，
+ *   这个代价是有意接受的；漏改 → 判红（漂了就该叫）。
+ *
+ * ⚠️ 哈希锚（I2c）能挡什么、不能挡什么（不夸大覆盖范围）：
+ *   能挡：只改期望集（改短或等长替换）而没同步哈希 → 判红。
+ *   不能挡：期望集 + 数据源 + 哈希三者**一致地**改 → 仍然全绿。
+ *   那已超出"判据"能防的范围（要防它得靠 git 历史审计 + 日志复核）。
+ *   所以本门禁**不声称**能挡住有意的协同篡改，只声称能挡住
+ *   误改 / 单点改 / 等长替换这几种真实事故形态。
  *
  * ⚠️ 为什么不写进 scripts/verify-site.cjs：那里的门禁是一个**连续编号**的整体
  *   （文件头清单 + 代码段 + 对照表三处必须一一对应），插入新号要同时改三处；
@@ -51,6 +75,7 @@
  */
 const fs = require("fs");
 const path = require("path");
+const crypto = require("crypto");
 
 const ROOT = path.resolve(__dirname, "..");
 /* SITE_DIR 只给故障注入用：改产物做注入测试时如果直接改 _site，
@@ -59,17 +84,41 @@ const SITE = process.env.SITE_DIR
   ? path.resolve(process.env.SITE_DIR)
   : path.join(ROOT, "_site");
 
-/* ---------- 期望集合：内容取自共享模块（单一真源） ---------- */
-const { IDENTITY_SAMEAS } = require("./lib/identity.cjs");
+/* ---------- 独立期望集（oracle）：写死在本判据里，不从数据源取 ----------
+   ⚠️ 这一份**必须**与产物的发射源（scripts/lib/identity.cjs）分开：
+     期望集若由被判数据推导出来，判据就是在"拿自己和自己比"——
+     等长替换（长度不变、内容换掉）这种形态会全盲。实测见文件头。          */
+const ORACLE_SAMEAS = [
+  "https://orcid.org/0009-0005-3511-0546",
+  "https://github.com/oldsixxiaolv",
+  "https://www.researchgate.net/profile/Yihang-Lyu",
+  "https://blog.csdn.net/lvyihang200411",
+  "https://openalex.org/A5121394231",
+];
 
-/* ---------- 锚：不依赖清单内容，因此写死在本判据里 ---------- */
+/* ---------- 锚：不依赖任何清单内容，因此写死在本判据里 ---------- */
 const EXPECTED_COUNT = 5;
 const ANCHOR_ORCID = "https://orcid.org/0009-0005-3511-0546";
+/* 期望集自身的哈希锚：期望集被改动、而这个值没同步更新 → 判红。
+   规范形式 = 期望集按字典序排序后用 "\n" 连接（无尾随换行）。
+   合法增删句柄后不必手算：跑一次本门禁，红因里会直接给出该贴的新值。 */
+const ORACLE_SET_SHA256 = "cd9e39b57ef069d59b2065be2a52658c0eecc243e7f4bfbdc35b895914817ac7";
 
 const problems = [];
 const notes = [];
 const fail = (msg) => problems.push(msg);
 const note = (msg) => notes.push(msg);
+
+/* ---------- 数据源清单：只用于漂移核对（I2d），**不**作为期望集 ---------- */
+let IDENTITY_SAMEAS = null;
+try {
+  ({ IDENTITY_SAMEAS } = require("./lib/identity.cjs"));
+} catch (e) {
+  fail(
+    `读不到 scripts/lib/identity.cjs（${e.message}）——` +
+      `本门禁无法做清单漂移核对，直接判红。`
+  );
+}
 
 /* ---------- 单一真源（取 @id 基准要用 site.url） ---------- */
 let siteData = null;
@@ -87,24 +136,7 @@ if (!siteData) {
 
 const SITE_URL = (siteData.url || "").replace(/\/+$/, "");
 const OWNER_ID = SITE_URL + "/#person";
-const expectedSet = new Set(IDENTITY_SAMEAS);
-
-/* ---------- I2：锚自身的两条弱不变量 ---------- */
-{
-  if (expectedSet.size !== EXPECTED_COUNT) {
-    fail(
-      `身份句柄清单有 ${expectedSet.size} 条，与本判据锚定的 ${EXPECTED_COUNT} 条不符` +
-        `——清单被改短（或改长）时，期望集合会跟着变，判据就红不了了。` +
-        `确要增删句柄，请同步改 scripts/check-identity-handles.cjs 的 EXPECTED_COUNT。`
-    );
-  }
-  if (!expectedSet.has(ANCHOR_ORCID)) {
-    fail(
-      `身份句柄清单里没有本人 ORCID（${ANCHOR_ORCID}）——` +
-        `清单里必须有这条权威标识，否则"本人"在结构化数据里就没有锚。`
-    );
-  }
-}
+const expectedSet = new Set(ORACLE_SAMEAS);
 
 /* ---------- 归一化：sameAs 允许数组或逗号串（两种形状同一份数据） ---------- */
 const normSameAs = (value) => {
@@ -117,6 +149,59 @@ const normSameAs = (value) => {
 };
 const setDiff = (a, b) => [...a].filter((x) => !b.has(x));
 const fmt = (arr) => (arr.length ? arr.join(" / ") : "（无）");
+
+/* ---------- I2：锚与独立期望集（四条互不依赖的检查） ---------- */
+{
+  /* I2a 条数锚：期望集被改短 / 改长 → 判红 */
+  if (expectedSet.size !== EXPECTED_COUNT) {
+    fail(
+      `独立期望集有 ${expectedSet.size} 条，与本判据锚定的 ${EXPECTED_COUNT} 条不符` +
+        `——期望集被改短（或改长）时，判据就跟着变，红不了了。` +
+        `确要增删句柄，请同步改 scripts/check-identity-handles.cjs 的 EXPECTED_COUNT。`
+    );
+  }
+  /* I2b ORCID 锚：期望集里必须有这条权威标识 */
+  if (!expectedSet.has(ANCHOR_ORCID)) {
+    fail(
+      `独立期望集里没有本人 ORCID（${ANCHOR_ORCID}）——` +
+        `期望集里必须有这条权威标识，否则"本人"在结构化数据里就没有锚。`
+    );
+  }
+  /* I2c 期望集自身的哈希锚：期望集被改过（哪怕是等长替换）而没同步 → 判红 */
+  const computedOracleHash = crypto
+    .createHash("sha256")
+    .update([...ORACLE_SAMEAS].sort().join("\n"))
+    .digest("hex");
+  if (computedOracleHash !== ORACLE_SET_SHA256) {
+    fail(
+      `独立期望集的哈希锚对不上：现在算出来是 ${computedOracleHash}，` +
+        `本文件锚着 ${ORACLE_SET_SHA256}——期望集被改过而哈希锚没同步` +
+        `（改清单是合法操作，但要把上面这串新哈希贴回 ORACLE_SET_SHA256）。`
+    );
+  }
+  /* I2d 漂移核对：数据源那份清单必须与独立期望集逐项一致 */
+  if (IDENTITY_SAMEAS) {
+    const sourceSet = new Set(IDENTITY_SAMEAS);
+    if (sourceSet.size !== IDENTITY_SAMEAS.length) {
+      fail(
+        `共享模块 scripts/lib/identity.cjs 的清单里有重复项` +
+          `（${IDENTITY_SAMEAS.length} 项 / ${sourceSet.size} 个不同值）——` +
+          `清单要求逐项唯一，否则"等于期望集"这个比对说不清。`
+      );
+    }
+    const extra = setDiff(sourceSet, expectedSet);
+    const missing = setDiff(expectedSet, sourceSet);
+    if (extra.length || missing.length) {
+      fail(
+        `共享模块 scripts/lib/identity.cjs 的清单与本判据的独立期望集不一致：` +
+          `模块多出 ${fmt(extra)}／模块少了 ${fmt(missing)}——` +
+          `两份清单是"逐字核对"的关系（这里就是那条核对）：` +
+          `改模块时必须同步改本文件的 ORACLE_SAMEAS` +
+          `（以及 EXPECTED_COUNT / ORACLE_SET_SHA256）。`
+      );
+    }
+  }
+}
 
 /* ---------- 产物扫描 ---------- */
 const htmlFiles = [];
@@ -219,7 +304,8 @@ for (const file of htmlFiles) {
   if (extraHandles.size) {
     note(
       `有 ${extraHandles.size} 条 sameAs 不在登记清单里：${fmt([...extraHandles])}——` +
-        `只记一笔不判红（多出来不丢信息；登记清单在 scripts/lib/identity.cjs）`
+        `只记一笔不判红（多出来不丢信息；登记清单见本文件的 ORACLE_SAMEAS，` +
+        `数据源那份在 scripts/lib/identity.cjs，两者由 I2d 逐字核对）`
     );
   }
 }
@@ -247,8 +333,8 @@ if (problems.length) {
 
 console.log(
   `身份句柄完整性门禁通过：本人（${OWNER_ID}）在 ${group.length} 个节点上被描述，` +
-    `比过 ${compared} 处 sameAs，每处都等于登记清单（${expectedSet.size} 条：` +
-    `${[...expectedSet].join(" / ")}）。`
+    `比过 ${compared} 处 sameAs，每处都等于本判据的独立期望集（${expectedSet.size} 条：` +
+    `${[...expectedSet].join(" / ")}）；数据源清单与期望集逐项一致。`
 );
 if (notes.length) {
   console.log("—");

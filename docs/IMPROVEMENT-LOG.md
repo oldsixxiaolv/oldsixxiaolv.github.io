@@ -8945,3 +8945,42 @@ if (buckets.size === 1) { comparedConsistent++; continue; }
 - **待拍板 5（承接）**：`PENDING_FIELDS`（`url` / `datePublished`）全站口径、论文 `@id` 的 `url` 口径与 `datePublished` 粒度、sitemap `lastmod` 三选一、404 的 `identityOn404`、论文页署名单位、`figure.alt` 前缀、RIS 两条、`citation_author_institution`、数据集引用写法、OpenAlex 是否上页脚 —— 维持原样，不代拍。
 - **待拍板 6（承接）**：身份句柄门禁的落点与「锚写死」代价、多出未登记句柄是否判红 —— 维持 16:05–16:25 场次的方案②，不代拍。
 - **待拍板 7（承接）**：**部署时机**。线上仍是旧部署（`/papers/`、`/publications.bib`、`/feed.xml` 404），本地已积累数十个未 push 的 commit。什么时候 push / 部署由本人定（本场次**不 push**）。
+
+## 2026-10-19 · 16:55–17:10 场次（**不占轮次号**，避免与并发场次撞号）：`0fcbdcb` 的**干净克隆复验** + 代落并发场次的 J10 / oracle 独立化 / shortJournal 修正（补上「日志记了、代码却没上 main」的缺口）
+
+### A. 背景
+
+`0fcbdcb`（本场次主提交）落地后，工作树里仍有并发场次的**代码**改动未入库，而它们的**日志段已被本场次主提交一并带入** → 出现「**日志记了、代码却没上 main**」的缺口（与历史上 `24859f7` 一类事故同类）。本节把这批代码补上，只做**复验 + 落地 + 记账**，不改其设计。
+
+### B. 代落地的三处（归属：并发场次；本场次只做复验与记账）
+
+1. **`scripts/check-jsonld.cjs` 续写 J10**：页面实体的 `@type` 必须与源文件 front matter 的 `profilePage` 声明一致。判据**回源文件**逐页核对，**不在门禁里另抄一份 URL 清单**（路由一改清单就静默失配）。自证存活：`j10Compared`（比过的页数）与 `j10ProfilePages`（声明为 ProfilePage 的页数），两者为 0 都判红。结尾输出由 J1–J9 改为 **J1–J10**。
+2. **`scripts/check-identity-handles.cjs` + `scripts/lib/identity.cjs`：把期望集从共享模块搬进门禁内置的独立 oracle**（`ORACLE_SAMEAS`），并加 `sha256` 锚（I2c）与数据源↔期望集**逐项漂移核对**（I2d）。理由：共享模块**正是产物的发射源**（`src/_data/site.js` 从它取 `author.sameAs`），把 oracle 放在里面 → 有人做「**等长替换**」（把 GitHub 句柄换成另一个账号，**条数不变、ORCID 仍在**）时，产物与期望集**一起**变 → 判据在拿被改过的东西和它自己比 → **全绿**。改短 / 改长 / 整片消失三种形态两版都抓得到，**只有等长替换被「把 oracle 搬进可变数据源」吃掉**。代价是合法增删要改两处（漏改 → 判红），**有意接受**。
+3. **`src/_data/site.js`**：`shortJournal` 由 `"JGR: Atmospheres"` 改为 **`"JGR Atmospheres"`** —— Crossref 对本文登记的 `short-container-title` **没有冒号**，旧值是旧刊名写法，读者按缩写检索会查不到。用途仅限**页面可见的紧凑引用行**；BibTeX / RIS 导出条目一律用登记全称 `journal`。
+
+### C. 验证结果
+
+- **`0fcbdcb` 的干净克隆复验：exit 0**。手法：`git clone --no-hardlinks` → `git checkout 0fcbdcb` → **软链** `node_modules`（**不可 `cp -R`**：会改 mtime 让时间类判据假红）→ `npm run build`。输出逐字：
+  - `引用完整性门禁通过：扫了 57 个已跟踪代码文件、24 处本地引用，被引用的文件全部也已被 git 跟踪。`
+  - `日志节不得消失门禁通过：扫了 40 个提交、60 个现存节…工作树上的 60 个节也覆盖了 HEAD 的全部节。`
+  - `门禁编号：最高 32 号（4b、4c 是 4 号族的附属号），共 33 项 —— 文件头清单 33 项 / 代码段 33 项，一一对应、整数号 1–32 无缺号`
+  - `✓ 结构化数据自检通过（门禁 J1–J9）`（该提交时点）
+  - `身份句柄完整性门禁通过：…比过 14 处 sameAs，每处都等于登记清单（5 条）`
+  → 证明**提交内容本身就是绿的**，不依赖工作树状态（这正是「工作树绿 ≠ 提交内容绿」要防的那一类）。
+- **带上 J10 / oracle / shortJournal 三处后的工作树 build：exit 0**。关键输出：
+  - `· 页面角色：5 页与源文件 front matter 的 profilePage 声明逐页核对一致（其中 2 页声明为 ProfilePage）` + `✓ 结构化数据自检通过（门禁 J1–J10）` → **J10 自证存活**（不是空跑）。
+  - `身份句柄完整性门禁通过：…每处都等于本判据的独立期望集（5 条…）；数据源清单与期望集逐项一致。` → 期望集已与数据源**脱钩**，I2d 漂移核对生效。
+- **未做的验证（如实标注）**：J10 与 oracle 独立化的**故障注入矩阵**由其作者场次负责，本场次只做了「判据自证存活 + 全量 build 绿 + 干净克隆复验绿」三项，**没有**替它跑注入用例。
+
+### D. 归属与边界
+
+- 本节提交 **4 个文件**：`scripts/check-jsonld.cjs`（J10）、`scripts/check-identity-handles.cjs`、`scripts/lib/identity.cjs`、`src/_data/site.js`，外加 `docs/IMPROVEMENT-LOG.md` 的本节。**全部是并发场次的实现**，本场次**未改其设计**，只做复验、落地与记账。
+- 提交方式同上一节：**私有索引**（从**当前 HEAD** `read-tree` → `update-index --cacheinfo` → `write-tree` → `commit-tree` → `update-ref` CAS），**不读也不改真实索引**；**不 push**。
+- 提交后把真实索引**收敛到 HEAD**（`git add` 这几个路径），防止别的场次用**陈旧索引**把这些内容回退掉。
+
+### E. 待本人拍板
+
+- **待拍板 8（新增）**：身份句柄门禁现在**有两份清单**（共享模块 + 门禁内置 `ORACLE_SAMEAS`），合法增删要**同时改两处**，漏改 → 判红。这是**有意接受的代价**（不漏改的前提是 I2d 逐项核对会当场叫出来）。要不要接受？
+- **待拍板 9（新增）**：J10 把「页面实体用什么 `@type`」的唯一真源定在**源文件 front matter 的 `profilePage` 开关**上，并要求产物里必须有 `<!-- source: ... -->` 标注（缺了就判红）。这个约定要不要**写成站点规范**（写进 `base.njk` 的注释与 README），还是保持只在门禁里？
+- **待拍板 10（新增）**：`shortJournal` 改成登记值 "JGR Atmospheres" 后，页面可见的紧凑引用行会与 BibTeX / RIS 里的登记全称 "Journal of Geophysical Research: Atmospheres" **不一致**。要不要在紧凑行上也保留一个可读的说明（如加脚注）？
+- 待拍板 1–7 见上一节（16:25–16:55 场次），本节**不重复、不改口**。

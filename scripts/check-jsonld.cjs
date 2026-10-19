@@ -200,6 +200,34 @@ function canonicalOf(html) {
   return "";
 }
 
+/** 该页的源文件标注（构建期由 base.njk 写入：<!-- source: src/xxx.njk -->）。
+    与 sitemap 里的同名标注同一套约定。 */
+function sourceOf(html) {
+  const m = html.match(/<!--\s*source:\s*([^>]*?)\s*-->/);
+  return m ? m[1].trim() : "";
+}
+
+/** 源文件 front matter 里的 `profilePage` 开关（布尔语义）。
+    只认 front matter **顶层**的键（与 Eleventy 的数据层一致）。
+    值的真值口径必须与模板里
+    `{%- set pageEntityType = 'ProfilePage' if profilePage else 'WebPage' -%}`
+    一致：YAML 布尔照 YAML 解；带引号的字符串按 Nunjucks 真值（非空即真）算；
+    其余（非空）一律为真。 */
+function declaresProfilePage(file) {
+  const text = fs.readFileSync(file, "utf8");
+  const fm = text.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+  if (!fm) return false; // 没有 front matter → 不是 profile 页
+  const line = fm[1].split(/\r?\n/).find((l) => /^profilePage\s*:/.test(l));
+  if (!line) return false;
+  const raw = line
+    .replace(/^profilePage\s*:\s*/, "")
+    .replace(/\s+#.*$/, "")
+    .trim();
+  if (raw === "") return false;
+  if (/^(['"]).*\1$/.test(raw)) return raw.length > 2; // 带引号的字符串：非空即真
+  return !["false", "no", "off", "null", "~"].includes(raw.toLowerCase());
+}
+
 /* ---------- 逐页检查 ---------- */
 let pagesChecked = 0;
 let errorPagesChecked = 0;
@@ -207,6 +235,8 @@ let pageEntitiesFound = 0;
 let comparisons = 0; // 真正比过的判据处数（J7 自证用）
 let j9Compared = 0; // J9 真正比过的论文数
 let j8Ids = 0; // J8 真正看过的 @id 个数
+let j10Compared = 0; // J10 真正核对过角色的页数
+let j10ProfilePages = 0; // J10 里声明为 ProfilePage 的页数
 const websiteIds = new Set();
 // J8 的全站口径：@id → (@type 组合 → 出现在哪些页)
 const siteTypeUse = new Map();
@@ -318,6 +348,44 @@ for (const file of htmlFiles) {
         fail(
           `${from}: 页面实体的 @id 是 ${JSON.stringify(id)}，应为 ${JSON.stringify(`${canonical}#webpage`)}`
         );
+      }
+    }
+  }
+
+  /* ---- J10：页面实体的 @type 必须与源文件声明的角色一致 ----
+     角色声明的**唯一真源**是源文件 front matter 的 `profilePage` 开关
+     （base.njk 按它选 ProfilePage / WebPage）。判据回源文件逐页核对，
+     不在门禁里另抄一份 URL 清单 —— 路由一改，清单就会静默失配。 */
+  if (pageNodes.length === 1) {
+    const page = pageNodes[0];
+    const srcRel = sourceOf(html);
+    if (!srcRel) {
+      fail(
+        `${from}: 页面里没有 <!-- source: ... --> 源文件标注 —— 门禁 J10 靠它知道` +
+          `这一页的角色（profilePage），标注没了这条判据就失效了` +
+          `（base.njk 里那行 <!-- source: ... --> 不能删）`
+      );
+    } else {
+      const srcPath = path.resolve(ROOT, srcRel);
+      if (!fs.existsSync(srcPath)) {
+        fail(
+          `${from}: 源文件标注指向 ${JSON.stringify(srcRel)}，但找不到这个文件 —— ` +
+            `判据无从核对这一页的角色`
+        );
+      } else {
+        j10Compared++;
+        const isProfile = declaresProfilePage(srcPath);
+        if (isProfile) j10ProfilePages++;
+        const expected = isProfile ? "ProfilePage" : "WebPage";
+        const actual = typesOf(page).filter((t) => t === "WebPage" || t === "ProfilePage");
+        if (actual.length !== 1 || actual[0] !== expected) {
+          fail(
+            `${from}: 页面实体的 @type 是 ${JSON.stringify(typesOf(page).join(" / ") || "(无)")}，` +
+              `但源文件 ${srcRel} 的 front matter 声明的是 ${expected}` +
+              `（profilePage: ${isProfile}）—— 这一页的角色与源文件不一致` +
+              `（ProfilePage 降级成 WebPage 消费方就读不出"这是关于某人的页面"）`
+          );
+        }
       }
     }
   }
@@ -469,6 +537,19 @@ if (!j9Compared) {
       "（论文页的 mainEntityOfPage 消失了，判据也就跟着失效了）"
   );
 }
+if (!j10Compared) {
+  fail(
+    "全站没有比到任何一页的页面角色 —— J10 从未真正执行过" +
+      "（页面实体与源文件 front matter 的 profilePage 声明从未被核对过）"
+  );
+}
+if (!j10ProfilePages) {
+  fail(
+    "全站没有一页声明 ProfilePage —— 页面角色这一层整个退化了，" +
+      "消费方拿不到「这是关于某人的页面」" +
+      "（首页与关于页 front matter 里的 profilePage: true 是不是被改名或删掉了？）"
+  );
+}
 
 /* ---------- 汇总 ---------- */
 if (problems.length) {
@@ -489,5 +570,9 @@ note(
   `实体身份：全站 ${j8Ids} 个 @id，每个 @id 只挂一种 @type；` +
     `${j9Compared} 篇论文的 mainEntityOfPage 指向本页的页面实体`
 );
+note(
+  `页面角色：${j10Compared} 页与源文件 front matter 的 profilePage 声明逐页核对一致` +
+    `（其中 ${j10ProfilePages} 页声明为 ProfilePage）`
+);
 notes.forEach((n) => console.log(`· ${n}`));
-console.log("✓ 结构化数据自检通过（门禁 J1–J9）");
+console.log("✓ 结构化数据自检通过（门禁 J1–J10）");
