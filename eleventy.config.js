@@ -683,9 +683,18 @@ module.exports = function (eleventyConfig) {
        · isAccessibleForFree 取数据里的 openAccess，**不再写死 true**：
          对付费墙内的论文写 true 是假声明。
   */
-  eleventyConfig.addFilter("jsonLdArticles", (pubs, ownerOrcid, excludeKey, siteUrl) => {
+  eleventyConfig.addFilter("jsonLdArticles", (pubs, author, excludeKey, siteUrl) => {
     if (!Array.isArray(pubs) || !pubs.length) return [];
-    const ownerName = "Yihang Lyu"; // 与 site.author.nameAsPublished 一致
+    // 「本人」的判定**必须**与 jsonLdPaper 用同一份数据（site.js 的 author），
+    // 否则两处会各自认人：jsonLdPaper 用 A.nameAsPublished || A.name，
+    // 这里此前写死字符串 "Yihang Lyu"——今天恰好相同，但一旦 nameAsPublished
+    // 改成出版商登记名（如 "Yihang L. Lyu"），这里就再也认不出本人，
+    // 于是站点级 Person 的 canonical @id 悄悄丢失，而门禁只数"名字匹配"的
+    // 节点，对这种"认不出人"的退化**完全无感**。
+    // → 改成从 site.js 派生：分歧在结构上就不可能发生。
+    const A = author || {};
+    const ownerName = A.nameAsPublished || A.name || "";
+    const ownerOrcid = A.orcid || "";
     // 本人实体的稳定标识与主页地址：与 base.njk 里那个 Person 用**同一个**
     // @id，两处描述才会合并成同一个节点，而不是散成多个"人"。
     const ownerPersonId = `${siteUrl || ""}/#person`;

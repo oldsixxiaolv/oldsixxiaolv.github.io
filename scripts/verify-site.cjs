@@ -1525,6 +1525,108 @@ if (SITE_URL) {
   }
 }
 
+/* ---------- 22. 同一张图在 og 与 twitter 上必须只有一套 alt 文本 ----------
+   第 15 条管的是"这张图**也出现在页面上**时，og/twitter 的 alt 与 <img alt>
+   必须逐字一致"。但社交平台读的是 **og:image:alt / twitter:image:alt**，
+   不是页面上的 <img>。于是留下一道缝：
+     · 分享卡片用的 og 卡片图（assets/img/og/*.png）**根本不在页面的 <img> 里**
+       → 第 15 条在这几页上**一张图都不比对**（实测：首页/about/papers/blog
+       四个页面的 og 卡片图与页面里的图无交集，只有论文页有判别力）；
+     · 这道缝漏过一次真事故：首页的 twitter:image:alt 拼成了
+       "Yihang Lyu · PhD Student · Yihang Lyu, PhD Student"
+       （姓名与职位重复了一遍），og 侧却是另一句
+       "MeteoHub — Yihang Lyu, PhD Student at IAP-CAS"
+       —— 同一张图、两套说法，而当时的门禁全绿。
+
+   本条**不看图有没有出现在页面上**，只看一件事：
+   **og:image 与 twitter:image 指向同一张图时，两处 alt 必须逐字相同。**
+   这是一张图、一句话的硬约束，与图片出现在哪无关。
+
+   ⚠️ 判据按**图片路径**配对，不按出现顺序，也不按 alt 文本配对：
+   og 侧默认会输出 3 个尺寸（1200×630 / 1080×1080 / 1500×500），
+   twitter 侧只输出 1200×630；按顺序配会错位，必须按路径。 */
+for (const file of htmlFiles) {
+  const html = fs.readFileSync(file, "utf8");
+  const from = rel(file);
+  const ogPairs = pairImageAlts(html, "og");
+  const twPairs = pairImageAlts(html, "twitter");
+  if (!ogPairs.length || !twPairs.length) continue;
+  for (const { image: ogImage, alt: ogAlt } of ogPairs) {
+    const p = siteRelPath(file, ogImage);
+    if (!p) continue;
+    for (const { image: twImage, alt: twAlt } of twPairs) {
+      if (siteRelPath(file, twImage) !== p) continue;
+      const a = String(ogAlt || "").trim();
+      const b = String(twAlt || "").trim();
+      if (a === b) continue;
+      fail(
+        `${from}: og:image:alt 与 twitter:image:alt 描述的是**同一张图**（${p}）` +
+          `却是两句话 —— 一张图只能有一套 alt 文本（og 侧 "${a.slice(0, 40)}" vs ` +
+          `twitter 侧 "${b.slice(0, 40)}"${b ? "" : "（twitter 侧整条缺失）"}）`
+      );
+    }
+  }
+}
+
+/* ---------- 23. 本人的 ORCID 与 canonical @id 必须**双向**绑定 ----------
+   门禁 12 按**姓名**找出"本人"的 Person 节点，判它们是不是都用了同一个 @id。
+   它的盲区是"**认不出本人**"这件事：
+   jsonLdArticles 此前把 ownerName **写死**成 "Yihang Lyu"，而 jsonLdPaper
+   用 site.js 的 nameAsPublished。今天两者恰好相同，一旦 nameAsPublished
+   改成出版商登记名（如 "Yihang L. Lyu"），jsonLdArticles 就再也认不出本人
+   → 那批节点**悄悄丢掉** canonical @id → "同一个人"分裂成多个人。
+   而门禁 12 数的是"名字匹配 nameAsPublished 的节点"，对这种退化**无感**
+   （名字一个都没匹配上 → ownerNodes = 0 → 它报的是另一条错）。
+
+   姓名是**可变**的，ORCID 是**稳定**的标识。所以这条判据改用 ORCID 双向绑定：
+     方向 A：sameAs 里含本人 ORCID 的 Person 节点 → 必须带 canonical @id；
+     方向 B：带 canonical @id 的 Person 节点 → sameAs 里必须有本人 ORCID。
+   两条都绿 ⇒ "有 ORCID 的就是本人"与"本人就有 ORCID"互相锁死，
+   无论姓名怎么改、谁认不出谁，都逃不掉。
+
+   ⚠️ sameAs 有**两种形态**（这与第九轮修的 @type 数组洞是同一类陷阱）：
+     · jsonLdArticles：person.sameAs = ownerOrcid → **字符串**
+     · jsonLdPaper：  person.sameAs = A.sameAs    → **数组**（site.js 里那份）
+   写成 `sameAs.includes(ORCID)` 对字符串会退化成"子串在字符串里"、
+   对数组才是"元素匹配"——必须先归一成数组再判，两种形态都成立。 */
+const OWNER_ORCID =
+  (siteData && siteData.author && siteData.author.orcid) || "";
+if (OWNER_ORCID && SITE_URL) {
+  const OWNER_PERSON_ID = `${SITE_URL}/#person`;
+  let withOrcid = 0;
+  let withOwnerId = 0;
+  for (const { from, parsed } of ldRecords) {
+    for (const node of collectNodes(parsed)) {
+      if (!typesOf(node).includes("Person")) continue;
+      const id = typeof node["@id"] === "string" ? node["@id"].trim() : "";
+      const raw = node.sameAs;
+      const list = Array.isArray(raw) ? raw : raw ? [raw] : [];
+      const hasOrcid = list.some(
+        (s) => typeof s === "string" && s.trim() === OWNER_ORCID
+      );
+      const isOwner = id === OWNER_PERSON_ID;
+      if (hasOrcid) withOrcid++;
+      if (isOwner) withOwnerId++;
+      if (hasOrcid && !isOwner) {
+        fail(
+          `${from}: Person 节点的 sameAs 里含本人 ORCID，却没有 canonical @id ` +
+            `（${OWNER_PERSON_ID}）—— 有本人标识却不指向本人实体`
+        );
+      }
+      if (isOwner && !hasOrcid) {
+        fail(
+          `${from}: 带 canonical @id 的 Person 节点，sameAs 里没有本人 ORCID ` +
+            `（${OWNER_ORCID}）—— 本人实体与自己的权威标识脱钩了`
+        );
+      }
+    }
+  }
+  note(
+    `本人 ORCID ${OWNER_ORCID} ↔ canonical @id 双向绑定（${withOrcid} 个节点带 ORCID / ` +
+      `${withOwnerId} 个节点带 @id）`
+  );
+}
+
 /* ---------- 汇总 ---------- */
 console.log(`产物：${htmlFiles.length} 个 HTML 页，${refCount} 条本地引用，${sitemapUrls.length} 条 sitemap URL`);
 if (absoluteCount === 0) console.log("站内引用全部为相对路径 ✓");

@@ -298,12 +298,24 @@
   <meta name="twitter:card" content="summary_large_image" />
   <meta name="twitter:title" content="{{ ogTitle }}" />
   <meta name="twitter:description" content="{{ ogDesc }}" />
+  {# twitter:image:alt 与 og:image:alt **必须同源**。
+     两者描述的是**同一张图**（下面 og 那侧的 og:image 与这里的 twitter:image
+     指向同一个文件），所以 alt 也必须是同一句话——社交平台读的是 alt，
+     读到的却是两套不同说法，这本身就是缺陷。
+
+     ⚠️ 此前这里是 `ogTitle + ' · ' + name + ', ' + jobTitle`，而 og 侧
+     用的是独立拼装的 ogCardAlt。首页的 ogTitle = "Yihang Lyu · PhD Student"
+     （本身已含姓名与职位），再拼一遍姓名职位 →
+     "Yihang Lyu · PhD Student · Yihang Lyu, PhD Student"，
+     正是上方第 152–154 行注释点名要避免的那一串。
+     → 现在 twitter 侧直接复用 og 侧那个句子（封面图则复用 coverAltText），
+     顺带把"alt 描述图本身、页面标题交给 og:title 承担"这条意图落到实现上。 #}
   {% if cover %}
     <meta name="twitter:image" content="{{ coverUrl }}" />
-    <meta name="twitter:image:alt" content="{{ coverAltText or (ogTitle + ' · ' + site.author.name + ', ' + site.author.jobTitle) }}" />
+    <meta name="twitter:image:alt" content="{{ coverAltText or ogCardAlt }}" />
   {% else %}
     <meta name="twitter:image" content="{{ site.url }}/assets/img/og/og-1200x630.png" />
-    <meta name="twitter:image:alt" content="{{ ogTitle }} · {{ site.author.name }}, {{ site.author.jobTitle }}" />
+    <meta name="twitter:image:alt" content="{{ ogCardAlt }}" />
   {% endif %}
   {# —— Twitter/X 身份句柄（2026-10-19 第五轮改）——
        ⚠️ 身份类字段与普通外链**语义不同**：写错不是"死链"，
@@ -438,7 +450,7 @@
      那一条描述的是站点作者本人、url 指向站点根目录，与"这个 URL 是一篇
      论文"无关；去掉它属于展示口径的取舍，留在"待决策"里由本人定，
      这里不替他拍板。 #}
-  {%- set articles = site.publications | jsonLdArticles(site.author.orcid, pubKey, site.url) -%}
+  {%- set articles = site.publications | jsonLdArticles(site.author, pubKey, site.url) -%}
   {%- if articles.length and not is404 %}
   <script type="application/ld+json">
   {{ { "@context": "https://schema.org", "@graph": articles } | dump | safe }}
