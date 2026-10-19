@@ -1872,6 +1872,12 @@ origin 必须是 `site.url`。
 （此前已单独验过：`<lastBuildDate>` 改回 ISO 格式 → exit 1，
 报「不是 RSS 2.0 要求的 RFC 822 格式」。）
 
+（该表是**那次运行**的逐字记录。此后 `0c9d586`（13:52:46）把门禁 16 的措辞
+改成"声明了身份类实体（<类型列表>；Person 是根节点，其余是它的嵌套节点）"，
+**现行措辞**见 `scripts/verify-site.cjs:1080-1088`；
+而门禁在 `9dab5d4`（12:58:48）补上 `identityOn404Raw = m[1]` 之后，
+报错的"开关 = "那段又与本表的引文**重新对上**（详见下文 L 节）。）
+
 ### 并发冲突处置（记录给下一棒）
 
 - 12:38 前后，本场次在 `src/404.njk` 补 `identityOn404: true` 键时，
@@ -4706,3 +4712,90 @@ Google Scholar/ADS/arXiv 档案、网盘 URL、OpenAlex 是否页脚可见、作
    （通配有副作用）。若将来出现"`anywhere` 也挡不住"的场景（少见），
    再回到 `min-inline-size: 0` + `minmax(0, 1fr)` 这条路
    —— `components/_paper.css:715` 已有先例做法。
+
+## 2026-10-19 · 14:20–14:45 场次（**不占轮次号**，避免与并发场次撞号）：复核两份 peer 代转（证书取证 + 门禁 16 实现复核）
+
+### 本场次定位
+
+本轮收到两份只读 peer 代转：
+① **12:30 只读复验者的证书取证**（`www.iap.cas.cn` vs `iap.cas.cn`）；
+② **一份门禁 16 实现复核**（说 `identityOn404Raw` 声明了但从未赋值 + 4 处文案与实现不符）。
+两份都**逐条现查现跑**，不采信转述。
+**结论：两份的事实描述都对，但它们量的是"当前 HEAD 之前"的状态**——
+本场次逐条实测后，它们列出的**全部缺口在复验时的 HEAD 上已闭环**，
+只补一处"历史引文 vs 现行措辞"的说明（不改动那次运行的历史记录本身）。
+
+### K. 证书取证：事实独立复核通过，**内容早已在日志里**
+
+| peer 要点 | 本场次独立实测 | 判定 |
+|---|---|---|
+| `www.iap.cas.cn`：subject == issuer == `C=CN, ST=BeiJing, L=BeiJing, O=CN, OU=CN, CN=cn` → 自签名 | 逐字一致：`verify error:num=18:self-signed certificate` | ✓ 成立 |
+| `iap.cas.cn`：subject `CN=*.cas.cn`（O=中国科学院），issuer `CN=CFCA OV OCA`，SAN `*.cas.cn + cas.cn` → 校验通过 | 逐字一致，链到 `CFCA EV ROOT`（depth 2→1→root），**无 verify error** | ✓ 成立 |
+| `*.cas.cn` 按 X.509 语义只匹配**一个标签**、不跨点 → 覆盖 `iap.cas.cn`，不覆盖 `www.iap.cas.cn` | 按标签数比：`iap.cas.cn` 2 段 ✓ / `www.iap.cas.cn` 3 段 ✗ | ✓ 成立 |
+| ⚠️ 别用 Python `fnmatch` 核对通配符覆盖 | 实测 `fnmatch.fnmatch("www.iap.cas.cn","*.cas.cn")` = **True**（与 X.509 语义**相反**）；`fnmatch("iap.cas.cn","*.cas.cn")` 同样 True → **fnmatch 分不出这两个**，必须按标签数比 | ✓ 成立 |
+| 准确性要求：客户端只能证明「该主机名拿不到可验证的证书」，**不能**区分"站点没给该主机名配证书"与"链路中间设备兜底" | 日志里**已经是这条措辞**（含两种解释 + "不要用 fnmatch"） | ✓ 已在日志 |
+
+→ **这份取证的内容，日志里早就有了**（1287–1336 行；1315 行还明确标注
+"12:30 只读复验者补正，措辞见 `/tmp/mvs_451e93_msg4_cert_evidence.md` 第 2 节"）
+——**peer 是把自己已被收录的内容又转了一遍**。
+且**站内现在只引用 apex**：`src/_data/site.js:80` = `https://iap.cas.cn/`
+（`www` 变体已由 `33ca461` 改掉）→ **无待办**。
+
+### L. 门禁 16 实现复核：peer 报的 5 项，在复验时的 HEAD 上**全部已闭环**
+
+| peer 报的项 | peer 测的树 | 复验时 HEAD 的实况 | 判定 |
+|---|---|---|---|
+| 缺陷 1：`identityOn404Raw` 声明了但从未赋值 → 报错打"(未读到)" | `33ca461` + 覆盖 6 个 dirty 文件（≈12:47 的工作树） | `9dab5d4`（12:58:48）**已加** `identityOn404Raw = m[1];`（现 `:1054`）；现 `grep identityOn404Raw` = 声明 `:1012` / 赋值 `:1054` / 使用 `:1066`、`:1085` | **已修** |
+| 缺陷 2-① 待决策段（**本人决策入口**）那处措辞 | 同上 | 已是 peer 提议的**逐字**版本（现 1583-1586） | **已修** |
+| 缺陷 2-② `src/404.njk` 的布尔写法提示 | 同上 | 已是 peer 提议的版本（现 `:23-25`） | **已修** |
+| 缺陷 2-③ `src/404.njk` 的读法说明 | 同上 | 已是"不解析 YAML + 取字面量 + 白名单 + 其余一律判红"（现 `:19-21`） | **已修** |
+| 缺陷 2-④ 门禁报错文案只接受 `true / false` | 同上 | 现 `:1043` 已是"只接受 true / false / True / False / TRUE / FALSE"，`:1048-1049` 已把 **null / 0 是假值**单列 | **已修** |
+| 连带：日志 FI-B 引文"开关 = false"与实际输出对不上 | 当时输出是"(未读到)" | 补上赋值后实测输出**就是** `identityOn404 = false` → 与日志引文**重新对上** | **已解决** |
+
+⚠️ **peer 的树是"12:47 的工作树覆盖版"**（`33ca461` + 6 个 dirty 文件），
+而现行 HEAD 已经过 `9dab5d4`（12:58:48）——
+**它发现的是一个当时真实存在、随后已被修掉的缺陷**。
+这正是「先验它测的是哪个版本」的又一次实例：结论**成立**，但**已被后手覆盖**。
+
+#### L-1. 本场次自己跑的 8 例矩阵（复验时 HEAD = `330d0ec`，隔离克隆 `/tmp/mh-r20-verify/repo`）
+
+| `src/404.njk` 的值 | build exit | 404.html 的 Person 数 | 门禁输出 |
+|---|---|---|---|
+| `true` | **0** | 1 | — |
+| `false` | **0** | 0 | —（双向判据生效，合法口径不被误伤） |
+| `False` | **0** | 0 | —（白名单接受大小写形式，YAML 布尔 false） |
+| `TRUE` | **0** | 1 | — |
+| `no` | **1** | 1 | `identityOn404 的值 "no" 不是合法布尔` |
+| `null` | **1** | 0 | 同上 |
+| `0` | **1** | 0 | 同上 |
+| 删掉那一行 | **1** | 0 | `front matter 里找不到 identityOn404 开关` |
+| 复位 | **0** | — | — |
+
+⚠️ 表里 `no` 那行 Person=**1**、`null`/`0` 那行 Person=**0**，正好印证门禁报错文案里那句
+"**非空字符串**（no / on / off / yes / "false"）与**非零数字**是**真值**…
+唯独 null 与 0 是**假值**"——即"写 `no` 以为关掉了"**真的没关掉**（模板仍输出 Person），
+而写 `null`/`0` 确实让模板不输出，但**门禁照样判红**（不是合法布尔）。
+
+#### L-2. 顺带实测了 peer 说的 case F（开关与产物不一致），逐字输出
+
+`identityOn404: false` + `base.njk` 强制输出身份实体 → **exit 1**：
+
+```
+404.html: 声明了身份类实体（Person、Organization、CollegeOrUniversity、Place、PostalAddress；Person 是根节点，其余是它的嵌套节点），但 src/404.njk 的 identityOn404 = false 声明错误页**不**声明身份 —— 开关与产物不一致
+```
+
+→ 与门禁现行措辞（`verify-site.cjs:1080-1088`）**逐字一致**；
+也印证了赋值修好之后，日志里那处 FI-B 引文重新与实际输出对上。
+
+### M. 本轮提交（**不 push**）
+
+- `docs(log)` 本条（**即本条提交**）：本节 K、L（两份 peer 代转的逐条判定）
+  + 上文那处"历史引文 vs 现行措辞"的说明（**不改动那次运行的历史记录本身**）。
+
+⚠️ 并发提醒：提交时工作树里**叠着并发场次在途的改动**
+（`eleventy.config.js`、`src/_includes/layouts/paper.njk`、
+`src/assets/css/components/_paper.css`、`src/papers.njk`，
+以及未跟踪的 `src/publications.ris.njk`），
+**日志文件里也有另一场次的在途改动**（门禁 24 承重续报、C2 补丁取代 C 那两段）——
+本条**只把自己的 hunk 写进索引**（`hash-object` + `update-index --cacheinfo`），
+**不碰工作树里的在途内容**。
