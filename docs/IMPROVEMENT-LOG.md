@@ -1234,6 +1234,46 @@ commit 落地**，否则 bisect 到 commit 1 会看到一份"说了 18/19、代�
 （都是 build 照过、门禁全绿）。以后加门禁时，凡是"靠产物里某个可选字段"
 做判据的，那个字段缺失时**必须判红**，不能 `continue` 跳过。
 
+### D. 门禁 12/16/19 加固：数组型 `@type` 不能把判据整个绕过（随 commit 3 落地）
+
+⚠️ **本节是对本轮自己刚加的门禁的一次自查**：门禁 12 / 16 / 19 都靠 `@type` 判断
+"这是不是内容类实体 / 这是不是 Person"，但 JSON-LD 允许 `@type` 写成**字符串数组**。
+三处判定此前各只认一种写法，于是**把 `@type` 改成数组就能让判据静默失效**：
+
+| 门禁 | 改前的判定 | 数组型 `@type` 的后果 |
+|---|---|---|
+| 12（"本人" @id 全站唯一） | `node["@type"] !== "Person"` | 数组型 Person 节点被跳过 → "本人"节点缺 @id 不报 |
+| 16（404 不得声明内容类实体） | `if (typeof type !== "string") continue;` | **404 页用 `["ScholarlyArticle"]` 重新宣称"我是一篇论文"，门禁全绿** |
+| 19（内容类实体 @id 全站唯一） | `Array.isArray(raw) ? raw[0] : raw` | 只看第 0 个元素 → `["Person","ScholarlyArticle"]` 被当成 Person 跳过 → **没有 @id 的作品实体不报** |
+
+实测（`54899f1` 之后的树，注入在 `/tmp` 副本做，工作区零写入，每例都先自证"注入真的生效"）：
+
+- 404 页注入 `"@type": ["ScholarlyArticle"]` → **exit 0**（404 又在对外声明这里有产出，门禁没反应）
+- 首页注入 `"@type": ["Person","ScholarlyArticle"]` 且**不带 @id** → **exit 0**（门禁 19 的"必须有 @id"没触发）
+
+这与"删掉 `<!-- source: ... -->` 标注"是**同一类失效**：判据自己被卸掉，
+而产物照常出、build 照过、门禁照绿——三者的现象**完全一样**，光看结果分不出来。
+
+修法：加一个数组感知的 helper `typesOf(node)`（字符串 → 单元素数组；数组 → 只留非空字符串），
+门禁 12 用 `typesOf(node).includes("Person")`；门禁 16 遍历**全部**类型；
+门禁 19 取 `workTypes`（**全部**作品类型，不只第 0 个）再判，消息里用 `A/B` 形式列出。
+
+修复后的注入矩阵（6 例）：
+
+| 注入 | 改前 | 改后 |
+|---|---|---|
+| 对照：干净副本 | exit 0 | **exit 0 ✓**（不误伤） |
+| 404 页 `["ScholarlyArticle"]` | exit 0 ✗ | **exit 1 ✓**（门禁 16：JSON-LD 里出现了内容类实体 "ScholarlyArticle"） |
+| 首页 `["Person","ScholarlyArticle"]` 无 @id | exit 0 ✗ | **exit 1 ✓**（门禁 19：有一个 ScholarlyArticle 实体没有 @id） |
+| 404 页 `["Person"]` 无 @id | exit 0 ✗ | **exit 1 ✓**（门禁 12：描述"Yihang Lyu"的 Person 节点没有 @id） |
+| 首页 `["Person"]` 无 @id | exit 0 ✗ | **exit 1 ✓**（同上） |
+| 404 页字符串型 `"ScholarlyArticle"`（回归检查） | exit 1 ✓ | **exit 1 ✓**（老路径没被改坏） |
+
+改后 `npm run build` → **exit 0**；`check:site` 的 notes 与改前**逐字一致**
+（13 个 Person 节点、内容类实体 3 件、sitemap 5 条 URL 带 lastmod）→ 没有误伤。
+⚠️ 本节**不关闭**下面"留给下一轮"第 1 条：那个缺口是"404 页把整个 Person 块删掉"
+（连 `@type` 都没有），与数组型 `@type` 是两回事。
+
 ### 留给下一轮（本轮改进点已用满，**不在本轮扩**）
 
 1. **门禁 16 只黑名单内容类实体 → 404 页把整个 Person JSON-LD 块删掉时门禁全绿**

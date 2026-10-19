@@ -452,6 +452,22 @@ function collectNodes(node, out = []) {
   for (const v of Object.values(node)) collectNodes(v, out);
   return out;
 }
+
+/* JSON-LD 里 "@type" 可以是字符串，也可以是**字符串数组**（多类型实体）。
+   判据必须两种都看，否则 "@type" 一旦写成数组，整条判据就被静默关掉：
+     · 门禁 12 / 16 早先只认字符串 → 数组型 @type 被 continue 跳过；
+     · 门禁 19 早先只取数组第 0 项 → ["Person","ScholarlyArticle"] 被
+       当成 Person 跳过，后面那个作品类型完全没被看见。
+   这与"删掉 <!-- source: --> 标注"是同一类失效：**判据自己被卸掉**，
+   而产物照常出、build 照过、门禁照绿。 */
+function typesOf(node) {
+  const raw = node["@type"];
+  if (typeof raw === "string") return raw.trim() ? [raw.trim()] : [];
+  if (Array.isArray(raw)) {
+    return raw.filter((t) => typeof t === "string" && t.trim()).map((t) => t.trim());
+  }
+  return [];
+}
 for (const { from, parsed } of ldRecords) {
   for (const node of collectNodes(parsed)) {
     for (const key of ["@id", "url"]) {
@@ -523,7 +539,7 @@ const ownerIds = new Set();
 let ownerNodes = 0;
 for (const { from, parsed } of ldRecords) {
   for (const node of collectNodes(parsed)) {
-    if (node["@type"] !== "Person") continue;
+    if (!typesOf(node).includes("Person")) continue;
     if (String(node.name || "").trim() !== OWNER_NAME) continue;
     ownerNodes++;
     const id = node["@id"];
@@ -809,14 +825,14 @@ const CONTENT_TYPES = new Set([
 for (const { from, parsed } of ldRecords) {
   if (!from.endsWith("404.html")) continue;
   for (const node of collectNodes(parsed)) {
-    const type = node["@type"];
-    if (typeof type !== "string") continue;
-    if (!CONTENT_TYPES.has(type)) continue;
-    fail(
-      `${from}: JSON-LD 里出现了内容类实体 "${type}" —— ` +
-        `错误页不该声明论文/数据集/胶囊（页面文案是 "Nothing here"，` +
-        `而实体却在对外声明这里有产出）`
-    );
+    for (const type of typesOf(node)) {
+      if (!CONTENT_TYPES.has(type)) continue;
+      fail(
+        `${from}: JSON-LD 里出现了内容类实体 "${type}" —— ` +
+          `错误页不该声明论文/数据集/胶囊（页面文案是 "Nothing here"，` +
+          `而实体却在对外声明这里有产出）`
+      );
+    }
   }
 }
 
@@ -1115,9 +1131,12 @@ try {
 const idByWork = new Map(); // 作品标识 → Map(@id → 首次出现的页面)
 for (const { from, parsed } of ldRecords) {
   for (const node of collectNodes(parsed)) {
-    const rawType = node["@type"];
-    const type = Array.isArray(rawType) ? rawType[0] : rawType;
-    if (typeof type !== "string" || !WORK_ENTITY_TYPES.has(type)) continue;
+    // 一个节点可能带多个作品类型（["Dataset","SoftwareSourceCode"]），
+    // 也可能把作品类型排在数组第二位 —— 两种都要看见，
+    // 只看第 0 个元素会被 ["Person","ScholarlyArticle"] 这种写法整个绕过。
+    const workTypes = typesOf(node).filter((t) => WORK_ENTITY_TYPES.has(t));
+    if (!workTypes.length) continue;
+    const type = workTypes.join("/");
     const id = node["@id"];
     if (typeof id !== "string" || !id.trim()) {
       fail(
