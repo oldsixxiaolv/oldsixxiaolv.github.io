@@ -1630,6 +1630,12 @@ CSDN 521 并列）。那个归类对 ResearchGate / CSDN 成立，但对这一�
       `docs/IMPROVEMENT-LOG.md` 与 `scripts/verify-site.cjs` 两个文件冲突
       （都被后续 commit 改过），需手工解决；`eleventy.config.js` /
       `src/sitemap.njk` / `.github/workflows/deploy.yml` 三个实现文件能自动合并。
+      ⚠️ **订正（2026-10-19 17:30–17:50 场次实测：上面那个冲突面已过期）**：
+      在复验时的 HEAD 上重测 `git revert 54899f1`，冲突文件是 **3** 个
+      （`docs/IMPROVEMENT-LOG.md` / `eleventy.config.js` / `scripts/verify-site.cjs`），
+      能自动合并的只有 **2** 个（`src/sitemap.njk` / `.github/workflows/deploy.yml`）——
+      `eleventy.config.js` 在此之后被改过（旧记录把它列为"能自动合并"）。
+      照旧记录去 revert 会漏掉第 3 个冲突文件。
       代价也一并记下（**数字已订正**）：`fetch-depth: 0` 的真实代价约 **9 MB**
       （全部 30 个提交、356 个 blob 合计 8.87 MB），完整克隆实测耗时 **0.5 s**。
       ⚠️ 此前这里记的"471 MB"是 `du -sh .git` 在 **exFAT 上的块分配虚高**
@@ -3077,6 +3083,11 @@ canonical）。**部署由本人决定。**
      并补上实测结论：**`git revert 54899f1` 会冲突**
      （`docs/IMPROVEMENT-LOG.md` 与 `scripts/verify-site.cjs` 两文件冲突；
      `eleventy.config.js` / `src/sitemap.njk` / `.github/workflows/deploy.yml` 能自动合并）。
+     ⚠️ **订正（2026-10-19 17:30–17:50 场次实测）**：重测 `git revert 54899f1`
+     的冲突文件是 **3** 个（`docs/IMPROVEMENT-LOG.md` / `eleventy.config.js` /
+     `scripts/verify-site.cjs`），能自动合并的只有 **2** 个
+     （`src/sitemap.njk` / `.github/workflows/deploy.yml`）——
+     `eleventy.config.js` 在此之后被改过。照上面那行去 revert 会漏掉第 3 个冲突文件。
    - 原文"要回退到 C 只需把 `lastCommitTime` filter 改成恒返回空" → **实测是假的**：
      照做 build **exit 1**、5 条报错，因为**门禁 18 规则 E 正是抓这个**。
      选 C 必须**同时撤掉门禁 18**，共四步：① filter 恒返回空；
@@ -9760,3 +9771,138 @@ HEAD 源码，源码级注入 + 全量重建）：
   本人 ORCID 公共记录里作品列表是空的。本站已经声明本人 ORCID，结构化数据里也有作品，但 **ORCID 侧没有反向指向**。
   → 认领是本人操作（ORCID 后台），本场次不代做。
 - 待拍板 1 / 3 / 7 / 8 / 10 / 11 / 12 见前几节，**不重复、不改口**。
+
+## 2026-10-19 · 17:30–17:50 场次（**不占轮次号**，避免与并发场次撞号）：第四份回执（12:30 只读复验者 12:55）的三条订正 —— 全部已闭环 + 9 例矩阵（门禁级/build 级双列）独立复现 + revert 孤儿「半应用」实测 + 日志里一处**过期的冲突面**
+
+复验时的 HEAD = `9d58d3e`。本轮**只读复核 + 写日志**：不改任何代码、不碰并发场次的在途改动。
+
+材料：`/tmp/mh_c96770dd_msg_to_writer_1255.md`（12:30 只读复验者，12:55 送达，三条订正）。
+
+### A. 三条订正：**全部已闭环，不重复实施**
+
+| 订正 | 裁定 | 我这一轮的独立依据 |
+|---|---|---|
+| ① 回退目标应是 `54899f1`（`dfe021a` 是 12:09 被 reset 掉的孤儿）；日志两处「commit 2」要写明 hash | **成立，且已在 main** | reflog 逐条吻合：12:07:28 `526b566` → 12:07:35 `dfe021a` → 12:09:35 `89d64fd` → 12:09:35 reset 回 `fdb5dca` → 12:09:41 重做 `6953e74` → 12:09:41 **再** reset 回 `fdb5dca` → 12:09:49 重做 `54899f1`（⚠️ **reset 有两次**，12:09:35 与 12:09:41 各一次——之前记「12:09:41 一次」是不完整的）。链上实测：`526b566`/`dfe021a`/`89d64fd` = **ORPHAN**，`6953e74`/`54899f1` = **ON-CHAIN**。（此事**第十四轮 14:15–14:30 场次已裁定过**，本轮是独立复证 + 补上 B 段那处措辞精化） |
+| ② 两处 `hasOwnerOn404` 修法已被取代，要标「已被取代」 | **成立，且已在 main** | HEAD 日志两处各有一段「⚠️ **本条已关闭 …… 且原修法现在照做是**有害的**（第十三轮 13:06 场次订正）**」（⚠️ 两处措辞**不完全一样**：一处用「——」、一处用「，」），内容正是它建议的那句 + 更完整的理由（开关 + 双向判据已闭合缺口；`hasOwnerOn404` 会把「404 页要不要 Person」这个未拍板口径写死） |
+| ③ 非法布尔报错文案与代码/实测有出入 | **成立，但已被后续提交修好** | 文案修正在 `0c9d586`（**13:52**）落地，**晚于它的 12:55 快照**。现文案已是「只接受 true / false / True / False / TRUE / FALSE」，并已单列：「⚠️ 唯独 null 与 0 是**假值**——模板照常**不输出** Person，「以为关掉了」那种坑不成立；但它们同样不是合法布尔，本门禁照样判红。」 |
+
+→ **三条都不需要再动。** 这份回执最值得记的不是「它对不对」，而是：
+**它每一条都成立，却每一条都早于对应的那次修复**——
+① 的订正在 13:0x 落地、② 在 13:06、③ 在 13:52，而它的快照是 **12:55**。
+**「结论对」和「仍待办」是两回事**；收到回执先看它引用的现象**现在长什么样**。
+
+### B. 它说的「revert 会失败」不够准 —— 实测是**半应用**
+
+它写「`dfe021a` 不能 revert（不在链上，revert 会失败或乱 apply 一份已重做过的旧 diff）」，
+日志 11:15 那行也跟着写了「`revert` 会失败或乱 apply 一份已重做过的旧 diff」。
+
+**实测**（隔离 worktree，HEAD = `9d58d3e`，与主仓共享对象库所以拿得到孤儿对象）：
+
+```
+$ git revert --no-commit dfe021a
+Auto-merging .github/workflows/deploy.yml
+Auto-merging eleventy.config.js
+CONFLICT (content): Merge conflict in eleventy.config.js
+Auto-merging scripts/verify-site.cjs
+CONFLICT (content): Merge conflict in scripts/verify-site.cjs
+error: could not revert dfe021a... feat(sitemap): lastmod 改用该页源文件的 git 提交时间 + 门禁 18/19
+```
+
+| 观察项 | 实测值 |
+|---|---|
+| 是否因「不是祖先」而失败 | **否**——git 的 `revert` 不要求被回退的 commit 是祖先，它照样开始应用那份旧 diff |
+| exit code | **1**（但**不是**「什么都没做」意义上的失败） |
+| 干净回退并已暂存的文件 | `.github/workflows/deploy.yml`、`src/sitemap.njk`（`M ` 状态） |
+| 留下冲突标记的文件 | `eleventy.config.js`、`scripts/verify-site.cjs`（`UU` 状态；`<<<<<<<` 标记共 6 处） |
+| 工作树最终状态 | **混合态**：一半已回退并暂存，一半带冲突标记 |
+
+→ **真正的风险不是「revert 失败」**（失败是安全的：当场报错，什么都不改），
+**而是「静默半应用 + 留下冲突标记」**——
+看到 exit ≠ 0 就以为「没生效」的人，会漏掉那 2 个**已经暂存**的回退。
+所以「回退目标要写明 hash」这条**更该做**——
+不是因为 revert 会失败，而是因为 **revert 一个孤儿会静默搅乱 2 个文件**。
+（本轮已 `git revert --abort`，worktree 复位。）
+
+### B2. 顺带查出：日志里 `54899f1` 的**冲突面已过期**（已就地订正两处）
+
+同一 worktree 上测**正确**的 hash 作对照：
+
+```
+$ git revert --no-commit 54899f1
+```
+
+| 观察项 | 实测值 |
+|---|---|
+| 冲突文件 | `docs/IMPROVEMENT-LOG.md`、`eleventy.config.js`、`scripts/verify-site.cjs` |
+| 干净回退并已暂存的文件 | `.github/workflows/deploy.yml`、`src/sitemap.njk` |
+
+而日志里两处写的是「冲突 2 个文件（`docs/IMPROVEMENT-LOG.md`、`scripts/verify-site.cjs`），
+`eleventy.config.js` / `src/sitemap.njk` / `.github/workflows/deploy.yml` 三个实现文件能自动合并」。
+
+→ **`eleventy.config.js` 现在也冲突了**（它在此之后被 RIS / C2 等场次改过），
+能自动合并的只剩 2 个。**本人若照旧记录去 revert，会漏掉第 3 个冲突文件。**
+→ 已在日志里**就地插入两处订正块**（11:15 段 + 「待决策」段），**纯插入、删行 0**。
+
+### C. 9 例注入矩阵：独立复现，并**分两级**取 exit
+
+隔离克隆（`file://` 前缀，commit = `4f2b2c8`）上，唯一变量 = `src/404.njk` 里
+`identityOn404` 那一行的取值：
+
+| # | 取值 | 门禁级 exit<br>(`check:site`) | 整链 build 级 exit<br>(`npm run build`) | 404 产物 Person 块数 |
+|---|---|---|---|---|
+| 1 基准 | `true` | **0** | 0 | 1 |
+| 2 大小写假值 | `False` | **0** | 0 | 0 |
+| 3 大小写真值 | `TRUE` | **0** | 0 | 1 |
+| 4 行尾注释（中文） | `true  # 保留 Person` | **0** | 1 | 1 |
+| 4b 行尾注释（英文） | `true  # keep Person` | **0** | 0 | 1 |
+| 5 基准假值 | `false` | **0** | 0 | 0 |
+| 6 带引号字符串 | `"false"` | **1** | 1 | 1 |
+| 7 YAML 否定 | `no` | **1** | 1 | 1 |
+| 8 null | `null` | **1** | 1 | 0 |
+
+（"门禁级" = 只跑 `node scripts/verify-site.cjs`；"整链 build 级" = `npm run build`。）
+
+**读法**：
+- 真值三拼写（true / True / TRUE）→ 两级都 **exit 0**、产物 **1 块**；
+- 假值三拼写（false / False / FALSE）→ 两级都 **exit 0**、产物 **0 块**
+  （这正是门禁 16 双向判据的「反」那一半）；
+- `"false"` / `no` / `null` → 两级都 **exit 1**，且**各只报 1 个问题**（双报错确实已消失）；
+- `null` → 产物 Person 块数 **0**，所以旧文案里「YAML 会把它当成非空字符串 → 模板仍会输出 Person」
+  对 `null` **不成立**（对 `"false"` / `no` 成立——那两例产物块数都是 1）。
+
+**第 4 例与第 4b 例的差别，是本轮最有实用价值的一条**：
+门禁 16 **允许**行尾注释（`true  # 保留 Person` 在**门禁级**是 exit 0），
+但 `check:lang` 只剥 front matter 的**整行**注释、**不剥行尾注释**，
+所以中文行尾注释会被**另一个门禁**拦下 → 整链 build **exit 1**。
+→ 叠加效果：**`identityOn404` 的行尾注释只能用英文**（第 4b 例：中文换成英文，两级都 exit 0）。
+这不是 bug，但它会让「照着自己写的注释改开关」的人莫名撞一堵墙，值得记一句。
+
+### D. 它自己标注的那句，要变成**两条**规矩
+
+它附言：「我的矩阵都是在**当前工作树**上跑的，**对活状态成立**」——**这句必须保留**，
+但**光有它还不够**。本轮实测暴露了第二层：
+
+- **规矩一（它已标注的）**：矩阵结论对**工作树（活状态）**成立，**不等于对 main 成立**。
+  → 引用任何矩阵，都必须标「**在哪个树上跑的**」（main / 某个 commit / 工作树）。
+  一个在脏工作树上跑出来的 exit 1，说明的是**那棵工作树**红了，不是 main 红了。
+- **规矩二（本轮新增）**：还必须标「**exit 是从哪一级取的**」——
+  **门禁级**（`check:site`）还是**整链 build 级**（`npm run build`）。
+  本轮第 4 例就栽在这：门禁级 exit 0、整链 exit 1，两个都对，
+  但**只说 exit 0 / exit 1 的人会被下一个人复现成另一个数**。
+  凡是「exit 0」这种说法，**不带层级就是残缺的**。
+
+### E. 本轮改动与边界
+
+- **只改 `docs/IMPROVEMENT-LOG.md`**：文末新节 + **两处就地订正块**，共 3 个插入点，
+  **纯插入、删行 0**（提交后回读 `git show --numstat` 自证）。未碰任何代码文件；
+  中间产物全在 `/tmp`；**不 push**。
+- 矩阵在**隔离克隆**上跑（`/tmp/mh-r34-verify/repo2`，commit = `4f2b2c8`），
+  revert 测量在**隔离 worktree**上跑（与主仓共享对象库，否则拿不到孤儿 commit `dfe021a`）
+  ——两者都**不碰共享工作树**（共享工作树并发 build 会互踩产物目录）。
+- **矩阵结论能外推到写入时 HEAD 的依据**（两条，都在写入前实测）：
+  ① 矩阵 commit → 写入时 HEAD 之间，**决定矩阵结论的 4 个文件**
+  （门禁 16 判据 `scripts/verify-site.cjs` / 语言门禁 `scripts/check-lang.cjs` /
+  被注入的 `src/404.njk` / Person 块的条件 `src/_includes/layouts/base.njk`）
+  **一字未变**；
+  ② 写入时 HEAD 自己在同一个隔离克隆里整链 `npm run build` **exit 0**。
+  （另：同一 9 例矩阵在 `40f185a` 与 `4f2b2c8` 两个不同 commit 上跑出**完全相同**的 9 行。）
