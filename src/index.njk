@@ -46,14 +46,17 @@ editPaths:
   <section class="home-intro" data-reveal>
     <p class="home-intro__label">A working archive</p>
     <div class="home-intro__body">
+      {#- currentFocusEn 是含专有名词的整句（"Extreme precipitation over North China"），
+          这里刻意**不加 | lower** —— 加上会把 "North China" 压成 "north china"，
+          正文句子读着像地名普查表。researchEn 是普通名词列表，加 | lower 才对。
+          与 src/about.njk 的同一处决策保持一致；门禁 28 会盯住这条。
+          ⚠️ 这段注释必须**放在段落之外**：写在句子中间时，{#- 会把
+             "Currently focused on" 后的换行一起吃掉，渲染成
+             "focused onExtreme precipitation..."（自己踩过一次）。 -#}
       <p>
         {{ site.author.jobTitle }} at
         <a href="{{ site.author.affiliationUrl }}" target="_blank" rel="noopener noreferrer">{{ site.author.affiliationEn }}</a>,
         working on {{ site.author.researchEn | lower }}. Currently focused on
-        {#- currentFocusEn 是含专有名词的整句（"Extreme precipitation over North China"），
-            这里刻意**不加 | lower** —— 加上会把 "North China" 压成 "north china"，
-            正文句子读着像地名普查表。researchEn 是普通名词列表，加 | lower 才对。
-            与 src/about.njk 的同一处决策保持一致；门禁 28 会盯住这条。 -#}
         {{ site.author.currentFocusEn }}.
       </p>
       <p>
