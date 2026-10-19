@@ -46,9 +46,15 @@ eleventyExcludeFromCollections: true
       <pubDate>{{ item.date | dateToRfc822 }}</pubDate>
       {# ⚠️ 括号不能省：Nunjucks 里 `|` 的优先级高于 `or`，
          写成 `{{ item.description or "" | escape }}` 实际解析成
-         `item.description or ("" | escape)`——escape 只作用在空串分支，
-         摘要原样输出，XML 里的 & < > 会把文档弄坏。
-         写成 `{{ (item.description or "") | escape }}` 才是整个表达式转义。 #}
+         `item.description or ("" | escape)`——escape 只作用在空串分支。
+         仍写成 `{{ (item.description or "") | escape }}`：让"整个表达式都被转义"
+         是显式意图，而且万一将来把 autoescape 关掉，XML 依然合法。
+         ⚠️ 但**别**把"不写 `| escape` 就会把 XML 弄坏"当结论——
+         第十三轮实测（隔离克隆 + 摘要里塞 `&`/`<` 哨兵）三种写法产物**逐字相同**：
+           带括号+escape / 不带括号+escape / 不带 escape  →  都是 &amp;（单次转义）
+         两个原因：① 本项目 Eleventy 3.1.6 的 Nunjucks **autoescape 默认开着**
+         （.html 与 .xml 输出都转义）；② Nunjucks 的 `escape` 过滤器返回 SafeString，
+         **不会被 autoescape 再转一次** → 不存在双重转义（&amp;amp; 实测从未出现）。 #}
       <description>{{ (item.description or "") | escape }}</description>
       {%- for c in item.creators %}
       <dc:creator>{{ c }}</dc:creator>

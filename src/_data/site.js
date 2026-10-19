@@ -337,8 +337,10 @@ module.exports = {
         "emphasizing stage-dependent analysis, this work advances the understanding of severe " +
         "storm dynamics over tropical Africa and extends the utility of snapshot observations " +
         "from precipitation radar onboard low-Earth-orbit satellites.",
-      // 关键词：论文主题 + 站点 knowsAbout 的交集。citation_keywords 供
-      // Google Scholar 检索用，页面上也作为可见标签展示。
+      // 关键词：论文主题 ∪ 站点 knowsAbout（**并集**，不是交集——TRMM、
+      // radar echo structure、tropical Africa 只来自论文，data assimilation、
+      // machine learning 只来自 knowsAbout）。
+      // citation_keywords 供 Google Scholar 检索用，页面上也作为可见标签展示。
       keywords: [
         "thunderstorm",
         "lightning",
@@ -395,8 +397,14 @@ module.exports = {
         doi: "10.5281/zenodo.18041880",
         url: "https://doi.org/10.5281/zenodo.18041880",
         // ↓ 以下取自 https://api.datacite.org/dois/10.5281/zenodo.18041880
+        //    （第十三轮重新拉取逐字核对：resourceType=Dataset、version=2.0、
+        //    license=CC BY 4.0、registeredTitle、conceptDoi 均与登记一致）
         resourceType: "Dataset",
         version: "2.0",
+        // ⚠️ publisher 是**唯一**没照抄登记的一项：DataCite 登记里它是
+        //    "Lyu yihang"（Zenodo 把数据作者填进 publisher 字段），
+        //    而 "Zenodo" 是 Zenodo 自己导出的 BibTeX 里 publisher 的通行写法。
+        //    引用条目里写 "Zenodo" 才是 Zotero / 读者认的形态 → 保持不变。
         publisher: "Zenodo",
         license: "CC BY 4.0",
         licenseUrl: "https://creativecommons.org/licenses/by/4.0/",
