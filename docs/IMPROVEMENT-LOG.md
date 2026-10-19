@@ -1796,6 +1796,20 @@ CSDN 521 并列）。那个归类对 ResearchGate / CSDN 成立，但对这一�
   过滤器；**门禁 30 会自动跟着对齐**（它比的是"页面上能复制的"与
   "文件里能下载的"逐字一致，不是写死的字段表），所以改口径不用动门禁。
 
+- **GitHub 仓库无 license 的展示口径**（15:30 场次新增）：
+  论文页新增的源码仓库实体**不写** `license` —— GitHub API 实测该仓 `license: null`
+  （没有许可证声明），**不编造**。但**页面上**要不要提示一句「该仓库未声明许可证」？
+  现状是「Code ↗」按钮只给入口、不解释许可状态；而同页的数据集 / 胶囊**是有**许可声明的
+  （`site.js` 真源里 `license` / `licenseUrl` 都有值）→ 三者口径不一致。
+  这属于**展示口径**，本轮不替本人拍板。
+
+- **代码仓库实体的 `@id` 口径**（15:30 场次新增）：
+  数据集 / 胶囊的 `@id` 用的是 **DOI**（`10.5281/zenodo.18041880` /
+  `10.24433/CO.6720035.v1`），而 GitHub 源码仓**没有 DOI**，只能用仓库 URL 当 `@id`
+  （本轮门禁 M3 已写死这个口径）。
+  是否统一成「实体标识一律用可持久解析的权威标识，没有则用 canonical URL」？
+  备选：① 保持现状（仓库用 URL）；② 给仓库申请 DOI/handle 后改用 DOI。
+
 ---
 
 ## 2026-10-19 · 第十一轮（12:22–12:47 场次）：订阅源时间戳说真话 + 404 身份开关落地
@@ -7350,3 +7364,159 @@ D1/D2 的 `ownerMissingId` 在 HEAD 与在途工作树里**都还没有** → �
 
 - **只改 `docs/IMPROVEMENT-LOG.md`**（本节）；未碰任何代码文件。
 - 中间产物全在 `/tmp`（仓库内无新文件）；**不 push**（部署由本人决定）。
+
+## 2026-10-19 · 15:30–15:55 场次（**不占轮次号**，避免与并发场次撞号）：论文页结构化数据补上「真正可克隆的那份源码」实体 + 产出物元数据门禁（M1–M6）
+
+> **时间口径**：本节写于系统时钟 `15:30 PDT`。上一节标题写的「16:10–16:30」是**写错了** ——
+> 该节实际提交于 `e078086`（`15:28`）→ 本节在它**之后**，但标题里的数字看着更小。
+> 这是**上一节的标签订正**，不是本节改动。
+
+本场次只做 2 个改进点（1 个内容 + 1 个门禁）。巡检结论是**线上是旧部署，不是代码缺陷**。
+
+### A. 巡检（现查，2026-10-19）
+
+| URL | 状态 |
+|---|---|
+| `https://github.lvyihang.xyz/` | 200 |
+| `https://github.lvyihang.xyz/blog/` | 200 |
+| `https://github.lvyihang.xyz/about/` | 200 |
+| `https://github.lvyihang.xyz/sitemap.xml` | 200 |
+| `https://github.lvyihang.xyz/papers/` | **404** |
+| `https://github.lvyihang.xyz/publications.bib` | **404** |
+| `https://github.lvyihang.xyz/feed.xml` | **404** |
+
+**根因（现查）**：线上跑的是 **2026-10-16 的旧构建**。
+线上 `sitemap.xml` 只有 3 条 URL，且**每条都带 `/MeteoHub/` 子路径**；
+线上首页与 `/blog/` 的 `canonical` / `og:url` 同样是 `https://github.lvyihang.xyz/MeteoHub/…`
+（该前缀本身 404，连带 `/MeteoHub/blog/`、`/MeteoHub/about/` 也全 404）。
+
+**现查结论：不是代码缺陷。** `/MeteoHub/` 前缀是在 `9145197`（10-19 09:37）才从
+`src/_data/site.js` 移除的；本场次再查 `src/_data/site.js` / `eleventy.config.js` /
+`.github/workflows/deploy.yml` / `package.json`，**除一条解释性注释外无任何残留覆盖**
+（`site.url = "https://github.lvyihang.xyz"`，无子路径）。
+本地构建产物的 `canonical` / `og:url` / `sitemap.xml` 已是**根路径**且 5 条 URL 全对
+→ **部署即修复**。本场次**不改代码、不 push**，部署与否由本人决定。
+
+### B. 改进点 1：论文页结构化数据补上「真正可克隆的那份源码」实体
+
+**缺口（现查）**：论文页原有 3 个 `ld+json` 块 —— ① `Person`（本人）② `WebSite`+`WebPage`
+③ `@graph`（`ScholarlyArticle` + `Dataset`（Zenodo）+ `SoftwareSourceCode`（Code Ocean 胶囊））。
+GitHub 源码仓在**结构化数据里零表示**（只有一条可见链接），
+而那个 `SoftwareSourceCode` 实体的 `codeRepository` 指的是 **Code Ocean URL**，不是源码仓
+→ 机器消费方（Google Dataset / Software 检索、OpenAlex 类聚合）读不到「代码在哪」。
+
+**改动**：`src/_includes/layouts/paper.njk` 新增**一个独立** `ld+json` 块，输出
+`SoftwareSourceCode` 实体（论文页现有 **4** 个块）：
+
+| 字段 | 值 | 依据 |
+|---|---|---|
+| `@id` / `url` / `identifier` / `codeRepository` | `https://github.com/oldsixxiaolv/Manuscript_Lvyh` | GitHub API 实测 `private:false` / `archived:false` / `default_branch:"master"` |
+| `name` | `oldsixxiaolv/Manuscript_Lvyh` | 同上 |
+| `creator` | 本人 `Person`（`@id` = `https://github.lvyihang.xyz/#person`，带 `name` / `url` / `sameAs` 全集） | 门禁 23 / 27 要求 `sameAs` 含本人 ORCID |
+| `citation.@id` | 论文页 URL | 让消费方能把代码挂回论文 |
+
+- **不写 `license`**：GitHub API 实测该仓 `license: null` → **不编造**。
+- **不写 `programmingLanguage`**：API 报 `Python`，但仓库实为 LaTeX + Python，
+  断言不精确会误导消费方 → 不加。
+- **用独立块而不改共享 `jsonLdPaper` filter**：那个 filter 被 4 个页面共用
+  （首页 / 列表页 / 博客 / 关于），改它会把论文页特有实体泄到那 4 个页面上；
+  独立块是本仓**既有做法**（`ItemList` 已是独立块）。
+- **有权威依据，不是随手加的链接**：DataCite `10.5281/zenodo.18041880` 的 `description`
+  明确写「You can come to my GitHub to download the codes
+  (https://github.com/oldsixxiaolv/Manuscript_Lvyh)」→ 数据集的正式登记把这份仓库
+  指认为「下载代码的地方」，它是论文的一个**真实成果实体**。
+
+### C. 改进点 2：新增产出物元数据门禁（`M1`–`M6`）
+
+新增 `scripts/check-artifact-metadata.cjs`（npm script `check:artifact`，接在 `build` 链尾），
+把「结构化数据里那套资源层字段」与 `src/_data/site.js` 这**单一真源**锁在一起：
+
+- **M1** 数据集实体：`@id` / `identifier` / `license` / `version` 逐字一致
+- **M2** 胶囊实体：`@id` / `identifier` / `license` / `version` / `url` 逐字一致
+- **M3** 代码仓库实体：**必须存在**，且 `@id` / `url` / `identifier` / `codeRepository` 一致
+- **M4** `creator.@id` 必须是本人 `Person` 的 `@id`
+- **M5** `creator.sameAs` 必须含本人 ORCID
+- **M6** `citation.@id` 必须是论文页 URL；**页面必须真有**指向仓库的 `href`；
+  `licenseUrl` 必须是绝对 URL
+- **「一处没比过就判红」**（`compared === 0` → 判红）：门禁不许悄悄什么都不查
+- **JSON-LD 块解析失败时如实报解析失败**，并说明下面那些「实体没找到」是**后果不是根因**
+  —— 不把根因掩盖成别的症状
+
+**为什么不复用已有门禁**（避免功能重复）：
+门禁 8 只查实体**存在**不查字段；19 / 31 查 `@id` 唯一与同 `@id` 字段一致，
+不查「**投影对不对**」；9 查身份类 `meta` 标签 → 本门禁查的是另一件事。
+
+**为什么不占用 `verify-site.cjs` 的编号段**：门禁 32 号已被 `ItemList` 占用；
+该文件要求编号 `1..max` 连续、且**文件头清单 + 代码段 + 对照表三处一一对应**，
+插新号要同时改三处 → 风险高。改用**独立脚本**，与 `check-a11y`（A1–A4）、
+`check-wrapping`（W1–W3）同一形态。
+
+### D. 验证结果（全部现跑）
+
+- `npm run build` → **exit 0**（`check:gates` / `check:css` / `check:wrap` / `check:site` /
+  `check:lang` / `check:a11y` / `check:copy` / `check:overflow` / `check:artifact` 全绿）
+- `node scripts/check-artifact-metadata.cjs` → **exit 0**，「共比对 **16** 处」
+- `node scripts/check-gates-wired.cjs` → **exit 0**（10 个门禁脚本全部从 `build` 可达）
+- **故障注入 8/8 通过**（逐条断言**红因**，不是只断言退出码）：
+
+| 用例 | 注入 | 门禁红因 |
+|---|---|---|
+| T1 | 删 `Dataset` 的 `license` | 「license 不一致」 |
+| T2 | 改胶囊 `version`（1.0 → 9.9） | 「version 不一致」 |
+| T3 | 整个删掉代码仓库实体 | 「没有 codeRepository」 |
+| T4 | `creator` 挂错 `@id` | 「creator.@id 不一致」 |
+| T5 | `creator.sameAs` 去掉本人 ORCID | 「sameAs 里没有本人 ORCID」 |
+| T6 | 删掉页面上所有指向仓库的 `href` | 「页面上没有指向」 |
+| T7 | 破坏 JSON-LD 块 | 「JSON-LD 块解析失败」 |
+| — | 还原 | exit 0（回到绿） |
+
+- **全量复验**（连跑两次，数字一致才算数）：**6** 个 HTML 页面 /
+  **129** 条站内相对引用**全部可解析**（0 个 404）/ **18** 个 `ld+json` 块
+  **全部可 `JSON.parse`** / GitHub 仓库实体**恰好 1 个**且字段齐全 /
+  论文页指向仓库的可见链接 **2** 条 / `canonical` 正确。
+  ⚠️ 这 18 个块里，列表页的 `ItemList` 块来自**并发场次在途**的 `eleventy.config.js` 改动，
+  **不在本场次成果内** → 总数不是本场次的产出。
+- **外链抽查**：Zenodo DOI **200**、GitHub **200**、ORCID **200**；
+  Code Ocean **403**、AGU **403** —— 403 是 Cloudflare 对**脚本客户端**的拦截（**不是 404**），
+  这两个标识此前已用 DataCite / Crossref API 核实存在。
+
+**两处要写清的教训**：
+
+1. **注入脚本第一版的 T5 / T6 曾经误报，根因在注入脚本自己** ——
+   T5 的正则改到了**文章作者**那份 `sameAs` 而非代码仓库 `creator` 那份；
+   T6 把 JSON-LD 里**本该出现**的仓库 URL 误判成「没删干净」。
+   → 修的是**注入脚本**，不是门禁；门禁的判据没动过。
+2. **共享工作树里 `_site` 会被并发 build 改写 → 复验必须连跑两次** ——
+   本场次第一次复验读到的是「7 页 / 13 块」，第二次变成「6 页 / 18 块」，
+   **同一个脚本、同一份代码**。差别来自并发场次正在跑 `npm run build`，
+   本场次读到了**写到一半的 `_site`**。
+   → 纪律：复验结论必须**连跑两次数字一致**才可采信；单次读数可能是半成品快照。
+   （与既有条目的「索引基线会漂移」同源：**共享产物不是原子可见的**。）
+
+### E. 归属订正 + 本场次边界
+
+⚠️ **一条归属订正（重要）**：`src/_includes/layouts/paper.njk` 里 B 段那个实体块
+**已经被并发场次代为提交**（在 `720ed3e` 里，与对方「数据集文件清单 + MD5」那批同进），
+**内容逐字保留**，但**作者是对方**。
+→ 本场次在 `main` 上**只新增**：`scripts/check-artifact-metadata.cjs`（新文件）、
+`package.json` 的 `check:artifact` 接线、本节日志。
+
+- **没碰** `eleventy.config.js` / `scripts/verify-site.cjs`（两者都在对方在途改动里）、
+  `src/papers.njk`、`check-overflow.cjs`、`check-copy-export.cjs`、`deploy.yml`。
+- `package.json` 里有对方的在途改动（`check:overflow`、engines `>=22`）→
+  本场次提交时**只取自己那部分**（`check:artifact` 接线 + npm script），
+  对方那部分**留在工作树里**。
+- 中间产物（注入脚本、复验脚本）全在 `/tmp` → **仓库内无新文件**。
+- **不 push**（部署由本人决定）。
+
+### F. 待决策（**不擅自拍板**，已写进中央「待决策」段）
+
+1. **GitHub 仓库无 license 的展示口径** —— 页面要不要提示「该仓库未声明许可证」。
+2. **代码仓库实体的 `@id` 口径** —— 仓库没有 DOI，只能用 URL 当 `@id`；
+   是否统一成「标识一律用权威标识，没有则用 canonical URL」。
+
+### G. 本场次提交
+
+3 个文件：`scripts/check-artifact-metadata.cjs`、`package.json`、`docs/IMPROVEMENT-LOG.md`。
+提交信息：`feat(paper): 论文页结构化数据补上源码仓库实体 + 产出物元数据门禁`。
+**不 push**（部署由本人决定）。
