@@ -26,13 +26,22 @@
  *   A4. 强调色不得绕过语义 token 直接当文字色：源码里
  *       `color: var(--color-accent-600)` 只允许出现在徽标上（accent-600 配
  *       accent-50 底，5.07:1 合格），其余位置必须走 --text-accent。
+ *   A5. 无障碍引用必须指向**真实存在**的 id：aria-labelledby /
+ *       aria-describedby / aria-controls / aria-owns / aria-activedescendant
+ *       / <label for> / <th headers> 引用的每一个 id 都必须在同一页存在。
+ *   A6. id 必须唯一，且页内锚点必须可达：同一页不得有两个元素用同一个 id；
+ *       <a href="#xxx"> 指向的 id 必须在本页存在。
+ *   A7. 标题层级：每页**恰好一个** <h1>，且不得跳级（h2 之后不能直接 h4）。
  *
  * ⚠️ **不重复已有的门禁**：<img> 的 alt 存在性由 scripts/verify-site.cjs 的
  *    门禁 25 管、width/height 由门禁 26 管（第十五轮 commit 93f9497 加的），
  *    本脚本不重复造一遍 —— 同一个事实两处判，改一处就会与另一处说法打架。
+ *    同理，门禁 1 只查 href/src 指向的**文件**能不能找到，它**显式跳过**
+ *    纯锚点链接（`href="#xxx"`），所以"锚点能不能解析"一直无人看守；
+ *    A5/A6 补的正是这个洞，不是把门禁 1 重做一遍。
  *
  * 判据的边界（避免"门禁通过 = 站点无障碍达标"这种误读）：
- * 本脚本只覆盖上列四条**可机器判定**的判据，不等于完整的 WCAG 审计。
+ * 本脚本只覆盖上列七条**可机器判定**的判据，不等于完整的 WCAG 审计。
  * 完整审计仍要靠 axe-core（scripts/ 下另有人工跑的记录）。
  */
 
@@ -205,6 +214,37 @@ function stripNonContent(html) {
     .replace(/<!--[\s\S]*?-->/g, "")
     .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, "")
     .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, "");
+}
+
+/* ---------------- 工具：HTML 标签扫描 ----------------
+   A5/A6/A7 要按**标签**逐个看（谁带了 aria-labelledby、谁带了 id、
+   标题标签出现了哪些），所以需要一份"标签名 + 属性"的清单。
+   不引第三方解析器（本站不引外部依赖），但**不能**用 /<[^>]+>/ 这种朴素写法：
+   属性值里可能有 ">"，朴素正则会把一个标签截断，后面所有基于标签的判据
+   都会跟着错。下面的正则按**带引号的属性值**整体跳过 ">"。
+
+   ⚠️ 同一个标签上写了两个 id 属性（HTML 本身不允许）也要算两次：
+   属性表用"后者覆盖前者"存的话，重复 id 就被吃掉了。所以 id 另存一份
+   数组（idList），按出现次数统计，不按属性表统计。 */
+function scanTags(html) {
+  const out = [];
+  const re = /<([a-zA-Z][a-zA-Z0-9-]*)((?:"[^"]*"|'[^']*'|[^>"'])*)>/g;
+  let m;
+  while ((m = re.exec(html))) {
+    const tag = m[1].toLowerCase();
+    const attrs = {};
+    const idList = [];
+    const are = /([a-zA-Z_:][-a-zA-Z0-9_:.]*)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'>`]+))/g;
+    let a;
+    while ((a = are.exec(m[2]))) {
+      const name = a[1].toLowerCase();
+      const val = a[2] !== undefined ? a[2] : a[3] !== undefined ? a[3] : a[4];
+      attrs[name] = val;
+      if (name === "id") idList.push(val);
+    }
+    out.push({ tag, attrs, idList, raw: m[0] });
+  }
+  return out;
 }
 
 /* ---------------- 收集产物 ---------------- */
@@ -579,6 +619,193 @@ const htmlFiles = allFiles.filter(
   }
 }
 
+/* =====================================================================
+ * 门禁 A5 · 无障碍引用必须指向真实存在的 id
+ * ===================================================================== */
+{
+  // 为什么需要这条：ARIA 引用（aria-labelledby / aria-describedby …）是
+  // **按 id 字符串**关联的，改模板时**没有任何东西会报错**——id 改了名字，
+  // 页面照常渲染，样式照常生效，只是读屏器**默默读不出**那个名字：
+  //   · aria-labelledby 指向不存在的 id → 元素**没有无障碍名**，
+  //     读屏器退回到元素内容（看起来没事，其实层级全乱）；
+  //   · <label for> 指向不存在的 id → 点击标签**点不动**那个输入框；
+  //   · aria-controls / aria-owns 指向不存在的 id → 弹层与触发器失联。
+  // 这类缺陷 axe-core 报不出来（它读的是计算后的可访问性树，
+  // 引用断了它就当"没有名字"，不算 violation），所以只能自己查。
+  //
+  // 为什么不在 verify-site.cjs 的门禁 1 里一起查：门禁 1 查的是
+  // **href/src 指向的文件**能不能找到，并且**显式跳过**纯锚点链接
+  // （`href="#xxx"` 前面没有文件，脚本里是 `if (clean.startsWith("#")) return null`），
+  // 所以"id 能不能解析"这一族一直无人看守。放在这里而不是塞进门禁 1，
+  // 是因为它属于**无障碍**语义（ARIA 引用 = 无障碍名的来源），
+  // 与"站内链接是不是死链"是两件事。
+  const ARIA_REF_ATTRS = [
+    "aria-labelledby",
+    "aria-describedby",
+    "aria-controls",
+    "aria-owns",
+    "aria-activedescendant",
+  ];
+
+  let broken = 0;
+  let checked = 0;
+  for (const f of htmlFiles) {
+    const rel = path.relative(SITE, f);
+    const html = stripNonContent(fs.readFileSync(f, "utf8"));
+    const tags = scanTags(html);
+    const ids = new Set();
+    for (const t of tags) for (const id of t.idList) if (id !== "") ids.add(id);
+
+    for (const t of tags) {
+      for (const attr of ARIA_REF_ATTRS) {
+        const v = t.attrs[attr];
+        if (!v || !v.trim()) continue;
+        for (const tok of v.trim().split(/\s+/)) {
+          checked++;
+          if (!ids.has(tok)) {
+            broken++;
+            fail(
+              `门禁 A5：${rel} 里 <${t.tag} ${attr}="${v}"> 指向不存在的 id "${tok}" —— ` +
+                `读屏器会读不出这个无障碍名（引用断了不报错，只是静默失效）`
+            );
+          }
+        }
+      }
+      // <label for> 必须指向一个真实存在的表单控件（id 存在即可）
+      if (t.tag === "label" && t.attrs.for && t.attrs.for.trim()) {
+        checked++;
+        const tok = t.attrs.for.trim();
+        if (!ids.has(tok)) {
+          broken++;
+          fail(
+            `门禁 A5：${rel} 里 <label for="${tok}"> 指向不存在的 id —— ` +
+              `点标签点不动对应的输入框`
+          );
+        }
+      }
+      // 表格的 headers 属性同理
+      if ((t.tag === "th" || t.tag === "td") && t.attrs.headers && t.attrs.headers.trim()) {
+        for (const tok of t.attrs.headers.trim().split(/\s+/)) {
+          checked++;
+          if (!ids.has(tok)) {
+            broken++;
+            fail(
+              `门禁 A5：${rel} 里 <${t.tag} headers="${tok}"> 指向不存在的 id`
+            );
+          }
+        }
+      }
+    }
+  }
+  if (!broken) {
+    note(`门禁 A5：${checked} 处无障碍引用（ARIA / label / headers）都指向真实存在的 id`);
+  }
+}
+
+/* =====================================================================
+ * 门禁 A6 · id 必须唯一，且页内锚点必须可达
+ * ===================================================================== */
+{
+  // 为什么需要这条（两条判据，一组根因）：
+  //   ① **重复 id**：HTML 规范里 id 在文档内必须唯一。重复时，
+  //      浏览器与读屏器一律取**第一个**——于是 <label for>、aria-labelledby、
+  //      锚点链接会**静默指向错的那个元素**。不报错、不变形，
+  //      只是"点标签点不动""读到的名字串到别的区块去了"。
+  //   ② **锚点不可达**：`href="#xxx"` 指向一个不存在的 id 时，
+  //      点击**什么都不发生**（页面不跳、不报错）。这是典型的死链，
+  //      而门禁 1 显式跳过纯锚点链接，所以此前无人看守。
+  // 一句话：id 是无障碍名与页内导航的**唯一寻址方式**，
+  // 它错了，上面那些引用会**集体静默失效**。
+  let dupCount = 0;
+  let anchorCount = 0;
+  for (const f of htmlFiles) {
+    const rel = path.relative(SITE, f);
+    const html = stripNonContent(fs.readFileSync(f, "utf8"));
+    const tags = scanTags(html);
+
+    const idCount = new Map();
+    for (const t of tags) {
+      for (const id of t.idList) {
+        if (id === "") continue;
+        idCount.set(id, (idCount.get(id) || 0) + 1);
+      }
+    }
+    const ids = new Set(idCount.keys());
+
+    for (const [id, n] of idCount) {
+      if (n > 1) {
+        dupCount++;
+        fail(
+          `门禁 A6：${rel} 里 id "${id}" 出现 ${n} 次 —— ` +
+            `id 必须唯一，否则 <label for> / aria-labelledby / 锚点会静默指向错的那个`
+        );
+      }
+    }
+
+    for (const t of tags) {
+      if (t.tag !== "a") continue;
+      const h = t.attrs.href;
+      // href="#" 是"回到页首"，不是锚点；空 href 同理
+      if (!h || !h.startsWith("#") || h.length < 2) continue;
+      anchorCount++;
+      const tok = h.slice(1);
+      if (!ids.has(tok)) {
+        fail(
+          `门禁 A6：${rel} 里 <a href="${h}"> 指向本页不存在的 id "${tok}" —— ` +
+            `点击不会有任何反应`
+        );
+      }
+    }
+  }
+  if (!dupCount) {
+    note(`门禁 A6：id 全站唯一，${anchorCount} 个页内锚点都能解析到本页的真实元素`);
+  }
+}
+
+/* =====================================================================
+ * 门禁 A7 · 标题层级：每页恰好一个 h1，且不得跳级
+ * ===================================================================== */
+{
+  // 为什么需要这条：
+  //   ① **h1 数量**：读屏器用户靠"标题列表"快速浏览页面。h1 多于一个，
+  //      页面就没有唯一的"这是关于什么的"入口；h1 一个都没有，
+  //      标题列表里第一层直接空着。两头都不对。
+  //   ② **跳级**（h2 之后直接 h4）：读屏器把标题层级映射成大纲，
+  //      跳级会让大纲出现空洞，用户按"跳到下一标题"时会**跳过一整层**内容。
+  //      这条对搜索引擎同样有意义（h1 是页面主题的强信号）。
+  // 这两条都是**结构性**的，不影响视觉，所以肉眼与截图都看不出来。
+  let bad = 0;
+  for (const f of htmlFiles) {
+    const rel = path.relative(SITE, f);
+    const html = stripNonContent(fs.readFileSync(f, "utf8"));
+    const tags = scanTags(html);
+    const heads = tags
+      .filter((t) => /^h[1-6]$/.test(t.tag))
+      .map((t) => Number(t.tag[1]));
+
+    const h1n = heads.filter((h) => h === 1).length;
+    if (h1n !== 1) {
+      bad++;
+      fail(
+        `门禁 A7：${rel} 里有 ${h1n} 个 <h1>（应为 1 个）—— ` +
+          `标题列表的第一层要么空着、要么有多条主线`
+      );
+    }
+    for (let i = 1; i < heads.length; i++) {
+      if (heads[i] - heads[i - 1] > 1) {
+        bad++;
+        fail(
+          `门禁 A7：${rel} 的标题层级跳级 h${heads[i - 1]} → h${heads[i]} —— ` +
+            `读屏器的大纲会空掉一层，"跳到下一个标题"会跳过一整层内容`
+        );
+      }
+    }
+  }
+  if (!bad) {
+    note("门禁 A7：每页恰好一个 <h1>，标题层级没有跳级");
+  }
+}
+
 /* ---------------- 汇总 ---------------- */
 if (notes.length) {
   console.log("—");
@@ -590,4 +817,4 @@ if (problems.length) {
   problems.forEach((p) => console.error("  " + p));
   process.exit(1);
 }
-console.log("✓ 可访问性自检通过（门禁 A1–A4；这是机器可判的那几条，不等于完整 WCAG 审计）");
+console.log("✓ 可访问性自检通过（门禁 A1–A7；这是机器可判的那几条，不等于完整 WCAG 审计）");

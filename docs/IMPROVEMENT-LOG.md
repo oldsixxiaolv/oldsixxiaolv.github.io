@@ -6966,3 +6966,175 @@ D1/D2 的 `ownerMissingId` 在 HEAD 与在途工作树里**都还没有** → �
      而不是等下一轮才发现。
   → 一句话：**「纯插入」这个性质只能由「提交后回读 diff」来证明，
   不能由「提交前比对一份旧副本」来保证。**
+
+---
+
+## 2026-10-19 · 15:00–15:30 场次（**不占轮次号**，避免与并发场次撞号）：给 a11y 门禁补上"引用完整性"判据（A5 / A6 / A7）
+
+### A. 本轮只做了 1 个改进点：a11y 门禁补 A5 / A6 / A7
+
+**为什么是这三条**：本轮把产物从 12 个角度审了一遍（见 B 节），
+结论是站点本身**没有发现新的功能性缺陷**；而"已修好的东西有没有门禁守住"
+这一族才是真缺口。核对全仓门禁后确认：**没有任何一条门禁在查
+"无障碍引用的 id 是否存在""id 是否唯一""标题层级是否正常"**。
+
+- `scripts/verify-site.cjs` 门禁 1 查的是 href/src 指向的**文件**能不能找到，
+  并且**显式跳过**纯锚点链接（`scripts/verify-site.cjs:185`：
+  `if (clean.startsWith("#")) return null;`）→ "锚点能不能解析"一直无人看守；
+- 门禁 25 / 26 查的是 `<img>` 的 alt 与 width/height，与 id 体系无关；
+- `scripts/check-a11y.cjs` 原有 A1–A4 查的是**视觉层**（对比度 / 非颜色区分 /
+  可聚焦 / 强调色 token），**不查引用完整性**；
+- axe-core 报不出这一族：引用断了之后读屏器只是"读不到那个名字"，
+  计算后的可访问性树里不算 violation。
+
+于是把它落在 `scripts/check-a11y.cjs`（**A 编号体系**独立、与
+`verify-site.cjs` 的数字编号不续接，本就为此设计）：
+
+| 编号 | 判据 | 为什么必须有 |
+|---|---|---|
+| **A5** | `aria-labelledby` / `aria-describedby` / `aria-controls` / `aria-owns` / `aria-activedescendant` / `<label for>` / `<th headers>` 引用的每个 id 都必须在**同一页真实存在** | 引用断了**不报错**：页面照常渲染，只是读屏器默默读不出那个无障碍名（`aria-labelledby` 断 → 元素**没有**无障碍名，退回读内容）；`<label for>` 断 → **点标签点不动**输入框 |
+| **A6** | ① 同一页的 id 必须唯一；② `<a href="#xxx">` 的目标 id 必须在本页存在 | 重复 id 时浏览器与读屏器一律取**第一个** → `<label for>`、`aria-labelledby`、锚点会**静默指向错的那个元素**；锚点不可达时**点击什么都不发生**（典型死链） |
+| **A7** | 每页**恰好一个** `<h1>`，且标题层级不得跳级（h2 之后不能直接 h4） | h1 数量错 → 读屏器"标题列表"第一层空着或多条主线；跳级 → 大纲空一层，"跳到下一标题"会跳过一整层内容。对搜索引擎同样有意义（h1 是主题强信号） |
+
+⚠️ **不与既有门禁重复**：A5/A6 与门禁 1 查的是两件事（"文件存不存在" vs
+"id 能不能解析"），A5/A6/A7 也不碰 `<img>`（那是门禁 25/26 的事）。
+门禁 4c 查的是 `<title>`/`og:title` 的**文本**，与 `<h1>` 无关。
+
+**判据边界**（沿用本文件一贯写法，不夸大）：A5–A7 只保证**引用能解析**，
+**不等于**无障碍达标——无障碍名的**质量**（是否描述得当）、
+键盘可达性、焦点顺序仍不在机器可判范围内。完整审计仍要靠 axe-core。
+
+**实现要点**：A5/A6/A7 需要按**标签**逐个看（谁带了 `aria-labelledby`、谁带了
+`id`、每个标题是什么级别），所以本轮给脚本加了一个 `scanTags(html)` 工具：
+按**带引号的属性值**切标签（正确处理属性值里出现的 `>`），并**另存一份
+`idList` 数组**按**出现次数**统计（详见 D 节第 3 例）。
+
+### B. 本轮的巡检（实测，全部现查）
+
+**线上 7 个 URL**（curl 实测，2026-10-19 约 14:50 PDT）：
+
+| URL | 状态 |
+|---|---|
+| `/` | 200 |
+| `/papers/` | **404** |
+| `/blog/` | 200 |
+| `/about/` | 200 |
+| `/publications.bib` | **404** |
+| `/feed.xml` | **404** |
+| `/sitemap.xml` | 200 |
+
+- 3 个 404 的根因是**线上部署陈旧**，不是新缺陷：线上跑的是 `origin/main` =
+  `cfef826`（2026-10-16 16:56），其 `src/_data/site.js:29` 是
+  `url: "https://github.lvyihang.xyz/MeteoHub"`，且该 commit 的 `src/` 下
+  **没有 `papers.njk`** → `/papers/`、`/publications.bib`、`/feed.xml` 都不存在。
+- 线上 canonical / og:url / sitemap 的 `<loc>` 全部带 `/MeteoHub/` 前缀，
+  实测 `https://github.lvyihang.xyz/MeteoHub/`、`/MeteoHub/about/`、
+  `/MeteoHub/blog/` **全部 404**；线上 sitemap 里那 3 条 `<loc>` 也全部 404。
+- 本地 `src/_data/site.js:29` 已是 `url: "https://github.lvyihang.xyz"`，
+  本地 `_site/` 里 `papers/`、`publications.bib`、`publications.ris`、`feed.xml`
+  **都在**。→ **等本人部署即可，不需要新门禁**（门禁 5/6/21 已能抓住这一族）。
+
+**本地构建**（隔离快照 `/tmp/mvs_e9720c04_1525/wt/`，含并发场次在途改动 +
+本轮新门禁）：**EXIT=0**（退出码不经管道取）。`check:gates` / `check:css` /
+`check:wrap` / `check:site` / `check:lang` / `check:a11y` / `check:copy` /
+`check:overflow` 全绿，日志里 `✗` 计数 = **0**；`check:overflow` 实测 6 个页面
+`scrollWidth` 全 = 390（无横向溢出），3 处"容器内有意横滚"是图片，属有意设计。
+
+本轮新门禁在构建里的实测输出：
+
+```
+· 门禁 A5：12 处无障碍引用（ARIA / label / headers）都指向真实存在的 id
+· 门禁 A6：id 全站唯一，6 个页内锚点都能解析到本页的真实元素
+· 门禁 A7：每页恰好一个 <h1>，标题层级没有跳级
+✓ 可访问性自检通过（门禁 A1–A7；这是机器可判的那几条，不等于完整 WCAG 审计）
+```
+
+**产物审计**（12 个角度，结论：站点本身没有新缺陷）：
+
+- **站内相对链接与图片资源**：6 个页面全部命中，**无一缺失**；
+- **重复 id**：0；**`<h1>` 数量**：每页恰好 1 个；**标题跳级**：0；
+- **无障碍引用**：12 处 ARIA 引用、6 个页内锚点，**全部可解析**；
+- **`<img>`**：全部带 alt / width / height / loading / decoding；
+- **head 标签清单**：`canonical`、`og:*`（含 3 尺寸 og:image + alt）、
+  `twitter:*`、`article:*`、22 个 `citation_*`、`hreflang`、RSS alternate —— 齐；
+- **`<meta name="description">` / `og:description`**：5 个页面长度
+  84–391 字符，**没有**把 2009 字的论文摘要整段塞进描述里；
+- **feed.xml**：1 条 item（1 篇论文 + 0 篇站内笔记），与 `collections.blog`
+  为空的事实一致；`<lastBuildDate>` = 本次构建时刻（门禁 20 守着）；
+- **sitemap.xml**：5 条 `<loc>` 覆盖全部真实页面（404 页按惯例不列）；
+- **外链**：47 个外部 URL 实测，**无死链**；403/521 全部是
+  Wiley / ResearchGate / CSDN 的反爬（`doi.org` 跳到 Wiley 故同为 403），
+  `github.com/xxx/yyy）` 与裸 `fonts.googleapis.com` 是模板里的**示例文本**不是链接；
+- **导出文件**：`.bib` / `.ris` 与论文页 Copy 块逐字一致（门禁 13/30），
+  不含 HTML 实体（门禁 14）。
+
+### C. 本轮**没有**做的事（以及原因）
+
+1. **`/papers/` 增加列表级 ItemList JSON-LD**（本轮原定的主改进点）：
+   **并发场次已在做**——`src/papers.njk` 与 `eleventy.config.js` 的
+   `jsonLdItemList` filter 在工作树里（未提交），门禁 32 正在写。
+   本轮**不重复造**，也不去改那两个在途文件。
+2. **论文页署名单位**（`citation_author_institution`）：属「待决策」清单内，
+   **不代拍板**。
+3. **RIS / BibTeX 补摘要**：查过 `eleventy.config.js:653-656` 的注释，
+   **这是本项目已作出的明确决定**（给了 4 条理由：与 BibTeX 侧同口径、
+   页面上方有原文、Zotero 按 DOI 导入会自己去取、RIS 的 AB 行是 2000 字符
+   单行、在 `<pre>` 里会变成极宽的横向滚动条）。**不擅自翻既有决定**。
+4. **门禁编号自检**：核过 —— 门禁 24（文件头清单 ↔ 代码段）与门禁 29
+   （对照表）**已经覆盖**，不重复造。
+5. **`citation_author_institution` / `url` 口径 / `datePublished` 粒度 /
+   sitemap `lastmod` / 404 页 Person / Scholar·ADS·arXiv 真实 URL /
+   `site.drive.url` / Twitter 句柄 / OpenAlex 页脚可见 / 数据集条目写法 /
+   数据集"两个标题"表述 / 站点作者 affiliation 与论文 affiliation 不一致**：
+   全部沿用「待决策」段，**本轮不新增、不擅自拍板**。
+
+### D. A5 / A6 / A7 的故障注入证据（6 例，逐条断言红因）
+
+在**隔离副本**上注入、每次只注入一处、跑完即还原：
+
+| # | 注入 | 退出码 | 红因（门禁自己报的） |
+|---|---|---|---|
+| 1 | `<main aria-labelledby="ghost">` | **1** | 门禁 A5：`aria-labelledby="ghost"` 指向不存在的 id |
+| 2 | 两个标签用同一个 id | **1** | 门禁 A6：id "main" 出现 2 次 |
+| 3 | 同一个标签写两个 id 属性 | **1** | 门禁 A6：id "main" 出现 2 次 |
+| 4 | `<a href="#nope-not-here">` | **1** | 门禁 A6：锚点指向本页不存在的 id |
+| 5 | `<h2>` 改成 `<h4>` | **1** | 门禁 A7：标题层级跳级 h1 → h4 |
+| 6 | 多加一个 `<h1>` | **1** | 门禁 A7：h1 有 2 个（应为 1 个） |
+
+**基线 exit=0**、全部还原后**再跑 exit=0**、判红通过 **6 / 6**。
+
+⚠️ **两处"红得不对"，都是本轮真踩的坑，记下来**：
+
+1. **第 3 例一开始没报红** —— 是**我的扫描器**的盲点：属性表用"后者覆盖前者"存，
+   同一个标签上的第二个 id 被吃掉了 → 扫描器改为**另存一份 id 数组**、
+   按**出现次数**统计（不按属性表统计），第 2/3 例才都判红。
+   **红是真的，理由要逐条对**——只看退出码会以为 3/6 通过。
+2. **第一次跑注入时"基线"是红的** —— 是**沙箱搭建**的问题：我只把
+   `src/assets/css/tokens.css` 抄进了沙箱，没抄整个 `src` 树 →
+   门禁 A2 的**源级**判据读不到 `.detail a` 的下划线规则 → 基线就报红。
+   补全 `src/` 树后基线回绿，6 例注入才作数。
+   → **注入沙箱必须与真实构建环境等价**，否则"基线红"会污染每一例的红因。
+
+### E. 留给下一轮 / 待本人拍板
+
+- 「待决策」段（本轮**未新增、未擅自拍板**）全部沿用，见上文 C.5。
+- ⚠️ **并发场次仍在占用共享工作树**：`eleventy.config.js`、
+  `scripts/verify-site.cjs`、`src/papers.njk`、`package.json`、
+  `scripts/check-gates-wired.cjs`、`scripts/check-overflow.cjs`、
+  `scripts/check-copy-export.cjs`、`.github/workflows/deploy.yml`、
+  `docs/IMPROVEMENT-LOG.md` 均有**在途未提交改动**。下一轮若要动这些文件，
+  先确认对方是否已提交。
+- ⚠️ **本轮提交时 `docs/IMPROVEMENT-LOG.md` 仍被占用**，且对方的改动落在
+  **中段**（L6221–6371 的重写 + L6500 处插入 314 行，共 31 个 hunk），
+  **不在末尾** → 直接 `git add` 该文件会把对方在途内容卷进本轮提交。
+  本轮用**临时索引**只提交"HEAD 版日志 + 本小节"，处理方式见 F 节。
+
+### F. 本场次提交
+
+- 本场次提交 **2 个文件**：`scripts/check-a11y.cjs`（A5/A6/A7）
+  与本文件（日志）。**没有提交**任何并发场次的在途改动。
+- 提交方式（沿用本文件上一段的既有做法）：临时索引 `GIT_INDEX_FILE` +
+  `commit-tree` + `update-ref`（带旧值做 CAS），**不读真实索引**，
+  别人的暂存区原封不动；提交后把真实索引的这两个条目对齐到新 HEAD
+  （否则对方下一次 `git commit` 会把本小节当成"已暂存的删除"抹掉）。
+- **不 push**（部署由本人决定）。
