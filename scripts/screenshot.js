@@ -16,7 +16,7 @@ const path = require('path');
 
 const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const OUT    = '/Volumes/Kingston/Mac/MeteoHub/docs/screenshots';
-const BASE   = 'http://127.0.0.1:8766/MeteoHub';
+const BASE   = 'http://127.0.0.1:8766';
 
 const pages = [
   { name: 'home',          url: BASE + '/',                          viewport: { width: 1280, height: 900 } },

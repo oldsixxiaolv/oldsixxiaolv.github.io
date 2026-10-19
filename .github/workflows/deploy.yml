@@ -39,29 +39,27 @@ jobs:
         run: find _site -name '._*' -type f -delete || true
 
       # ⚠️ 产物里**绝对不能**有 CNAME 文件。
-      # 本项目是**项目站**（oldsixxiaolv.github.io 下的 /MeteoHub/），
-      # 域名 github.lvyihang.xyz 由**用户站** oldsixxiaolv.github.io 持有，
-      # 项目站自动继承。一个自定义域名只能属于一个站点——若产物里再放一份
-      # CNAME，官方文档写明会报域名被占用：
+      # 站点部署在**用户站仓库** oldsixxiaolv.github.io（本仓库），内容铺在域名
+      # 根 `/`。自定义域名 github.lvyihang.xyz 是在本仓库的
+      # Settings → Pages → Custom domain 里配的，不靠 CNAME 文件。
+      # 如果产物里再放一份 CNAME，GitHub 会把同一个自定义域名判给两个站点并
+      # 报错——官方文档写明：
       #   "If you get an error about a custom domain being taken, you may need
       #    to remove the custom domain from another repository."
       #   (Managing a custom domain for your GitHub Pages site)
-      # 站点根由 Settings → Pages 的 Custom domain 字段决定，不靠 CNAME 文件；
-      # 用户站那边配好后，项目站无需任何 CNAME 即可挂在 /MeteoHub/。
       # 这里做成硬断言：万一以后有人往 src/ 里塞了 CNAME，构建立刻失败，
-      # 而不是安静地把线上域名搞挂。
+      # 而不是安静地把部署搞挂。
       - name: Assert no CNAME in artifact
         run: |
           if [ -e _site/CNAME ]; then
-            echo "::error::_site/CNAME 不应存在：项目站继承用户站域名，自带 CNAME 会造成域名占用冲突"
+            echo "::error::_site/CNAME 不应存在：域名已在 Settings → Pages 配好，产物再带 CNAME 会造成域名占用冲突"
             exit 1
           fi
 
       # 没有 enablement: true —— 官方 action.yml 写明该选项
       # "requires a token other than GITHUB_TOKEN"，用默认 token 无效。
       # 开启 Pages 是一次性的手动操作：Settings → Pages → Source → GitHub Actions。
-      # configure-pages 的 base_path 输出会告诉我们实际的挂载路径，
-      # 正常应为 /MeteoHub——与 eleventy.config.js 的 pathPrefix 一致。
+      # 本仓库是用户站仓库，base_path 应为 /（站点在域名根，无子路径）。
       - name: Configure Pages
         uses: actions/configure-pages@v5
 

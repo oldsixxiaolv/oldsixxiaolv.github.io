@@ -74,6 +74,15 @@
     <link rel="stylesheet" href="{{ '/assets/css/a11y.css' | relUrl }}" />
   </noscript>
 
+  {# —— 打印样式 ——
+       media="print" 是关键：屏幕浏览时浏览器**不会下载这个文件**，
+       所以它对首屏带宽零影响；只有真正打印 / 导出 PDF 时才拉下来。
+       不用 preload + onload 那套异步换装——media 条件本身就是按需加载。
+
+       用途见 src/assets/css/print.css 顶部注释：让带高亮和批注的论文
+       能导出成 PDF（此前全站没有任何 @media print）。 #}
+  <link rel="stylesheet" media="print" href="{{ '/assets/css/print.css' | relUrl }}" />
+
   {% block extraHead %}{% endblock %}
 
   {# —— Favicon —— #}
@@ -228,6 +237,24 @@
     }
   }
   </script>
+
+  {# —— ScholarlyArticle：论文的结构化数据 ——
+     上面那段 Person 描述"我是谁"，这段描述"我产出过什么"。Google Scholar
+     读的就是 ScholarlyArticle——学术主页上的论文能不能被检索到、被正确归到
+     名下，靠它。两边用同一个 ORCID 串起来，搜索引擎才能把它们识别成同一实体。
+
+     数据源与 /papers/ 页、BibTeX 导出完全一致（site.publications），三处
+     不可能出现"这里有、那里没有"。每条缺字段就不输出该字段，不留空值。
+
+     顶层用 @graph 而不是裸数组：@graph 是 schema.org 表示"一组实体"的
+     规范写法（Google 官方文档推荐），裸数组虽然也是合法 JSON-LD，但
+     在多实体场景下兼容性不如 @graph。 #}
+  {%- set articles = site.publications | jsonLdArticles(site.author.orcid) -%}
+  {%- if articles.length %}
+  <script type="application/ld+json">
+  {{ { "@context": "https://schema.org", "@graph": articles } | dump | safe }}
+  </script>
+  {%- endif %}
 
   {% block structuredData %}{% endblock %}
 

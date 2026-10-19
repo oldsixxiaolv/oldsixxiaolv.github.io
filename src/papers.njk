@@ -1,0 +1,51 @@
+---
+layout: layouts/page.njk
+permalink: /papers/
+title: "Publications"
+description: "Peer-reviewed publications with DOI, PDF, code and data links, plus a BibTeX export."
+eleventyNavigation:
+  key: Papers
+  order: 2
+editPaths:
+  - path: src/papers.njk
+    label: "Edit this page"
+---
+
+{# ============================================================================
+   papers.njk · 论文列表页
+   ----------------------------------------------------------------------------
+   为什么要有这一页：学术主页的**第一职责**是把产出摆出来。上一版这页被删了
+   （当时的 collections.papers 是空集合，渲染出来是个空壳），但数据其实一直
+   在 site.js 的顶层 publications 字段里躺着——首页的 publications partial
+   读的就是它。现在改成直接复用那个 partial，所以两处永远同步：
+   首页显示「Selected publications」（概览），本页显示完整列表。
+
+   数据源唯一：site.publications（src/_data/site.js）。卡片样式、状态角标、
+   作者高亮、DOI/PDF/Code/Data 链接全部由 partials/publications.njk 负责，
+   本文件不重复实现任何一条论文卡片的逻辑——改卡片只改 partial 一个地方。
+
+   BibTeX 导出（/publications.bib）与本页同源，同样从 site.publications 生成，
+   引用我的人下载 BibTeX 就能拿到正确的条目，不用手敲。
+   ========================================================================== #}
+
+<article class="list-page">
+  <header class="list-page__head">
+    <h1>Publications</h1>
+    <p class="list-page__lede">
+      Peer-reviewed work. Each entry links to the publisher DOI, a PDF, and the
+      code and data behind it where those exist.
+    </p>
+    <p class="list__meta">
+      <a class="btn btn--ghost btn--sm" href="{{ '/publications.bib' | relUrl }}" download>
+        Download BibTeX
+      </a>
+    </p>
+  </header>
+
+  {# —— 复用首页的论文卡 ——
+     pubHeading 在 include 之前 set，partial 内部会优先用它（见 partial 顶部的
+     说明）。这里不传的话就会退回默认的 "Selected publications"，在独立页上
+     显得像首页的截取。 #}
+  {% set pubHeading = "Peer-reviewed publications" %}
+  {% include "partials/publications.njk" %}
+</article>

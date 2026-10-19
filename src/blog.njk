@@ -67,8 +67,8 @@ editPaths:
       {% set coverSrc = (post.url + post.data.cover) | relUrl %}
       <li class="list__item">
         {# 整行可点；| relUrl 不能省：Eleventy v3 的 pathPrefix 只在 url filter 里
-           生效，collection item 的 .url 永远是站点根相对的裸路径。部署到
-           GitHub Pages 项目页（/MeteoHub/）时不过滤就会 404。 #}
+           生效，collection item 的 .url 永远是站点根相对的裸路径。部署在子路径
+           下时不过滤就会 404。 #}
         <a class="list__link card{% if hasCover %} list__link--cover{% else %} list__link--plain{% endif %}" href="{{ post.url | relUrl }}">
           {% if hasCover %}
             <span class="card__media">

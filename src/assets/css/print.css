@@ -1,0 +1,222 @@
+/* ============================================================================
+ * print.css · 打印样式
+ * ----------------------------------------------------------------------------
+ * 存在的理由：论文精读模块已经具备完整的高亮 + 批注能力
+ * （src/assets/js/paper-reader/ 下的 highlight.js / annotations.js / toc.js），
+ * 但此前**全站没有任何 @media print**（`grep -rn "@media print" src/assets/css/`
+ * 零命中）。也就是说：读者在浏览器里读一篇论文、标了高亮、写了批注，
+ * 却**没法把它导出成 PDF**——组会分享、给导师看、文献存档，都是高频真场景。
+ *
+ * 设计目标（按重要性排序）：
+ *   1. **批注要能打出来**。批注栏是 sticky 侧栏 + overflow-y:auto，
+ *      直接 display:none 会把批注全丢掉。所以这里改成静态流、让它跟着
+ *      正文顺序流下来，而不是隐藏。
+ *   2. **高亮底色要保留**。高亮是读者标出来的重点，打印后看不见等于
+ *      白打。需要 print-color-adjust: exact 强制浏览器输出背景色
+ *      （Chrome 默认会省掉背景色，除非显式要求）。
+ *   3. **打印的是纸，不是屏幕**。去掉阴影、圆角、渐变；深色模式强制回浅色
+ *      （深色底大面积打印既费墨又难读）。
+ *   4. **链接要能追溯**。正文里的外链在纸面上只是一个词，读者无从点开，
+ *      所以在链接后附上原始 URL。
+ *
+ * 引入位置：base.njk 的 head（异步加载，和其余非关键 CSS 一起）。
+ * ⚠️ 它是**独立文件**而不是塞进 base.css —— 打印样式只对 print 媒体生效，
+ *    单独成文件后平时不占首屏带宽，也方便单独调。
+ * ========================================================================== */
+
+/* ---------- 1. 页面设置 ----------
+   18mm 是 A4 上的舒适边距（约 0.7 英寸）：够打印机不裁切，够装订。 */
+@page {
+  margin: 18mm;
+}
+
+/* ---------- 2. 强制浅色 ----------
+   暗色模式的定义有两处：@media (prefers-color-scheme: dark) 里的
+   :root:not([data-theme="light"])，以及 [data-theme="dark"]。
+   两条都要盖住，否则用户在系统深色下打印会得到一份满页深底的纸。
+
+   选 :root:not([data-theme="light"]) 是因为它的特异度（0,2,0）与暗色
+   规则完全相同，而本文件在 cascade 里更靠后 → 同特异度下后者胜。
+   选 :root[data-theme="dark"] 同理。 */
+@media print {
+  :root,
+  :root:not([data-theme="light"]),
+  :root[data-theme="dark"] {
+    --bg-page: #ffffff;
+    --bg-surface: #ffffff;
+    --bg-elevated: #ffffff;
+    --bg-muted: #f4f4f5;
+    --bg-subtle: #fafafa;
+    --text-primary: #000000;
+    --text-secondary: #1a1a1a;
+    --text-muted: #4a4a4a;
+    --border-subtle: #d4d4d8;
+    --border-default: #a1a1aa;
+    --border-strong: #52525b;
+  }
+
+  /* ---------- 3. 保留背景色 ----------
+     Chrome / Safari 默认不打印背景色（"Background graphics" 复选框默认关），
+     高亮底色、批注色块、kind 边线全部会消失。print-color-adjust: exact
+     强制输出。 */
+  * {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  /* ---------- 4.5 强制显示滚动进场的内容（关键） ----------
+     ⚠️ 这一条不是优化，是**修一个真 bug**。
+
+     src/assets/js/main.js 的 reveal-on-scroll 机制：
+       1. 给 <html> 加 .motion-ready
+       2. 给所有 [data-reveal] 元素加 .reveal → base.css 里 .motion-ready .reveal
+          是 `opacity: 0; transform: translateY(18px)`
+       3. 用 IntersectionObserver 在元素**进入视口**时才加 .is-visible
+          （opacity 回到 1）
+
+     屏幕上看没问题——用户往下滚，元素就显形了。但**打印 / 导出 PDF 时
+     视口外的元素永远没进过视口**，is-visible 永远不加，opacity 一直是 0，
+     于是它们在纸面上是**完全空白**。
+
+     实测证据：加打印样式之前，用 headless Chrome 导出 /papers/ 的 PDF，
+     文本层里只有标题和 "Peer-reviewed publications"，**整张论文卡片
+     （标题、作者、期刊、基金号、全部链接）一个字都没有**——因为它
+     在首屏之下。
+
+     打印的意义就是把内容带走，所以这里无条件把 reveal 状态摊平：
+     去掉透明度、位移、过渡、动画。 */
+  .motion-ready .reveal,
+  .reveal {
+    opacity: 1 !important;
+    transform: none !important;
+    transition: none !important;
+    animation: none !important;
+  }
+
+  /* ---------- 5. 隐藏屏幕专属的 chrome ----------
+     导航、页脚链接、跳转链接、主题切换、阅读进度条、目录树——这些在纸面上
+     是噪音还会浪费一整页。
+
+     ⚠️ 页脚**只藏链接行**（.foot__links：Sitemap / RSS / Edit this page），
+     不整个藏 .foot：底部的「© 年份 姓名」是版权声明，纸面上应该留着。
+     （首页那块 "A working archive" + 社交链接是 home-intro 区块的内容，
+     不是页脚，本来就该打印。） */
+  .topbar,
+  .foot__links,
+  .skip-link,
+  .theme-toggle,
+  .reading-progress,
+  .paper-toc,
+  .paper-footer,
+  .annot-pane__filter,
+  .annot-pane__foot {
+    display: none !important;
+  }
+
+  /* 批注栏头保留（"批注 (N)" 这样的标题有信息量），但里面的搜索框
+     和筛选 chip 是交互控件，打印出来是死物，单独藏掉。 */
+  .annot-pane__head input[type="search"] {
+    display: none !important;
+  }
+
+  /* ---------- 5. 论文三栏 grid 塌成单栏 ----------
+     .paper-reader-wrap 是 grid-template-columns: TOC | 正文 | 批注 三栏。
+     纸面宽度放不下三栏，而 grid 容器不会自动折行，所以必须改成 block，
+     让正文与批注依次流下来。 */
+  .paper-reader-wrap {
+    display: block !important;
+    max-width: none;
+    padding-inline: 0;
+    padding-block: 0;
+  }
+
+  /* 批注栏：sticky + max-height + overflow-y:auto 是给屏幕滚动用的，
+     打印时会让内容被截断（只打出当前滚动位置那几条）。改成静态流、
+     高度自适应、允许完整展开。 */
+  .annot-pane {
+    position: static !important;
+    top: auto !important;
+    max-height: none !important;
+    overflow: visible !important;
+    width: auto;
+    margin-top: 8mm;
+    padding-top: 4mm;
+    border-top: 1px solid var(--border-default);
+    break-inside: auto;
+  }
+
+  /* ---------- 6. 外链补 URL ----------
+     纸面上无法点击，所以把原始地址印在链接文字后面。
+     作用域限定在正文与批注区：导航、论文卡的链接行（Paper/DOI/Code…）
+     本身都是短标签，补上 URL 会把版面撑得很乱。 */
+  .prose a[href^="http"]::after,
+  .paper-body a[href^="http"]::after,
+  .annot-body a[href^="http"]::after {
+    content: " (" attr(href) ")";
+    font: 9px/1.4 var(--font-mono, monospace);
+    color: var(--text-muted);
+    word-break: break-all;
+  }
+
+  /* ---------- 7. 去装饰、留结构 ----------
+     阴影和圆角在纸上没有意义（还费墨），但**边框要留**——批注卡的
+     kind 边线（figure / question / insight / critique）是分类信息，
+     去掉就分不清批注类型了。 */
+  .card,
+  .annot-card,
+  .home-pub,
+  .list__item {
+    box-shadow: none !important;
+    border-radius: 0 !important;
+  }
+
+  .annot-card {
+    border: 1px solid var(--border-default);
+    border-left: 3px solid var(--kind-edge, var(--border-strong));
+    break-inside: avoid;
+  }
+
+  /* ---------- 8. 分页控制 ---------- */
+  h1, h2, h3, h4 {
+    break-after: avoid-page;
+    page-break-after: avoid;
+  }
+
+  /* 图、表、批注卡、代码块尽量不跨页断开 */
+  figure,
+  .home-pub__figure,
+  pre,
+  blockquote,
+  .annot-card {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  /* 孤行寡行：标题不留在页尾，正文段落不只剩一行落在页首 */
+  p, li {
+    orphans: 3;
+    widows: 3;
+  }
+
+  /* ---------- 9. 链接样式降级 ----------
+     屏幕上的"主色 + 无下划线"在黑白打印里会变成一条不显眼的普通文字，
+     纸面上必须靠下划线区分链接与正文。 */
+  a {
+    color: inherit;
+    text-decoration: underline;
+  }
+
+  /* 表格：宽表在窄纸面上会溢出，允许横向铺满且允许断行 */
+  table {
+    width: 100% !important;
+    max-width: 100% !important;
+    table-layout: auto;
+    break-inside: auto;
+  }
+
+  th, td {
+    padding: 4px 6px;
+    border: 1px solid var(--border-default);
+    overflow-wrap: anywhere;
+  }
+}

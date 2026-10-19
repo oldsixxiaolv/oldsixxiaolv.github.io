@@ -19,9 +19,8 @@ const path = require("path");
 // ---------------------------------------------------------------------------
 // 输出目录：dev server 与生产构建必须写不同的目录
 // ---------------------------------------------------------------------------
-// 问题：serve 模式下 pathPrefix 被强制为 "/"（dev server 挂在根路径），
-// 而生产构建用 "/MeteoHub"（GitHub Pages 项目页）。两者产出的 HTML 里的
-// 资源路径完全不同——/assets/... 对 /MeteoHub/assets/...。
+// 问题：serve 模式与生产构建的 pathPrefix 可能不同（serve 强制为 "/"，
+// 生产可用 PATH_PREFIX 覆盖）。两者产出的 HTML 里的资源路径会不一样。
 //
 // 如果它们写同一个目录，就会出现：dev server 正在 8080 上跑着，你随手
 // 执行一次 `npm run build`，_site/ 被生产版覆盖，而 dev server 仍然按
@@ -293,6 +292,145 @@ module.exports = function (eleventyConfig) {
     return arr.slice(0, n);
   });
 
+  /* ---------- 4b. bibtex filter：BibTeX 条目生成 ----------
+     输入 site.publications 里的一个 publication 对象，输出一条完整的 BibTeX
+     @article 记录。给 /publications.bib 用（见 src/publications.bib.njk）。
+
+     为什么需要它：学术主页提供 BibTeX 是硬需求——引用我的人不该手敲条目。
+     Zotero / Mendeley / EndNote 都能直接导入 .bib。
+
+     几个容易做错的地方，这里都处理了：
+       · 作者名 "Xueke Wu" → "Wu, Xueke"。BibTeX 用「姓, 名」，
+         直接把 "First Last" 塞进去，文献管理软件会把它当姓在前，列表全乱。
+       · 引用键必须唯一且稳定。这里用「第一作者姓 + 年份 + 标题首个实词」，
+         同一篇每次构建生成同一个键（确定性），不同篇不会撞。
+       · 花括号在 BibTeX 里是结构符号（用来保护大小写），**不能转义**；
+         真正需要转义的是 & % $ # _ 这几个，它们在 LaTeX 里有特殊含义。
+       · 字段一律判空再输出。缺 DOI 就不写 doi 字段，而不是写一条空的
+         ——空字段在某些管理器里会变成 "doi: null"。
+  */
+  const BIB_MONTHS = ["jan", "feb", "mar", "apr", "may", "jun",
+                      "jul", "aug", "sep", "oct", "nov", "dec"];
+  eleventyConfig.addFilter("bibtex", (pub) => {
+    if (!pub) return "";
+    const esc = (v) =>
+      v == null ? "" : String(v).replace(/[&%$#_]/g, (c) => "\\" + c);
+
+    // "Xueke Wu, Yihang Lyu" → "Wu, Xueke and Lyu, Yihang"
+    const authors = String(pub.authors || "")
+      .split(",")
+      .map((n) => n.trim())
+      .filter(Boolean)
+      .map((n) => {
+        const parts = n.split(/\s+/);
+        if (parts.length < 2) return n;
+        const last = parts.pop();
+        return `${last}, ${parts.join(" ")}`;
+      })
+      .join(" and ");
+
+    // 引用键：第一作者姓 + 年份 + 标题里第一个有意义的实词
+    const firstAuthor = String(pub.authors || "").split(",")[0].trim();
+    const surname = (firstAuthor.split(/\s+/).pop() || "anon");
+    const STOP = new Set(["the", "and", "for", "from", "with", "into", "over", "a", "an"]);
+    const word = String(pub.title || "")
+      .split(/\s+/)
+      .map((w) => w.replace(/[^A-Za-z0-9]/g, ""))
+      .find((w) => w.length > 2 && !STOP.has(w.toLowerCase())) || "untitled";
+    const key = `${surname}${pub.year || "nd"}${word}`.replace(/[^A-Za-z0-9]/g, "");
+
+    const f = [];
+    const put = (name, value) => {
+      if (value == null || value === "") return;
+      f.push(`  ${name.padEnd(8)} = {${value}},`);
+    };
+    put("author", authors);
+    put("title", esc(pub.title));
+    put("journal", esc(pub.shortJournal || pub.journal));
+    put("year", pub.year);
+    if (pub.month) {
+      const m = BIB_MONTHS[Number(pub.month) - 1];
+      if (m) put("month", m);
+    }
+    put("volume", pub.volume);
+    put("number", pub.issue);
+    // AGU 用 e-locator（e2026JD046836）代替页码，放 pages 字段是社区惯例
+    put("pages", pub.pages || pub.articleNumber);
+    put("doi", pub.doi);
+    put("url", pub.url);
+    return `@article{${key},\n${f.join("\n")}\n}`;
+  });
+
+  /* ---------- 4c. jsonLdArticles filter：ScholarlyArticle 结构化数据 ----------
+     输出 schema.org 的 ScholarlyArticle 数组，给 base.njk 的 <script
+     type="application/ld+json"> 用。Google Scholar 读的就是这个类型——
+     研究者主页上"论文列表"这一块能不能被检索到，靠它。
+
+     和 Person 那一段（base.njk 里）配合：Person 描述"我是谁"，
+     ScholarlyArticle 描述"我产出过什么"，两边用同一个 ORCID 串起来，
+     搜索引擎才能把论文和作者识别成同一实体。
+
+     几个细节：
+       · 作者列表要从 "Xueke Wu, Yihang Lyu" 这种串还原成 Person 数组。
+       · 本人那条多挂一个 sameAs → ORCID，这是把论文和本人绑定的关键。
+       · 没有 DOI 的条目照样输出，只是少 identifier 字段——schema.org
+         允许缺字段，但不允许字段值为空字符串。
+       · datePublished 用 "YYYY-MM" 的粒度：AGU 论文的日期粒度就到月，
+         写成天反而是编造。
+  */
+  eleventyConfig.addFilter("jsonLdArticles", (pubs, ownerOrcid) => {
+    if (!Array.isArray(pubs) || !pubs.length) return [];
+    const ownerName = "Yihang Lyu"; // 与 site.author.nameAsPublished 一致
+    return pubs.map((p) => {
+      const authors = String(p.authors || "")
+        .split(",")
+        .map((n) => n.trim())
+        .filter(Boolean)
+        .map((n) => {
+          const a = { "@type": "Person", name: n };
+          if (n === ownerName && ownerOrcid) a.sameAs = ownerOrcid;
+          return a;
+        });
+
+      const article = {
+        "@type": "ScholarlyArticle",
+        headline: p.title,
+        name: p.title,
+        author: authors,
+      };
+      // url：优先用出版商页面，没有 DOI 时退回 doi.org 解析地址；
+      // 两者都没有就整个字段不出现（Nunjucks 的 dump 走 JSON.stringify，
+      // undefined 的属性会被自动丢掉，不会漏出 "url": undefined）。
+      if (p.url) article.url = p.url;
+      else if (p.doi) article.url = `https://doi.org/${p.doi}`;
+
+      if (p.journal) {
+        article.isPartOf = {
+          "@type": "Periodical",
+          name: p.journal,
+        };
+      }
+      if (p.year) {
+        article.datePublished = p.month
+          ? `${p.year}-${String(p.month).padStart(2, "0")}`
+          : String(p.year);
+      }
+      if (p.volume) article.volume = p.volume;
+      if (p.issue) article.issue = p.issue;
+      if (p.pages || p.articleNumber) article.pageStart = p.pages || p.articleNumber;
+      if (p.doi) {
+        article.identifier = `https://doi.org/${p.doi}`;
+        article.sameAs = `https://doi.org/${p.doi}`;
+      }
+      if (p.pdf) article.encoding = {
+        "@type": "MediaObject",
+        contentUrl: p.pdf,
+        encodingFormat: "application/pdf",
+      };
+      return article;
+    });
+  });
+
   /* ---------- 5. markdown filter（11ty v3 默认 Markdown 模板引擎已内置，
                           这里额外注册一个 filter，便于在 Nunjucks 字符串上调用）*/
   const MarkdownIt = require("markdown-it");
@@ -373,9 +511,9 @@ module.exports = function (eleventyConfig) {
   eleventyConfig.ignores.add("src/content/about.md");
   eleventyConfig.ignores.add("src/content/papers/*/index.md");
   /* ---------- 路径：全部相对，不绑死挂载点 ----------
-     目标：`_site/` 这个文件夹**扔到哪都能跑** —— GitHub Pages 项目页的
-     /MeteoHub/、自定义域的根、Netlify / Vercel / nginx，甚至直接双击本地
-     文件打开。为此：
+     目标：`_site/` 这个文件夹**扔到哪都能跑** —— 自定义域的根
+     （github.lvyihang.xyz）、项目站子路径、Netlify / Vercel / nginx，
+     甚至直接双击本地文件打开。为此：
        pathPrefix  = "/"           模板里的 {{ '/assets/...' | url }} 先产出
                                       /assets/... 这种根相对写法
        htmlBaseUrl = "relative"    11ty 的 transform 随后按**每页自身所在目录**
@@ -383,23 +521,23 @@ module.exports = function (eleventyConfig) {
                                       的路径（首页是 assets/...，/about/ 页是
                                       ../assets/...）
 
-     之前靠 pathPrefix="/MeteoHub" 硬编码挂载点，产物只在挂在 /MeteoHub/
-     时可用，换任何托管方式都会整站 404 —— 这正是「文件夹不对」的根本原因。
+     之前靠 pathPrefix 硬编码挂载点，产物只在挂在那个路径时可用，换任何托管
+     方式都会整站 404 —— 这正是「文件夹不对」的根本原因。
      相对路径与挂载点无关，是可移植静态站的标准做法。
 
      ⚠️ htmlBaseUrl 只改写 HTML 的 href / src 属性，**不动**
         <link rel="canonical">、og:url、og:image、JSON-LD 的 url ——
         那些必须是完整绝对地址，搜索引擎靠它们定位页面。
         site.url 仍由 src/_data/site.js 提供，不受相对化影响。
-     ⚠️ 仍可用 PATH_PREFIX 环境变量强制覆盖（确实要产出 /MeteoHub/ 这种
-        带前缀的版本时）。默认不给前缀。
+     ⚠️ 仍可用 PATH_PREFIX 环境变量强制覆盖（确实要产出带前缀的版本时）。
+        默认不给前缀。
   -------------------------------------------------------------------------- */
   const _configuredPrefix = process.env.PATH_PREFIX;
 
   /* ---------- relUrl：把站内路径渲染成「相对于当前页面」的路径 ----------
      为什么不用 Eleventy 自带的路子：
-       · pathPrefix="/MeteoHub"  —— 产物只在挂在 /MeteoHub/ 时可用，换托管
-         方式就整站 404，且和「换个域名根目录部署」直接冲突。
+       · pathPrefix 硬编码  —— 产物只在挂在那个路径时可用，换托管方式就整站
+         404，且和「换个域名根目录部署」直接冲突。
        · HtmlBasePlugin —— Eleventy 3 已把顶层 htmlBaseUrl 键废弃，
          插件内部在 baseHref === "/" 时**整体禁用**（源码：
          enabled: () => Boolean(context.baseHref) || opts.baseHref !== "/"），
@@ -411,8 +549,7 @@ module.exports = function (eleventyConfig) {
         page.url = "/about/"  → "../"       → ../assets/css/x.css
         page.url = "/a/b/"    → "../../"    → ../../assets/css/x.css
 
-     结果：`_site/` 整个文件夹扔到任何挂载点都能跑 —— GitHub Pages 项目页
-     的 /MeteoHub/、自定义域根目录、Netlify / Vercel / nginx 都行。
+     结果：`_site/` 整个文件夹扔到任何挂载点都能跑。
 
      ⚠️ 只用于**页面内的 href / src**。canonical / og:url / og:image /
         JSON-LD 里的 url 必须保持完整绝对地址（搜索引擎靠它们定位页面），

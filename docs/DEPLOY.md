@@ -2,8 +2,8 @@
 
 站点是**纯静态站**：Eleventy 3 把 `src/` 编译成 `_site/`（HTML + CSS + JS + 图片，无后端、无数据库、无服务端代码）。产物可以直接托管在 GitHub Pages 上。
 
-- 仓库：`oldsixxiaolv/MeteoHub`（project site）
-- 线上地址：**<https://github.lvyihang.xyz/MeteoHub/>**
+- 仓库：`oldsixxiaolv/oldsixxiaolv.github.io`（**用户站仓库**，内容铺在域名根 `/`）
+- 线上地址：**<https://github.lvyihang.xyz/>**
 - 发布方式：GitHub Actions（push 到 `main` 自动触发）
 
 ---
@@ -27,8 +27,7 @@
   `data/`、`secret.key`、`_site/`、QA 产物都已在 `.gitignore` 里。
 - **升级 GitHub Pro**（保留私有库）。
 
-> 用户主页仓库 `oldsixxiaolv.github.io` 同样受这条限制——它也得能开 Pages，
-> 域名继承才成立。
+> 本仓库本身就是用户站仓库 `oldsixxiaolv.github.io`，受这条限制同样适用。
 
 ### 2. 开启 GitHub Pages
 
@@ -54,23 +53,19 @@ permissions:
 Settings → Actions → General 把 "Read and write permissions" 打开。
 `id-token: write` 是 `deploy-pages` 换取 OIDC token 的前提，也已经在了。
 
-### 4. 自定义域名（用户站那边配，本仓库不用动）
+### 4. 自定义域名（本仓库 Settings 里配）
 
-- 用户主页仓库 `oldsixxiaolv.github.io` 的 `CNAME` = `github.lvyihang.xyz`
 - DNS：`github.lvyihang.xyz` CNAME → `oldsixxiaolv.github.io`（已生效，实测可解析）
-- 证书：`github.lvyihang.xyz` 的 TLS 正常
+- 本仓库 **Settings → Pages → Custom domain** 填 `github.lvyihang.xyz` → Save
+- Enforce HTTPS：保持勾选
+- 证书：等 TLS 签发，最长 24 小时
 
-**MeteoHub 仓库不需要自己的 CNAME。** 按官方文档
-[Using a custom domain across multiple repositories](https://docs.github.com/en/pages/configuring-a-custom-domain-for-your-github-pages-site/about-custom-domains-and-github-pages)：
+**站点在域名根 `/`，没有 `/MeteoHub/` 这一层。** 本仓库是 `oldsixxiaolv.github.io`
+这个**用户站仓库**，GitHub 把它的内容直接铺在域名根上——用户站仓库没有"项目站挂
+子路径"这回事。
 
-> By default, if you set a custom domain for a **user site**, that same custom domain will be
-> used for all project sites owned by the same account. […] the GitHub Pages site for that
-> repository will be available at `www.octocat.com/octo-project`.
-
-项目站**自动继承**用户站的域名并挂在 `/MeteoHub/` 下，本仓库不需要任何 CNAME。
-
-不但不需要，**产物里带 CNAME 反而会让部署失败**：一个自定义域名只能属于一个站点，
-官方文档写明冲突时报域名被占用：
+**不需要 CNAME 文件。** 而且**产物里带 CNAME 反而会让部署失败**：一个自定义域名只能
+属于一个站点，官方文档写明冲突时报域名被占用：
 
 > If you get an error about a custom domain being taken, you may need to remove the custom domain
 > from another repository.
@@ -79,8 +74,6 @@ Settings → Actions → General 把 "Read and write permissions" 打开。
 
 因此仓库根的 `CNAME` 已删除，`deploy.yml` 里也加了一道断言：产物里只要出现
 `_site/CNAME` 就让构建直接失败，避免以后不小心把线上域名搞挂。
-
-域名分工：`github.lvyihang.xyz/` 根目录放网盘，`/MeteoHub/` 放学术主页。
 
 ---
 
@@ -97,14 +90,18 @@ git push oldsixxiaolv main
 
 ## 三、路径前缀（pathPrefix）
 
-Eleventy 从 `src/_data/site.js` 的 `url` 自动派生：
+站点在域名根，**没有路径前缀**。`src/_data/site.js` 的 `url` 是全站唯一绝对地址来源：
 
-```
-url: "https://github.lvyihang.xyz/MeteoHub"   →  pathPrefix = "/MeteoHub"
+```js
+url: "https://github.lvyihang.xyz"     // canonical / og:url / sitemap 全由它派生
 ```
 
-- **生产构建**：`pathPrefix = /MeteoHub`，模板里的 `{{ '/assets/...' | url }}` 渲染成 `/MeteoHub/assets/...`
-- **dev server**：`pathPrefix = /`，直接开 <http://127.0.0.1:8080/> 即可，不重定向
+`url` 只影响**元数据**（canonical、og、sitemap、JSON-LD），不影响页面里的资源引用——
+后者走 `relUrl` 过滤器渲染成 `../assets/...` 这种**相对路径**，与挂载点无关。
+
+⚠️ **改错的后果很隐蔽**：页面照样正常渲染（相对路径照样工作），但 canonical 和
+sitemap 会指向 404 的地址，爬虫和分享卡片拿到的都是死链。改 `url` 后务必重新构建
+并核对产物里的 `<link rel="canonical">`。
 
 `dev server` 与生产构建写**不同的输出目录**：
 
@@ -124,15 +121,11 @@ url: "https://github.lvyihang.xyz/MeteoHub"   →  pathPrefix = "/MeteoHub"
 npm ci                    # 注意：package.json 与 package-lock.json 必须同步，否则 npm ci 直接报 EUSAGE
 npm run build             # 先跑 CSS 括号检查，再 Eleventy
 python3 -m http.server 8081 --directory _site
+# 打开 http://127.0.0.1:8081/
 ```
 
-但这样打开 <http://127.0.0.1:8081/> 会因为 `/MeteoHub/` 前缀而 404。要在本地复现线上路径：
-
-```bash
-mkdir -p /tmp/preview && ln -sfn "$PWD/_site" /tmp/preview/MeteoHub
-cd /tmp/preview && python3 -m http.server 8081
-# 打开 http://127.0.0.1:8081/MeteoHub/
-```
+因为资源走相对路径，**本地直接用根路径打开即可**，和线上结构一致，不需要再套一层
+symlink 模拟子路径。
 
 或者用 Eleventy 自带的 serve（它会自动降级到根路径，产物写到 `_site_dev/`）：
 
@@ -146,8 +139,10 @@ npm run serve
 
 部署后逐条确认：
 
-- [ ] <https://github.lvyihang.xyz/MeteoHub/> 返回 200，且能看到人像照片
-- [ ] `/MeteoHub/about/`、`/MeteoHub/blog/` 返回 200
+- [ ] <https://github.lvyihang.xyz/> 返回 200，且能看到人像照片
+- [ ] `/about/`、`/blog/` 返回 200
+- [ ] `curl -s https://github.lvyihang.xyz/ | grep canonical` 显示的地址**不带** `/MeteoHub/`
+- [ ] `curl -s https://github.lvyihang.xyz/sitemap.xml` 里每条 `<loc>` 都返回 200
 - [ ] 浏览器 DevTools → Network 里 `assets/css/pages.css`、`assets/img/author/portrait.jpg` 都是 200
 - [ ] 分享链接的预览图是 `Yihang Lyu`（不是旧的 `Yihang Lv`）
 - [ ] 页脚 `Edit this page` 指向 GitHub 编辑界面
@@ -174,21 +169,27 @@ npm install --package-lock-only   # 只更新 lockfile，不动 node_modules
 
 ### B. `deploy-pages` 报 403 / Resource not accessible by integration
 
-Actions 的 Workflow permissions 是只读。见上文「一次性设置 · 2」。
+`deploy.yml` 已自带 `permissions: { pages: write, id-token: write }`，正常不会发生。
+若真出现，检查是不是有第二个 workflow 在抢同一个 `github-pages` 环境，或仓库级
+Workflow permissions 被设成了异常的只读值。见上文「一次性设置 · 3」。
 
 ### C. Configure Pages 报 Get Pages site failed
 
-Pages 没开启。见上文「一次性设置 · 1」。
+Pages 没开启，或 Source 不是 `GitHub Actions`。见上文「一次性设置 · 2」。
 
 ### D. 页面能开但图片/CSS 全 404
 
-资源路径缺 `/MeteoHub` 前缀，或反过来。检查产物：
+资源引用必须走**相对路径**（`../assets/...`），不能硬编码根绝对路径。检查产物：
 
 ```bash
-# 生产产物应全部带前缀
-grep -c 'href="/MeteoHub/' _site/index.html          # 期望 ≥ 8
-grep -cE 'href="/assets/|src="/assets/' _site/index.html  # 期望 0
+# 应当 0 命中：任何根绝对路径引用都会在非根挂载点失效
+grep -cE 'href="/assets/|src="/assets/' _site/index.html   # 期望 0
+
+# 应当能命中：相对路径引用
+grep -c 'assets/css/' _site/index.html                      # 期望 ≥ 3
 ```
+
+若产物里出现 `/assets/...`，说明模板绕过 `relUrl` 过滤器直接写了绝对路径。
 
 ### E. 首次访问 404，刷新后正常
 

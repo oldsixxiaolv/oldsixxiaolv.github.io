@@ -1,12 +1,13 @@
 # 这是 CNAME 文件的占位示例。
 #
-# ⚠️ 本项目站**当前不需要 CNAME**。
-#    域名 github.lvyihang.xyz 由用户主页仓库 oldsixxiaolv.github.io 持有，
-#    项目站自动继承并挂在 /MeteoHub/ 下。把本文件复制成仓库根的 CNAME，
-#    或让 CNAME 混进构建产物，都会因为「一个自定义域名只能属于一个站点」
-#    而让 deploy-pages 报域名被占用、直接部署失败。详见 docs/DEPLOY.md 第一节。
+# ⚠️ 本项目**当前不需要 CNAME**。
+#    站点部署在用户站仓库 oldsixxiaolv.github.io（本仓库），内容铺在域名根 `/`；
+#    自定义域名 github.lvyihang.xyz 是在 Settings → Pages → Custom domain
+#    里配的。把本文件复制成仓库根的 CNAME、或让 CNAME 混进构建产物，都会因为
+#    「一个自定义域名只能属于一个站点」而让 deploy-pages 报域名占用、部署失败。
+#    deploy.yml 里有一道断言专门拦这个。详见 docs/DEPLOY.md 第一节。
 #
-# 将来若要给**本项目站单独**换一个域名（例如 meteohub.example.com）：
+# 将来若要给本站换一个域名（例如 meteohub.example.com）：
 # 1. 在 DNS 服务商添加 CNAME 记录  meteohub.example.com → oldsixxiaolv.github.io
 # 2. 仓库 Settings → Pages → Custom domain 填入新域名并 Save
 #    （**用设置项，不要用 CNAME 文件**——Actions 发布模式下 CNAME 文件不生效）

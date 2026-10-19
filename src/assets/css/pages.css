@@ -442,6 +442,9 @@ a.home-achievement:hover .home-achievement__value { color: var(--color-brand-700
 .home-pub__sep { margin: 0 6px; color: var(--text-muted); }
 .home-pub__year { font-family: var(--font-mono); font-size: var(--fs-caption); color: var(--text-muted); }
 .home-pub__aff { margin: var(--space-1) 0 0; color: var(--text-muted); font-size: 12px; line-height: 1.5; }
+/* 基金资助行。与 .home-pub__aff 同一套"机器读的元信息"语气，只是稍暗一点——
+   基金号要能被检索和抄写，所以用等宽字体，不做成正文强调。 */
+.home-pub__funding { margin: var(--space-1) 0 0; color: var(--text-muted); font: 11px/1.6 var(--font-mono); }
 
 .home-pub__links { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-4); margin: var(--space-3) 0 0; padding-top: var(--space-2); border-top: 1px solid var(--border-subtle); }
 /* 链接用等宽全大写小字，与 .home-achievement__label / .home-eyebrow 同一套

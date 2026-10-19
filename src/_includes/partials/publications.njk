@@ -33,6 +33,13 @@
    site.js 里躺着。以后往 author 里挪数据时记得同步改这一行。 #}
 {%- set pubs = site.publications -%}
 
+{# —— 标题可覆盖 ——
+   首页用它自己的默认标题 "Selected publications"（首页是概览，不是完整列表）；
+   独立的 /papers/ 页用 include 之前 set 一个 pubHeading 覆盖成完整列表的标题。
+   Nunjucks 的 include 共享上下文，所以 {% set %} 在 include 之前写、模板里读得到。 #}
+{%- set pubHeading = pubHeading or "Selected publications" -%}
+{%- set pubEyebrow = pubEyebrow or "PUBLICATIONS" -%}
+
 {%- if pubs and pubs.length -%}
 
 {# —— SELF：本人在作者串里的写法（唯一硬编码的人名，见上方注释）—— #}
@@ -65,8 +72,8 @@
 
 <section class="home-publications" id="publications" aria-labelledby="home-publications-title">
   <div class="home-blockhead">
-    <p class="home-eyebrow">PUBLICATIONS</p>
-    <h2 class="home-blockhead__title" id="home-publications-title">Selected publications</h2>
+    <p class="home-eyebrow">{{ pubEyebrow }}</p>
+    <h2 class="home-blockhead__title" id="home-publications-title">{{ pubHeading }}</h2>
   </div>
 
   <ol class="home-pub-list">
@@ -132,6 +139,16 @@
         {%- endif %}
 
         {%- if p.affiliation %}<p class="home-pub__aff">{{ p.affiliation }}</p>{% endif %}
+
+        {# —— 基金资助 ——
+           学术主页标注基金号是硬性惯例：资助方与项目号要能被检索到、能被抄进
+           申请书。判空后整行不输出；多笔之间用分号隔开，不用顿号（英文语境）。 #}
+        {%- if p.funding and p.funding.length %}
+        <p class="home-pub__funding">
+          Funding:
+          {%- for f in p.funding %} {{ f.agency }} No. {{ f.id }}{% if not loop.last %};{% endif %}{% endfor -%}
+        </p>
+        {%- endif %}
       </div>
 
       {# —— 链接行 ——
@@ -140,14 +157,30 @@
          dataDoi / doi 存的是裸 DOI 串，链接交给 doi.org 解析。
          p.url 可能是站内路径（/papers/...）也可能是站外绝对地址，
          前者过 url filter 补 pathPrefix，后者原样输出。 #}
-      {%- if p.url or p.doi or p.code or p.dataDoi or p.figure %}
+      {%- if p.url or p.doi or p.pdf or p.code or p.capsule or p.dataDoi or (p.software and p.software.doi) or p.figure %}
       <p class="home-pub__links">
         {%- if p.url %}
           <a class="home-pub__link" href="{% if p.url[0] == '/' %}{{ p.url | relUrl }}{% else %}{{ p.url }}{% endif %}" target="_blank" rel="noopener noreferrer">Paper <span aria-hidden="true">↗</span></a>
         {%- endif -%}
         {%- if p.doi %}<a class="home-pub__link" href="https://doi.org/{{ p.doi }}" target="_blank" rel="noopener noreferrer">DOI <span aria-hidden="true">↗</span></a>{% endif -%}
+        {# —— PDF 入口 ——
+           出版商页面（p.url）常要登录或走机构代理，能直接拿到 PDF 的链接
+           对同行最有用。字段有就渲染，没有就不留空槽。 #}
+        {%- if p.pdf %}<a class="home-pub__link" href="{{ p.pdf }}" target="_blank" rel="noopener noreferrer">PDF <span aria-hidden="true">↗</span></a>{% endif -%}
         {%- if p.code %}<a class="home-pub__link" href="{{ p.code }}" target="_blank" rel="noopener noreferrer">Code <span aria-hidden="true">↗</span></a>{% endif -%}
-        {%- if p.dataDoi %}<a class="home-pub__link" href="https://doi.org/{{ p.dataDoi }}" target="_blank" rel="noopener noreferrer">Data <span aria-hidden="true">↗</span></a>{% endif -%}
+        {# —— Code Ocean 胶囊：代码 + 数据 + 运行环境打包，DOI 已注册。
+           链接给完整 URL 而不是 doi.org 解析：codeocean.com 不吃 doi.org 的
+           重定向链（实测直接 fetch 会被 CloudFront 拦 403，但浏览器点进去正常）。 #}
+        {%- if p.capsule and p.capsule.url %}<a class="home-pub__link" href="{{ p.capsule.url }}" target="_blank" rel="noopener noreferrer">Capsule <span aria-hidden="true">↗</span></a>{% endif -%}
+        {# —— 数据集 DOI ——
+           ⚠️ 这里历史上踩过坑：模板写的是 p.dataDoi，但 site.js 里数据 DOI
+           实际放在 p.software.doi（software 是个对象：label/author/doi/url）。
+           两个字段名对不上，于是 Data 链接从来没渲染出来过——数据集在
+           Zenodo 上躺着，页面上却一个入口都没有。
+           现在两个都认：p.dataDoi（旧字段）与 p.software.doi（现字段），
+           哪个有渲染哪个，不会漏也不会重复。 #}
+        {%- set dataDoi = p.dataDoi or (p.software and p.software.doi) -%}
+        {%- if dataDoi %}<a class="home-pub__link" href="https://doi.org/{{ dataDoi }}" target="_blank" rel="noopener noreferrer">Data <span aria-hidden="true">↗</span></a>{% endif -%}
         {%- if p.figure and p.figure.src %}
           <a class="home-pub__link" href="{{ p.figure.src | relUrl }}" target="_blank" rel="noopener noreferrer">Figure <span aria-hidden="true">↗</span></a>
         {%- endif -%}

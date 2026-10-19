@@ -53,16 +53,16 @@ npm run build    # 产出 _site/
 `npm run build` 出的 `_site/` 是纯静态产物，可托管到 GitHub Pages、Vercel、
 Cloudflare Pages、Nginx 等任意静态服务。详细运行 / 调试见 `HOW_TO_RUN.md`。
 
-### 部署到 GitHub Pages 项目页（如 `oldsixxiaolv.github.io/MeteoHub/`）
+### 部署到 GitHub Pages（`github.lvyihang.xyz` 根目录）
 
-本项目部署到 project site 子路径（仓 `oldsixxiaolv/MeteoHub`，仓名 ≠ 用户名），需要走 **pathPrefix** 方案：
+本项目部署在**用户站仓库** `oldsixxiaolv/oldsixxiaolv.github.io`，内容铺在域名根 `/`，没有子路径：
 
-1. `src/_data/site.js` 的 `url` 必须设为完整部署 URL（含子路径）：`https://oldsixxiaolv.github.io/MeteoHub`。
-2. `eleventy.config.js` 在返回的 config 对象里设 `pathPrefix`（11ty v3 API）—— 它从 `url` 自动派生，不用手写。
-3. **不要**硬编码 `/assets/...`，全部用 `{{ '/assets/css/tokens.css' | url }}` 模板语法 —— 11ty 的 url filter 在 pathPrefix 设置下自动加 `/MeteoHub` 前缀。
-4. dev server 验证：`npm run serve` 下 `--serve` 会把 pathPrefix 降级为 `/`，所以直接开 `http://127.0.0.1:8080/` 即可，不用加前缀；想复现线上前缀就 `PATH_PREFIX=/MeteoHub npm run serve`。
+1. `src/_data/site.js` 的 `url` 设为 `https://github.lvyihang.xyz` —— 全站唯一绝对地址来源，canonical / og:url / sitemap 全由它派生。
+2. **不要**硬编码 `/assets/...`，全部用 `{{ '/assets/css/tokens.css' | relUrl }}` 过滤器渲染成相对路径（`assets/...` / `../assets/...`）。相对路径与挂载点无关，`_site/` 整个文件夹扔到哪都能跑。
+3. 仓库 **Settings → Pages → Source → `GitHub Actions`**，Custom domain 填 `github.lvyihang.xyz`。
+4. dev server 验证：`npm run serve`，开 `http://127.0.0.1:8080/`，与线上结构一致。
 
-详细方案、代码示例、验证步骤见 **`docs/DEPLOY.md`「项目页路径前缀方案（Stage 8.3）」**节。
+详细方案、验证步骤见 **`docs/DEPLOY.md`**。
 
 ## 添加内容
 

@@ -4,7 +4,7 @@ const fs = require('fs');
 const path = require('path');
 
 const BASE = process.env.SITE_URL || 'http://127.0.0.1:8766';
-const PREFIX = '/MeteoHub';
+const PREFIX = '';
 const PAPER_PATH = '/papers/trmm-lyu-2026/';
 const OUT_DIR = path.resolve(__dirname, '../docs/screenshots');
 

@@ -6,9 +6,9 @@
 npm run serve
 ```
 
-默认监听 **http://127.0.0.1:8080/** 。开发模式使用根路径（`eleventy.config.js` 检测到 `--serve` 就把 `pathPrefix` 降级为 `/`），生产构建则按 `src/_data/site.js` 的 `url` 使用 `/MeteoHub/` 前缀。修改 `src/` 下任意 `.njk` / `.md` / `.css` / `.js` 文件后浏览器会自动刷新 —— 但 `src/assets/css/components/_*.css` 除外（见下节「components.css 的两种生成方式」），改这几个 partial 需要重启 dev server。
+默认监听 **http://127.0.0.1:8080/** 。站点部署在 `github.lvyihang.xyz` 的**根目录**，没有路径前缀——dev server 与生产构建的 URL 结构一致。修改 `src/` 下任意 `.njk` / `.md` / `.css` / `.js` 文件后浏览器会自动刷新 —— 但 `src/assets/css/components/_*.css` 除外（见下节「components.css 的两种生成方式」），改这几个 partial 需要重启 dev server。
 
-如需在本地复现 GitHub Pages 的路径前缀，可运行 `PATH_PREFIX=/MeteoHub npm run serve`。
+如需在本地预演一个子路径部署（一般用不到），可运行 `PATH_PREFIX=/子路径 npm run serve`。
 
 如果 8080 端口被占用，先 `lsof -i :8080` 找到 PID，`kill <PID>` 后重试。端口在两处配置，改哪个都行：`package.json` 的 `serve` 脚本 `--port=8080`，以及 `eleventy.config.js → setServerOptions({ port: 8080 })`。
 
@@ -188,7 +188,7 @@ status: shipped
 ## 部署前 checklist
 
 - [ ] `npm run build` 成功（无 11ty 错误）
-- [ ] `grep -rE 'href="/assets/|src="/assets/' _site/*.html` 期望 0 命中（资产路径必须走 `{{ '/path' | url }}`，由 `pathPrefix` 自动加 `/MeteoHub` 前缀）
+- [ ] `grep -rE 'href="/assets/|src="/assets/' _site/*.html` 期望 0 命中（资产路径必须走 `{{ '/path' | relUrl }}` 渲染成相对路径，不能硬编码根绝对路径）
 - [ ] `_site/` 不在版本控制里（已在 `.gitignore`）
 - [ ] Google Fonts 域名是否在境内可达；如不可达，把 `base.njk` 里的 `<link>` 换成 `fonts.loli.net` 或自托管到 `assets/fonts/`（该目录已存在但当前为空，passthrough glob `src/assets/fonts/**/*` 已配好，丢字体文件进去即可）
 - [ ] 如果部署到子路径，确认 `src/_data/site.js` 的 `site.url` 与实际部署路径一致 —— `pathPrefix` 从它自动派生

@@ -51,7 +51,8 @@ backups/
 # ── Eleventy 构建产物 ───────────────────────────────────
 _site/
 # eleventy --serve 的产物目录。与 _site 分开：serve 模式 pathPrefix 是 "/"
-# 而生产构建是 "/MeteoHub"，共用一个目录会让 build 覆盖正在运行的 dev server。
+# 而生产构建可能带前缀（PATH_PREFIX），共用一个目录会让 build 覆盖正在运行的
+# dev server。
 # ⚠️ 注释必须单独一行——.gitignore 不支持行内注释，写成 `_site_dev/  # xxx`
 #   会被当成整个字面量做模式匹配，结果是**这个目录完全没被忽略**。
 _site_dev/

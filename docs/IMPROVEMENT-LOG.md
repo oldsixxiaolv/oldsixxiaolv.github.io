@@ -1,0 +1,141 @@
+# MeteoHub · 站点改进日志
+
+> 这个文件是**自动巡检任务的进度记录**。每轮巡检开始时先读它，避免重复做已经做过的事；
+> 做完新的改进后追加到末尾。
+>
+> 约定：**只提交，不 push**。线上部署由本人决定。
+
+---
+
+## 2026-10-19 · 第一轮：学术站缺失的核心功能
+
+### 背景
+
+站点此前只有 4 个页面（`/`、`/about/`、`/blog/`、`404.html`），其中博客是空集合。
+对学术主页来说，最该有的"论文"根本没有独立页面——论文只在首页的
+"Selected publications" 区里露一面。
+
+### 改动
+
+| 文件 | 改动 |
+|---|---|
+| `src/papers.njk` | **新建** `/papers/` 论文页。复用首页的 `publications.njk` partial（卡片样式、状态角标、作者高亮全部同源，不会两处走样） |
+| `src/_includes/partials/publications.njk` | 标题改为可覆盖（`pubHeading`）。首页默认 "Selected publications"，独立页用 "Peer-reviewed publications" |
+| `src/_data/site.js` | 导航加 `Papers` 入口（排在 Blog 前——对学术访客，产出比笔记更先被找） |
+| `src/_data/site.js` | 论文条目加 `capsule`（Code Ocean 可复现计算胶囊）与 `funding`（两笔基金号） |
+| `src/assets/css/pages.css` | 新增 `.home-pub__funding` |
+| `eleventy.config.js` | 新增 `bibtex` 过滤器（作者名 "First Last" → "Last, First"、唯一引用键、缺字段不输出） |
+| `eleventy.config.js` | 新增 `jsonLdArticles` 过滤器（schema.org `ScholarlyArticle`） |
+| `src/publications.bib.njk` | **新建** BibTeX 导出 `/publications.bib` |
+| `src/feed.njk` | **新建** RSS 订阅源 `/feed.xml`（此前随内容归档删除，页脚留了恢复说明） |
+| `src/_includes/layouts/base.njk` | 加 `ScholarlyArticle` JSON-LD（`@graph` 形式）；此前留了 `{% block structuredData %}` 钩子却没人用 |
+| `src/_includes/partials/footer.njk` | 页脚加回 RSS 链接 |
+| `src/blog.njk` / `about.njk` | `eleventyNavigation.order` 与新导航顺序对齐 |
+
+### 顺手修掉的 3 个既有 bug
+
+1. **PDF 链接从来没渲染过** —— 数据里有 `pdf` 字段，模板的链接行里没有对应分支。
+   页面 lede 写着"links to … a PDF"，实际没有。
+2. **Data 链接从来没渲染过** —— 模板找 `p.dataDoi`，但 site.js 里数据 DOI 放在
+   `p.software.doi`（software 是对象）。字段名对不上，于是 843 MB 的 Zenodo
+   数据集在页面上一个入口都没有。模板现在两个字段都认。
+3. **Code Ocean 胶囊链接缺失** —— 调研时在本人 Zenodo 描述里发现
+   `10.24433/CO.6720035.v1`，已用 DataCite API 核对（作者 Yihang Lyu、标题一致），
+   此前 site.js 里没有这条链接。可复现性胶囊是同行评审里最认的证据。
+
+### 调研来源与核实方式
+
+- 官方文档：GitHub Pages（发布源两种模式、入口文件位置、免费套餐限制）
+- `api.datacite.org/dois/10.24433/CO.6720035.v1` → 确认胶囊存在
+  （codeocean.com 直接 fetch 会被 CloudFront 拦 403，是它拦爬虫，浏览器正常）
+- 兰州大学大气科学学院官方报道 → 基金号 42275068、20250030065
+
+### 验证结果
+
+- `npm run build` exit 0，check:css 通过（15 个文件）
+- 5 个 HTML 页、93 条站内引用**全部**在磁盘上解析成功
+- JSON-LD 两块均合法（`Person` + `@graph` 里的 `ScholarlyArticle`）
+- `feed.xml`、`sitemap.xml` 合法 XML；sitemap 自动带上 `/papers/`
+- BibTeX 条目作者名已转 `Wu, Xueke and Lyu, Yihang and ...`
+- 7 条路由全部 200；产物 16 MB
+
+---
+
+## 2026-10-19 · 第二轮：打印样式（P1）+ 修一个真 bug
+
+### 来源
+
+沿用同一批调研里 `docs/ui-ux-pro-max-improvement-plan.md`（凌晨那份技能体检报告）
+的 **P1 建议**——该报告实测 `grep -rn "@media print" src/assets/css/` 零命中，
+并指出：论文精读模块已有完整高亮/批注能力，但读者**没法把带批注的论文导出成 PDF**。
+
+### 改动
+
+| 文件 | 改动 |
+|---|---|
+| `src/assets/css/print.css` | **新建**。约 190 行打印样式：强制浅色、保留高亮底色（`print-color-adjust: exact`）、批注栏改静态流、展开外链 URL、去阴影圆角、`@page { margin: 18mm }`、分页控制 |
+| `src/_includes/layouts/base.njk` | 用 `<link rel="stylesheet" media="print">` 引入——屏幕浏览时浏览器**不会下载**这个文件，首屏带宽零影响 |
+
+### ⚠️ 修掉的真 bug：滚动进场的内容打印出来是空白的
+
+**现象**：用 headless Chrome 导出 `/papers/` 的 PDF，文本层里只有标题和
+"Peer-reviewed publications"，**整张论文卡片（标题、作者、期刊、基金号、
+全部 7 个链接）一个字都没有**。
+
+**根因**：`src/assets/js/main.js` 的 reveal-on-scroll 机制——给 `<html>` 加
+`.motion-ready`，给所有 `[data-reveal]` 元素加 `.reveal`（`base.css` 里是
+`opacity: 0`），然后用 **IntersectionObserver 在元素进入视口时**才加
+`.is-visible`（`opacity` 回到 1）。
+
+屏幕上看没问题（用户往下滚就显形了）。但**打印/导出 PDF 时视口外的元素
+永远没进过视口**，`is-visible` 永远不加，`opacity` 一直是 0 → 纸面上是**完全空白**。
+
+**修法**：打印样式里无条件摊平 reveal 状态（`opacity/transform/transition/
+animation` 全部重置）。打印的意义就是把内容带走，这条不是优化是修 bug。
+
+**验证**：修复前后同一页面导出的 PDF 文本层对比——
+
+| | 修复前 | 修复后 |
+|---|---|---|
+| 文件大小 | 56 KB | 383 KB |
+| 论文卡片 | ❌ 一个字都没有 | ✅ 标题/作者/期刊/基金号/7 个链接齐全 |
+
+### 打印输出的最终形态
+
+`/papers/` 2 页、`/` 4 页，实测文本层：
+
+```
+Published   Co-authored paper · 2nd author
+New Insights From TRMM Legacy: ...
+Xueke Wu, Yihang Lyu, Xiaoqun Hu, ...          ← 本人加粗
+Journal of Geophysical Research: Atmospheres · 2026
+Lanzhou University
+Funding: National Natural Science Foundation of China No. 42275068; ...
+P A P E R  D O I  P D F  C O D E  C A P S U L E  D A T A  F I G U R E
+```
+
+页脚只藏链接行（Sitemap / RSS / Edit this page），**保留 `© 2026 Yihang Lyu`
+版权声明**——纸质页应该留版权。
+
+### 该报告里还没做的三项（留给后续轮次）
+
+- **P2 断点收敛**：当前 6 个散落断点 `640 / 720 / 760 / 768 / 820 / 1024`，
+  其中 4 个只差 100px。建议统一到 `375 / 768 / 1024 / 1440`。
+  ⚠️ 需逐页回归验证，不能盲改。
+- **P3 换行规则**：`base.css:108` 的 `overflow-wrap: break-word` → `anywhere`，
+  并给 flex/grid 文本子项补 `min-inline-size: 0`（学术页面 DOI、
+  `arxiv.org/abs/2509.12345` 这类长串会撑破布局）。
+- **P4 数据可视化**：站点目前零图表。对气象研究者一幅雷电密度图比文字有说服力。
+  硬约束：必须手写 inline SVG，不引图表库（`dcbd1db` 确立的"整个文件夹扔到哪
+  都能跑"原则）。需先准备数据，建议独立任务。
+
+---
+
+## 待决策（需要本人拍板，任务不会自己动）
+
+- **Google Scholar / ADS / arXiv 主页**：调研没找到本人的公开档案，所以**没有**
+  擅自加链接。要加的话需要提供真实 URL，否则宁可空着。
+- **`site.drive.url` 仍是 null**：网盘入口的整块 UI 已经就绪，填上真实地址即出现。
+- **站点根目录的用途**：目前根目录就是学术主页。原先的设想是"根目录放网盘、
+  `/MeteoHub/` 放学术主页"，现在用户站仓库只能挂在根，两者不能兼得。
+- **是否公开源码**：Actions 模式要求源码在 GitHub 上；用户站仓库已是 public。

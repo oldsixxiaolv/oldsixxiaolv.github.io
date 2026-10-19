@@ -1,0 +1,36 @@
+---
+# /feed.xml —— 技术笔记的 RSS 订阅源
+#
+# 之前随内容归档一起删掉了，页脚里留过说明"将来要恢复订阅，重新加 feed.njk
+# 并在这里加回一行即可"。现在补上：订阅源是博客的标配，也是搜索引擎
+# 发现新文章的通道之一（比 sitemap 对"持续更新的内容"更友好）。
+#
+# 数据源：collections.blog（src/content/blog/ 下的 .11tydata.cjs 声明了
+# layout / permalink / 前后篇链接）。目前集合是空的，所以这份 feed 现在
+# 还没有 item——等站内写出第一篇笔记，这里自动就有内容了，模板不用再动。
+#
+# ⚠️ 不用 layout：本文件输出 XML，套 HTML 布局会把它包进 <html>。
+permalink: "/feed.xml"
+eleventyExcludeFromCollections: true
+---
+<?xml version="1.0" encoding="utf-8"?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+  <channel>
+    <title>{{ site.title }} · Technical notes</title>
+    <link>{{ site.url }}/</link>
+    <description>{{ site.description }}</description>
+    <language>{{ site.locale }}</language>
+    {%- set latest = collections.blog[0] -%}
+    <lastBuildDate>{{ (latest.date if latest else page.date) | dateToRfc3339 }}</lastBuildDate>
+    <atom:link href="{{ site.url }}/feed.xml" rel="self" type="application/rss+xml" />
+    {%- for post in collections.blog %}
+    <item>
+      <title>{{ post.data.title }}</title>
+      <link>{{ site.url }}{{ post.url }}</link>
+      <guid isPermaLink="true">{{ site.url }}{{ post.url }}</guid>
+      <pubDate>{{ post.date | dateToRfc3339 }}</pubDate>
+      <description>{{ post.data.excerpt or "" | escape }}</description>
+    </item>
+    {%- endfor %}
+  </channel>
+</rss>

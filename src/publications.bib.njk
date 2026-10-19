@@ -1,0 +1,15 @@
+---
+# /publications.bib —— BibTeX 导出
+#
+# 数据源与 /papers/ 页完全一致（site.publications），所以两边不会出现
+# "页面上一条、bib 里没有" 的错位。条目文本由 eleventy.config.js 的
+# `bibtex` 过滤器生成（作者名转 "姓, 名"、引用键去重、缺字段不输出）。
+#
+# ⚠️ 不用 layout：本文件输出的是纯文本，套 HTML 布局会把它包进 <html>。
+# eleventyExcludeFromCollections 让它不进任何 collection。
+permalink: "/publications.bib"
+eleventyExcludeFromCollections: true
+---
+{%- for p in site.publications -%}
+{{ p | bibtex }}
+{% endfor -%}

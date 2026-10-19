@@ -17,16 +17,16 @@ module.exports = {
   // og:url / og:image / JSON-LD 的 url 与 image / sitemap 全部由它派生，
   // 不要在模板里另写域名。
   //
-  // 为什么不是 oldsixxiaolv.github.io：用户主页仓库 oldsixxiaolv.github.io
-  // 持有自定义域名 github.lvyihang.xyz，GitHub 会把整个 oldsixxiaolv.github.io
-  // 域 301 到那里。而项目站按官方规则自动挂到该域名下的 /MeteoHub/
-  // （Using a custom domain across multiple repositories）。
-  // 项目站**不需要也不能**自己再声明 CNAME——一个自定义域名只能属于一个站点，
-  // 产物里带 CNAME 会被 GitHub 判为"域名被别的仓库占用"而部署失败。
-  // deploy.yml 里的断言就是为了防止有人不小心把 CNAME 混进产物。
-  //
-  // 域名分工：根目录放网盘，/MeteoHub/ 放学术主页，两者互不干扰。
-  url: "https://github.lvyihang.xyz/MeteoHub",
+  // 为什么是这个地址：站点部署在**用户站仓库** oldsixxiaolv.github.io
+  // （`<user>.github.io` 是用户站仓库，内容铺在域名根 `/`，没有 /MeteoHub/
+  // 这一层），该仓库的 Pages 自定义域名设为 github.lvyihang.xyz。
+  // 所以站点根就是 https://github.lvyihang.xyz/，url 里不能再加子路径。
+  // ⚠️ 加错的后果很隐蔽：页面本身照常渲染（资源走相对路径，与挂载点无关），
+  // 但 canonical / og:url / sitemap 会指向一个 404 的地址——搜索爬虫和
+  // 微信、Twitter 的分享卡片拿到的都是死链，只有看源码才能发现。
+  // deploy.yml 里的断言则防止有人不小心把 CNAME 混进产物（一个自定义
+  // 域名只能属于一个站点，重复声明会导致部署被 GitHub 判为域名占用）。
+  url: "https://github.lvyihang.xyz",
   // 页面语言标记。整站已统一为英文（正文、标签、导航、页面文案），
   // 但这里曾一直是 zh-CN —— 后果有两个：屏幕阅读器会用中文发音规则去念
   // 英文（每个词都念得很怪），搜索引擎会把英文查询的相关性判断往下压。
@@ -49,6 +49,10 @@ module.exports = {
   // 首页与博客里的内容，不再作为顶层入口。
   nav: [
     { label: "Home", href: "/" },
+    // Papers 排在 Blog 前面：对学术访客来说，产出比笔记更先被找。
+    // 顺序与各模板的 eleventyNavigation.order 保持一致（Home 1 / Papers 2 /
+    // Blog 3 / About 4），两处不一致时以 nav 数组为准——header.njk 读的是它。
+    { label: "Papers", href: "/papers/" },
     { label: "Blog", href: "/blog/" },
     { label: "About", href: "/about/" },
   ],
@@ -117,7 +121,7 @@ module.exports = {
     // 源码仓库。页脚的「Edit on GitHub」用它拼 /edit/<branch>/<path> 直达
     // GitHub 网页编辑器——静态站没有后端，这是唯一不需要自建登录就能改内容的
     // 路径，且只有有推送权限的人能提交（改完由 CI 自动重新构建上线）。
-    repo: "https://github.com/oldsixxiaolv/MeteoHub",
+    repo: "https://github.com/oldsixxiaolv/oldsixxiaolv.github.io",
     repoBranch: "main",
 
     // 教育经历。⚠️ 上一版 about.md 里写的「本科/硕士：南京信息工程大学」查不到
@@ -264,6 +268,22 @@ module.exports = {
         url: "https://doi.org/10.5281/zenodo.18041880",
       },
       code: "https://github.com/oldsixxiaolv/Manuscript_Lvyh",
+      // Code Ocean 可复现计算胶囊：整篇论文的代码 + 数据 + 运行环境打包成
+      // 一个可一键重跑的 capsule，DOI 已注册（DataCite，10.24433 前缀）。
+      // 这是同行评审里最认的"可复现性"证据，比单纯给个 GitHub 仓硬得多。
+      // DOI 来自本人在 Zenodo 数据集描述里的说明，已用 DataCite API 核对：
+      //   https://api.datacite.org/dois/10.24433/CO.6720035.v1
+      capsule: {
+        label: "Code Ocean capsule",
+        doi: "10.24433/CO.6720035.v1",
+        url: "https://codeocean.com/capsule/5084350/tree/v1",
+      },
+      // 基金资助。学术主页标注基金号是硬性惯例——资助方与项目号要能被检索到。
+      // 来源：兰州大学大气科学学院对该成果的官方报道。
+      funding: [
+        { id: "42275068", agency: "National Natural Science Foundation of China" },
+        { id: "20250030065", agency: "National Innovation and Entrepreneurship Training Program" },
+      ],
       figure: {
         src: "/assets/img/publications/trmm-fig10.jpg",
         width: 1400,

@@ -12,11 +12,12 @@
       {%- if site.drive and site.drive.url %}
       <a href="{{ site.drive.url }}" target="_blank" rel="noopener noreferrer">{{ site.drive.label or "Cloud drive" }}</a>
       {%- endif %}
-      {# RSS 原先挂在这里，但 feed.njk 已随内容归档一起删除，站点也不再提供
-         feed（site.js 的 social 注释写明过这一点）。留着就是个死链。
-         将来要恢复订阅，重新加 feed.njk 并在这里加回一行即可。
+      {# —— RSS 订阅 ——
+         技术笔记的订阅源。当前 collections.blog 为空，feed 里还没有 item，
+         等站内写出第一篇就自动有内容了（feed.njk 不用再动）。
          注意：本项目的 Nunjucks 没注册 comment 标签，全站注释一律用这种
          花括号井号写法，写成百分号 comment 会报 unknown block tag。 #}
+      <a href="{{ '/feed.xml' | relUrl }}">RSS</a>
       <a href="{{ '/sitemap.xml' | relUrl }}">Sitemap</a>
 
       {# —— Edit on GitHub ——

@@ -20,7 +20,7 @@ updated: 2026-10-16
 
 This is a plain static site — [Eleventy](https://www.11ty.dev/), Markdown and
 JSON, no front-end framework and no tracking. Source lives in
-[github.com/oldsixxiaolv/MeteoHub](https://github.com/oldsixxiaolv/MeteoHub).
+[github.com/oldsixxiaolv/oldsixxiaolv.github.io](https://github.com/oldsixxiaolv/oldsixxiaolv.github.io).
 
 Everything on the profile page above is rendered from a single data file
 (`src/_data/site.js`). If a number is not verifiable it is left out entirely

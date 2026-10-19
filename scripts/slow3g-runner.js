@@ -17,7 +17,7 @@ const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const OUT    = '/Volumes/Kingston/Mac/MeteoHub/docs/screenshots';
 const OUT_METRICS = '/Volumes/Kingston/Mac/MeteoHub/docs/lighthouse';
 const PORT   = process.env.METEO_PORT || '8765';
-const BASE   = `http://localhost:${PORT}${process.env.METEO_PREFIX || '/MeteoHub'}`;
+const BASE   = `http://localhost:${PORT}${process.env.METEO_PREFIX || ''}`;
 
 const pages = [
   { name: 'home',          url: BASE + '/',                       viewport: { width: 1280, height: 900 } },
