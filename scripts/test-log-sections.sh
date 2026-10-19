@@ -86,6 +86,18 @@ cp "$GATE" "$SB/scripts/check-log-sections.cjs"
   printf 'y\n' > f.txt; git add -A >/dev/null; git commit -qm c3 ) >/dev/null 2>&1
 expect_red "空跑被拦下" "$(run_gate "$SB")" "$(gate_code "$SB")" "历史" "空跑"
 
+say "用例 5：工作树被旧基线整份覆盖（HEAD 有的节，工作树没有）—— 期望红，且红因指名该节"
+SB="$BASE/wtclobber"; build_repo "$SB" no
+# 模拟"拿旧基线覆盖工作树"：把工作树上的某一节整节抹掉（**不动 HEAD**，不提交）
+( cd "$SB" && grep -v '场次 07：铺垫节' docs/IMPROVEMENT-LOG.md > docs/.tmp-log && mv docs/.tmp-log docs/IMPROVEMENT-LOG.md )
+OUT="$(run_gate "$SB")"; CODE="$(gate_code "$SB")"
+expect_red "工作树丢节被抓到" "$OUT" "$CODE" "场次 07：铺垫节" "工作树" "HEAD"
+
+say "用例 6：工作树比 HEAD 多一节（未提交的在途内容）—— 期望绿（不得误报）"
+SB="$BASE/wtextra"; build_repo "$SB" no
+( cd "$SB" && printf '## 2026-10-19 · 注入场次：还没提交的一节\n\n这节在工作树里，还没进 HEAD。\n' >> docs/IMPROVEMENT-LOG.md )
+expect_ok "工作树多节不误报" "$(run_gate "$SB")" "$(gate_code "$SB")"
+
 printf '\n================ 结论 ================\n'
 printf '通过 %d 条，失败 %d 条\n' "$PASS" "$FAIL"
 [ "$FAIL" = 0 ] || exit 1
