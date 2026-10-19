@@ -1810,6 +1810,24 @@ CSDN 521 并列）。那个归类对 ResearchGate / CSDN 成立，但对这一�
   是否统一成「实体标识一律用可持久解析的权威标识，没有则用 canonical URL」？
   备选：① 保持现状（仓库用 URL）；② 给仓库申请 DOI/handle 后改用 DOI。
 
+- **论文列表页 ItemList 的落点：正文之后而非 `<head>`**（15:41 场次新增）：
+  新增的列表级实体（ItemList）放在 `/papers/` 正文之后，**不在 `<head>`**。
+  这不是省事，是 Eleventy 的 `layout:` 属于**数据级包装**、不是 Nunjucks 的
+  `extends` —— `{% block %}` **跨模板不生效**（`paper.njk` 顶部已有明文记载，
+  并因此把 paper-reader.css 改成 inline）。实测：在 `papers.njk` 里写
+  `{% block structuredData %}` 只会把那段内容就地渲染成正文的一部分，
+  根本进不了 `<head>`（首次实现就是这样跑偏的，见该场次日志 §B）。
+  而"页面专属的结构化数据跟在内容后面"正是本仓论文页**既有做法**
+  （论文页自己的 ScholarlyArticle JSON-LD 也在正文之后）。
+  备选：① 接受现状（与论文页一致）；② 要求全站结构化数据统一进 `<head>`
+  —— 那要改 `base.njk`，牵动全站模板与已有门禁。
+- **首页要不要也给一个 ItemList**（15:41 场次新增）：
+  首页的论文区标题是「Selected publications」（**选摘**，不是全量），
+  本轮**没有**在首页声明 ItemList —— 那会是一个范围与 `/papers/` 不同的
+  同名实体，按全量声明就是假声明（门禁 32 的反向判据也正是拦这个）。
+  备选：① 维持现状（首页不声明列表级实体）；② 给首页单独一个只覆盖选摘的
+  ItemList（另一个 `@id`，与 `/papers/#list` 并存）。
+
 ---
 
 ## 2026-10-19 · 第十一轮（12:22–12:47 场次）：订阅源时间戳说真话 + 404 身份开关落地
@@ -7668,3 +7686,142 @@ GitHub 源码仓在**结构化数据里零表示**（只有一条可见链接）
   `OpenAlex search failed (HTTP 429)`，AGU 侧做法**未能实查核实**，
   故本场次**未据二手描述改动任何论文页内容**。
 - 巡检发现的线上 404 与 `/MeteoHub/` 前缀：属**待部署**状态，**不 push**，等本人决定。
+
+## 2026-10-19 · 15:35–15:55 场次（**不占轮次号**，避免与并发场次撞号）：论文列表页补上列表级结构化数据（ItemList）+ 门禁 32
+
+> 本场次只做**1 个改进点**（列表级实体 + 守它的门禁），按 14:45–15:05 场次
+> 在日志 §D 留下的交接做（**门禁 32 号是那一节裁定的**，别的场次已主动避让该号）。
+> 本场次**没有**碰 `base.njk` / `package.json` / `deploy.yml` / `site.js` 等他人占用中的文件。
+
+### A. 巡检（现查，2026-10-19 15:41 PDT）
+
+| URL | 状态 |
+|---|---|
+| `https://github.lvyihang.xyz/` | 200 |
+| `https://github.lvyihang.xyz/papers/` | **404** |
+| `https://github.lvyihang.xyz/blog/` | 200 |
+| `https://github.lvyihang.xyz/about/` | 200 |
+| `https://github.lvyihang.xyz/publications.bib` | **404** |
+| `https://github.lvyihang.xyz/feed.xml` | **404** |
+| `https://github.lvyihang.xyz/sitemap.xml` | 200 |
+
+- 3 条 404 **不是代码回归**：线上 sitemap 的 `<loc>` 仍是
+  `https://github.lvyihang.xyz/MeteoHub/…`、线上首页 canonical 也是 `…/MeteoHub/`，
+  而**本地** canonical 已是域名根 `https://github.lvyihang.xyz/`。
+  → 线上是 **2026-10-16 的旧部署**，本地代码已经是对的。**不 push**，等本人决定部署。
+- 本地 `npm run build` → **exit 0**（门禁编号 33 条一一对应且连续）。
+
+### B. 改进点：`/papers/` 的列表级 JSON-LD（ItemList）
+
+**要解决的问题**：站里此前只有**一堆彼此无序的 ScholarlyArticle**
+（`jsonLdArticles` 在首页 / 博客 / 关于 / 论文列表四页都输出全量 `@graph`）。
+消费方据此能回答"这里有哪些作品"，**答不出**"这是一个列表、共几项、按什么顺序"
+—— 列表级实体（ItemList）缺失时，这个问题没有答案。
+
+**为什么单独写一个 filter、而不是改 `jsonLdArticles`**：那个 filter 被四页共用，
+在里面塞 ItemList 会让首页 / 博客 / 关于页也长出一个论文列表 —— 那三页不是论文列表页，
+声明 ItemList 是**假声明**。所以新增 `jsonLdItemList` filter，只在 `papers.njk` 输出
+（独立的 `<script type="application/ld+json">` 块）。
+
+**`item.@id` 为什么与论文页逐字相同**：`jsonLdArticles` 给站内实体的 @id 是
+`${siteUrl}/papers/${slug}/`；`jsonLdPaper` 给论文页的 @id 是
+`selfUrl = ${siteUrl}${pageUrl}`，而 `pageUrl` 就是 `/papers/${slug}/` → 两者本就同串。
+新 filter **照抄前者公式**（不另编一套），门禁 32 逐项核对产物里的实际值。
+
+**落点：正文之后，不是 `<head>`** —— 第一次实现跑偏在这里，如实记：
+我最初按交接件写的是「`{% block structuredData %}` 覆盖 base.njk 的 head 扩展点」，
+**实测不成立**：Eleventy 的 `layout:` 是**数据级包装**、不是 Nunjucks 的 `extends`，
+`{% block %}` 跨模板不生效（`paper.njk` 顶部已有明文记载，并因此把 paper-reader.css
+改成 inline）。首版产物里 ItemList 落在 `<main>` 里。
+已改为「页面专属结构化数据跟在内容后面」—— 与论文页自己的 ScholarlyArticle JSON-LD
+**既有做法一致**。落点口径已写进中央「待决策」段（15:41 场次新增那两条）。
+
+### C. 门禁 32 的判据（32a–32f）
+
+| 编号 | 判据 | 为什么需要它 |
+|---|---|---|
+| 32a | 论文列表页**恰好 1 个** ItemList；**其它页一个都不许有** | 列表级实体是"这一页是一个列表"的声明，泄到首页/博客/关于/404 就是假声明 |
+| 32b | `numberOfItems` == `itemListElement.length` | 消费方按 `numberOfItems` 决定读几条；对不上就少读或越读 |
+| 32c | `position` == 序号（1..N 连续） | 跳号/重复会让"第几篇"这个问题没有答案 |
+| 32d | 每个 `item.@id` 能在**同一页带 @type 的实体**里找到同 @id 节点 | 列表项必须指向一个真被声明过的作品，否则是空指针式引用 |
+| 32e | ItemList 的 `item.@id` 序列与该页 `ScholarlyArticle` 的 @id 序列**逐项同序** | 列表顺序与实体顺序必须是同一条线，否则"第 1 篇是谁"会指错 |
+| 32f | 自证存活（找不到 ItemList / 一条都没比对 → 判红） | 判据自己被卸掉时不能"全绿"（与门禁 18 / 31 同类病） |
+
+⚠️ **32d 为什么限定"带 @type 的节点"**：ItemList 自己的
+`itemListElement[i].item` 就是一个 `{"@id": ...}` 的**引用**（没有 @type）。
+若把这类引用也算进"可被找到的 @id 集合"，"item.@id 指向谁"这条判据就变成
+**拿自己证明自己** —— 永远成立 → 32d 变成一条永远为绿的空判。
+只收带 @type 的实体节点，才是真在问"这个 @id 背后有没有一个被声明过的作品"。
+
+### D. 故障注入证据（基线 + 7 个用例；每例先自证注入生效）
+
+注入方式：把 `_site` 用 `rsync -a` 复制到 `/tmp` 下独立目录
+（`cp -R` 会重写 mtime，可能让"产物时间 vs 源文件时间"类判据假红），
+用 `SITE_DIR` 指向副本跑 `verify-site.cjs` —— 不动真实产物，也不和并发 build 抢目录。
+**每例都先回读文件确认注入真的生效**，再判红。
+
+| 用例 | 注入 | 自证 | 结果 |
+|---|---|---|---|
+| BASE | 不注入 | — | exit 0（证明副本本身是绿的，红因才是注入） |
+| F1 | 删掉整个 ItemList 块 | 回读确认块已消失 | exit 1 → 32a「数量是 0（应为 1）」+ 32f「全站找不到任何 ItemList」 |
+| F2 | `item.@id` → 不存在的作品 | 回读确认新值 | exit 1 → 32d「找不到同 @id 的节点」+ 32e「与第 1 个 ScholarlyArticle 的 @id 不一致」 |
+| F3 | `numberOfItems` → 99 | 回读确认新值 | exit 1 → 32b「numberOfItems 是 99，实际条目数是 1」 |
+| F4 | `position` → 2 | 回读确认新值 | exit 1 → 32c「第 1 条的 position 是 2（应为 1）」 |
+| F5 | 把 ItemList 复制到首页 | 回读首页确认已有 ItemList | exit 1 → 32a 反向「只允许出现在 papers/index.html」 |
+| F6 | `item.@id` → Person 的 @id（仍是本页存在的实体，但与 ScholarlyArticle 序列不符） | 回读确认新值 | exit 1 → 32e「与第 1 个 ScholarlyArticle 的 @id 不一致」 |
+| F7 | `itemListElement` 清空（`numberOfItems` 仍写 1） | 回读确认已清空 | exit 1 → 32b + 32e「列了 0 项，但本页声明了 1 个 ScholarlyArticle」+ 32f「一条都没被比对」 |
+
+**分支覆盖**：32a（数量）、32a 反向（泄漏）、32b、32c、32d、32e 逐项、32e 长度不等、
+32f 两种形态 —— 8 个子分支**全覆盖**。
+⚠️ 一处**未覆盖**（据实说明）：32c 只能测到"position ≠ 序号"，
+测不到"跳号"与"重复"两种形态 —— 当前只有 1 篇论文（N=1），
+序列类判据要 N≥2 才分得出这两种情况。将来论文数超过 1 时，
+F4 应扩成"把第 2 条的 position 改成 1（重复）"与"改成 4（跳号）"两例。
+
+### E. 过程中发现并修掉的一个真问题：note 在判红时照抄了通过时的断言
+
+F5 判红时输出里，note 仍写着「**1 个（仅 papers/index.html）**」——
+而那一页恰恰**有** ItemList，note 说的是**假话**。
+这违反本仓 note 纪律（文件里 `note()` 上方写明：措辞带断言的 note 必须由本条自己的
+判定结果决定，判红时改写成"存在问题（见上方报错）"）。
+**已修**：note 的措辞改为跟着本条判出的问题数走，判红时输出
+「全站 N 个 / 比对了 M 项 —— 存在问题（见上方报错）」。
+并把它加进注入脚本的**断言**里（判红时输出里若仍出现"仅 papers/index.html"即算用例失败）。
+
+### F. 归属与边界（共享工作树）
+
+- **本场次提交 4 个文件**：`src/papers.njk`（ItemList 块）、`eleventy.config.js`
+  （`jsonLdItemList` filter）、`scripts/verify-site.cjs`（门禁 32）、
+  `docs/IMPROVEMENT-LOG.md`（本节 + 中央「待决策」两条）。
+- ⚠️ **一条 unavoidable 的连带**：`eleventy.config.js` 与 `scripts/verify-site.cjs`
+  同时含**他人已暂存**的改动 —— 门禁 31（同一 @id 的同名字段必须一致）与
+  **sameAs 根因修复**。这两处**必须一起进来**：
+  门禁 24 要求编号**连续**（清单 ↔ 代码段），只交 32 而缺 31 → 门禁 24 直接判红；
+  而门禁 31 又依赖 sameAs 根因修复才绿（修前 9 个节点走全集、4 个是裸 ORCID）。
+  → 本场次提交里**会带上这两处**，内容逐字保留，但**作者是他人**。
+  这是共享工作树里"门禁号连续性"带来的硬约束，不是本场次的取舍。
+- ⚠️ **明确排除**的一处：他人**未暂存**的 git-error 判据重构
+  （`eleventy.config.js` / `verify-site.cjs` 里的 `require("./scripts/lib/git-error.cjs")`
+  与新建的 `scripts/lib/`）**没有**进本场次提交 ——
+  `scripts/lib/git-error.cjs` 目前是**未跟踪**的新文件，若把那两处 require 提交进去
+  而不提交它，**那棵树会直接崩**（Cannot find module）。
+  → 那部分改动**留在工作树里**，由它的作者自己提交。
+- ⚠️ **我改的、但本场次不提交**的一处：`scripts/check-overflow.cjs` 第 74 行
+  —— 原先 `return explicit;` 返回字符串，与调用方约定的 `{ bin, reason }` 不符 →
+  显式指定的 `CHROME_PATH` **永远静默不生效**。我已改成
+  `return { bin: explicit, reason: null };`（带中文注释说明）。
+  该文件是**窄屏门禁那一组**的，本场次**不抢**它的提交；
+  → **提示该组作者**：这行还没进历史（`git log -S 'return { bin: explicit, reason: null }'`
+  输出为空），提交那个文件时请一并带上。
+- 中间产物（注入脚本）全在 `/tmp/mh_fi/` → **仓库内无新文件**。
+- **不 push**（部署由本人决定）。
+
+### G. 待本人拍板
+
+1. **ItemList 的落点**（正文之后 vs `<head>`）—— 理由与两个备选见中央「待决策」段。
+2. **首页要不要也给一个 ItemList**（选摘范围）—— 备选见中央「待决策」段。
+
+### H. 本场次提交
+
+提交信息：`feat(site): 论文列表页补上列表级结构化数据（ItemList）+ 门禁 32`。
+**不 push**（部署由本人决定）。

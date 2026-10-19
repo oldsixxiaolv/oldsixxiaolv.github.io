@@ -845,7 +845,15 @@ const isGitProcessFailure = (e) =>
         const person = { "@type": "Person", name: a.name };
         if (a.orcid) person.sameAs = `https://orcid.org/${a.orcid}`;
         if (isOwnerAuthor(a)) {
-          if (ownerOrcid) person.sameAs = ownerOrcid;
+          // ⚠️ 本人的 sameAs 必须是**全集**（site.author.sameAs），与 base.njk
+          //   的 Person、jsonLdPaper 的 author / creator **同一份**。
+          //   此前这里只给 ORCID 一条（ownerOrcid）→ 同一个 @id 的 sameAs 在
+          //   全站有两套：消费方按 @id 把"本人"归并成一个节点时，**取到哪套
+          //   取决于遍历顺序**，拿到残缺那套就等于替本人丢掉 GitHub / CSDN /
+          //   ResearchGate / OpenAlex 四个身份句柄。
+          //   门禁 31 守的就是这一类漂移（同一 @id 的同名字段必须一致）。
+          if (Array.isArray(A.sameAs) && A.sameAs.length) person.sameAs = [...A.sameAs];
+          else if (ownerOrcid) person.sameAs = ownerOrcid;
           // 复用 base.njk 的 @id → 跨页合并成同一个节点。
           // url 是这个人的主页（站点根），不是论文页的地址。
           person["@id"] = ownerPersonId;
@@ -914,9 +922,11 @@ const isGitProcessFailure = (e) =>
       if (p.publisher) {
         article.publisher = { "@type": "Organization", name: p.publisher };
       }
-      // 关键词。
+      // 关键词。**用数组**（与论文页 jsonLdPaper 同一形状）：schema.org 的
+      // keywords 允许 Text 或数组，但同一个 @id 的两个节点一个给逗号串、
+      // 一个给数组，消费方得自己猜怎么解析；统一成数组后两边逐字可比。
       if (Array.isArray(p.keywords) && p.keywords.length) {
-        article.keywords = p.keywords.join(", ");
+        article.keywords = [...p.keywords];
       }
       // 资助信息（资助方 + 项目号）：让机器也读得到基金号。
       const fp = fundingProps(p.funding);
@@ -926,6 +936,47 @@ const isGitProcessFailure = (e) =>
       }
       return article;
     });
+  });
+
+  /* ---------- 4b. jsonLdItemList filter：论文列表页的 ItemList ----------
+     为什么要它：现在站里只有**一堆彼此无序的 ScholarlyArticle**（jsonLdArticles
+     在 4 个页面上都输出全量 @graph）。消费方（Google、Semantic Scholar 等）
+     拿到的是"这里有几件作品"，**拿不到"这是一个列表、有几项、按什么顺序"**——
+     列表级实体（ItemList）缺失时，"这个站点共有几篇论文"这个问题没有答案。
+
+     ⚠️ 为什么不改 jsonLdArticles、而要单独一个 filter：
+       jsonLdArticles 被首页 / blog / about / papers 四页共用
+       （见 base.njk）。在里面加 ItemList 会让**首页、博客、关于页也长出
+       一个论文列表**——那三页不是论文列表页，声明 ItemList 是假声明。
+       所以 ItemList 走**独立的 <script type="application/ld+json"> 块**，
+       只在 /papers/ 这一页由模板显式输出（见 src/papers.njk）。
+
+     item.@id 的来源（**必须与论文页的 ScholarlyArticle @id 逐字相同**）：
+       jsonLdArticles 给站内实体用的 @id 是 `${siteUrl}/papers/${slug}/`；
+       jsonLdPaper 给论文页用的 @id 是 selfUrl = `${siteUrl}${pageUrl}`，
+       而 pageUrl 就是 `/papers/${slug}/` → 两者**本来就是同一个字符串**。
+       这里照抄 jsonLdArticles 的公式（而不是另编一套），
+       门禁 32d 会在产物里逐项核对"每个 item.@id 都能在同一页的 JSON-LD
+       实体里找到同 @id 的节点"——公式一旦与实际产物漂移，门禁立刻判红。 */
+  eleventyConfig.addFilter("jsonLdItemList", (pubs, siteUrl) => {
+    if (!Array.isArray(pubs) || !pubs.length) return null;
+    const list = pubs.filter((p) => p && p.slug);
+    if (!list.length) return null;
+    return {
+      "@context": "https://schema.org",
+      "@type": "ItemList",
+      "@id": `${siteUrl || ""}/papers/#list`,
+      name: "Publications",
+      numberOfItems: list.length,
+      itemListElement: list.map((p, i) => ({
+        "@type": "ListItem",
+        position: i + 1,
+        name: p.title || "",
+        // item 指向论文页那个 ScholarlyArticle 的 @id —— 消费方据此把
+        // "列表项"与"论文实体"**合并成同一个节点**，而不是当成两件东西。
+        item: { "@id": `${siteUrl || ""}/papers/${p.slug}/` },
+      })),
+    };
   });
 
   /* ---------- 4c. jsonLdPaper filter：论文页的完整 JSON-LD @graph ----------

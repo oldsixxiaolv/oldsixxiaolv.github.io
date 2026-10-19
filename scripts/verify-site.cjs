@@ -61,6 +61,14 @@
  *        下载的 .ris 里不得出现 HTML 实体；每条记录必须以 "ER  -" 收尾、
  *        每行只能是一个 "XX  - 值" 字段（RIS 解析器按行读，多行值会被
  *        读成两个字段）
+ *    31. 同一 @id（且同一 @type）的节点，同名字段必须一致：真冲突判红；
+ *        字段缺失不判、嵌套字段不判；sameAs 有字符串 / 数组两种形态，
+ *        先归一化再比（列表型字段按集合比，"逗号串 vs 数组"与顺序差异
+ *        都不算冲突）；口径待本人拍板的字段只报不判
+ *    32. /papers/ 的列表级 JSON-LD（ItemList）必须完整、且每个条目都能在
+ *        **同一页**的 JSON-LD 实体里找到同 @id 的节点；numberOfItems 与
+ *        条目数必须一致；position 必须 1..N 连续；ItemList 只允许出现在
+ *        论文列表页（首页 / 博客 / 关于 / 404 页一个都不许有）
  *
  * 旧编号 → 新编号对照（历史日志/commit 里引用的是旧号，追溯时用这张表）：
  *   旧 1 / 2 / 3      → 新 1 / 2 / 3
@@ -95,6 +103,8 @@
  *   （无）            → 新 28   （13:41 场次新增：专有名词不得被小写化）
  *   （无）            → 新 29   （13:41 场次新增：对照表自身的覆盖度自检）
  *   （无）            → 新 30   （本轮新增：RIS 导出与论文页复制块逐字一致）
+ *   （无）            → 新 31   （本轮新增：同一 @id 的同名字段必须一致）
+ *   （无）            → 新 32   （本轮新增：论文列表页的 ItemList 完整性）
  *
  * 用法：node scripts/verify-site.cjs   （有错 exit 1）
  */
@@ -596,6 +606,7 @@ for (const file of htmlFiles) {
 const OWNER_NAME = (siteData && siteData.author && siteData.author.nameAsPublished) || "Yihang Lyu";
 const ownerIds = new Set();
 let ownerNodes = 0;
+let ownerNodesWithoutId = 0;
 for (const { from, parsed } of ldRecords) {
   for (const node of collectNodes(parsed)) {
     if (!typesOf(node).includes("Person")) continue;
@@ -603,6 +614,7 @@ for (const { from, parsed } of ldRecords) {
     ownerNodes++;
     const id = node["@id"];
     if (typeof id !== "string" || !id.trim()) {
+      ownerNodesWithoutId++;
       fail(`${from}: 描述"${OWNER_NAME}"的 Person 节点没有 @id —— 消费方会把它当成另一个独立的人`);
       continue;
     }
@@ -615,7 +627,15 @@ if (ownerIds.size > 1) {
       `——同一个实体必须用同一个 @id，否则会被读成多个人`
   );
 } else if (ownerIds.size === 1) {
-  note(`"本人"实体 @id = ${[...ownerIds][0]}（按姓名找到 ${ownerNodes} 个节点，@id 全站统一）`);
+  // ⚠️ 措辞必须与**实际跑过什么**一致：ownerNodes 里有缺 @id 的节点时，
+  //   不得再说"@id 全站统一"——那一节已经判红了，摘要却宣称统一，
+  //   读的人会先信摘要再看报错，报错就被带偏方向（本仓库一直在修的那类）。
+  note(
+    `"本人"实体 @id = ${[...ownerIds][0]}（按姓名找到 ${ownerNodes} 个节点` +
+      (ownerNodesWithoutId
+        ? `，其中 ${ownerNodesWithoutId} 个没有 @id，见上方报错）`
+        : `，@id 全站统一）`)
+  );
 } else if (ownerNodes === 0) {
   fail(`产物里找不到任何描述"${OWNER_NAME}"的 Person 节点`);
 }
@@ -1368,12 +1388,20 @@ if (isShallow === "true") {
 }
 // 措辞必须与**实际跑过什么**一致：只有真的逐页核对过（perPageChecked > 0），
 // 才能说"已逐页核对"。判红之后仍照抄"已核对"，同样是把判据指错方向。
+// ⚠️ 另外，"未逐页核对"的**原因**也要说准：原来只有一句"见上方报错"，
+//   而在"不在 git 仓库里"（源码 zip 分发）这一支，逐页那一整套判据
+//   根本没跑、上面一条报错都没有 → 那句 note 指向一个不存在的报错。
+//   现在按真实原因分别措辞。
 note(
   "sitemap " + sitemapEntries.length + " 条 URL，其中 " + withLastmod.length +
     " 条带 lastmod" +
     (inGitRepo && isShallow === "false" && perPageChecked > 0
       ? "（已逐页与各自源文件的 git 提交时间核对）"
-      : "（未逐页核对，见上方报错）")
+      : isShallow === "true"
+        ? "（未逐页核对：浅克隆没有完整提交历史，见上方报错）"
+        : !inGitRepo
+          ? "（未逐页核对：不在 git 仓库里，没有提交历史可核对）"
+          : "（未逐页核对：产物里没有源文件标注，见上方报错）")
 );
 
 /* ---------- 19. 内容类实体的 @id 必须全站一致，且指向真实页面 ----------
@@ -2351,6 +2379,368 @@ if (!risExists) {
     note(
       `publications.ris ${risRecords.length} 条，与论文页 ${risBlocks.length} 个 RIS 块双向逐字一致，` +
         `不含 HTML 实体，每条以 "ER  -" 收尾`
+    );
+  }
+}
+
+/* ---------- 31. 同一 @id 的同名字段必须一致（身份与元数据不得漂移） ----------
+   这条是被一个**真冲突**逼出来的（15:20 场次发现，本轮落地）：
+   本人（@id = <站点根>/#person）在全站 6 页 / 13 个节点上被描述，但 sameAs
+   有**两套**——一处是完整的 5 条身份句柄（ORCID / GitHub / ResearchGate /
+   CSDN / OpenAlex），另一处只有 ORCID 一条。消费方按 @id 把"本人"归并成
+   一个节点时，**取到哪套取决于遍历顺序**：拿到残缺那套，就等于替本人丢掉
+   四个身份句柄。
+
+   现有门禁一条都守不住这一类漂移：
+     · 门禁 12 只查"本人 @id 只有一个取值"——那是**标识符**唯一，不是**描述**一致；
+     · 门禁 23 查 ORCID ↔ canonical @id 双向绑定——不查 sameAs 这个集合；
+     · 门禁 27 查姓名集合——不查 sameAs。
+   一句话：**标识符统一 ≠ 标识符描述统一**。
+
+   判据（只查"真冲突"）：
+     ① 按 (@id, @type) 把全站 JSON-LD 节点分组。**必须递归进嵌套节点**——
+        论文的 author、数据集/胶囊的 creator 都是嵌套的 Person，它们带着
+        本人的 @id；不递归就等于看不见本条的真正目标。
+        按 @type 再分一层，是因为"同一个 @id 被两种 @type 复用"是建模选择
+        （论文的 mainEntityOfPage 指回本页），不是同一类错。
+     ② 同一组里，同一个字段出现**两个及以上互不相同的取值** → 判红。
+     ③ **字段缺失不算冲突**（schema.org 的可选字段缺就缺了），
+        但**值不同算冲突**。
+     ④ 归一化：数组按"去重排序后的集合"比（顺序无关）；列表型字段的
+        **逗号串**先切成集合再比——同一份数据写成 "a, b" 还是 ["a","b"]
+        是**形状差异**，不是内容差异。
+     ⑤ 嵌套对象 / 对象数组（author / isPartOf / affiliation / creator …）
+        **不判**：它们身上的"覆盖差异"（一边多一个 issn、多一个 alternateName）
+        是合法的可选字段缺失，判进去必然误报。
+
+   ⚠️ 两个字段目前**只报不判**（口径待本人拍板，见日志「待决策」段）：
+     · url          —— 论文 @id：列表页给出版商 DOI 页、论文页给本站页，
+                       两边都符合 schema.org，**定哪边是口径问题**；
+     · datePublished —— 论文 @id：列表页 "2026-06"、论文页 "2026-06-01"，
+                       是粒度口径问题。
+   这两个字段一旦定下来，把名字从 PENDING_FIELDS 里删掉即变成硬判据。
+
+   ⚠️ 本条必须**自证存活**：一个字段都没比成、或 sameAs 一次都没被比对，
+   都说明判据已经失效（与门禁 18"标注没了整条失效"是同一类病：
+   "没报错"和"没问题"长得一模一样）。 */
+{
+  // 列表型字段：这些字段的"逗号串"与"数组"是同一份数据的两种形状
+  const LIST_FIELDS = new Set(["sameAs", "keywords", "knowsAbout"]);
+  // 口径待本人拍板 → 只报不判。拍板后把字段名从这里删掉即变成硬判据。
+  const PENDING_FIELDS = new Set(["url", "datePublished"]);
+
+  const groups = new Map(); // "@id\0@type" → { id, typeKey, nodes: [] }
+  const typeUse = new Map(); // @id → Set(@type 组合)
+  for (const { from, parsed } of ldRecords) {
+    for (const node of collectNodes(parsed)) {
+      const id = typeof node["@id"] === "string" ? node["@id"].trim() : "";
+      if (!id) continue;
+      const typeKey = typesOf(node).slice().sort().join("|");
+      if (!typeKey) continue;
+      const key = id + "\u0000" + typeKey;
+      if (!groups.has(key)) groups.set(key, { id, typeKey, nodes: [] });
+      groups.get(key).nodes.push({ from, node });
+      if (!typeUse.has(id)) typeUse.set(id, new Set());
+      typeUse.get(id).add(typeKey);
+    }
+  }
+
+  // 归一化：返回 null = 这个值不可比（嵌套对象 / 对象数组）
+  const normValue = (field, value) => {
+    if (Array.isArray(value)) {
+      if (value.some((v) => v && typeof v === "object")) return null;
+      const set = [...new Set(value.map((v) => String(v).trim()).filter(Boolean))].sort();
+      return "set:" + JSON.stringify(set);
+    }
+    if (value && typeof value === "object") return null;
+    if (typeof value === "string" && LIST_FIELDS.has(field)) {
+      const set = [...new Set(value.split(",").map((s) => s.trim()).filter(Boolean))].sort();
+      return "set:" + JSON.stringify(set);
+    }
+    return "val:" + JSON.stringify(value);
+  };
+
+  const problemsBeforeSameIdCheck = problems.length;
+  let compared = 0; // 真正比过的字段处数
+  let sameAsCompared = 0; // sameAs 比过几处
+  let multiNodeGroups = 0;
+  const pendingHits = [];
+  const reusedIds = [];
+
+  for (const g of groups.values()) {
+    if (g.nodes.length < 2) continue;
+    multiNodeGroups++;
+    const fields = new Set();
+    for (const { node } of g.nodes) {
+      for (const key of Object.keys(node)) {
+        if (key === "@id" || key === "@type" || key === "@context" || key === "@graph") continue;
+        fields.add(key);
+      }
+    }
+    for (const field of [...fields].sort()) {
+      const buckets = new Map(); // 归一化值 → { raws:Set, pages:Set }
+      let contributors = 0;
+      let uncomparable = false;
+      for (const { from, node } of g.nodes) {
+        if (!Object.prototype.hasOwnProperty.call(node, field)) continue; // 字段缺失 → 不算冲突
+        const nv = normValue(field, node[field]);
+        if (nv === null) {
+          uncomparable = true; // 嵌套字段（author / isPartOf / affiliation …）
+          break;
+        }
+        contributors++;
+        if (!buckets.has(nv)) buckets.set(nv, { raws: new Set(), pages: new Set() });
+        const b = buckets.get(nv);
+        b.raws.add(typeof node[field] === "string" ? node[field] : JSON.stringify(node[field]));
+        b.pages.add(from);
+      }
+      if (uncomparable) continue;
+      if (contributors < 2) continue; // 只有一处给了这个字段 → 覆盖差异，不算冲突
+      if (buckets.size === 1) {
+        compared++;
+        if (field === "sameAs") sameAsCompared++;
+        continue;
+      }
+      // 真冲突
+      if (PENDING_FIELDS.has(field)) {
+        pendingHits.push({ g, field, buckets });
+        continue;
+      }
+      const detail = [...buckets.values()]
+        .map((b) => {
+          const v = [...b.raws]
+            .map((r) => (r.length > 70 ? r.slice(0, 70) + "…" : r))
+            .join(" / ");
+          return `「${v}」出现在 ${[...b.pages].sort().join("、")}`;
+        })
+        .join("；");
+      fail(
+        `同一 @id「${g.id}」（@type ${g.typeKey}）的 ${field} 有 ${buckets.size} 种取值：${detail}` +
+          `—— 同一个实体、同一个字段必须给出同一个值，否则消费方按 @id 归并时` +
+          `取到哪一套全看遍历顺序`
+      );
+    }
+  }
+
+  // 口径待拍板的字段：只报不判（事实陈述，不含"已一致"这类断言）
+  if (pendingHits.length) {
+    const detail = pendingHits
+      .map(
+        ({ g, field, buckets }) =>
+          `${g.id} 的 ${field}（${[...buckets.values()]
+            .map((b) => [...b.raws].join(" / "))
+            .join(" vs ")}）`
+      )
+      .join("；");
+    note(
+      `⚠️ 口径待本人拍板（本条不判红）：${detail}—— 见日志「待决策」段；` +
+        `定下来后把字段名从 PENDING_FIELDS 里删掉即变成硬判据`
+    );
+  }
+  // 同一 @id 被多种 @type 复用：建模选择（如论文的 mainEntityOfPage 指回本页），
+  // 记一笔事实，不判红——但它让"同一 @id 的同一字段"这件事必须按 @type 分组看。
+  for (const [id, types] of typeUse) {
+    if (types.size > 1) reusedIds.push(`${id}（${[...types].sort().join(" / ")}）`);
+  }
+  if (reusedIds.length) {
+    note(
+      `同一 @id 被多种 @type 复用：${reusedIds.join("；")}—— 按 @type 分组比对；` +
+        `这是建模选择（如 mainEntityOfPage 指回本页），不是错误`
+    );
+  }
+
+  // 自证存活：判据自己被卸掉时不能"全绿"（与门禁 18 的 source 标注同一类病）
+  if (!compared) {
+    fail(
+      "本条一个字段都没比成——全站找不到有两个及以上节点的同名节点组，判据可能已经失效"
+    );
+  } else if (!sameAsCompared) {
+    fail(
+      "sameAs 一次都没有被比对——本条存在的理由就是守住它；" +
+        "sameAs 从产物里消失了，判据也就跟着失效了"
+    );
+  }
+  if (problems.length === problemsBeforeSameIdCheck) {
+    note(
+      `同一 @id 的字段一致性：${multiNodeGroups} 个多节点组 / ${compared} 处比对，同名字段取值一致` +
+        `（字段缺失、嵌套字段不判）`
+    );
+  }
+}
+
+/* ---------- 32. 论文列表页的列表级 JSON-LD（ItemList）必须完整 ----------
+   这条是被一个**结构缺失**逼出来的：站里此前只有**一堆彼此无序的
+   ScholarlyArticle**（jsonLdArticles 在首页 / 博客 / 关于 / 论文列表四页都输出
+   全量 @graph）。消费方（Google、Semantic Scholar 等）据此能回答"这里有哪些
+   作品"，**却答不出**"这是一个列表、共几项、按什么顺序"——列表级实体
+   （ItemList）缺失时，这个问题没有答案。
+
+   ⚠️ 为什么不改 jsonLdArticles 顺带解决：那个 filter 被首页 / blog /
+   about / papers 四页共用，在里面塞 ItemList 会让**首页、博客、关于页**
+   也长出一个论文列表——那三页不是论文列表页，声明 ItemList 是**假声明**。
+   所以 ItemList 走独立的 <script type="application/ld+json"> 块，
+   只在 /papers/ 由模板显式输出（见 src/papers.njk）。
+
+   判据（每一条都比"具体的东西"，不比"看起来对"）：
+     32a 论文列表页**恰好一个** ItemList；**其它页一个都不许有**
+          （反向判据：这条同时挡住"ItemList 泄到首页 / 博客 / 关于 / 404"）
+     32b numberOfItems 必须等于 itemListElement 的实际长度
+     32c position 必须等于序号（1..N 连续，不许跳号、不许重复）
+     32d 每个 item.@id 必须能在**同一页**带 @type 的 JSON-LD 实体里
+          找到**同 @id 的节点**
+     32e ItemList 的 item.@id 序列必须与该页 ScholarlyArticle 的 @id 序列
+          **逐项同序**
+     32f 自证存活
+
+   ⚠️ 32d 为什么要限定"带 @type 的节点"：
+     ItemList 自己的 itemListElement[i].item 就是一个 {"@id": ...} 的
+     **引用**（没有 @type）。如果把这类引用也算进"可被找到的 @id 集合"，
+     那么"item.@id 指向谁"这条判据就变成**拿自己证明自己** —— 它永远成立，
+     于是 32d 变成一条永远为绿的空判（与门禁 18 / 31 的"自证存活"同类）。
+     只收**带 @type 的实体节点**，才是真的在问"这个 @id 背后有没有一个
+     被声明过的作品实体"。 */
+{
+  // 本条自己判出的问题数（用于给 note 选措辞，见文件里 note() 的纪律：
+  // 判红时不能照抄通过时那句带断言的话）
+  const problemsBeforeItemList = problems.length;
+  // 论文列表页在产物里的相对路径（rel() = path.relative(SITE, file)）
+  const PAPERS_PAGE = "papers/index.html";
+
+  // 全站找 ItemList（**递归进嵌套** —— 有人把它塞进 @graph 里也一样要抓）
+  const itemListHits = [];
+  for (const { from, parsed } of ldRecords) {
+    for (const node of collectNodes(parsed)) {
+      if (typesOf(node).includes("ItemList")) itemListHits.push({ from, node });
+    }
+  }
+
+  // 32a：论文列表页恰好一个；其它页一个都不许有
+  const onPapers = itemListHits.filter((h) => h.from === PAPERS_PAGE);
+  for (const h of itemListHits) {
+    if (h.from === PAPERS_PAGE) continue;
+    fail(
+      `${h.from}: 出现了 ItemList —— 论文列表实体只允许出现在 ${PAPERS_PAGE}；` +
+        `这一页不是论文列表页，声明 ItemList 是假声明（消费方会以为这里也有一份列表）`
+    );
+  }
+  if (onPapers.length !== 1) {
+    fail(
+      `${PAPERS_PAGE}: 论文列表页的 ItemList 数量是 ${onPapers.length}（应为 1）—— ` +
+        `列表级实体缺了，"这个站点共有几篇论文、按什么顺序"就没有答案`
+    );
+  }
+
+  // 该页"带 @type 的实体"的 @id 全集 —— 32d 的查找范围（**不含纯引用**）
+  const typedIdsOnPapers = new Set();
+  for (const { from, parsed } of ldRecords) {
+    if (from !== PAPERS_PAGE) continue;
+    for (const node of collectNodes(parsed)) {
+      if (!typesOf(node).length) continue; // 纯引用（{"@id": ...}）不算实体
+      const id = typeof node["@id"] === "string" ? node["@id"].trim() : "";
+      if (id) typedIdsOnPapers.add(id);
+    }
+  }
+
+  // 该页 ScholarlyArticle 的 @id 序列（按文档顺序）—— 32e 的另一侧
+  const articleIdsOnPapers = [];
+  for (const { from, parsed } of ldRecords) {
+    if (from !== PAPERS_PAGE) continue;
+    for (const node of collectNodes(parsed)) {
+      if (!typesOf(node).includes("ScholarlyArticle")) continue;
+      const id = typeof node["@id"] === "string" ? node["@id"].trim() : "";
+      if (id) articleIdsOnPapers.push(id);
+    }
+  }
+
+  let itemCount = 0;
+  for (const { node } of onPapers) {
+    const list = Array.isArray(node.itemListElement) ? node.itemListElement : null;
+    if (!list) {
+      fail(`${PAPERS_PAGE}: ItemList 缺 itemListElement（或它不是数组）—— 列表没有条目`);
+      continue;
+    }
+    // 32b：numberOfItems 与实际条目数一致
+    if (node.numberOfItems !== list.length) {
+      fail(
+        `${PAPERS_PAGE}: ItemList 的 numberOfItems 是 ${node.numberOfItems}，` +
+          `实际条目数是 ${list.length} —— 两者必须一致（消费方按 numberOfItems 决定读几条）`
+      );
+    }
+    // 32c：position 必须是 1..N 连续
+    for (let i = 0; i < list.length; i++) {
+      const el = list[i];
+      const pos = el && typeof el === "object" ? el.position : undefined;
+      if (pos !== i + 1) {
+        fail(
+          `${PAPERS_PAGE}: ItemList 第 ${i + 1} 条的 position 是 ${pos}（应为 ${i + 1}）—— ` +
+            `position 必须 1..N 连续，不能跳号或重复`
+        );
+      }
+    }
+    // 32d：每个 item.@id 能在同页带 @type 的实体里找到同 @id 节点
+    const itemIds = [];
+    for (let i = 0; i < list.length; i++) {
+      const el = list[i];
+      const ref = el && typeof el === "object" ? el.item : null;
+      const id = ref && typeof ref === "object" ? ref["@id"] : undefined;
+      if (typeof id !== "string" || !id.trim()) {
+        fail(
+          `${PAPERS_PAGE}: ItemList 第 ${i + 1} 条没有 item.@id —— ` +
+            `列表项必须指向那个作品实体，消费方才能把"列表项"与"论文"合并成同一个节点`
+        );
+        continue;
+      }
+      const idv = id.trim();
+      itemIds.push(idv);
+      if (!typedIdsOnPapers.has(idv)) {
+        fail(
+          `${PAPERS_PAGE}: ItemList 第 ${i + 1} 条的 item.@id「${idv}」` +
+            `在本页的 JSON-LD 实体里找不到同 @id 的节点 —— 列表项指向了一个本页没声明的作品`
+        );
+      }
+    }
+    // 32e：与该页 ScholarlyArticle 的 @id 序列逐项同序
+    if (itemIds.length !== articleIdsOnPapers.length) {
+      fail(
+        `${PAPERS_PAGE}: ItemList 列了 ${itemIds.length} 项，但本页声明了 ` +
+          `${articleIdsOnPapers.length} 个 ScholarlyArticle —— 两者必须逐项对应（多一个少一个都不行）`
+      );
+    } else {
+      for (let i = 0; i < itemIds.length; i++) {
+        if (itemIds[i] !== articleIdsOnPapers[i]) {
+          fail(
+            `${PAPERS_PAGE}: ItemList 第 ${i + 1} 项的 @id「${itemIds[i]}」与本页第 ${i + 1} 个 ` +
+              `ScholarlyArticle 的 @id「${articleIdsOnPapers[i]}」不一致 —— 列表顺序必须与实体顺序一致`
+          );
+        }
+      }
+    }
+    itemCount += list.length;
+  }
+
+  // 32f：自证存活 —— 判据自己被卸掉时不能"全绿"
+  if (!itemListHits.length) {
+    fail(
+      "全站找不到任何 ItemList —— 本条存在的理由就是守住论文列表的列表级实体；" +
+        "它消失了，判据也就跟着失效了"
+    );
+  } else if (onPapers.length === 1 && !itemCount) {
+    fail(
+      `${PAPERS_PAGE}: ItemList 存在但一条都没被比对 —— 判据可能已经失效` +
+        `（本条存在的理由是守住"每一项都能在同页找到作品实体"）`
+    );
+  }
+  // ⚠️ note 的措辞必须跟着本条的判定结果走：判红时**不许**照抄
+  //    "仅 papers/index.html" 这类带断言的话（实测 F5：ItemList 泄到首页时，
+  //    报错已经指出问题，note 却还在说"仅 papers/index.html"——
+  //    读的人先扫到 note，就会把红因当成别的问题）。
+  const itemListProblems = problems.length - problemsBeforeItemList;
+  if (itemListHits.length) {
+    note(
+      itemListProblems
+        ? `论文列表 ItemList：全站 ${itemListHits.length} 个 / 比对了 ${itemCount} 项 —— 存在问题（见上方报错）`
+        : `论文列表 ItemList：${onPapers.length} 个（仅 ${PAPERS_PAGE}）/ ${itemCount} 项，` +
+          `每一项的 @id 都能在本页找到同 @id 的作品实体，顺序与 ScholarlyArticle 一致`
     );
   }
 }

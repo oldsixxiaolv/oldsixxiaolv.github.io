@@ -54,3 +54,32 @@ editPaths:
   {% set pubHeading = "Peer-reviewed publications" %}
   {% include "partials/publications.njk" %}
 </article>
+
+{# ============================================================================
+   列表级 JSON-LD（ItemList）
+   ----------------------------------------------------------------------------
+   消费方要能回答"这个站点共有几篇论文、按什么顺序"。此前站里只有一堆
+   彼此无序的 ScholarlyArticle（base.njk 的 jsonLdArticles），没有列表级实体。
+   这里用**独立的一个 ld+json 块**输出 ItemList —— 不改 jsonLdArticles：
+   那个 filter 被首页 / blog / about / papers 四页共用，改它会让那三页
+   也长出一个论文列表（它们不是论文列表页，声明 ItemList 是假声明）。
+
+   ⚠️ 为什么这个块紧跟 </article> 而不是塞进 <head>：
+     Eleventy 的 `layout:` 是**数据级包装**、不是 Nunjucks 的 `extends`
+     （paper.njk 顶部已写明这一点，并因此把 paper-reader.css 改成 inline）。
+     所以 `{% block %}` **不会跨模板注入**到 base.njk 的 head ——
+     在本页写 `{% block structuredData %}` 只会被就地渲染成正文的一部分，
+     根本进不了 <head>（实测：这样写时 ItemList 落在 <main> 里）。
+     而"页面专属的结构化数据跟在内容后面"正是本仓既有的做法：
+     论文页自己的 ScholarlyArticle JSON-LD 也是这么放的（paper.njk）。
+     跨页通用那部分（Person / WebSite / 全部作品的 @graph）才在 base.njk 的 head。
+
+   item.@id 与论文页上那个 ScholarlyArticle 的 @id 逐字相同 → 消费方按 @id
+   把列表项与论文实体合并成同一个节点。门禁 32 逐项核对这个一致性。
+   ========================================================================== #}
+{%- set itemList = site.publications | jsonLdItemList(site.url) -%}
+{%- if itemList %}
+  <script type="application/ld+json">
+  {{ itemList | dump | safe }}
+  </script>
+{%- endif %}
