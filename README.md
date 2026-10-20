@@ -204,6 +204,8 @@ Node 下限、命令或公开出口，README 不同步就会红）。改过 `sit
 
 - 论文手稿仓：[oldsixxiaolv/Manuscript_Lvyh](https://github.com/oldsixxiaolv/Manuscript_Lvyh) —— 与本站仓（MeteoHub）分开，专门存放合作论文的批注版与配套数据管线（TRMM 2026 论文 + Zenodo doi: 10.5281/zenodo.18041880）
 - 详细运行 / 调试：`HOW_TO_RUN.md`
+- 改进目标与里程碑：`docs/ROADMAP.md`（**目标与里程碑的唯一清单**）
+- 缺陷清单：`docs/DEFECT-BACKLOG.md`（**唯一待修缺陷清单**，每轮从「待修」里取一条）
 - 信息架构：`docs/information-architecture.md`（设计规划稿，含尚未实现的 `/tags/` `/search/` `/cv/`）
 - 设计规范：`docs/design-system.md`
 - 论文精读交互：`docs/papers-interaction.md`
