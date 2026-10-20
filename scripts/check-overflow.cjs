@@ -10,9 +10,37 @@
  *
  * 只依赖 Node 内置能力 + 本机 Chrome（CDP over WebSocket），不装任何包。
  *
+ * ⚠️ 为什么从「单档 390px」改成**多档宽度**（2026-10-20 修缺陷清单 D4）：
+ *   此前这个门禁**只测 390px 一个宽度**。本仓的宽度媒体查询有 **6 个像素值**
+ *   （360 / 640 / 760 / 768 / 820 / 1024，见 src/assets/css/ 全部 .css，含
+ *   components/ 子目录），而 **768–1024 这段区间、以及 >1024 的宽屏分支，
+ *   全都没有横向溢出的把关**。
+ *   >1024 恰恰是**布局最复杂**的一侧：`max-width:1024px` 之外，
+ *   `.split` 是双栏、`.paper-reader-wrap` 是三栏、`.paper-toc` 才显示
+ *   （layout.css / paper-reader.css / components/_paper.css）——
+ *   多栏布局最容易横向撑破，却从来没被量过。
+ *   ⇒ 「只测 390px」不等于「窄屏没问题」，只等于**窄的那一档没问题**。
+ *
+ *   默认档位的取法 = **每个宽度媒体查询的「匹配」与「不匹配」两侧都被测到**：
+ *     · 360 —— `max-width:360px` 的匹配侧（也是最小常见手机宽度）
+ *     · 390 —— 常见手机宽度（本仓历来用的那档）；`max-width:360px` 的不匹配侧
+ *     · 640 —— `max-width:640px` 的匹配侧；其不匹配侧由 768 覆盖
+ *     · 768 —— `max-width:768px` 的匹配侧，也是 `min-width:760px` 的不匹配侧
+ *     · 820 —— `max-width:820px` 的匹配侧
+ *     · 1024 —— `max-width:1024px` 的匹配侧
+ *     · 1440 —— `max-width:1024px` 的**不匹配侧**（宽屏多栏那一侧）；
+ *       且 >1320px（.paper-reader-wrap 的容器上限），能覆盖"容器被封顶"的情形
+ *   ⇒ `max-width:760px` 的匹配侧由 640 覆盖、不匹配侧由 768 覆盖。
+ *   （这条覆盖关系由 scripts/test-overflow-widths.cjs **逐条核对**，不靠人记；
+ *    以后 CSS 加了新断点，那个自测会判红，逼着这里同步。）
+ *
  * 用法：
- *   node scripts/check-overflow.cjs            # 检查 _site/ 下所有页面（390px）
- *   node scripts/check-overflow.cjs --width 320
+ *   node scripts/check-overflow.cjs                # 全部默认档位
+ *   node scripts/check-overflow.cjs --width 320    # 只测某一档（调试用）
+ *   node scripts/check-overflow.cjs --widths 390,768   # 只测指定的几档
+ *
+ * 环境变量：
+ *   SITE_DIR —— 覆盖产物目录（故障注入用；与 scripts/check-jsonld.cjs 同一约定）。
  */
 const { spawn } = require("child_process");
 const fs = require("fs");
@@ -20,7 +48,9 @@ const http = require("http");
 const path = require("path");
 const os = require("os");
 
-const SITE = path.resolve(__dirname, "../_site");
+const SITE = process.env.SITE_DIR
+  ? path.resolve(process.env.SITE_DIR)
+  : path.resolve(__dirname, "../_site");
 
 /* ---------- 找 Chrome ----------
  *
@@ -101,11 +131,52 @@ function findChrome() {
   return { bin: null, reason: null };
 }
 
-const argWidth = (() => {
-  const i = process.argv.indexOf("--width");
-  return i > -1 ? Number(process.argv[i + 1]) : 390;
-})();
-const VIEWPORT = argWidth;
+/** 默认档位 —— 取法与理由见文件头。 */
+const DEFAULT_WIDTHS = [360, 390, 640, 768, 820, 1024, 1440];
+
+/**
+ * 解析命令行里的宽度档位。
+ *   --width N        只测某一档（可重复；保留旧写法，别的地方还在用）
+ *   --widths a,b,c   只测指定的几档
+ * 一个都不给 ⇒ 用 DEFAULT_WIDTHS。
+ * ⚠️ 解析失败**直接判红退出**：把一个拼错的宽度当成"没传"而悄悄退回默认档位，
+ *   等于给门禁发一张"我测过了"的假证书。
+ */
+function parseWidths(argv) {
+  const list = [];
+  for (let i = 0; i < argv.length; i++) {
+    if (argv[i] === "--width") {
+      const raw = argv[i + 1];
+      const v = Number(raw);
+      if (raw === undefined || !Number.isFinite(v) || v <= 0) {
+        throw new Error(`--width 需要一个正整数，收到：${raw === undefined ? "(缺值)" : raw}`);
+      }
+      list.push(v);
+      i++;
+    } else if (argv[i] === "--widths") {
+      const raw = argv[i + 1];
+      if (raw === undefined) throw new Error("--widths 后面要跟一串宽度，比如 --widths 390,768");
+      for (const part of String(raw).split(",")) {
+        const t = part.trim();
+        if (!t) continue;
+        const v = Number(t);
+        if (!Number.isFinite(v) || v <= 0) throw new Error(`--widths 里有一个不是正整数：${t}`);
+        list.push(v);
+      }
+      i++;
+    }
+  }
+  return list.length ? [...new Set(list)] : DEFAULT_WIDTHS.slice();
+}
+
+let WIDTHS;
+try {
+  WIDTHS = parseWidths(process.argv.slice(2));
+} catch (e) {
+  console.error("✗ " + e.message);
+  console.error("  用法：node scripts/check-overflow.cjs [--width N | --widths a,b,c]");
+  process.exit(1);
+}
 
 /* ---------- 1. 起一个临时静态服务器（只服务 _site/） ---------- */
 const MIME = {
@@ -281,7 +352,7 @@ const MEASURE = `(() => {
     } else {
       console.error(
         "✗ 找不到可用的 Chrome / Chromium。\n" +
-          "  这个门禁要用真实浏览器量窄屏（390px）下的横向溢出，量不了就不算通过——\n" +
+          "  这个门禁要用真实浏览器量多档宽度下的横向溢出，量不了就不算通过——\n" +
           "  静默跳过等于给这个门禁发一张「已通过」的假证书。\n" +
           "  · macOS：装 Google Chrome，或设 CHROME_PATH=/Applications/Google Chrome.app/Contents/MacOS/Google Chrome\n" +
           "  · Linux / CI：GitHub 的 ubuntu runner 镜像自带 google-chrome，应能自动找到；\n" +
@@ -336,39 +407,83 @@ const MEASURE = `(() => {
   const { sessionId } = await cdp.send("Target.attachToTarget", { targetId, flatten: true });
   await cdp.send("Page.enable", {}, sessionId);
   await cdp.send("Runtime.enable", {}, sessionId);
-  await cdp.send("Emulation.setDeviceMetricsOverride", {
-    width: VIEWPORT, height: 844, deviceScaleFactor: 2, mobile: true,
-  }, sessionId);
 
   let bad = 0;
-  console.log(`视口宽度 ${VIEWPORT}px，共 ${routes.length} 个页面\n`);
+  let measured = 0;
+  const badPairs = []; // { width, route, scrollWidth } —— 溢出到底在哪一档、哪一页
+  const viewportMismatch = []; // { width, route, actual } —— 请求的宽度与量到的布局视口对不上
+  const perWidth = new Map(); // width → 该档测了多少页
 
-  for (const route of routes) {
-    const url = `http://127.0.0.1:${port}${route}`;
-    const loaded = cdp.once("Page.loadEventFired");
-    await cdp.send("Page.navigate", { url }, sessionId);
-    await loaded;
-    await new Promise((r) => setTimeout(r, 250)); // 等字体/布局稳定
+  for (const width of WIDTHS) {
+    /* ⚠️ 每一档都要**重新设置**设备尺寸 —— 只设一次的话，
+       后面几档量到的还是第一档的布局（看起来跑了很多档，其实量的是同一个宽度）。 */
+    await cdp.send("Emulation.setDeviceMetricsOverride", {
+      width, height: 844, deviceScaleFactor: 2, mobile: true,
+    }, sessionId);
 
-    const res = await cdp.send("Runtime.evaluate", { expression: MEASURE, returnByValue: true }, sessionId);
-    const m = res.result.value;
+    console.log(`视口宽度 ${width}px，共 ${routes.length} 个页面`);
+    for (const route of routes) {
+      const url = `http://127.0.0.1:${port}${route}`;
+      const loaded = cdp.once("Page.loadEventFired");
+      await cdp.send("Page.navigate", { url }, sessionId);
+      await loaded;
+      await new Promise((r) => setTimeout(r, 250)); // 等字体/布局稳定
 
-    const status = m.hasHScroll ? "✗ 横向可拖" : "✓";
-    console.log(`${status} ${route}  (scrollWidth ${m.pageScrollWidth} / 视口 ${m.vw})`);
-    /* ⚠️ 退出码必须与打出来的 ✓/✗ **同源**：判据一律用 hasHScroll
-       （页面真的能横向滚动 = documentElement.scrollWidth > 视口）。
-       此前这里用的是 `m.overflow.length`（元素矩形扫描的结果）——两个条件
-       不是一回事，矩形扫描**抓不到"内容溢出"**：一个 div 的盒子宽度仍是
-       390px（超长内容撑在盒子里面），矩形扫描看不到它，但页面确实能横滚。
-       结果就是：脚本打印"✗ 横向可拖"、退出码却给 0。
-       ——"永远通过的检查比没有检查更糟"：谁把它接进 CI，谁就会拿到假绿。
+      const res = await cdp.send("Runtime.evaluate", { expression: MEASURE, returnByValue: true }, sessionId);
+      const m = res.result.value;
+      measured++;
+      perWidth.set(width, (perWidth.get(width) || 0) + 1);
+
+      /* ⚠️ 量到的布局视口宽度必须等于请求的宽度 —— 不等就说明**这一档根本没被
+         模拟成那个宽度**（典型成因：页面没有 viewport meta，mobile 模拟会退回
+         980px 的布局视口）。这种情况下"这一档没溢出"是**假绿**，必须判红。 */
+      if (Math.abs(m.vw - width) > 1) {
+        viewportMismatch.push({ width, route, actual: m.vw });
+      }
+
+      const status = m.hasHScroll ? "✗ 横向可拖" : "✓";
+      console.log(`  ${status} ${route}  (scrollWidth ${m.pageScrollWidth} / 视口 ${m.vw})`);
+      /* ⚠️ 退出码必须与打出来的 ✓/✗ **同源**：判据一律用 hasHScroll
+         （页面真的能横向滚动 = documentElement.scrollWidth > 视口）。
+         此前这里用的是 `m.overflow.length`（元素矩形扫描的结果）——两个条件
+         不是一回事，矩形扫描**抓不到"内容溢出"**：一个 div 的盒子宽度仍是
+         390px（超长内容撑在盒子里面），矩形扫描看不到它，但页面确实能横滚。
+         结果就是：脚本打印"✗ 横向可拖"、退出码却给 0。
+         ——"永远通过的检查比没有检查更糟"：谁把它接进 CI，谁就会拿到假绿。
        2026-10-19 实测（注入一个 400 字符长串的 div）：
          scrollWidth 4416 / 视口 390，输出 ✗，退出码 0。 */
-    if (m.hasHScroll) bad++;
-    if (m.overflow.length) {
-      m.overflow.forEach((o) => console.log(`      越界 ${o.over}px  ${o.sel}`));
+      if (m.hasHScroll) {
+        bad++;
+        badPairs.push({ width, route, scrollWidth: m.pageScrollWidth });
+      }
+      if (m.overflow.length) {
+        m.overflow.forEach((o) => console.log(`      越界 ${o.over}px  ${o.sel}`));
+      }
+      m.scrollers.forEach((o) => console.log(`      （容器内有意横滚）${o.sel}`));
     }
-    m.scrollers.forEach((o) => console.log(`      （容器内有意横滚）${o.sel}`));
+    console.log("");
+  }
+
+  /* ---------- 自证：每一档到底测了没有 ---------- */
+  const problems = [];
+  const expected = WIDTHS.length * routes.length;
+  if (measured !== expected) {
+    problems.push(
+      `测量次数对不上：期望 ${WIDTHS.length} 档 × ${routes.length} 页 = ${expected} 次，实际 ${measured} 次 —— 有一档没跑完。`
+    );
+  }
+  for (const w of WIDTHS) {
+    const n = perWidth.get(w) || 0;
+    if (n !== routes.length) {
+      problems.push(`宽度 ${w}px 只测了 ${n} 个页面（应为 ${routes.length} 个）—— 这一档没被完整测量。`);
+    }
+  }
+  if (viewportMismatch.length) {
+    problems.push(
+      `${viewportMismatch.length} 处「请求的视口宽度」与「实际量到的布局视口宽度」不符 —— ` +
+        `这些档位等于没被真正测到：` +
+        viewportMismatch.map((x) => `${x.route}@${x.width}px→${x.actual}px`).join("、")
+    );
   }
 
   ws.close();
@@ -385,8 +500,28 @@ const MEASURE = `(() => {
     /* 临时目录清不掉不影响结果，交给系统回收 */
   }
 
-  console.log(bad ? `\n✗ ${bad} 个页面存在横向溢出` : "\n✓ 所有页面在窄屏下均无横向溢出");
-  process.exit(bad ? 1 : 0);
+  const widthList = WIDTHS.join(" / ");
+  if (problems.length) {
+    console.error("\n✗ 窄屏溢出门禁未通过：\n");
+    problems.forEach((p) => console.error(`  ✗ ${p}`));
+    if (badPairs.length) {
+      console.error(`\n  横向溢出位置（宽度 → 路由）：`);
+      badPairs.forEach((b) => console.error(`    · ${b.width}px  ${b.route}  (scrollWidth ${b.scrollWidth})`));
+    }
+    console.error("");
+    process.exit(1);
+  }
+  if (bad) {
+    console.error(`\n✗ ${bad} 处横向溢出（宽度 → 路由）：`);
+    badPairs.forEach((b) => console.error(`  · ${b.width}px  ${b.route}  (scrollWidth ${b.scrollWidth})`));
+    console.error("");
+    process.exit(1);
+  }
+  console.log(
+    `✓ 所有页面在 ${WIDTHS.length} 档宽度（${widthList}）下均无横向溢出` +
+      `（共 ${measured} 次测量，${routes.length} 个页面）`
+  );
+  process.exit(0);
 })().catch((e) => {
   console.error("检查失败：", e.message);
   process.exit(1);

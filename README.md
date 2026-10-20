@@ -86,7 +86,8 @@ Cloudflare Pages、Nginx 等任意静态服务。详细运行 / 调试见 `HOW_T
 | `npm run check:a11y` | WCAG AA 实测缺陷固化成可重复检查 |
 | `npm run check:print-theme` | 打印结果与屏幕主题无关（深色底不会打成白底） |
 | `npm run check:copy` | 直接出字节的出口（`.bib` / `.ris`）取值方式正确 |
-| `npm run check:overflow` | 窄屏（390px）无横向溢出（真浏览器实测） |
+| `npm run check:overflow` | 多档宽度（360 / 390 / 640 / 768 / 820 / 1024 / 1440）都无横向溢出（真浏览器实测，每档重新设视口） |
+| `npm run check:overflow-selftest` | 上面那道门禁的本地夹具自测（证明它能变红：少测一档、视口没真改都判红） |
 | `npm run check:artifact` | 产物里的 @id / license / 版本 / 地址与 `site.js` 逐字一致 |
 | `npm run check:jsonld` | JSON-LD 合法，站点实体与页面实体接得上 |
 | `npm run check:identity` | 身份句柄（ORCID / GitHub / CSDN / ResearchGate）登记一致 |
