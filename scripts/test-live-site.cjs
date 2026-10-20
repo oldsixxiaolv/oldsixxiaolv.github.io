@@ -27,6 +27,12 @@
  *
  * 怎么跑：node scripts/test-live-site.cjs
  * （build 链上由 npm run check:live-selftest 调用；需先有 _site/）
+ *
+ * ⚠️ 矩阵开始时会把产物**快照**一份，之后每档都从快照复制：
+ *   产物目录会被**并发构建**清空（eleventy.config.js 在配置加载时就
+ *   cleanOutputDir("_site")），"每档都从活的 _site 复制"在中途被清空时会
+ *   崩成裸 ENOENT 栈 —— 判据崩了，不是判红了，报的还是个跟判据无关的错误。
+ *   详见 main() 里的「快照」那段。
  */
 const fs = require("fs");
 const http = require("http");
@@ -87,6 +93,17 @@ function eachFile(dir, fn) {
   }
 }
 
+/** 数一个目录里有几个文件（读不到就返回 -1，不抛）。 */
+function countFiles(dir) {
+  let n = 0;
+  try {
+    eachFile(dir, () => n++);
+  } catch {
+    return -1;
+  }
+  return n;
+}
+
 /** 把副本里的生产 origin 换成夹具自己的 origin（模拟"发在自己的 origin 上"）。 */
 function localize(dir, origin, prodOrigin) {
   let n = 0;
@@ -118,7 +135,7 @@ function mutate(file, from, to) {
 
 async function main() {
   if (!fs.existsSync(SITE)) {
-    console.error("注入矩阵失败：找不到 _site/，请先运行 npm run build。");
+    console.error(`注入矩阵失败：找不到产物目录 ${SITE}，请先运行 npm run build。`);
     process.exit(1);
   }
   let siteUrl = "";
@@ -137,18 +154,51 @@ async function main() {
   const cases = [];
 
   /**
+   * 快照：整个矩阵只认这一份。
+   *
+   * 为什么要快照（这是实测出来的，不是预想）：
+   *   产物目录会被**并发构建**清空 —— eleventy.config.js 在**配置加载时**就调
+   *   cleanOutputDir("_site")（构建开始即清空）。所以"每档都从活的 _site 复制"
+   *   在中途被清空时会崩成裸 ENOENT 栈：判据**崩了**，不是判红了，
+   *   报的还是一个跟判据毫无关系的错误。
+   *   快照一次之后：
+   *     ① 中途被清空 / 被重建都不影响矩阵（自测要证明的是"判据还能触发"，
+   *        不是"此刻的产物是新的"）；
+   *     ② "期望侧"与"发出去的那份"保证是同一份内容，不会自己跟自己错位。
+   */
+  const snap = path.join(tmp, "snapshot");
+  try {
+    copyTree(SITE, snap);
+  } catch (e) {
+    console.error(`注入矩阵失败：读不到产物目录 ${SITE}：${e.message}`);
+    process.exit(1);
+  }
+  /* 矩阵要用的那几份产物必须都在。缺了就说明这份产物是残的
+     （并发构建写到一半）——拿残产物跑矩阵，结论没有意义。 */
+  const need = ["index.html", "feed.xml", "sitemap.xml", "papers/index.html"];
+  const missing = need.filter((f) => !fs.existsSync(path.join(snap, f)));
+  if (missing.length) {
+    console.error(
+      `注入矩阵失败：产物目录不完整，缺 ${missing.join("、")} —— ` +
+        `多半是并发构建写到一半；先把一次 npm run build 跑完再跑本自测。`
+    );
+    process.exit(1);
+  }
+  const snapFiles = countFiles(snap);
+
+  /**
    * 起一个夹具站，注入缺陷，跑一遍判据。
-   * 顺序：复制 → 起服务（拿到自己的 origin）→ localize → 注入 → 跑判据。
+   * 顺序：从快照复制 → 起服务（拿到自己的 origin）→ localize → 注入 → 跑判据。
    * 服务器逐请求读盘，所以起服务之后再改文件也照样生效。
    */
   const serve = async (mutateFn, label) => {
     const dir = path.join(tmp, label);
-    copyTree(SITE, dir);
+    copyTree(snap, dir);
     const server = await startStaticServer(dir);
     const origin = `http://127.0.0.1:${server.address().port}`;
     localize(dir, origin, prodOrigin);
     mutateFn(dir, origin);
-    const r = await runChecks(origin, SITE);
+    const r = await runChecks(origin, snap);
     await new Promise((res) => server.close(res));
     return r;
   };
@@ -249,6 +299,15 @@ async function main() {
       bad++;
       console.log(`      → 期望触发，未触发。红因：${detail}`);
     }
+  }
+  /* 运行期间产物目录变了（多半是并发的另一次构建清了又写）→ 说清楚：
+     本次矩阵的结论只对开始时的那份快照成立，别把它读成"此刻产物是新的"。 */
+  const nowFiles = countFiles(SITE);
+  if (nowFiles !== snapFiles) {
+    console.log(
+      `  · 运行期间产物目录 ${SITE} 发生变化（${snapFiles} → ${nowFiles} 个文件）：` +
+        `多半是并发的另一次构建。本次矩阵的结论只对开始时的快照成立。`
+    );
   }
   fs.rmSync(tmp, { recursive: true, force: true });
   if (bad) {
