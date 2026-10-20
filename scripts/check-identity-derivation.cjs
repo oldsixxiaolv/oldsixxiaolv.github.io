@@ -19,7 +19,7 @@
  *   · scripts/test-gates-selfcheck.cjs 里的 D1–D6 = **自测脚本的用例编号**，
  *     与本门禁无关。本门禁原用 D1–D4，与自测脚本撞号 → 2026-10-19 改为 ID*。
  *
- * 扫描面（**三个载体**，同一族问题）：
+ * 扫描面（**载体清单**，同一族问题；清单与判据写在 ID6 段）：
  *   · ID1 数据源层：  src/_data/site.js
  *   · ID4 模板层：    src 下的 .njk 模板（实测 21 个）
  *   · ID5 构建配置层：eleventy.config.js（**sameAs 的发射点**在这里）
@@ -346,6 +346,236 @@ try {
   );
 }
 
+/* ---------- ID6：载体清单 —— 扫描面必须与仓库现状一致 ----------
+   为什么要有这条（2026-10-19 实测，不是假想）：
+     本门禁的"找字面量"只查三个**写死**的载体（site.js / .njk 模板 /
+     eleventy.config.js）。但仓库里**当时就存在** 4 个同样能承载身份 URL 的
+     文件，它们**完全不在扫描面内**：
+       src/content/blog/blog.11tydata.cjs
+       src/content/papers/papers.11tydata.cjs
+       src/content/portfolio/portfolio.11tydata.cjs
+       src/eleventy-helpers.cjs
+     .11tydata.cjs 是 Eleventy 的**目录数据文件**（给整个目录树提供
+     front-matter），它的字段直接进模板 → 在里面烤死一条身份 URL，
+     数据源与模板都干净，产物里却多出**第二份身份清单**——而本门禁全绿，
+     通过文案还写着"数据源、模板层、构建配置层里没有一条以字面量出现"。
+     与 2026-10-19 那次「数据源层判据是死的」是同一族，但**高一层**：
+       那次是**判据自己不可能触发**；这次是**判据能触发、但它声称的覆盖面
+     是假的**（读者会以为全仓都查过了）。
+   所以 ID6 做三件事：
+     ID6a 清单里的每个载体家族**必须非空** —— 某一族一个文件都没有，
+          说明这一族载体已经消失/改名，扫描面可能已经悄悄失效。
+     ID6b **候选载体必须都被认领** —— 在 Eleventy 的目录 + src 顶层 +
+          仓库根里，凡是"可能承载身份 URL"的文件必须落在清单的某个家族里；
+          落不进去就判红（"这个文件里的身份字面量不受管"）。
+     ID6c 清单与实际扫描面**必须一致** —— 清单不能漏掉已经扫过的文件
+          （那说明清单写错了），清单里的文件也必须真的被扫过。
+   ⚠️ 显式豁免（写在这里，不只写在日志里）：
+     · `.md`（正文页，如 src/content/about.md）**不在扫描面内** —— 那里有
+       一条身份 URL 字面量，属并发场次已登记的**待拍板 10**，且该文件
+       markdownTemplateEngine:false。**本门禁不代拍**：将来拍板后删掉这一行。
+     · `.css` / 其它非代码扩展名（样式表、图片、纯文本）不是身份清单载体
+       （里面的 URL 是资源地址，不是身份句柄）。 */
+const CARRIER_EXTS = new Set([
+  ".js", ".cjs", ".mjs", ".json", ".yaml", ".yml", ".njk", ".liquid", ".html",
+]);
+const TEMPLATE_EXTS = new Set([".njk", ".liquid", ".html"]);
+const EXEMPT_EXTS = new Map([
+  [".md", "待拍板 10：正文页里的身份 URL 字面量不在本门禁扫描面内（本门禁不代拍）"],
+  [".css", "样式表不是身份清单载体（里面的 URL 是资源地址）"],
+]);
+/* 系统垃圾文件：已被 .gitignore 忽略（不跟踪），但**会出现在磁盘上**，
+   listFiles 照样看得见 → 必须在门禁里显式排除，否则：
+     ① 清单计数随本机 Finder 行为漂移（实测 M0 27 个 → M5 28 个）；
+     ② 它们会被家族"认领"，进而在 ID6c 里成为"声称被管、实际不查"的文件。
+   按**文件名**排除（不按扩展名）：path.extname(".DS_Store") 返回 ""，
+   按扩展名判断会漏掉。 */
+const JUNK_BASENAMES = new Set([".DS_Store", "Thumbs.db", "desktop.ini", ".gitkeep"]);
+
+/* 递归 / 非递归列文件；只收普通文件，目录本身不算载体 */
+function listFiles(dir, recursive) {
+  const out = [];
+  let entries = [];
+  try {
+    entries = fs.readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return out;
+  }
+  for (const e of entries) {
+    const p = path.join(dir, e.name);
+    if (e.isDirectory()) {
+      if (recursive) out.push(...listFiles(p, true));
+    } else if (e.isFile()) {
+      out.push(p);
+    }
+  }
+  return out;
+}
+
+/* 载体家族清单：改这一处就改了扫描面（清单即账本，不是声明） */
+const CARRIER_FAMILIES = [
+  {
+    id: "数据源层",
+    files: () => listFiles(path.join(ROOT, "src/_data"), true),
+  },
+  {
+    id: "目录数据层",
+    files: () =>
+      listFiles(path.join(ROOT, "src/content"), true).filter((f) =>
+        /\.11ty/.test(path.basename(f))
+      ),
+  },
+  {
+    id: "模板层",
+    files: () => listFiles(SRC, true).filter((f) => TEMPLATE_EXTS.has(path.extname(f))),
+  },
+  {
+    id: "构建辅助层",
+    files: () =>
+      listFiles(SRC, false).filter((f) => /\.(js|cjs|mjs)$/.test(path.basename(f))),
+  },
+  {
+    id: "构建配置层",
+    files: () => [ELEVENTY_CONFIG],
+  },
+];
+
+/* 按扩展名选遮罩：不同载体的注释语法不同 */
+const maskYamlComments = (text) =>
+  text.replace(/^\s*#[^\n]*/gm, (m) => m.replace(/[^\n]/g, " "));
+const maskFor = (file) => {
+  const ext = path.extname(file);
+  if (ext === ".njk" || ext === ".liquid" || ext === ".html") return maskTemplateComments;
+  if (ext === ".yaml" || ext === ".yml") return maskYamlComments;
+  if (ext === ".json") return (t) => t; // JSON 语法里没有注释
+  return maskJsComments;
+};
+
+const familyFiles = new Map(); // 绝对路径 → 家族 id
+for (const fam of CARRIER_FAMILIES) {
+  let files = [];
+  try {
+    files = fam.files();
+  } catch (e) {
+    fail(`载体家族「${fam.id}」列文件失败（${e.message}）——本门禁没有完整判断对象，直接判红。`);
+    continue;
+  }
+  /* ID6a：家族必须非空 */
+  if (!files.length) {
+    fail(
+      `载体家族「${fam.id}」一个文件都没有 —— 这一族载体已经消失或改名，` +
+        `扫描面可能已经悄悄失效（门禁还在按老清单跑）。`
+    );
+  }
+  for (const f of files) {
+    if (JUNK_BASENAMES.has(path.basename(f))) continue; // 系统垃圾文件不是载体
+    if (!familyFiles.has(f)) familyFiles.set(f, fam.id);
+  }
+}
+
+/* ID6b：候选载体必须都被认领 */
+const claimRoots = [
+  { dir: path.join(ROOT, "src/_data"), recursive: true },
+  { dir: path.join(ROOT, "src/_includes"), recursive: true },
+  { dir: path.join(ROOT, "src/content"), recursive: true },
+  { dir: SRC, recursive: false },
+];
+const exemptByExt = new Map(); // 扩展名 → 豁免文件集合（用集合去重，避免两处重复计数）
+const markExempt = (file) => {
+  const ext = path.extname(file) || "（无扩展名）";
+  if (!exemptByExt.has(ext)) exemptByExt.set(ext, new Set());
+  exemptByExt.get(ext).add(file);
+};
+for (const root of claimRoots) {
+  for (const file of listFiles(root.dir, root.recursive)) {
+    if (JUNK_BASENAMES.has(path.basename(file))) continue; // 系统垃圾文件不是候选载体
+    const ext = path.extname(file);
+    if (!CARRIER_EXTS.has(ext)) {
+      if (EXEMPT_EXTS.has(ext)) markExempt(file);
+      continue; // 非候选扩展名（.md/.css/图片…）→ 按文件头登记的豁免放行
+    }
+    if (familyFiles.has(file)) continue; // 已被某个家族认领
+    const rel = path.relative(ROOT, file);
+    fail(
+      `载体 ${rel} 不在任何已登记的载体家族里 —— 里面的身份 URL 字面量**不受本门禁管**` +
+        `（本门禁只查清单里的文件；这份清单在 scripts/check-identity-derivation.cjs 的` +
+        ` CARRIER_FAMILIES）。要么把它登记进某个家族（改 CARRIER_FAMILIES 一处），` +
+        `要么把它挪到不受 Eleventy 管线处理的位置。`
+    );
+  }
+}
+/* 仓库根：只认 eleventy.config.* —— 别的根级 .js（postcss 之类）与身份清单无关 */
+for (const file of listFiles(ROOT, false)) {
+  if (!/^eleventy\.config\./.test(path.basename(file))) continue;
+  if (familyFiles.has(file)) continue;
+  fail(
+    `构建配置 ${path.relative(ROOT, file)} 不在载体清单里 —— 它同样参与构建，` +
+      `身份 URL 写在这里不会被本门禁发现。请登记进 CARRIER_FAMILIES（或改用` +
+      ` eleventy.config.js）。`
+  );
+}
+
+/* ID6c：清单与实际扫描面必须一致 —— 清单不能漏掉已经扫过的文件 */
+const alreadyScanned = new Set();
+if (siteSource) alreadyScanned.add(SITE_JS);
+try {
+  for (const f of listNjkFiles(SRC)) alreadyScanned.add(f);
+} catch (e) {
+  /* 上面 ID4 段已经判过红了，这里不再重复报 */
+}
+alreadyScanned.add(ELEVENTY_CONFIG);
+for (const f of alreadyScanned) {
+  if (!familyFiles.has(f)) {
+    fail(
+      `载体清单漏掉了正在被扫描的文件 ${path.relative(ROOT, f)} —— ` +
+        `清单与实际扫描面不一致，清单不能作为"覆盖范围"来读。`
+    );
+  }
+}
+
+/* ID6c（续）：清单里**每个**文件都要真的接受"不许抄字面量"的检查
+   ⚠️ 这里自己踩过一次洞（2026-10-19 实测，**低一层的"假保证"**）：
+     家族认领是按**目录**收的（如 数据源层 = src/_data 下所有文件），
+     而"逐字检查"是按**扩展名**筛的。两者之间的差集 = "清单说它被管、
+     实际没人查"的文件。实测：src/_data/notes.txt 里烤死一条身份 URL →
+     它被数据源层认领（清单里有它）→ 但 .txt 不在候选扩展名里 → 没被扫 →
+     门禁 **exit 0**（通过文案还写着"载体清单里的文件里没有一条以字面量出现"）。
+     修法：认领了就必须被扫；扫不了的必须**逐个**在 EXEMPT_EXTS 里登记理由，
+     否则判红（"要么把它的扩展名加进候选集，要么登记豁免"）。 */
+let carrierScanned = 0;
+for (const [file, famId] of familyFiles) {
+  if (alreadyScanned.has(file)) continue; // ID1/ID4/ID5 已经扫过
+  const ext = path.extname(file);
+  if (!CARRIER_EXTS.has(ext)) {
+    if (EXEMPT_EXTS.has(ext)) {
+      markExempt(file);
+      continue; // 登记在案的显式豁免
+    }
+    fail(
+      `载体 ${path.relative(ROOT, file)}（${famId}）**在载体清单里，却不受检查** —— ` +
+        `它的扩展名 ${ext || "（无）"} 不在候选集里，本门禁不会读它；` +
+        `清单说它被管，实际没人查（身份 URL 写在这里不会被发现）。` +
+        `要么把 ${ext || "该扩展名"} 加进 CARRIER_EXTS，要么在 EXEMPT_EXTS 里登记豁免理由。`
+    );
+    continue;
+  }  let text = "";
+  try {
+    text = fs.readFileSync(file, "utf8");
+  } catch (e) {
+    fail(`读不到载体 ${path.relative(ROOT, file)}（${e.message}）——该载体没被检查，直接判红。`);
+    continue;
+  }
+  carrierScanned++;
+  const rel = path.relative(ROOT, file);
+  for (const h of findLiteralCopies(maskFor(file)(text), ORACLE_SAMEAS)) {
+    fail(
+      `载体 ${rel}（${famId}）第 ${h.line} 行把身份 URL ${h.url} **写成了字面量**——` +
+        `这个文件在 ID6 的载体清单里，身份清单的真源是 scripts/lib/identity.cjs；` +
+        `在这里烤死一份就是站点上的第二份身份清单（改一处忘另一处会静默漂移）。`
+    );
+  }
+}
+
 /* ---------- 自证存活：一条都没查 = 判据本身没生效 ---------- */
 if (siteSource && siteChecked !== EXPECTED_COUNT) {
   fail(
@@ -373,9 +603,22 @@ if (problems.length) {
   process.exit(1);
 }
 
+/* 豁免说明按扩展名逐类给出（数量与理由都从实际集合算，不手写）——
+   写死"另有 2 个 .md"这类文案，会在豁免集合变化时变成"日志说假话"。 */
+const exemptSummary =
+  [...exemptByExt.entries()]
+    .map(([ext, set]) => {
+      const reason = EXEMPT_EXTS.get(ext) || "未登记理由（不该出现）";
+      return `${set.size} 个 ${ext}（${reason}）`;
+    })
+    .join("；") || "无";
+const familySummary = [...new Set(familyFiles.values())].join(" / ");
+
 console.log(
-  `身份派生门禁通过：数据源（src/_data/site.js）、模板层（${templateFiles} 个 .njk）与` +
-    `构建配置层（eleventy.config.js）里，${ORACLE_SAMEAS.length} 条身份 URL ` +
-    `**没有一条**以字面量出现（页面可见链接与 sameAs 全部派生自` +
-    ` scripts/lib/identity.cjs，站点只有一份身份清单）。`
+  `身份派生门禁通过：数据源（src/_data/site.js）、模板层（${templateFiles} 个 .njk）、` +
+    `构建配置层（eleventy.config.js）与 ID6 载体清单里的另外 ${carrierScanned} 个载体文件里，` +
+    `${ORACLE_SAMEAS.length} 条身份 URL **没有一条**以字面量出现` +
+    `（页面可见链接与 sameAs 全部派生自 scripts/lib/identity.cjs，站点只有一份身份清单）。` +
+    `载体清单共 ${familyFiles.size} 个文件（${familySummary}），其中 ${carrierScanned} 个被逐字检查；` +
+    `不在扫描面内的显式豁免：${exemptSummary}。`
 );
