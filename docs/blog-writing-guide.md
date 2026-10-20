@@ -40,7 +40,14 @@ src/content/blog/<slug>/cover.svg     ← 可选封面（同一目录）
 | `tags` | 追加集合名 `"blog"` |
 | `prev` / `next` | 按发布日期排的上一篇 / 下一篇（用于详情页底部的翻页条） |
 
-⇒ front matter 里**再写** `layout` / `permalink` / `tags` 不是"更保险"，是**覆盖**它们，会把翻页条或集合归属弄坏。
+⇒ front matter 里**再写** `layout` / `permalink` 不是"更保险"，是**覆盖**它们，会把版式与 URL 弄坏。
+
+⚠️ **2026-10-20 实测订正**：`tags` **不是覆盖，是"合并"** ——
+front matter 写的 `tags` 与自动追加的 `"blog"` 会**并成一份**，
+渲染顺序是 `"blog"` 在前、主题标签在后（实测渲染出 `· blog · TRMM · lightning`）。
+⇒ 主题标签照常写即可，但**不要指望它替换掉** `"blog"`；也**不要**在 front matter 里再写一遍 `"blog"`。
+
+⇒ 这三个字段现在**有门禁拦**：`layout` / `permalink` 写进 front matter ⇒ 判红（判据 F8，见 §2.4）。
 
 ---
 
@@ -73,13 +80,17 @@ tags: ["TRMM", "lightning", "radar"]
 - 详情页：`page.date | date('yyyy-LL-dd')` —— 走**本地时区**。
 
 写 `2026-10-20` 时两边都得到 `2026-10-20`（列表页取 UTC 零点的前 10 位，详情页取本地零点的年月日）。
-一旦写成 `2026-10-20 09:30`，UTC 与本地时区差几小时就可能让**某一边显示前一天**。
-⇒ **只写 `YYYY-MM-DD`，永远不带时分秒**。
+
+⚠️ **2026-10-20 实测订正**：一旦写成 `2026-10-20 09:30`，后果**不是"某一边显示前一天"** ——
+**Eleventy 自己 fatal、整个 build 挂掉**，报的还是它的内部堆栈（`Data cascade value for date`），
+不是一条能让人一眼看出"你日期写错了"的提示。
+⇒ **只写 `YYYY-MM-DD`，永远不带时分秒**；写错了现在会被门禁 F5 拦下（见 §2.4）。
 
 ### 2.2 `tags` 是"主题标签"，不是"分类器"
 
 - `blog.11tydata.cjs` 会自动追加集合名 `"blog"`。列表页**会把它过滤掉**（只显示主题标签，最多 3 个）；
-  详情页 `layouts/detail.njk` **目前不过滤** ⇒ 页面底部会出现一个 `· blog` 的尾巴。
+  详情页 `layouts/detail.njk` **目前不过滤** ⇒ 会出现一个 `· blog` 的尾巴
+  （2026-10-20 实测：它在**详情页 h1 下方的 meta 行顶部**，不是页面底部）。
   （这是已知缺陷，见 `docs/IMPROVEMENT-LOG.md`；写文章时**主题标签照常写**，不用为它将就。）
 - 标签用**英文**（站内全英文），用可复用的主题词（`xarray` / `WRF` / `lightning`），
   不要用一次性短语，也不要为了凑数硬加。
@@ -100,6 +111,33 @@ cover: cover.svg          # ✅ 只写文件名，与 index.md 同目录
 - **当前封面是关着的**：`src/blog.njk` 里 `{% set useCovers = false %}`。
   原因是上面那批历史文件的扩展名骗了服务器。开关何时打开由本人拍板（台账里登记着），
   在那之前写了 `cover` 也不会显示 —— 但写了不亏，等开关打开就有图。
+
+### 2.4 本契约现在**有门禁守着**（判据对照）
+
+自 2026-10-20 起，`scripts/check-blog-frontmatter.cjs` 把上面各条变成 build 时会自己跑的判据，
+接在 `npm run build` 链上（`eleventy` **之前** ⇒ 日期写错时先看到可读提示，而不是 Eleventy 的内部堆栈）。
+
+| 判据 | 管什么 | 对应条款 | 后果 |
+|---|---|---|---|
+| F1 | 文章形状必须是 `<slug>/index.md` | §1 | 判红（扁平文件会全挤到 `/blog/blog/`） |
+| F2 | 目录名（= slug）小写 ASCII + 连字符 | §1 | 判红 |
+| F3 | front matter 可解析 | §2 | 判红 |
+| F4 | `title` 必需且是字符串 | §2 表 | 判红 |
+| F5 | `date` 必需且是纯日期 `YYYY-MM-DD` | §2 / §2.1 | 判红 |
+| F6 | `readingTime` 只能是纯数字 | §2 表 | 判红 |
+| F7 | `tags` 只能是字符串数组 | §2 表 | 判红 |
+| F8 | front matter 不得出现 `layout` / `permalink` | §1 | 判红 |
+| F9 | `cover` 指向的文件必须同目录真实存在 | §2.3 | 判红 |
+| F10 | `excerpt` 缺失 / 为空 | §2 表（"强烈建议"） | **note**（不拦 build） |
+| F11 | `excerpt` 与 `title` 逐字相同 | §4 自查清单 | **note**（不拦 build） |
+| F12 | 目录数据文件的自动注入字段齐不齐 | §1 | 判红（这一条**永远会跑**） |
+
+- **判红 = "写错了"**（形态 / 类型 / 覆盖了自动注入）；**note = "忘了写"**（契约里标的是"建议"）。
+  `excerpt` 缺失归 note 是本轮定的口径，是否升级为判红已登记为待拍板 46。
+- 手动跑：`npm run check:blog-frontmatter`；证明判据本身有牙齿：`npm run check:blog-frontmatter-selftest`
+  （在 /tmp 搭夹具站逐档注入缺陷，15 档）。
+- ⚠️ 站内**还没有文章** ⇒ 逐篇判据（F1–F9 / F11）在真站上**当前未执行**（门禁会明说这一点，不写成"通过"）；
+  判据有没有牙齿由上面那个自测的夹具站负责。
 
 ---
 
@@ -171,6 +209,7 @@ cover: cover.svg          # ✅ 只写文件名，与 index.md 同目录
 □ 每个数字都能在页内找到出处
 □ 站内链接与图片在产物里存在
 □ npm run build  exit 0
+□ npm run check:blog-frontmatter  exit 0（front matter 契约门禁；note 不拦，判红才拦）
 □ /blog/ 列表卡出现：excerpt / readingTime / 主题标签
 □ /blog/<slug>/ 打得开，标题、日期、阅读时长正常
 □ feed.xml 里能看到新文章（feed.njk 已用 collections.blog，无需额外配置）
@@ -183,7 +222,7 @@ cover: cover.svg          # ✅ 只写文件名，与 index.md 同目录
 
 | 现象 | 原因 | 状态 |
 |---|---|---|
-| 详情页底部多一个 `· blog` 标签 | `layouts/detail.njk` 渲染 `tags` 时没过滤集合名（列表页过滤了） | 待修，见日志台账 |
+| 详情页多一个 `· blog` 标签（实测在 h1 下方的 meta 行顶部） | `layouts/detail.njk` 渲染 `tags` 时没过滤集合名（列表页过滤了） | 待修，见日志台账 |
 | 封面不显示 | `src/blog.njk` 的 `useCovers = false`（历史文件扩展名骗服务器导致裂图） | 待本人拍板何时开 |
 | `/blog/` 是空状态页 | 站内还没有文章 | 随 M1-3 解决 |
 

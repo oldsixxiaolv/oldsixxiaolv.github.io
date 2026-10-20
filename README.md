@@ -77,6 +77,8 @@ Cloudflare Pages、Nginx 等任意静态服务。详细运行 / 调试见 `HOW_T
 | `npm run check:log-sections` | 改进日志的 `##` 节**只增不减**（历史全量核对） |
 | `npm run check:decision-ids` | 待拍板编号唯一性：一个编号只能指一件事（台账内外同号必须是同一件事） |
 | `npm run check:decision-ids-selftest` | 上面那道门禁的本地夹具自测（14 档注入矩阵，证明它能变红） |
+| `npm run check:blog-frontmatter` | 博客 front matter 契约（`docs/blog-writing-guide.md`）：形状 / slug 命名 / 字段类型 / 不得覆盖自动注入的字段 |
+| `npm run check:blog-frontmatter-selftest` | 上面那道门禁的本地夹具自测（15 档注入矩阵，证明它能变红） |
 | `npm run check:css` | CSS 大括号平衡 + 死 CSS |
 | `npm run check:wrap` | 长 DOI / 长 URL 不能把窄屏页面撑破 |
 | `npm run check:tool-routes` | 浏览器工具量到的必须是真页面，不是本站 404 页 |
