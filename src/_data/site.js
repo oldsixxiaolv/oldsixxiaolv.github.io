@@ -400,6 +400,51 @@ module.exports = {
         "emphasizing stage-dependent analysis, this work advances the understanding of severe " +
         "storm dynamics over tropical Africa and extends the utility of snapshot observations " +
         "from precipitation radar onboard low-Earth-orbit satellites.",
+      // —— Key Points（出版商存缴原文，3 条）——
+      //
+      // 这是 AGU 论文的**标准版式**：文章开头先给 3 条 bullet，作者自己写的
+      // "读这篇只需知道这三点"。学术主页上此前只有摘要（几百字），读者要先
+      // 读完一整段才知道这篇讲什么——Key Points 恰好解决这个落差。
+      //
+      // 逐字取自出版商存缴记录（Crossref unixref，DOI 10.1029/2026JD046836，
+      // 2026-10-19 拉取）里的 abstract-type="short" 段：
+      //   https://api.crossref.org/works/10.1029/2026JD046836/transform/application/vnd.crossref.unixref+xml
+      // 出版商用 U+2010 HYPHEN 写连字符（"TRMM‐observed"），本站**归一成
+      // ASCII "-"**（与上面 abstract 同一惯例，见站内既有做法）。
+      //
+      // ⚠️ 条数固定 3 条是 AGU 的版式约定，不是"凑够 3 条"：少一条或多一条
+      //    都不再是出版商那一份，check-citation-meta 的 C5 会判红。
+      keyPoints: [
+        "Convective precipitation ratio is an effective statistical metric for distinguishing thunderstorm life stages",
+        "TRMM-observed thunderstorm snapshots can be classified into different life stages using convective structural characteristics",
+        "Relationship between lightning and convective structures in thunderstorms depends heavily on the life stage of thunderstorm",
+      ],
+      // —— Plain Language Summary（出版商存缴原文）——
+      //
+      // 同一份存缴记录里的 abstract-type="executive-summary" 段。AGU 要求
+      // 每篇文章配一段"给非本领域读者看"的通俗摘要；这段经同行评审后定稿，
+      // 比作者自己在正文里重写一段更权威。
+      //
+      // ⚠️ 它与 paper.md 里的 "What this paper does" **不是同一段东西**：
+      //    后者是作者为本页写的更长的展开（可含本站独有的讲法），这一段是
+      //    出版商那一份。两者并存不矛盾，但页面上必须能让读者分清哪段是
+      //    出版商原文、哪段是作者补充——所以标题与注释都写明来源。
+      plainLanguageSummary:
+        "Lightning acts as an excellent indicator of the convective intensity of thunderstorms. Establishing " +
+        "robust, reliable relationships between lightning and convective intensity parameters plays a crucial " +
+        "role in improving our understanding of the dynamical-microphysical-electrical interactions within " +
+        "thunderclouds. However, this relationship changes as thunderstorm evolves through its lifecycle. To " +
+        "address the limitations of Tropical Rainfall Measuring Mission (TRMM) snapshot observations in " +
+        "studying stage-dependent thunderstorms, we developed a machine learning-based clustering method for " +
+        "identifying thunderstorm life stages from such snapshots. This method effectively classifies compact " +
+        "storms, which account for 81% of the total thunderstorm population, into three distinct stages, and " +
+        "the corresponding stage-dependent characteristics are consistent with the known features of " +
+        "thunderstorm evolution. The significant differences in fitted relationships underscore the imperative " +
+        "for stage-dependent analysis of lightning activity and convective structures derived from snapshot " +
+        "thunderstorm features. This study utilizes snapshot radar structural features of thunderstorms to " +
+        "propose an improved clustering framework, thereby providing a new perspective for improving lightning " +
+        "parameterization and extending the applicability of spaceborne radar observations from low-Earth-orbit " +
+        "satellites such as TRMM.",
       // 关键词：论文主题 ∪ 站点 knowsAbout（**并集**，不是交集——TRMM、
       // radar echo structure、tropical Africa 只来自论文，data assimilation、
       // machine learning 只来自 knowsAbout）。

@@ -1,0 +1,53 @@
+cff-version: 1.2.0
+message: "If you use this academic homepage, its source code, or the research it documents, please cite the preferred citation below."
+title: "MeteoHub — academic homepage of Yihang Lyu"
+type: software
+authors:
+  - family-names: "Lyu"
+    given-names: "Yihang"
+    orcid: "https://orcid.org/0009-0005-3511-0546"
+    affiliation: "Institute of Atmospheric Physics, Chinese Academy of Sciences"
+    email: "lvyihang26@mails.ucas.ac.cn"
+version: "1.0.0"
+date-released: "2026-01-08"
+url: "https://github.lvyihang.xyz"
+repository-code: "https://github.com/oldsixxiaolv/oldsixxiaolv.github.io"
+license: "Apache-2.0"
+keywords:
+  - "Thunderstorm Lightning"
+  - "Data Assimilation"
+  - "Machine Learning"
+  - "Extreme Precipitation"
+  - "Radar Remote Sensing"
+  - "Severe Convection"
+  - "Atmospheric Dynamics"
+  - "Satellite Precipitation Retrieval"
+abstract: "PhD student at the Institute of Atmospheric Physics, Chinese Academy of Sciences. Notes on thunderstorm lightning, data assimilation, and extreme precipitation."
+preferred-citation:
+  type: article
+  authors:
+    - family-names: "Wu"
+      given-names: "Xueke"
+      orcid: "https://orcid.org/0000-0001-6144-0120"
+    - family-names: "Lyu"
+      given-names: "Yihang"
+      orcid: "https://orcid.org/0009-0005-3511-0546"
+      affiliation: "Lanzhou University"
+    - family-names: "Hu"
+      given-names: "Xiaoqun"
+    - family-names: "Zhang"
+      given-names: "Zihao"
+    - family-names: "Hu"
+      given-names: "Yuhang"
+    - family-names: "Hu"
+      given-names: "Guohao"
+      orcid: "https://orcid.org/0009-0002-2576-1108"
+    - family-names: "Lin"
+      given-names: "Xingyi"
+  title: "New Insights From TRMM Legacy: Stage-Dependent Relationships Between Lightning and Convective Structure in Thunderstorms Over Tropical Africa"
+  journal: "Journal of Geophysical Research: Atmospheres"
+  volume: 131
+  start: "e2026JD046836"
+  month: 6
+  year: 2026
+  doi: "10.1029/2026JD046836"

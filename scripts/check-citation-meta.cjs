@@ -30,6 +30,15 @@
  *      ISSN / 出版方 / URL / 作者顺序 / 日期 / 关键词 / 语言）；
  *   C4 门禁自己没被卸掉 + **自证存活**——一处都没比过就判红
  *      （"没报错"和"没问题"长得一模一样）。
+ *   C5 **Key Points**（AGU 版式：文章开头 3 条 bullet）——出版商随文存缴的
+ *      原文。必须恰好 3 条、规范化后的整体哈希等于出版商那一份，且论文页
+ *      渲染出来的 3 条与 site.js 逐条一致（顺序也一致）。
+ *   C6 **Plain Language Summary**（出版商随文存缴的通俗摘要）——同上：
+ *      site.js 里的正文哈希等于出版商那一份，论文页渲染的段落与之逐字一致。
+ *
+ * ⚠️ C5/C6 的期望值**只存 sha256，不存全文**，且哈希是从 **Crossref 存缴
+ *   原文**算出来的（不是从 site.js 算的）——否则就变成"改数据的同时改尺子"，
+ *   门禁永远绿。详见下面 C5/C6 段的注释。
  *
  * ⚠️ 本门禁的**诚实边界**（写在文件头，不写在日志里）：
  *   期望值取自 site.js，与被投影的模板**同源**。所以本门禁能挡的是
@@ -510,6 +519,165 @@ for (const pub of pubs) {
   }
 }
 
+/* ================= C5 / C6 出版商存缴的 Key Points 与 Plain Language Summary =================
+ *
+ * 这两段是 AGU 论文的**标准版式**（Key Points 3 条 + Plain Language Summary），
+ * 出版商随文一起存缴，Crossref 的 unixref 里有对应记录：
+ *   abstract-type="short"             → Key Points
+ *   abstract-type="executive-summary" → Plain Language Summary
+ *
+ * ⚠️ 本门禁怎么用它们：**只存规范化后的 sha256，不存全文**。
+ *   · 哈希是**独立于被测数据**算出来的 —— 从 Crossref 原文算，不是从 site.js 算。
+ *     否则就变成"改 site.js 的同时改尺子"，门禁永远绿（判据的期望集
+ *     不能由它要守的对象派生）。
+ *   · 全文不抄进判据文件：抄全文 = 多一份副本 = 多一处会漂移的地方。
+ *     真要核对全文，对着 Crossref 原始记录核，不对着判据文件核。
+ *   · 归一化：U+2010 HYPHEN → ASCII "-"，空白折叠为单空格，trim。
+ *     U+2010 的归一是站内既有惯例（出版商原文用 U+2010 写连字符，站内一律
+ *     写 ASCII "-"，site.js 里 abstract 是同一处理）。
+ *
+ * 两条判据：
+ *   C5 Key Points —— 必须是数组、**恰好 3 条**（AGU 版式约定，不是"凑 3 条"）、
+ *      每条非空、规范化后的整体哈希等于出版商那一份；且论文页渲染出来的
+ *      3 条与 site.js 逐条一致（顺序也一致）。
+ *   C6 Plain Language Summary —— site.js 里的正文哈希等于出版商那一份；
+ *      且论文页渲染出来的段落与之逐字一致。
+ */
+const ORACLE_KEY_POINTS_SHA256 =
+  "3ee648a46e7ca53ddea1acc2a5e58e412ba15115e1c9066db5cbeee37497c154";
+const ORACLE_PLAIN_LANGUAGE_SHA256 =
+  "8fcebee6a05dab6613bdeab28d80a8be7fc1c6634c86590718d6af0661707ae5";
+const KEY_POINTS_COUNT = 3; // AGU 版式约定：固定 3 条
+
+const canonicalText = (s) =>
+  String(s == null ? "" : s).replace(/‐/g, "-").replace(/\s+/g, " ").trim();
+const sha256 = (s) =>
+  require("crypto").createHash("sha256").update(s, "utf8").digest("hex");
+
+/* 从产物 HTML 里取出一节里的列表项 / 段落文本 */
+const readSectionItems = (html, cls) => {
+  const sec = html.match(
+    new RegExp(`<section class="${cls}"[^>]*>([\\s\\S]*?)</section>`, "i")
+  );
+  if (!sec) return null;
+  return [...sec[1].matchAll(/<li[^>]*>([\s\S]*?)<\/li>/gi)].map((m) =>
+    canonicalText(decodeEntities(m[1].replace(/<[^>]+>/g, "")))
+  );
+};
+const readSectionParagraph = (html, cls) => {
+  const sec = html.match(
+    new RegExp(`<section class="${cls}"[^>]*>([\\s\\S]*?)</section>`, "i")
+  );
+  if (!sec) return null;
+  const p = sec[1].match(/<p[^>]*>([\s\S]*?)<\/p>/i);
+  return p ? canonicalText(decodeEntities(p[1].replace(/<[^>]+>/g, ""))) : null;
+};
+
+let kpCompared = 0;
+let plsCompared = 0;
+for (const pub of pubs) {
+  if (!pub || !pub.slug) continue;
+  const rel = `papers/${pub.slug}/index.html`;
+  const file = path.join(SITE, "papers", pub.slug, "index.html");
+  if (!fs.existsSync(file)) continue; // C1 已经为这个缺页报过红
+  const html = fs.readFileSync(file, "utf8");
+
+  /* ---------- C5 Key Points ---------- */
+  const hasKp = Array.isArray(pub.keyPoints) && pub.keyPoints.length > 0;
+  const renderedKp = readSectionItems(html, "paper-keypoints");
+  if (!hasKp) {
+    if (renderedKp) {
+      note(
+        `${rel}：页面上有 Key Points 区块，但 site.js 里没有 keyPoints —— ` +
+          `这一节渲染的内容没有真源可比（多半是模板写死了）。`
+      );
+    }
+    continue;
+  }
+  if (!Array.isArray(pub.keyPoints)) {
+    note(`${rel}：site.js 的 keyPoints 不是数组 —— 应当是 3 条 bullet 的数组。`);
+    continue;
+  }
+  if (pub.keyPoints.length !== KEY_POINTS_COUNT) {
+    note(
+      `${rel}：Key Points 是 ${pub.keyPoints.length} 条，AGU 的版式是固定 ${KEY_POINTS_COUNT} 条 —— ` +
+        `条数不对就说明不是出版商那一份了。`
+    );
+  }
+  const emptyKp = pub.keyPoints.findIndex((k) => !canonicalText(k));
+  if (emptyKp >= 0) {
+    note(`${rel}：Key Points 第 ${emptyKp + 1} 条是空的。`);
+  }
+  const kpCanonical = pub.keyPoints.map((k) => canonicalText(k)).join("\n");
+  const kpHash = sha256(kpCanonical);
+  kpCompared++;
+  if (kpHash !== ORACLE_KEY_POINTS_SHA256) {
+    note(
+      `${rel}：Key Points 与出版商存缴的那一份对不上（规范化后 sha256 = ${kpHash}，` +
+        `期望 ${ORACLE_KEY_POINTS_SHA256}）—— 出版商原文见 Crossref unixref 的 ` +
+        `abstract-type="short" 段（DOI ${pub.doi}）。`
+    );
+  }
+  if (!renderedKp) {
+    note(
+      `${rel}：site.js 里有 keyPoints，但论文页上没有渲染 Key Points 区块 —— ` +
+        `读者看不到这一节。`
+    );
+  } else {
+    if (renderedKp.length !== pub.keyPoints.length) {
+      note(
+        `${rel}：页面渲染了 ${renderedKp.length} 条 Key Points，site.js 里是 ` +
+          `${pub.keyPoints.length} 条 —— 两处条数不一致。`
+      );
+    }
+    pub.keyPoints.forEach((k, i) => {
+      const want = canonicalText(k);
+      if (renderedKp[i] === undefined) {
+        note(`${rel}：页面上的 Key Points 缺第 ${i + 1} 条。`);
+      } else if (renderedKp[i] !== want) {
+        note(
+          `${rel}：页面上的 Key Points 第 ${i + 1} 条与 site.js 不一致 —— ` +
+            `页面 ${JSON.stringify(renderedKp[i])}，site.js ${JSON.stringify(want)}。`
+        );
+      }
+    });
+  }
+
+  /* ---------- C6 Plain Language Summary ---------- */
+  const hasPls = Boolean(canonicalText(pub.plainLanguageSummary));
+  const renderedPls = readSectionParagraph(html, "paper-plain-language");
+  if (!hasPls) {
+    if (renderedPls !== null) {
+      note(
+        `${rel}：页面上有 Plain Language Summary 区块，但 site.js 里没有 ` +
+          `plainLanguageSummary —— 这一节渲染的内容没有真源可比。`
+      );
+    }
+    continue;
+  }
+  const plsHash = sha256(canonicalText(pub.plainLanguageSummary));
+  plsCompared++;
+  if (plsHash !== ORACLE_PLAIN_LANGUAGE_SHA256) {
+    note(
+      `${rel}：Plain Language Summary 与出版商存缴的那一份对不上（规范化后 ` +
+        `sha256 = ${plsHash}，期望 ${ORACLE_PLAIN_LANGUAGE_SHA256}）—— 出版商原文见 ` +
+        `Crossref unixref 的 abstract-type="executive-summary" 段（DOI ${pub.doi}）。`
+    );
+  }
+  if (renderedPls === null) {
+    note(
+      `${rel}：site.js 里有 plainLanguageSummary，但论文页上没有渲染 ` +
+        `Plain Language Summary 区块 —— 读者看不到这一节。`
+    );
+  } else if (renderedPls !== canonicalText(pub.plainLanguageSummary)) {
+    note(
+      `${rel}：页面上的 Plain Language Summary 与 site.js 不一致 —— ` +
+        `页面 ${JSON.stringify(renderedPls.slice(0, 80))}…，site.js ` +
+        `${JSON.stringify(canonicalText(pub.plainLanguageSummary).slice(0, 80))}…。`
+    );
+  }
+}
+
 /* ---------- C4 门禁自己没被卸掉 + 自证存活 ---------- */
 const GATE_FILE = "check-citation-meta.cjs";
 if (!fs.existsSync(PKG)) {
@@ -552,6 +720,29 @@ if (!compared) {
       "（与「没报错」和「没问题」长得一模一样是同一类病）。"
   );
 }
+/* C5/C6 也要自证存活：site.js 里既然有 keyPoints / plainLanguageSummary，
+   这两条判据就必须真的跑过并比过一次。少一次 → 判据被卸掉了（而不是
+   "没发现问题"）。 */
+{
+  const kpExpected = pubs.filter(
+    (p) => p && Array.isArray(p.keyPoints) && p.keyPoints.length > 0
+  ).length;
+  const plsExpected = pubs.filter(
+    (p) => p && canonicalText(p.plainLanguageSummary)
+  ).length;
+  if (kpExpected > 0 && kpCompared < kpExpected) {
+    note(
+      `C5（Key Points）一条都没比过——site.js 里有 ${kpExpected} 篇论文带 keyPoints，` +
+        `但判据没有对任何一篇做过比对（判据被卸掉了，而不是「没问题」）。`
+    );
+  }
+  if (plsExpected > 0 && plsCompared < plsExpected) {
+    note(
+      `C6（Plain Language Summary）一条都没比过——site.js 里有 ${plsExpected} 篇论文带 ` +
+        `plainLanguageSummary，但判据没有对任何一篇做过比对（判据被卸掉了）。`
+    );
+  }
+}
 
 /* ---------- 汇总 ---------- */
 if (problems.length) {
@@ -563,7 +754,11 @@ if (problems.length) {
 
 console.log(
   `引用元数据门禁通过：${pubs.length} 篇论文的 citation_* 标签集合与取值与 site.js 逐条一致；` +
-    `非论文页零 citation_*；页面 / BibTeX / RIS 三处口径一致；共比对 ${compared} 处。`
+    `非论文页零 citation_*；页面 / BibTeX / RIS 三处口径一致；共比对 ${compared} 处。` +
+    (kpCompared || plsCompared
+      ? `Key Points 与 Plain Language Summary 与出版商存缴原文一致（比对了 ` +
+        `${kpCompared} + ${plsCompared} 处）。`
+      : "")
 );
 if (known.length) {
   console.log(

@@ -11681,3 +11681,136 @@ A 档红因原文（**唯一一条**，逐字核过）：
     只是这次丢的是**未提交**的节（LS4 只管"工作树 ⊇ HEAD"，管不到"未提交的节"）。
   - 找锚点要用**唯一的内容特征**（如 `## 待决策（需要本人拍板，任务不会自己动）` 这个标题），
     **不能**用"第一个出现的 `---`"这类位置假设。
+
+## 2026-10-19 · 18:00–18:20 场次（**不占轮次号**，避免与并发场次撞号）：CITATION.cff 门禁补 CF7（**真解析**）+ CF8（官方 CFF 1.2.0 schema 值核对）——「正则看得见"字段齐备"、看不见"这个文件是不是一份坏文件"」第一次有护栏 + 10 档注入矩阵 + 接手并独立复验三条在途工作流
+
+### A. 背景：这条门禁原本看不见什么
+
+`CITATION.cff` 门禁（并发场次在途产物，本场次接手）原有六条判据 CF1–CF6，**全部建立在逐行正则之上**：
+
+- CF1 存在 + 与 `site.js` 派生版**逐字节**一致；
+- CF2 必需字段齐全（正则数"行首 `key:`"）；
+- CF3 `cff-version` 必须是 1.2.0；
+- CF4 `license` 与 LICENSE 文件实际授予的一致；
+- CF5 `date-released` 合法且不在未来；
+- CF6 顶层**不得**有 `doi`（不冒领别人的 DOI）。
+
+**这六条共同有一个盲区：它们全部在问"文本长得对不对"，没有一个在问"这还是不是一份能被解析的 CFF 文件"。** 正则看不见三件事：
+
+1. **这个文件根本不是合法 YAML** —— 一份缩进坏掉、引号没闭合的文件，正则照样数得出"13 个顶层字段齐备、cff-version 对、license 对"；
+2. **同一个键写了两遍** —— 正则数出来还是"有那个键"，而真正的 YAML 解析器（js-yaml / ruamel.yaml）**直接拒绝**这种文件；
+3. **顶层键的写法不是"行首 `key:`"** —— 例如键被引号包着（`"title": ...`），正则认不出，解析器认得出；于是"字段齐备"这件事在正则眼里和在解析器眼里**对不上**。
+
+而这个门的用途恰恰是"给 GitHub 的 Cite this repository 按钮和 Zotero 读"——**读它的是解析器，不是正则**。正则说"合规"、解析器说"这文件我读不了"，两者不一致时，坏的是后者看到的那个世界。
+
+另外，原来的门禁**不联网、不跑 cffconvert**，也就是说"字段对不对官方规范"这件事**根本没人管**：官方 schema 的 `type` 只允许 `dataset`/`software`、`doi` 必须是裸 DOI 而不是 `https://doi.org/…`、`orcid` 必须是完整 URL、`keywords` 必须非空且不重复、`reference` 必须有 `authors/title/type` —— 这些全都没有判据。
+
+### B. 改动（两个文件 + 两处接线）
+
+**B.1 `scripts/check-citation-cff.cjs` 补两条判据（CF7 / CF8）**
+
+- **CF7 真解析**：用真正的 YAML 解析器（js-yaml）把磁盘上那份文件解出来，然后
+  ① 解不出来就判红（并**单独识别"同一个键写了两遍"**这一形态，给它自己的红因）；
+  ② 解出来的顶层键必须全部在官方 schema 允许的顶层字段里（schema 顶层是 `additionalProperties: false`）；
+  ③ 解出来的顶层键与逐行正则数出来的顶层键必须**完全一致**（两个方向都查，并把"谁认得出、谁认不出"写进红因）。
+- **CF8 规范级值核对**：按**官方 CFF 1.2.0 JSON schema** 逐条核对值 —— 顶层 `required` 四项、顶层 `type` 取值域、顶层与 reference 的 `date` / `doi` / `orcid` 三个官方正则、`keywords` 的 `minItems: 1` + `uniqueItems: true`、`reference` 的 `required` 与 `type` 取值域、以及 `person` / `entity` / `reference` 三层的 `additionalProperties: false`（"层级字段表里没有的键"一律判红）。
+
+**B.2 规范口径怎么来的：抄录官方 schema，不自己编一套**
+
+官方 CFF 1.2.0 JSON schema 从 `https://raw.githubusercontent.com/citation-file-format/citation-file-format/main/schema.json` 取（该文件 `$id` 自证就是 `https://citation-file-format.github.io/1.2.0/schema.json`；**规范站点 `citation-file-format.github.io/1.2.0/` 本身返回 404，不可用**）。抄录的**子集**（不是全文 63762 字节）连同出处、$id 与官方全文 sha256（`17bc7993…791df`）一起写在判据文件里，并在文件头写明"**改 cff-version 必须回官方重抄这组常量，并换掉那行 sha256**"。
+
+抄录的子集规模：顶层字段 21 个 / `reference` 字段 71 个 / `reference.type` 45 项 / `person` 字段 16 个 / `entity` 字段 15 个，外加 `date` / `doi` / `orcid` 三个官方正则。**本门禁不联网**——规范口径是代码里的常量，谁改了没同步官方，`git log` 里有痕迹。
+
+**B.3 两处接线（外加一处必要的连带修）**
+
+- `package.json`：新增 `check:citation-cff-selftest`，并接进 `build` 链（与既有的 `check:live-selftest` / `check:readme-selftest` 同一惯例）。
+- `README.md`：命令清单补一行（**这一行不是装饰**——见 C.3，README 门禁 RD3 立刻抓到了它缺失）。
+- 门禁本体新增 `CFF_PATH` 环境变量开关：把门禁指向另一份文件，供注入矩阵用；默认仍指向仓库里真的那份。⚠️ 这是一个**能被绕过**的开关（设了它门禁就会去查别处），与仓库里 README 门禁的 `README_PATH` 是同一个模式，代价是"自测只能在副本上做"从此变成**只能这样**而不是约定。
+
+### C. 验证结果（全部实测，隔离克隆内）
+
+**C.1 注入矩阵 10 档（`scripts/test-citation-cff.cjs`）——每档都按预期触发**
+
+做法：把 `CITATION.cff` **复制**到临时目录，在副本上逐档注入，用 `CFF_PATH` 指过去，断言门禁**确实**报出了对应红因；**全程不碰仓库里真的那份**（脚本末尾还有一道自证：比回真实文件字节，不一致就报红）。
+
+| 档 | 注入 | 期望 | 实测 |
+|---|---|---|---|
+| M0 | 基线（原样） | **全绿** exit 0 | ✓ exit 0 |
+| M1 | 缩进里塞 Tab（文件不是合法 YAML） | CF7 判红 | ✓ 红因「不是合法的 YAML」 |
+| M2 | 同一个键写了两遍 | CF7 判红 | ✓ 红因「同一个键写了两遍」 |
+| M3 | 顶层多一个官方没有的字段（`auther:`） | CF7 判红 | ✓ 红因「官方 CFF 1.2.0 schema 的顶层字段表里没有」 |
+| M4 | 顶层键被引号包着（`"title":`） | CF7 判红 | ✓ 红因「逐行正则却认不出」 |
+| M5 | 顶层 `type` 写成 `article` | CF8 判红 | ✓ 红因「顶层 type」 |
+| M6 | `doi` 写成 `https://doi.org/…` | CF8 判红 | ✓ 红因「不符合官方 schema 的 doi 格式」 |
+| M7 | `orcid` 少了 `https://orcid.org/` 前缀 | CF8 判红 | ✓ 红因「不符合官方 schema 的 orcid 格式」 |
+| M8 | `preferred-citation` 少了 `title` | CF8 判红 | ✓ 红因「preferred-citation 缺必需字段」 |
+| M9 | `keywords` 是空列表 | CF8 判红 | ✓ 红因「keywords 是空的」 |
+
+**C.2 整链 build（隔离克隆内，`.git` 在、`node_modules` 软链、当前工作树整体快照）**
+
+- `npm run build` → **exit 0**；链上 **24 个 npm script** 全部跑到；输出里 **`✗` 行数 = 0**。
+- `npm run check:css` 单独复跑 → **exit 0**（CSS 括号检查 15 个文件 / 死 CSS 15 张样式表 50 个类全有落点）。
+- `npm run check:citation-cff` → 通过，且通过文案已升级为"并已用真正的 YAML 解析器按官方 CFF 1.2.0 schema 核对过（顶层 13 个字段、keywords 8 条）"。
+
+**C.3 一条意外的旁证：README 门禁当场抓到了我自己的遗漏**
+
+第一次把 `check:citation-cff-selftest` 接进 `package.json` 之后，隔离克隆里的 build 在 `check:readme` 判红：
+
+```
+✗ RD3 package.json 里的脚本「check:citation-cff-selftest」在 README 里没有提到
+```
+
+这比任何自测都硬 —— **另一道门禁在真实产物上抓到了我漏登记的命令**。补上 README 那一行后 build 才转绿。
+
+### D. 接手并独立复验的三条在途工作流（本场次逐条独立取证，不代认领）
+
+本场次开始时，工作树里有三条**并发场次**的在途工作。本场次按仓库既有惯例（`ae1d868`「接手并独立复验四组 peer 在途改动」）**接手 + 独立复验 + 一并落库**：
+
+**D.1 AGU Key Points + Plain Language Summary（并发场次产物）—— 复验结论：成立**
+
+- **oracle 独立复现（本场次自己从出版商存缴原文算，不看判据文件里的值）**：从 Crossref unixref（`https://api.crossref.org/works/10.1029/2026JD046836/transform/application/vnd.crossref.unixref+xml`）取出 `abstract-type="short"`（Key Points，3 条 bullet）与 `abstract-type="executive-summary"`（Plain Language Summary）两段，按判据的归一口径（U+2010 HYPHEN → ASCII `-`、空白折叠、trim）算 sha256：
+  - Key Points：`3ee648a4…97c154` —— **与判据里的 oracle 逐字相同**；
+  - Plain Language Summary：`8fcebee6…07ae5` —— **与判据里的 oracle 逐字相同**。
+  → **oracle 确实是从出版商存缴原文算出来的，不是从 `site.js` 算的**（后者会退化成"改数据的同时改尺子"）。
+- **两处有据可查的偏差（本场次实测，必须写明）**：
+  ① Key Points 第 2 条：存缴原文用 **U+2010 HYPHEN** 写 `TRMM‐observed`，站内一律写 ASCII `TRMM-observed`（站内既有惯例：标题/摘要全 ASCII）；第 1、3 条逐字相同。
+  ② Plain Language Summary：存缴原文**以出版商自己的标签 `Plain Language Summary ` 开头**，站内存的是**去掉这个标签后的正文**（1415 字符，两边归一后逐字相同）—— 页面上那一节有自己的标题，不需要把出版商的标签再打一遍。
+  → 这两条是**有意的归一**，不是漂移；但"与存缴原文一致"这句话严格说是"**归一后一致**"，记在这里以免下一个读日志的人误以为它逐字相同。
+- **判据确实能变红（两档注入，隔离克隆内实测）**：改 Key Points 第 1 条一个字 → 2 条红因（oracle 哈希不匹配 + 页面与 `site.js` 不一致）；删成 2 条 → 3 条红因（条数不对 + 哈希不匹配 + 页面/数据条数不一致）。两档都 exit 1。
+- 产物侧：论文页确实渲染出 `paper-keypoints` / `paper-plain-language` 两个区块（各 1 个），`_paper.css` 里有 8 处对应样式。
+
+**D.2 CITATION.cff + `check-citation-cff.cjs`（并发场次产物）—— 复验结论：成立，本场次在其上补 CF7 / CF8**
+
+- CF1–CF6 本场次未改一字（基线仍全绿）；本场次只**追加** CF7 / CF8。
+- 本场次对"生成 + 逐字节核对"的路线**认同并保留**：手写 CFF 等于建第二份事实副本，改 `site.js` 之后 CFF 会静默过期而无人叫 —— 这条判断本场次实测站得住（CF1 在 M1–M9 每一档都同时判红，说明"改文件不改真源"这条路确实堵得住）。
+- 生成器**仍然零依赖**（只拼字符串）；本场次只在**判据侧**引入 js-yaml。
+
+**D.3 README 同步 + `check-readme.cjs`（并发场次产物）—— 复验结论：成立**
+
+- 自测 6 档全绿（M0 基线 / M1 不存在的路由 / M2 Node 下限 / M3 漏命令 / M4 漏出口 / M5 判据自身失效）。
+- RD1 注入实测：把 README 里的 `/papers/` 全换成 `/papers-removed/` → 2 条红因（"写了一个没有的页面/资源"），exit 1。
+- **最有说服力的一条不是我的注入，是 C.3**：它在我自己漏登记命令时**当场判红**。一道没人动过的门禁，在真实产物上抓到了真实遗漏 —— 这是"判据活着"最硬的证据。
+
+### E. 诚实边界（本轮实测，写明不夸大）
+
+1. **CF7 / CF8 需要 js-yaml，而 js-yaml 目前是 Eleventy 的传递依赖、本仓 `package.json` 未单列**（与**待拍板 21** 的 `gray-matter` 同类、不同包）。本轮**故意判红而不是跳过**：跳过 = 这两条判据永远绿 = 盲区被包装成"已核过"。若将来 js-yaml 被换掉，门禁会 require 失败 → build 直接红，不会静默走偏。**本轮不代拍是否显式写进 `devDependencies`（见 F.1）。**
+2. **`CFF_PATH` 环境变量开关能被绕过**（设了它门禁就去查别处）。与 README 门禁的 `README_PATH` 同一模式；正常构建链上没有任何地方设它。
+3. **CF8 不抄官方 schema 的 `license` 枚举**（~200 项 SPDX，体积不值）—— 改由 CF4 的"LICENSE 文件交叉核对"守住实际协议。**"写了一个 SPDX 合法但本仓没给过的协议"这一形态目前无人看守**（见 F.2）。
+4. **CF5 与 CF8 的 date 检查在当前文件上重叠**：CF5 用宽松格式 + `Date.parse`，CF8 用官方 pattern，两者在 top-level `date-released` 上谁都不比谁强。CF8 的独立价值在**尚未出现的 `references[]`**（CF5 完全不看那里）与"按解析后的值类型核对"。**本轮不夸大 CF8 的 date 检查。**
+5. **CF7 的"正则与解析器对账"只注入了一个方向**（解析器认得、正则认不出）；另一个方向（正则认得、解析器没认）走的是同一段代码，但本轮**没有单独注入**，不声称已分别取证。
+6. **官方 schema 是"抄进代码的常量"**，不是运行时拉取。官方 schema 升级时**不会自动生效**，必须人工重抄（文件头已写明这条 + 官方全文 sha256 锚）。
+7. **本轮不联网核 Crossref 侧**（DOI 是否仍解析、刊名卷期是否仍成立）—— 那需要联网核对，属另一条真源，不在本门禁的能力范围。
+8. **共享工作树有并发场次在途**：本场次期间 HEAD 被并发场次推进（`4de5fdc` → `448fc8b`），`package.json` 曾处于**半 staged** 状态（staged 的 `check:readme` 接线 + 工作树里的 `check:readme-selftest`）。本场次**全部验证在隔离克隆内做**（`git clone` + 软链 `node_modules` + 工作树快照 + 克隆内临时提交），**不在共享工作树里 build**，避免与别人的 build 抢同一个 `_site`。
+9. **本轮没碰**：`scripts/lib/identity.cjs`、身份门禁的期望集、`src/_data/site.js` 的身份区、OG 分享图、并发场次在途的身份派生/日志节门禁改动。
+10. **本节被并发场次误操作抹掉过一次，已原文恢复**：并发场次（18:10–18:20）用它自己的读—改—写脚本把日志条目插错位置后，用 `git checkout -- docs/IMPROVEMENT-LOG.md` 撤销 —— 这个命令把工作树里的日志**整体还原成 HEAD**，连带抹掉了**本节尚未提交的文字**（对方在它自己的日志 G 段如实登记了这次事故，并已通知本场次）。本节从隔离克隆的临时提交 `c69b4bc` **原文恢复**后重写落库（逐字比对：恢复件 15684 字节 = 原件 15684 字节）。**代码工作当时完好**（`CITATION.cff` / `check-citation-cff.cjs` / `test-citation-cff.cjs` 等文件都没被碰）。教训（对方已写进日志，这里再记一次）：**共享文件不能用会覆盖整个文件的 `git checkout --` 撤销**；找锚点要用**唯一的内容特征**，不能用"第一个 `---`"这类位置假设。本场次因此在写完本节后**立即提交**，不再把它留在工作树里。
+11. **本轮不 push**。
+
+### F. 待本人拍板
+
+- **待拍板 26（新增）｜CFF 门禁的 CF7 / CF8 依赖 `js-yaml`（Eleventy 的传递依赖，本仓 `package.json` 未单列）——要不要显式写进 `devDependencies`？**
+  - 事实：与**待拍板 21**（`gray-matter`）**同类、不同包**。不写也能跑（随 Eleventy 装上）；写进去的好处是"依赖是声明出来的"，坏处是要动 `package.json`。本轮按待拍板 21 的先例**不代拍**。
+  - 附注：若决定写，建议**一次把 `gray-matter` 与 `js-yaml` 一起单列**（同一个根因，分两次改就是两次 `package.json` 冲突）。
+- **待拍板 27（新增）｜官方 schema 的 `license` 是一份 ~200 项的 SPDX 枚举，本门禁不抄 —— "写了一个 SPDX 合法但本仓没给过的协议"这个洞要不要补？**
+  - 事实：CF4 只认 `LICENSE_PROOF` 里那一张对照表（目前只有 `Apache-2.0`），其余 SPDX id 一律判红（"不在本门禁认识的 SPDX 清单里"）。所以现状是"**只允许一个**"，不是"允许任意合法 SPDX"。**这其实是 fail-closed，洞比听起来小**；但它把"将来要加第二种协议"这件事挡在了门禁里。
+  - 选项：(a) 保持现状（只允许 Apache-2.0，将来加协议时同步扩表）；(b) 抄官方枚举（~200 项，体积不值）；(c) 抄一份"允许清单"（本站实际会用到的少数几个）。**本场次不代拍。**
+- 其余待拍板（1–25）见前几节，**不重复、不改口**；**部署时机仍待本人决定** —— 18:12 实测线上仍是 2026-10-16 那版：`/` `/blog/` `/about/` `/sitemap.xml` **200**，`/papers/` `/publications.bib` `/feed.xml` **404**（新路由未部署，**不是代码回归**；本地 `_site` 对应产物均已存在且正确）。

@@ -656,6 +656,84 @@ strong[data-annotation-ids] {
   padding: 2px 9px;
 }
 
+/* Key Points：AGU 论文的标准版式——文章开头先给 3 条 bullet。
+   刻意不与 .paper-keywords（关键词 pill 标签）共用样式：那个是"标签"，
+   这个是"要点"，读者要能一眼分出。用强调色而不是中性色，也是因为
+   Key Points 在 AGU 版式里就是全文最该被先看到的那一块。 */
+.paper-keypoints {
+  margin: 0 0 var(--space-5);
+  padding: var(--space-4) var(--space-4) var(--space-4) var(--space-5);
+  border-left: 3px solid var(--color-accent-500);
+  background: var(--color-accent-50);
+  border-radius: 0 var(--radius-md) var(--radius-md) 0;
+}
+.paper-keypoints h2 {
+  font-family: var(--font-sans-en);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--color-accent-700);
+  margin: 0 0 var(--space-2);
+}
+.paper-keypoints ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.paper-keypoints li {
+  position: relative;
+  padding-inline-start: var(--space-4);
+  font-family: var(--font-editorial);
+  font-size: 15.5px;
+  line-height: 1.65;
+  color: var(--text-primary);
+  max-inline-size: var(--measure);
+}
+/* 自绘圆点：默认 list-style 已去掉，用绝对定位的小圆点补上，
+   不依赖浏览器默认标记（各端形状/间距不一致）。 */
+.paper-keypoints li::before {
+  content: "";
+  position: absolute;
+  inset-inline-start: 0;
+  top: 0.62em;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--color-accent-500);
+}
+
+/* Plain Language Summary：出版商那段"给非本领域读者看"的通俗摘要。
+   视觉上与摘要（.paper-abstract，中性色引文块）区分开——它是"讲给人听的
+   那一段"，不是学术摘要本身。 */
+.paper-plain-language {
+  margin: 0 0 var(--space-5);
+  padding: var(--space-4) var(--space-4) var(--space-4) var(--space-5);
+  border-left: 3px solid var(--color-brand-300);
+  background: var(--color-brand-50);
+  border-radius: 0 var(--radius-md) var(--radius-md) 0;
+}
+.paper-plain-language h2 {
+  font-family: var(--font-sans-en);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--color-brand-700);
+  margin: 0 0 var(--space-2);
+}
+.paper-plain-language p {
+  font-family: var(--font-editorial);
+  font-size: 15.5px;
+  line-height: 1.72;
+  color: var(--text-primary);
+  margin: 0;
+  max-inline-size: var(--measure);
+}
+
 /* 数据与代码可用性：定义列表，术语 + 条目两列。 */
 .paper-availability {
   margin: var(--space-6) 0 0;

@@ -164,6 +164,38 @@ layout: layouts/base.njk
     </p>
   </header>
 
+  {# —— Key Points（AGU 的标准版式）——
+     AGU 每篇文章开头先给 3 条 bullet，作者自己写的"读这篇只需知道这三点"。
+     学术主页此前只有摘要（几百字），读者得先读完一整段才知道这篇讲什么；
+     Key Points 恰好补上这个落差。
+
+     逐字取自出版商存缴记录（Crossref unixref 的 abstract-type="short" 段），
+     **不是本站改写版**（与下面 abstract 同一规矩：出版商说什么就是什么）。
+     排在摘要**之前**，与 AGU 论文正文里的版式一致：
+         Key Points → Plain Language Summary → Abstract
+     条数固定 3 条是 AGU 的版式约定；check-citation-meta 的 C5 守这一条。 #}
+  {%- if pub.keyPoints and pub.keyPoints.length %}
+  <section class="paper-keypoints" aria-labelledby="paper-keypoints-title">
+    <h2 id="paper-keypoints-title">Key Points</h2>
+    <ul>
+      {%- for kp in pub.keyPoints %}<li>{{ kp }}</li>{% endfor -%}
+    </ul>
+  </section>
+  {%- endif %}
+
+  {# —— Plain Language Summary（出版商存缴原文）——
+     同一份存缴记录里的 abstract-type="executive-summary" 段：给非本领域
+     读者看的通俗摘要，经同行评审定稿。
+     ⚠️ 与正文里 "What this paper does" 不是同一段东西：那段是作者为本页
+        写的更长展开（可含本站独有的讲法），这一段是出版商那一份。
+        两者并存，但页面上要让读者分得清谁是谁——所以标题写明"出版商原文"。 #}
+  {%- if pub.plainLanguageSummary %}
+  <section class="paper-plain-language" aria-labelledby="paper-plain-language-title">
+    <h2 id="paper-plain-language-title">Plain Language Summary</h2>
+    <p>{{ pub.plainLanguageSummary }}</p>
+  </section>
+  {%- endif %}
+
   {# —— 摘要 ——
      此前站点上根本没有摘要：一个学术主页只列标题和刊名，读者无从判断
      这篇工作做了什么、跟自己有没有关系。摘要取自 Crossref 登记的
