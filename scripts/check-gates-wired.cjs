@@ -15,7 +15,7 @@
  *   门禁汇总句照抄通过时的断言），它们都属于同一族：
  *   **"看起来在、其实不生效"**。
  *
- * 三条判据：
+ * 四条判据：
  *   GW1 全覆盖 —— scripts/ 下每个门禁脚本（check-*.cjs / verify-*.cjs）都必须
  *                  从 `npm run build` **可达**。可达 = build 直接 `npm run X`，
  *                  或 build → X → Y 这样间接引用（build → check:css → 两个脚本）。
@@ -23,6 +23,32 @@
  *                  豁免名单不许留空理由、不许留已不存在的文件，
  *                  也不许"既登记豁免、又真接在 build 上"（状态自相矛盾）。
  *   GW3 自己没被卸掉 —— 本脚本必须真的在 build 链上。
+ *   GW4 自测脚本也要有人跑 —— scripts/ 下每个**自测脚本**
+ *                  （test-*.cjs / test-*.sh）同样必须从 build 可达；
+ *                  接不了的必须在本文件里显式登记（EXEMPT_SELFTEST）并写明理由。
+ *
+ * ⚠️ GW4 为什么要加（2026-10-20 实测出来的洞，不是假想）：
+ *   GW1 的文件名形状是 `^(check|verify)-.*\.cjs$` —— **自测脚本不在它的视野里**。
+ *   而自测脚本恰恰是"判据还活着"的证据来源：仓库里已有
+ *   test-gates-selfcheck.cjs / test-dataset-files-gate.cjs / test-log-sections.sh
+ *   三个自测脚本，**三个都没有被任何 npm script 引用**（只在文件头注释里写着
+ *   "怎么跑"）→ **没人跑 = 没人知道判据被卸了**（这句话本来就写在
+ *   test-gates-selfcheck.cjs 的文件头里，却没有任何机制守它）。
+ *   同族形态本轮刚发生过：`scripts/check-copy-export.cjs` 写完从未被引用，
+ *   却 exit 0、输出漂亮、"看起来完全在工作"。
+ *   ⇒ GW4 把这一族纳入管辖：**要么接在 build 上，要么显式登记并写明理由**。
+ *
+ * ⚠️ GW4 的诚实边界（不写清楚就成了过度声称）：
+ *   GW4 只保证"自测脚本不会变成没人知道的孤儿"，
+ *   **不保证 CI 会跑它们** —— 登记在 EXEMPT_SELFTEST 里的那些，
+ *   仍然只在有人手动跑的时候才跑。
+ *   "自测脚本要不要接进 build 链"是**本人拍板**的事
+ *   （日志里按**事项文字**登记：「自测脚本要不要进 build 链」/
+ *   「是否把门禁自检接进 `npm run build`」—— 同一件事的两处登记；
+ *   ⚠️ 该事项在日志里有**两个号**，而其中一个号在别处还指另外三件事 ——
+ *   **按号找会找错**，所以这里按**文字**指认，不写号），
+ *   本门禁**不代拍**：它只把"这些自测现在没人自动跑"这件事写进源码，
+ *   不替本人决定接不接。
  *
  * 与既有门禁的编号关系：本门禁用独立字母编号 GW*，
  * 不与 scripts/verify-site.cjs 的数字编号体系、
@@ -68,6 +94,44 @@ const EXEMPT = {
     "把「部署还没发生」误报成「代码坏了」。" +
     "它的正确位置是**部署之后**：.github/workflows/deploy.yml 的 verify-live job" +
     "（needs: deploy）是唯一的自动调用点；本地手动跑 npm run check:live。",
+};
+
+/* ---------- 自测脚本家族（GW4） ----------
+   test-*.cjs / test-*.sh 不是门禁，但它们是"判据还活着"的证据来源。
+   GW1 的文件名形状不覆盖它们 —— 本轮（2026-10-20）实测：仓库里三个自测脚本
+   没有任何 npm script 引用它们，谁也不会跑。 */
+
+const SELFTEST_FILE_RE = /^test-.*\.(cjs|sh)$/;
+
+/* 自测脚本的显式登记：接不进 build 链的那些，必须在这里登记并写明理由。
+   理由写在源码里（不是日志里）—— 日志不会被 CI 读到。
+
+   ⚠️ 登记 = "承认它现在没人自动跑"，**不等于**"它该接进 build 链"。
+   接不接是本人拍板（日志里按**事项文字**登记：「自测脚本要不要进 build 链」/
+   「是否把门禁自检接进 `npm run build`」—— 同一件事的两处登记），
+   本门禁只登记事实、不代拍。
+
+   2026-10-20（GW4 落地时）逐条登记：
+     · test-gates-selfcheck.cjs —— 门禁自测总矩阵：每次跑都要 clone 整个仓库
+       并逐档重建产物，耗时远长于一次 build。
+     · test-dataset-files-gate.cjs —— 数据集文件门禁的自测，手动跑。
+     · test-log-sections.sh —— 日志节门禁的自测（shell 版），手动跑。
+     · test-gates-wired-selftest.cjs —— 本门禁自己的自测（GW4 的注入矩阵），
+       在临时沙箱里反复起门禁，手动跑。 */
+const EXEMPT_SELFTEST = {
+  "test-gates-selfcheck.cjs":
+    "门禁自测总矩阵：每次跑都要 clone 整个仓库并逐档重建产物，" +
+    "耗时远长于一次 build；接进 build 会让每次提交都得等它跑完。" +
+    "自测要不要进 build 链属本人拍板（日志里按**事项文字**登记：自测脚本要不要进 build 链）。",
+  "test-dataset-files-gate.cjs":
+    "数据集文件门禁的自测，手动跑（用法写在脚本文件头）。" +
+    "同属「自测要不要进 build 链」那一族待决事项。",
+  "test-log-sections.sh":
+    "日志节门禁的自测（shell 版），手动跑（用法写在脚本文件头）。" +
+    "同属「自测要不要进 build 链」那一族待决事项。",
+  "test-gates-wired-selftest.cjs":
+    "本门禁自己的自测：在临时沙箱里反复起门禁跑注入矩阵，手动跑。" +
+    "同属「自测要不要进 build 链」那一族待决事项。",
 };
 
 /* ---------- 读 package.json ---------- */
@@ -179,6 +243,67 @@ if (!referencingScripts(SELF).some((n) => REACHABLE.has(n))) {
   );
 }
 
+/* ---------- GW4：自测脚本也要有人跑 ----------
+   自测脚本（test-*.cjs / test-*.sh）不是门禁，但它们是"判据还活着"的证据。
+   GW1 的文件名形状不覆盖它们 → 本条单独兜住这一族。
+
+   口径：**要么接在 build 上，要么在本文件里显式登记并写明理由**。
+   刻意**不**要求"必须接在 build 上"——那属本人拍板
+   （日志里按**事项文字**登记：「自测脚本要不要进 build 链」），本门禁不代拍。
+   刻意**不**把"登记了但仍然没人跑"说成"已覆盖"——见文件头的诚实边界。 */
+const selfTestFiles = fs
+  .readdirSync(SCRIPTS_DIR, { withFileTypes: true })
+  .filter((e) => e.isFile() && SELFTEST_FILE_RE.test(e.name))
+  .map((e) => e.name)
+  .sort();
+
+const selfTestWired = [];
+const selfTestRegistered = [];
+for (const file of selfTestFiles) {
+  const live = referencingScripts(file).filter((n) => REACHABLE.has(n));
+  if (live.length) {
+    selfTestWired.push(`${file}（${live.join(" / ")}）`);
+    continue;
+  }
+  if (EXEMPT_SELFTEST[file] !== undefined) {
+    selfTestRegistered.push(file);
+    continue;
+  }
+  problems.push(
+    `scripts/${file} 是一个**自测脚本**，但它既不在 build 链上、也没在 ` +
+      `EXEMPT_SELFTEST 里登记 —— 没有任何自动流程会执行它，` +
+      `源码里也没写清"它现在靠谁跑"（"没人跑 = 没人知道判据被卸了"）。` +
+      `请在 package.json 里加一个 script 指向它并接进 build 链，` +
+      `或在 EXEMPT_SELFTEST 里登记并写明理由。`
+  );
+}
+
+/* 登记必须有效、且不自相矛盾（与 GW2 同一套纪律） */
+for (const [file, reason] of Object.entries(EXEMPT_SELFTEST)) {
+  if (!selfTestFiles.includes(file)) {
+    problems.push(
+      `EXEMPT_SELFTEST 里登记的 scripts/${file} 在 scripts/ 下已经不存在了 —— ` +
+        `删掉这条登记，别让名单烂在里面。`
+    );
+    continue;
+  }
+  if (typeof reason !== "string" || !reason.trim()) {
+    problems.push(
+      `EXEMPT_SELFTEST 里登记的 scripts/${file} 没有写理由 —— ` +
+        `登记必须写明为什么它接不进 build 链。`
+    );
+    continue;
+  }
+  const live = referencingScripts(file).filter((n) => REACHABLE.has(n));
+  if (live.length) {
+    problems.push(
+      `scripts/${file} 既是 EXEMPT_SELFTEST 的登记项、又被接在 build 链上` +
+        `（${live.join(" / ")}）—— 状态自相矛盾。既然它已经接上了，` +
+        `就把这条登记删掉。`
+    );
+  }
+}
+
 /* ---------- 汇总 ---------- */
 if (problems.length) {
   console.error("门禁接线门禁未通过：\n");
@@ -190,7 +315,19 @@ if (problems.length) {
 const exemptList = Object.keys(EXEMPT).length
   ? `；豁免 ${Object.keys(EXEMPT).join(" / ")}`
   : "";
+const selfTestSummary =
+  `${selfTestFiles.length} 个自测脚本（test-*.cjs / test-*.sh）：` +
+  `${selfTestWired.length} 个接在 build 链上` +
+  (selfTestWired.length ? `（${selfTestWired.join("、")}）` : "") +
+  `，${selfTestRegistered.length} 个登记在 EXEMPT_SELFTEST 里` +
+  (selfTestRegistered.length ? `（${selfTestRegistered.join("、")}）` : "") +
+  `。登记的那些**仍然不会被 CI 自动跑**（自测要不要进 build 链属本人拍板，` +
+  `日志里按**事项文字**登记：「自测脚本要不要进 build 链」——` +
+  `⚠️ 该事项在日志里有**两个号**，而其中一个号在别处还指另外三件事，` +
+  `**按号找会找错**，请按文字认领）——本门禁只保证它们不会变成` +
+  `没人知道的孤儿，不代拍。`;
 console.log(
-  `门禁接线门禁通过：${wired.length + 1} 个门禁脚本全部从 npm run build 可达` +
-    `（含本门禁自己）${exemptList}。`
+  `门禁接线门禁通过：check-*/verify-* 家族的 ${wired.length + 1} 个门禁脚本` +
+    `全部从 npm run build 可达（含本门禁自己）${exemptList}。` +
+    `自测脚本：${selfTestSummary}`
 );
