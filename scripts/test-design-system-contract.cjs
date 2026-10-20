@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * 设计系统文档契约门禁的**自测**（注入矩阵）—— 证明 DC1–DC6 每一条都**能变红**。
+ * 设计系统文档契约门禁的**自测**（注入矩阵）—— 证明 DC1–DC7 每一条都**能变红**。
  *
  * 为什么要有这个自测：
  *   一条**永远不会红**的判据，给出的是"看起来很确定的绿"——它比没有判据更坏，
@@ -14,7 +14,7 @@
  *   把门禁指向副本，断言门禁**确实**报出了对应的那条红因。
  *   ⚠️ 全程**不动仓库里的任何文件** —— 注入必须在副本上做。
  *
- * 七档：
+ * 八档：
  *   DT0 基线（原样）                        → 必须**全绿**（证明这套判据不是空跑）
  *   DT1 §6.0 徽标行删掉 `.badge--quiet`     → DC1（类名族漏项）
  *   DT2 文档里塞一个 CSS 里没有的 `--token`  → DC2（虚构 CSS 变量）
@@ -22,6 +22,13 @@
  *   DT4 dev 行改成也算「npm run build」     → DC4（双模口径与代码说反）
  *   DT5 §6.4 字号改成 `--fs-small`          → DC5（规格点了没被用的 token）
  *   DT6 裁剪副本里的 _badge.css              → DC6（覆盖度自证：扫描面被收窄）
+ *   DT7 tokens.css 多一个 §10 没列的变量     → DC7（§10 与 tokens.css 集合不等）
+ *
+ * ⚠️ 每档都断言**只触发它自己那一条判据**（判据编号只从红因行的开头取，
+ *   免得正文里提到别的编号被算进来）。一档同时炸出两条 ⇒ 两条判据的覆盖面
+ *   缠在一起了，各自都测不准 —— 这比"测不到"更隐蔽。
+ *   注入点也据此挑：DT2 的注入点放在 §11（验收清单），**不放在 §10 里** ——
+ *   §10 是 DC7 的比对面，塞进去会同时触发 DC2 与 DC7，就分不清是谁在报警了。
  *
  * 用法：node scripts/test-design-system-contract.cjs
  */
@@ -125,7 +132,18 @@ function replaceOnce(text, from, to) {
 
 let failed = 0;
 
-function expectRed(label, mutate, expect) {
+/**
+ * 从门禁输出里取出**每条红因开头的判据编号**。
+ * 只认红因行的开头（"  ✗ DC3 …"），正文里提到别的编号不算 ——
+ * 否则「这条判据的说明里引用了另一条」会被误判成「两条都炸了」。
+ */
+function firedCriteria(out) {
+  const set = new Set();
+  for (const m of out.matchAll(/^\s*✗\s+(DC\d+)/gm)) set.add(m[1]);
+  return [...set].sort();
+}
+
+function expectRed(label, mutate, expect, expectOnly) {
   let r;
   try {
     r = run(mutate);
@@ -146,7 +164,19 @@ function expectRed(label, mutate, expect) {
     failed += 1;
     return;
   }
-  console.log(`  ✓ ${label} → 判红 exit 1，红因命中「${expect}」`);
+  if (expectOnly) {
+    const fired = firedCriteria(r.out);
+    if (fired.join(",") !== expectOnly.join(",")) {
+      console.log(
+        `  ✗ ${label} → 触发的判据集合是 {${fired.join(", ") || "空"}}，期望 {${expectOnly.join(", ")}}`
+      );
+      console.log(r.out.split("\n").filter((l) => l.includes("✗")).join("\n"));
+      failed += 1;
+      return;
+    }
+  }
+  const only = expectOnly ? `，且只触发 {${expectOnly.join(", ")}}` : "";
+  console.log(`  ✓ ${label} → 判红 exit 1，红因命中「${expect}」${only}`);
 }
 
 function expectGreen(label, mutate) {
@@ -185,10 +215,13 @@ expectRed(
       )
     );
   },
-  "DC1"
+  "DC1",
+  ["DC1"]
 );
 
 // DT2：文档里塞一个 CSS 里没有定义的 token ⇒ DC2
+// ⚠️ 注入点选在 §11（验收清单），**不放在 §10** —— §10 是 DC7 的比对面，
+//    塞进去会同时触发 DC2 与 DC7，就分不清是哪条判据在报警了。
 expectRed(
   "DT2 文档里塞一个未定义的 `--token`",
   ({ docPath, read, write }) => {
@@ -196,12 +229,13 @@ expectRed(
       docPath,
       replaceOnce(
         read(docPath),
-        "--color-brand-900: #091b44;",
-        "--color-brand-900: #091b44;  --color-nonexistent-xyz: #123456;"
+        "- [ ] 不使用 emoji 作图标",
+        "- [ ] 不使用 emoji 作图标；强调色一律走 `--color-nonexistent-xyz`"
       )
     );
   },
-  "DC2"
+  "DC2",
+  ["DC2"]
 );
 
 // DT3：order 数组多一个 partial ⇒ DC3
@@ -217,7 +251,8 @@ expectRed(
       )
     );
   },
-  "DC3"
+  "DC3",
+  ["DC3"]
 );
 
 // DT4：dev 行把裸跑构建也算进去 ⇒ DC4
@@ -233,7 +268,8 @@ expectRed(
       )
     );
   },
-  "DC4"
+  "DC4",
+  ["DC4"]
 );
 
 // DT5：§6.4 的字号改成 _badge.css 没引用的 token ⇒ DC5
@@ -242,7 +278,8 @@ expectRed(
   ({ docPath, read, write }) => {
     write(docPath, replaceOnce(read(docPath), "- 字号 `--fs-caption`", "- 字号 `--fs-small`"));
   },
-  "DC5"
+  "DC5",
+  ["DC5"]
 );
 
 // DT6：把副本里的 _badge.css 裁剪到只剩 2 个类 ⇒ DC6（覆盖度自证）
@@ -255,7 +292,26 @@ expectRed(
     if (cut < 0) throw new Error("注入锚点不存在：找不到 `.badge--accent` 规则行");
     write(p, lines.slice(0, cut).join("\n") + "\n/* ---- 自测裁剪：模拟扫描面被收窄 ---- */\n");
   },
-  "DC6"
+  "DC6",
+  ["DC6"]
+);
+
+// DT7：副本的 tokens.css 里多一个 §10 没列的变量 ⇒ DC7
+expectRed(
+  "DT7 tokens.css 多一个 §10 没列的变量",
+  ({ cssDir, read, write }) => {
+    const p = path.join(cssDir, "tokens.css");
+    write(
+      p,
+      replaceOnce(
+        read(p),
+        "  --color-info:    var(--color-brand-400);",
+        "  --color-info:    var(--color-brand-400);\n  --color-injected-selftest: #123456;"
+      )
+    );
+  },
+  "DC7",
+  ["DC7"]
 );
 
 /* ---------- 汇总 ---------- */
@@ -263,4 +319,4 @@ if (failed) {
   console.error(`\n设计系统契约自测：${failed} 档未通过。`);
   process.exit(1);
 }
-console.log("\n设计系统契约自测：7 档全部符合预期（DC1–DC6 都能变红，基线是绿的）。");
+console.log("\n设计系统契约自测：8 档全部符合预期（DC1–DC7 都能变红，每档只触发自己那一条；基线是绿的）。");

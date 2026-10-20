@@ -617,7 +617,9 @@ body { text-autospace: normal; }
 
   /* —— Text & Background —— */
   --text-primary:   #0f0d0a; --text-secondary: #575049;
-  --text-muted:     #6b665d; --text-on-brand:  #ffffff;
+  --text-muted:     #6b665d;
+  --text-accent:    var(--color-accent-600);  /* 强调色作文字用（浅色 accent-600 5.21:1；暗色主题覆写为 accent-500） */
+  --text-on-brand:  #ffffff;
   --link-color:     #1f5ec8; --link-hover:     #143e93;
   --bg-page:        #faf8f5; --bg-surface:     #ffffff;
   --bg-elevated:    #ffffff;   /* = bg-surface，保留给将来弹层用 */
@@ -655,6 +657,7 @@ body { text-autospace: normal; }
   --font-body:     var(--font-sans-cn), var(--font-sans-en);
   --font-editorial:var(--font-serif-cn), var(--font-serif-en);
   --font-code:     var(--font-mono);
+  --font-serif:    var(--font-editorial);  /* 历史写法：列表页 / 论文卡 / 精读页的标题用它 */
 
   --fs-display: 3.815rem; --fs-h1: 2.488rem; --fs-h2: 2.074rem;
   --fs-h3: 1.728rem;      --fs-h4: 1.440rem; --fs-h5: 1.200rem;

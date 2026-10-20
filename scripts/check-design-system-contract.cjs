@@ -29,12 +29,19 @@
  *      prod 行必须明确包含「裸跑 `npm run build`」。
  *   DC5 徽章规格的 token 要真被用 —— §6.4 点名的每个 `--token` 必须在 `_badge.css` 里
  *      被 `var()` 真正引用（否则规格写的是另一个组件的量）。
- *   DC6 覆盖度自证 —— 扫到的徽标类数 / CSS 变量数 / partial 数都要有下限，
+ *   DC6 覆盖度自证 —— 扫到的徽标类数 / CSS 变量数 / partial 数 / 主题 token 数都要有下限，
  *      防「改空了就通过」。
+ *   DC7 §10 == tokens.css —— §10 标题写的是「CSS **完整**自定义属性（可直接复制到 global.css）」，
+ *      那它就必须与 `src/assets/css/tokens.css` 里定义的变量集合**完全相等**：
+ *      tokens.css 定义了而 §10 没列 ⇒ 规格漏了它（照抄的人拿不到这个量）；
+ *      §10 列了而 tokens.css 没定义 ⇒ 抄进 global.css 就是一个死变量。
+ *      ⚠️ **只对 tokens.css 判**：另有约 30 个 CSS 变量（--bg-card / --border / --kind-* /
+ *      --ghost / --chart-stroke 等）定义在 a11y.css / pages.css / _paper.css / _button.css，
+ *      属于**组件局部变量**，不在主题调色板内 —— 把它们算进来会误伤。
  *
  * 环境变量（供 scripts/test-design-system-contract.cjs 的注入矩阵用）：
  *   DCC_DOC            —— 覆盖设计系统文档路径。
- *   DCC_CSS_DIR        —— 覆盖 CSS 根目录（递归扫描自定义属性定义）。
+ *   DCC_CSS_DIR        —— 覆盖 CSS 根目录（递归扫描自定义属性定义；DC7 的 tokens.css 也在其下）。
  *   DCC_COMPONENTS_DIR —— 覆盖 components partial 目录（默认 <DCC_CSS_DIR>/components）。
  *   DCC_CONFIG         —— 覆盖 eleventy.config.js 路径。
  *   注入必须在副本上做，不动仓库里的文件。
@@ -60,6 +67,8 @@ const CONFIG = process.env.DCC_CONFIG
 const MIN_BADGE_CLASSES = 6;
 const MIN_CSS_VARS = 50;
 const MIN_PARTIALS = 7;
+/** DC7 的覆盖度下限（§10 与 tokens.css 的主题 token 规模）。 */
+const MIN_THEME_VARS = 100;
 
 /**
  * 命令行开关白名单 —— 这些 `--xxx` 长得像 CSS 变量，但它们是命令参数，
@@ -136,6 +145,19 @@ const s60 = section(docText, "6.0");
 const s64 = section(docText, "6.4");
 const badgePath = path.join(COMPONENTS_DIR, "_badge.css");
 const badgeCss = fs.existsSync(badgePath) ? fs.readFileSync(badgePath, "utf8") : "";
+
+/* ---------------- DC7 的输入：§10 与主题 token 真源 ---------------- */
+
+/** 从 CSS 文本里取出「被定义」的自定义属性名（只认 `--name:` 形式，不认 var() 里的引用）。 */
+function definedVars(css) {
+  return new Set([...css.matchAll(/(--[A-Za-z][A-Za-z0-9_-]*)\s*:/g)].map((m) => m[1]));
+}
+
+const s10 = section(docText, "十、CSS 完整自定义属性");
+const TOKENS_CSS = path.join(CSS_DIR, "tokens.css");
+const tokensCss = fs.existsSync(TOKENS_CSS) ? fs.readFileSync(TOKENS_CSS, "utf8") : "";
+const themeDocVars = s10 ? definedVars(s10) : new Set();
+const themeTokenVars = definedVars(tokensCss);
 
 /* ---------------- DC1：徽标类名族齐全 ---------------- */
 
@@ -304,6 +326,43 @@ if (actualPartials.length < MIN_PARTIALS) {
       `目录被指错了，DC3 已经失去覆盖面。`
   );
 }
+if (themeDocVars.size < MIN_THEME_VARS) {
+  fail(
+    `DC6 §10 只认出 ${themeDocVars.size} 个自定义属性（要求至少 ${MIN_THEME_VARS} 个）—— ` +
+      `§10 被裁剪了，DC7 已经失去覆盖面。`
+  );
+}
+if (themeTokenVars.size < MIN_THEME_VARS) {
+  fail(
+    `DC6 tokens.css 只认出 ${themeTokenVars.size} 个自定义属性（要求至少 ${MIN_THEME_VARS} 个）—— ` +
+      `扫描面被收窄了，DC7 已经失去覆盖面。`
+  );
+}
+
+/* ---------------- DC7：§10 == tokens.css 的变量集合 ---------------- */
+
+if (!s10) {
+  fail(
+    "DC7 设计系统文档里找不到 §10「CSS 完整自定义属性」小节 —— " +
+      "这道门禁要盯的就是那节变量清单。"
+  );
+} else if (!fs.existsSync(TOKENS_CSS)) {
+  fail(`DC7 找不到 ${TOKENS_CSS} —— 读不到主题 token 的真源就没法核对 §10。`);
+} else {
+  for (const v of [...themeTokenVars].filter((x) => !themeDocVars.has(x)).sort()) {
+    fail(
+      `DC7 §10 里没有 \`${v}\`，但 src/assets/css/tokens.css 里真实定义了它 —— ` +
+        `§10 标题写的是「CSS **完整**自定义属性（可直接复制到 global.css）」，` +
+        `缺一项就等于这份规格不是完整的，照抄的人会拿不到这个量。`
+    );
+  }
+  for (const v of [...themeDocVars].filter((x) => !themeTokenVars.has(x)).sort()) {
+    fail(
+      `DC7 §10 里列了 \`${v}\`，但 src/assets/css/tokens.css 里没有定义它 —— ` +
+        `照抄 §10 到 global.css 会得到一个永远取不到值的死变量。`
+    );
+  }
+}
 
 /* ---------------- 汇总 ---------------- */
 if (problems.length) {
@@ -311,7 +370,8 @@ if (problems.length) {
   problems.forEach((p) => console.error(`  ✗ ${p}`));
   console.error("");
   console.error(
-    `  判据出处：docs/DEFECT-BACKLOG.md D19（设计系统文档 §6 的类名族 / token / 构建模式与代码脱节）。`
+    `  判据出处：docs/DEFECT-BACKLOG.md D19 / D20（设计系统文档 §6 的类名族 / token / 构建模式、` +
+    `§10 的 token 集合与 tokens.css 对不上）。`
   );
   console.error("");
   process.exit(1);
@@ -322,3 +382,6 @@ console.log(
     `文档的 ${docTokens(docText).size} 个 token 全部在 CSS 里真实定义。`
 );
 console.log(`  · ${actualPartials.length} 个 partial 的清单三处一致；dev/prod 判定与 eleventy.config.js 一致。`);
+console.log(
+  `  · §10 与 tokens.css 的主题 token 集合相等（各 ${themeDocVars.size} 个）。`
+);
