@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * 引用元数据门禁的**自测**（注入矩阵）——证明 C1 / C2 / C3 / C7 每一条都**能变红**。
+ * 引用元etadata门禁的**自测**（注入矩阵）——证明 C1 / C2 / C3 / C7 / C8 每一条都**能变红**。
  *
  * 为什么要有这个自测：
  *   门禁文件头自己写着："删掉模板里那行 citation_issn，build 照样全绿，页面照出，
@@ -9,14 +9,14 @@
  *   全仓 20+ 道门禁里，注入矩阵此前只覆盖了三道（CITATION.cff / 线上核查 /
  *   README），**引用元数据这一道一直没有**。
  *
- * 做法：把产物 `_site` 复制一份到临时目录（只复制 .html / .bib / .ris 三类——
- *   门禁只读这三类），在**副本**上逐个注入缺陷，用 SITE_DIR 环境变量把门禁
+ * 做法：把产物 `_site` 复制一份到临时目录（只复制 .html / .bib / .ris / .xml
+ *   四类——门禁只读这几类），在**副本**上逐个注入缺陷，用 SITE_DIR 环境变量把门禁
  *   指向副本，然后断言门禁**确实**报出了对应的那条红因。
  *   ⚠️ 全程不动仓库里的源码，也不动真正的 `_site`。
  *   （SITE_DIR 这个开关是门禁本来就有的：README / CITATION.cff 两道自测
  *     用的是同一个模式——门禁必须能被指向一个副本，否则自测就只能去改真文件。）
  *
- * 十档：
+ * 十六档：
  *   M0 基线（原样）                        → 必须**全绿**（证明这套判据不是空跑）
  *   M1 删掉 citation_online_date            → C1（少了标签）
  *   M2 改掉 citation_online_date 的值       → C1（取值与真源不一致）
@@ -27,6 +27,17 @@
  *   M7 首页注入一个 citation_title          → C2（非论文页出现 citation_*）
  *   M8 删掉 publications.bib                → C3（引用导出缺失）
  *   M9 改掉 publications.bib 里的 DOI       → C3（导出里这篇论文不见了）
+ *   M10 订阅源少一个分类标签                → C8（订阅源少一个主题词）
+ *   M11 订阅源改掉一个分类标签的值          → C8（主题词走样）
+ *   M12 订阅源整条删掉这篇论文              → C8（条目不见了）
+ *   M13 publications.bib 删掉 keywords      → C3（BibTeX 侧缺关键词字段）
+ *   M14 publications.bib 改掉 keywords      → C3（BibTeX 侧关键词走样）
+ *   M15 论文页改掉 citation_keywords 一词   → C1（页面这一面本来就由 C1 守着，
+ *                                           本档是回归护栏，不冒认新判据的功劳）
+ *
+ *   M10–M15 是 2026-10-20 随缺陷清单 D14 一同补上的六档：补之前，
+ *   "订阅源少给两个主题词"与"BibTeX 压根没有关键词字段"这两件事
+ *   **门禁是绿的**（关键词只在页面与 RIS 之间互比，订阅源根本没被看过）。
  *
  * 用法：node scripts/test-citation-meta.cjs
  */
@@ -65,8 +76,11 @@ if (!pubs.length) {
   process.exit(1);
 }
 
-/* ---------- 复制产物：只复制门禁会读的三类文件 ---------- */
-const COPY_EXT = new Set([".html", ".bib", ".ris"]);
+/* ---------- 复制产物：只复制门禁会读的几类文件 ----------
+   ⚠️ 2026-10-20（D14）新增 .xml：门禁的 C8 要读 feed.xml 的分类标签，
+   复制范围里没有它的话，注入矩阵的**基线档就会红**（红因是"订阅源缺失"，
+   不是注入造成的）—— 那是坏跑，不是坏判据。 */
+const COPY_EXT = new Set([".html", ".bib", ".ris", ".xml"]);
 
 function listProductFiles(dir, base = dir, out = []) {
   let entries = [];
@@ -103,6 +117,7 @@ for (const rel of [
   "index.html",
   "publications.bib",
   "publications.ris",
+  "feed.xml",
   ...pubs.map((p) => `papers/${p.slug}/index.html`),
 ]) {
   const p = path.join(SOURCE_SITE, rel);
@@ -117,7 +132,7 @@ function assertCopyComplete(rels) {
     const rel = `papers/${p.slug}/index.html`;
     if (!rels.includes(rel)) missing.push(rel);
   }
-  for (const rel of ["index.html", "publications.bib", "publications.ris"]) {
+  for (const rel of ["index.html", "publications.bib", "publications.ris", "feed.xml"]) {
     if (!rels.includes(rel)) missing.push(rel);
   }
   return missing;
@@ -253,6 +268,74 @@ const CASES = [
     mutate: (t) =>
       replaceOnce(t, "10.1029/2026JD046836", "10.1029/2026JD999999"),
   },
+  /* ---- D14：关键词在四个出口上的口径（D14 = feed 静默截断 + BibTeX 缺字段） ---- */
+  {
+    id: "M10",
+    desc: "订阅源里少一个分类标签（此前 .slice(0, 5) 那种静默截断的翻版）",
+    expect: "red",
+    sub: "的分类标签与真源不一致",
+    file: "feed.xml",
+    mutate: (t) => dropLineContaining(t, "<category>tropical Africa</category>"),
+  },
+  {
+    id: "M11",
+    desc: "订阅源里改掉一个分类标签的值",
+    expect: "red",
+    sub: "的分类标签与真源不一致",
+    file: "feed.xml",
+    mutate: (t) =>
+      replaceOnce(
+        t,
+        "<category>machine learning</category>",
+        "<category>deep learning</category>"
+      ),
+  },
+  {
+    id: "M12",
+    desc: "订阅源里整条删掉这篇论文（条目不见了）",
+    expect: "red",
+    sub: "订阅源里这篇论文不见了",
+    file: "feed.xml",
+    mutate: (t) => {
+      const out = t.replace(/\n\s*<item>[\s\S]*?<\/item>/, "\n");
+      if (out === t) throw new Error("注入没有改变内容：找不到 <item> 块");
+      return out;
+    },
+  },
+  {
+    id: "M13",
+    desc: "publications.bib 里删掉 keywords 字段（BibTeX 侧此前压根没有这个字段）",
+    expect: "red",
+    sub: "BibTeX keywords",
+    file: "publications.bib",
+    mutate: (t) => dropLineContaining(t, "keywords = {"),
+  },
+  {
+    id: "M14",
+    desc: "publications.bib 里改掉 keywords 的值",
+    expect: "red",
+    sub: "BibTeX keywords",
+    file: "publications.bib",
+    mutate: (t) =>
+      replaceOnce(
+        t,
+        "machine learning, tropical Africa",
+        "machine learning, West Africa"
+      ),
+  },
+  {
+    id: "M15",
+    desc: "论文页改掉 citation_keywords 里的一个词（页面这一面由 C1 兜住，本档是回归护栏）",
+    expect: "red",
+    sub: "citation_keywords",
+    file: PAPER,
+    mutate: (t) =>
+      replaceOnce(
+        t,
+        'content="thunderstorm; lightning; TRMM; radar echo structure; convective organization; data assimilation; machine learning; tropical Africa"',
+        'content="thunderstorm; lightning; TRMM; radar echo structure; convective organization; data assimilation; machine learning; southern Africa"'
+      ),
+  },
 ];
 
 /* ---------- 跑一档 ---------- */
@@ -333,6 +416,7 @@ for (const c of CASES) {
     "index.html",
     "publications.bib",
     "publications.ris",
+    "feed.xml",
     ...pubs.map((p) => `papers/${p.slug}/index.html`),
   ];
   for (const rel of mustExist) {

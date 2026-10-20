@@ -39,6 +39,17 @@
  *      所以"site.js 里两个日期自己前后矛盾"这类错，C1 是**抓不到**的
  *      （两边一致，只是都错）。C7 补的是这条不依赖期望集的结构性约束：
  *      上线日期必须是日历上真实存在的 YYYY/MM/DD，且**不得晚于**出版日期。
+ *   C8 **订阅源（feed.xml）的分类标签**——同一个作品的关键词在**第四个**
+ *      出口上的取值：site.js 里有几条，feed.xml 里那条目就得有几条，
+ *      逐条一致、顺序也一致。少一条 / 多一条 / 改一条 / 整条不见，都判红。
+ *
+ * ⚠️ 2026-10-20（缺陷清单 D14）本门禁自身修掉的一处**声明与实现不符**：
+ *   C3 那一行从一开始就把「关键词」写进了核对范围，**实现却只比了
+ *   「页面 ↔ RIS」两处**——BibTeX 侧当时没有 keywords 字段，订阅源侧被
+ *   静默截断。于是同一个作品的关键词在五个出口上给三种条数，而本门禁
+ *   **全绿**。现把关键词改成**对着 site.js 真源**核三个面（页面 / BibTeX /
+ *   RIS），并新增 C8 核第四个面（订阅源）。教训写在这里：判据清单里写了
+ *   的字段，必须有对应的实现，否则清单就是一句装饰。
  *
  * ⚠️ C5/C6 的期望值**只存 sha256，不存全文**，且哈希是从 **Crossref 存缴
  *   原文**算出来的（不是从 site.js 算的）——否则就变成"改数据的同时改尺子"，
@@ -478,16 +489,59 @@ for (const pub of pubs) {
     }
   }
 
-  /* 关键词：页面 "a; b; c" ↔ RIS 的多条 KW */
-  const metaKw = metaVal("citation_keywords");
-  if (metaKw) {
-    compared++;
-    const pageKw = metaKw.split(";").map((s) => s.trim()).filter(Boolean);
-    const risKw = (ris.KW || []).map((s) => s.trim()).filter(Boolean);
-    if (pageKw.join(" | ") !== risKw.join(" | ")) {
-      note(
-        `${rel}：关键词两处不一致 —— 页面 ${JSON.stringify(pageKw)}，RIS ${JSON.stringify(risKw)}。`
-      );
+  /* 关键词：**三个面**都对着真源 site.js 核 —— 页面 citation_keywords ↔
+     BibTeX keywords ↔ RIS 的多条 KW。
+
+     ⚠️ 2026-10-20 实测发现的缺口（缺陷清单 D14）：这条判据此前只比
+     「页面 ↔ RIS」两处，而
+       · BibTeX 侧**压根没有** keywords 字段（RIS 有 8 条 KW）；
+       · 订阅源 feed.xml 侧被 .slice(0, 5) **静默截**到 5 条。
+     也就是说：同一个作品的关键词在五个出口上给三种条数，而门禁**全绿**。
+     更难看的是本文件头 C3 一行明明写着「关键词」在核对范围内 ——
+     **声明的范围与实现的范围不一致**，这本身就是一门禁的失效点。
+
+     为什么改成「对着真源核」而不是「三处互比」：互比只能挡住"两处一起改坏"，
+     挡不住"三处一致地错"；本门禁的期望集一律从 site.js 派生（C1–C7 同源），
+     关键词也照这条规矩办。
+
+     比对方式：页面与 BibTeX 都是**一整串**（分隔符分别是 "; " 与 ", "），
+     直接与 site.js 拼出的同一串逐字比 —— 不拆成词元，这样即使某个关键词
+     本身含逗号，也不会被误拆成两个词而误报。RIS 是逐条 KW，比数组。 */
+  const expectedKw = Array.isArray(pub.keywords) ? pub.keywords.map((k) => String(k)) : [];
+  if (expectedKw.length) {
+    const kwSurfaces = [
+      {
+        src: "页面 citation_keywords",
+        got: metaVal("citation_keywords"),
+        want: expectedKw.join("; "),
+      },
+      {
+        src: "BibTeX keywords",
+        got: bib.fields.keywords === undefined ? null : String(bib.fields.keywords),
+        want: expectedKw.join(", "),
+      },
+      {
+        src: "RIS KW",
+        got: (ris.KW || []).map((s) => s.trim()).filter(Boolean).join(" | "),
+        want: expectedKw.join(" | "),
+      },
+    ];
+    for (const s of kwSurfaces) {
+      compared++;
+      /* ⚠️ 页面这一面与 C1 有重叠（C1 已把 citation_* 逐条对着真源核过）。
+         留着是为了**红因里能点名是哪个面出的问题** —— "关键词不一致"这种
+         话，读者需要知道是页面、BibTeX 还是 RIS 出的问题，才知道去哪儿改。 */
+      if (s.got === null || s.got === "") {
+        note(
+          `${rel}：关键词在 ${s.src} 上**缺失** —— 真源 site.js 里有 ${expectedKw.length} 条` +
+            `（${JSON.stringify(expectedKw)}），这个出口一个都没给。`
+        );
+      } else if (String(s.got) !== s.want) {
+        note(
+          `${rel}：关键词与真源不一致 —— ${s.src} = ${JSON.stringify(s.got)}，` +
+            `site.js = ${JSON.stringify(s.want)}。`
+        );
+      }
     }
   }
 
@@ -531,6 +585,63 @@ for (const pub of pubs) {
           `已知差异，待本人拍板（是否输出 AB），本门禁不代拍。`
       );
     }
+  }
+}
+
+/* ================= C8 订阅源（feed.xml）的分类标签 =================
+ *
+ * 为什么单列一条：feed.xml 是**第四个**给出关键词的出口（前三：C3 里的
+ * 页面 / BibTeX / RIS），而它是**对外订阅口** —— RSS 客户端与聚合器
+ * 按 <category> 做主题归类与过滤。实测（2026-10-20）：此前它的
+ * <category> 被 .slice(0, 5) 静默截到 5 条（真源 8 条），丢掉的三个是
+ * "data assimilation" / "machine learning" / "tropical Africa" ——
+ * 订阅者因此**按 "tropical Africa" 检索这篇论文会找不到**。
+ *
+ * 判据：site.js 里每篇带关键词的论文，在 feed.xml 里都必须有一条指向它
+ * 的条目，且该条目的 <category> 列表与真源**逐条一致**（顺序也一致）。
+ * 少一条、多一条、改一条、整条不见，都判红。
+ *
+ * 为什么单列而不是并进 C3：C3 的定义是"页面 ↔ BibTeX ↔ RIS"**三处**，
+ * 订阅源不在其中；硬塞进去会让 C3 这个名字与它的实现对不上。
+ * （这个"名字与实现对不上"的毛病，本轮已经在 C3 的关键词那一段发现过一次
+ * —— 声明含关键词、实现只覆盖两处。见 C3 段内的说明。）
+ */
+const FEED_FILE = path.join(SITE, "feed.xml");
+let feedItems = [];
+if (!fs.existsSync(FEED_FILE)) {
+  note("产物里没有 feed.xml —— 订阅源缺失，C8 无法核对。");
+} else {
+  const feedText = fs.readFileSync(FEED_FILE, "utf8");
+  for (const m of feedText.matchAll(/<item>([\s\S]*?)<\/item>/g)) {
+    const body = m[1];
+    const link = (body.match(/<link>([\s\S]*?)<\/link>/) || [])[1] || "";
+    const cats = [...body.matchAll(/<category>([\s\S]*?)<\/category>/g)]
+      .map((x) => x[1].trim())
+      .filter(Boolean);
+    feedItems.push({ link: link.trim(), categories: cats });
+  }
+}
+let c8Compared = 0;
+for (const pub of pubs) {
+  if (!pub || !pub.slug) continue;
+  const expectedKw = Array.isArray(pub.keywords) ? pub.keywords.map((k) => String(k)) : [];
+  if (!expectedKw.length) continue;
+  const pathSuffix = `/papers/${pub.slug}/`;
+  const item = feedItems.find((it) => it.link.endsWith(pathSuffix));
+  compared++;
+  c8Compared++;
+  if (!item) {
+    note(
+      `feed.xml：没有指向 ${pathSuffix} 的条目 —— 订阅源里这篇论文不见了，` +
+        `它的 ${expectedKw.length} 个关键词无从核对。`
+    );
+    continue;
+  }
+  if (item.categories.join(" | ") !== expectedKw.join(" | ")) {
+    note(
+      `feed.xml：${pathSuffix} 的分类标签与真源不一致 —— ` +
+        `feed = ${JSON.stringify(item.categories)}，site.js = ${JSON.stringify(expectedKw)}。`
+    );
   }
 }
 
@@ -850,6 +961,17 @@ if (!compared) {
     note(
       `C7（上线/出版日期的不变量）一条都没比过——site.js 里有 ${c7Expected} 篇论文带 ` +
         `dates.publishedOnline，但判据没有对任何一篇做过比对（判据被卸掉了）。`
+    );
+  }
+  /* C8 同理：site.js 里既然有论文带关键词，订阅源这一条就必须真的比对过。
+     少一次 → 判据被卸掉了（而不是"订阅源恰好没问题"）。 */
+  const c8Expected = pubs.filter(
+    (p) => p && p.slug && Array.isArray(p.keywords) && p.keywords.length > 0
+  ).length;
+  if (c8Expected > 0 && c8Compared < c8Expected) {
+    note(
+      `C8（订阅源的分类标签）一条都没比过——site.js 里有 ${c8Expected} 篇论文带 ` +
+        `keywords，但判据没有对任何一篇做过比对（判据被卸掉了）。`
     );
   }
 }

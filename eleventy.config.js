@@ -598,6 +598,15 @@ module.exports = function (eleventyConfig) {
     put("url", pub.url);
     // ISSN：AGU 同时有 print / electronic 两个，Zotero 等管理器认 issn 字段
     if (pub.issn) put("issn", pub.issn.print || pub.issn.electronic);
+    // 关键词：与 RIS 的 KW 行、页面 chips、citation_keywords **同源**。
+    // 此前 BibTeX 侧**没有**这个字段，而 RIS 有 8 条 KW —— 与 publisher
+    // 那次是同一类问题（同一个站点导出的两种格式，对同一字段说法不一致）：
+    // 读者拿 .bib 与拿 .ris 导入文献管理器，得到的关键词条数不一样。
+    // biblatex 的 keywords 是逗号分隔的列表；纯 BibTeX 会忽略不认识的字段，
+    // Zotero / biblatex 用户则正常读入。
+    if (Array.isArray(pub.keywords) && pub.keywords.length) {
+      put("keywords", pub.keywords.map((k) => esc(k)).join(", "));
+    }
     // ORCID：只有**每一位**作者都有 ORCID 时才整体输出。
     // 部分作者有、部分没有时输出会错配（Zotero 按位置配对），宁可不给。
     if (Array.isArray(pub.authorList) && pub.authorList.length &&
@@ -1351,7 +1360,15 @@ module.exports = function (eleventyConfig) {
         creators: (Array.isArray(p.authorList) ? p.authorList : [])
           .map((a) => a && a.name)
           .filter(Boolean),
-        categories: (Array.isArray(p.keywords) ? p.keywords : []).slice(0, 5),
+        // 分类标签：**完整**给出，不设上限。
+        // 此前这里写的是 .slice(0, 5) —— 8 条关键词被静默截到 5 条，
+        // 订阅者（RSS 客户端、聚合器）拿到的主题词少了
+        // "data assimilation" / "machine learning" / "tropical Africa" 三个，
+        // 而站内页面上的 chips、citation_keywords、RIS 的 KW 给的都是全量。
+        // 同一个作品的关键词在五个出口上给五种条数，是**出口口径不一致**，
+        // 不是"订阅源就该短"——RSS 2.0 的 <category> 可重复、无数量上限，
+        // 8 个标签只多几百字节。截断还是"不设上限"，由本人拍板（见日志待拍板 45）。
+        categories: Array.isArray(p.keywords) ? p.keywords : [],
         doi: p.doi || "",
       });
     }
@@ -1368,7 +1385,8 @@ module.exports = function (eleventyConfig) {
         date: (post && post.date) || null,
         description: d.excerpt || "",
         creators: ownerName ? [ownerName] : [],
-        categories: cats.slice(0, 5),
+        // 技术笔记的 tags 同理不截断（集合名 "blog" 已在上面滤掉）。
+        categories: cats,
         doi: "",
       });
     }
