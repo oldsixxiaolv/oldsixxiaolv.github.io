@@ -97,7 +97,7 @@ url: "https://github.lvyihang.xyz"     // canonical / og:url / sitemap 全由它
 ```
 
 `url` 只影响**元数据**（canonical、og、sitemap、JSON-LD），不影响页面里的资源引用——
-后者走 `relUrl` 过滤器渲染成 `../assets/...` 这种**相对路径**，与挂载点无关。
+后者走 `relUrl` 过滤器渲染成 `../assets/...` 这种**相对路径**，与挂载点无关（**404 页除外**：GitHub Pages 会把 `/404.html` 的内容送到任意未匹配路径，而浏览器地址栏仍停在请求路径上，相对 URL 在那里没有正确解，故 404 页的站内 URL 一律**根绝对**）。
 
 ⚠️ **改错的后果很隐蔽**：页面照样正常渲染（相对路径照样工作），但 canonical 和
 sitemap 会指向 404 的地址，爬虫和分享卡片拿到的都是死链。改 `url` 后务必重新构建
