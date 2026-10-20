@@ -54,14 +54,29 @@
  *      修 J8 之前论文页的 mainEntityOfPage 指回论文自己（自指），是个
  *      什么都不说的空转；J9 把它钉到"页面实体"上，并给出一条指名道姓的红因
  *      （J8 只说"有冲突"，J9 说"谁指错了"）。
- *   J10 **页面实体的 @type 必须与该页源文件 front matter 声明的角色一致**
+ *   J10 **页面实体的 @type 必须与该页源文件声明的角色一致**
  *      （`profilePage: true` → ProfilePage，否则 → WebPage）。
  *      J2 只判"恰好一个页面实体"，**从不看它的 @type 是什么**：把关于页的
  *      ProfilePage 改成 WebPage 无人看守 —— 页面照出、JSON-LD 照常合法、
  *      其余门禁全绿，消费方却再也读不出"这是关于某人的页面"。
- *      角色声明的**唯一真源**是源文件 front matter（base.njk 按它选类型；
- *      按 URL 硬编码路由的话，路由一改就会静默失配）→ 门禁回到源文件去
- *      逐页核对，而不是在门禁里另抄一份 URL 清单。
+ *      角色声明的真源是**数据层**（base.njk 读的是裸键 `profilePage`），
+ *      门禁回源按 Eleventy 的优先级逐页核对，而不是在门禁里另抄一份
+ *      URL 清单。裸键在 Eleventy 里有**三条**合法来源，判据只认其中一条
+ *      就会判出**假红**（实测：把 profilePage 挪进 eleventyComputed，
+ *      产物是正确的 ProfilePage，门禁却报"声明的是 WebPage"）：
+ *        ① 本页 front matter **顶层**            —— 首页 / 关于页用的就是这条
+ *        ② 本页 front matter 的 **eleventyComputed** —— 计算结果也进数据层
+ *        ③ 沿路径生效的**目录数据文件**（<dir>/<dir>.11tydata.cjs）——
+ *           它注入的也是裸键（不是 site.*）
+ *      优先级（Eleventy）：目录数据 < front matter < 计算值。
+ *      ⚠️ **全局数据（src/_data/*）不是一条路径**：它挂在 site.* 下面，
+ *      而模板读的是裸键 —— 两者不是一回事。
+ *      另：真值口径必须与模板一致。模板端是**纯 JS 真值**（Nunjucks 的
+ *      `{% if %}` 编译成 `if(<expr>)`，它没有自己的真值函数）→ 假的是
+ *      false / null / undefined / 0 / ""；**[] / {} / "false" / "no" 都是真**。
+ *      判据不能自己"认"字面量：必须**按该字面量所在来源的语义**（front matter
+ *      走 gray-matter、eleventyComputed 走 JS、目录数据是已求值的 JS 值）
+ *      先求出值，再对值用 JS 真值；求不出就不猜（判红并说清原因）。
  *      产物里的源文件路径由构建期写入（`<!-- source: ... -->`，base.njk），
  *      与 sitemap 的同名标注同一套约定 —— 站点的 permalink 不统一，
  *      从 URL 反推源文件不可靠。
@@ -80,6 +95,7 @@
  */
 const fs = require("fs");
 const path = require("path");
+const matter = require("gray-matter"); // Eleventy 自己用的 front matter 解析器（J10 求值用）
 
 const SITE = process.env.SITE_DIR
   ? path.resolve(process.env.SITE_DIR)
@@ -207,25 +223,225 @@ function sourceOf(html) {
   return m ? m[1].trim() : "";
 }
 
-/** 源文件 front matter 里的 `profilePage` 开关（布尔语义）。
-    只认 front matter **顶层**的键（与 Eleventy 的数据层一致）。
-    值的真值口径必须与模板里
-    `{%- set pageEntityType = 'ProfilePage' if profilePage else 'WebPage' -%}`
-    一致：YAML 布尔照 YAML 解；带引号的字符串按 Nunjucks 真值（非空即真）算；
-    其余（非空）一律为真。 */
-function declaresProfilePage(file) {
+/* ---------- 角色声明的解析（真值口径 + 数据层）---------- */
+
+/**
+ * 模板端的真值口径：**纯 JavaScript 真值**。
+ *
+ *   Nunjucks 的 `{% if %}` 编译成 `if(<expr>)` —— 见 nunjucks/src/compiler.js:496
+ *   的 `this._emit('if(')`。Nunjucks **没有自己的真值函数**（runtime.js 里只有
+ *   suppressValue，没有 isTruthy）。所以模板端的真假就是 JS 的真假：
+ *     · `0` / `0.0` / `""` / `null` / `undefined`  → 假
+ *     · `[]` / `{}` / `"false"` / `"0"` / `"no"`   → **真**（对象 / 非空字符串）
+ *
+ *   ⚠️ 这里踩过的两个坑（都判出过**假红**）：
+ *     ① 旧口径只认 ["false","no","off","null","~"]，**漏了 0** ——
+ *        `profilePage: 0` 模板里是假（→ WebPage），门禁却当真（→ ProfilePage）。
+ *     ② 旧口径把 `[]` `{}` `no` `off` 当**假** —— 与模板**相反**：
+ *        `profilePage: []` 产物实测是 ProfilePage（空数组是对象，JS 里为真），
+ *        门禁却判它 WebPage；`profilePage: no` 产物是 ProfilePage
+ *        （YAML 1.1 的 no 布尔别名在 js-yaml 里**不成立**，它是字符串）。
+ *     假红比漏报更坏：它把人引去改一处本来正确的东西。
+ *
+ *   → 结论：判据**不能自己"认"字面量**，必须**按该字面量所在来源的语义**
+ *     先求出值，再对那个值用 JS 真值。求不出值就不猜（判红并说清原因）。
+ */
+function jsTruthy(value) {
+  return Boolean(value);
+}
+
+/**
+ * front matter 里的字面量 → 值。
+ *   用 **gray-matter**（Eleventy 自己用的 front matter 解析器：
+ *   @11ty/eleventy/src/TemplateContent.js:4 `import matter from "gray-matter"`；
+ *   gray-matter/lib/engines.js 的 yaml 引擎是 `yaml.safeLoad`）求值，
+ *   保证与 Eleventy 解析出来的值**逐值一致**。
+ *   解析失败 → 判据求不出真假 → 交给调用方判红，不猜。
+ */
+function valueFromFrontMatter(raw) {
+  try {
+    const doc = matter("---\nprofilePage: " + raw + "\n---\n");
+    if (!doc.data || !Object.prototype.hasOwnProperty.call(doc.data, "profilePage")) {
+      return { ok: false, reason: "解析出来的 front matter 里没有 profilePage 这一项" };
+    }
+    return { ok: true, value: doc.data.profilePage };
+  } catch (e) {
+    return { ok: false, reason: `YAML 解析失败（${String(e.message).split("\n")[0]}）` };
+  }
+}
+
+/**
+ * eleventyComputed 里的字面量 → 值。
+ *   那个块里写的是 **JavaScript 表达式**（不是 YAML），所以按 JS 语义求值。
+ *   求不出（引用了别处、含模板表达式、语法错）→ 判据求不出真假 → 交给调用方判红。
+ *   ⚠️ 这里求值的是**仓库自己源码里的字面量**，信任级别与下面
+ *      `require()` 目录数据文件、以及 Eleventy 构建时执行这段代码完全相同。
+ */
+function valueFromComputed(raw) {
+  try {
+    const value = new Function("return (" + raw + ");")(); // eslint-disable-line no-new-func
+    return { ok: true, value };
+  } catch (e) {
+    return { ok: false, reason: `JavaScript 求值失败（${String(e.message).split("\n")[0]}）` };
+  }
+}
+
+/**
+ * 解析出"角色声明"的结果：raw（原样字面量，红因要印它）+ value（求出来的值）。
+ *   evaluable=false 时带 reason（说清为什么求不出）。
+ */
+function roleResult(raw, where, kind, evaluator) {
+  // 模板表达式（{{ }} / {% %} / {# #}）必须**先**拦下来：
+  // YAML 会把 `{{ x }}` 解析成一个**嵌套流映射**（不报错），
+  // 那样就"求出了值"，却是模板里根本没有的那个值。
+  if (/[{][{%#]/.test(raw)) {
+    return {
+      raw,
+      where,
+      kind,
+      evaluable: false,
+      reason: "这一项里含模板表达式（{{ }} / {% %} / {# #}），判据求不出它的真假",
+    };
+  }
+  const r = evaluator(raw);
+  if (!r.ok) return { raw, where, kind, evaluable: false, reason: r.reason };
+  return { raw, where, kind, evaluable: true, value: r.value };
+}
+
+/** 去掉 YAML 行尾注释：# 前要有空白，且不在引号里。 */
+function stripYamlComment(v) {
+  let quote = "";
+  for (let i = 0; i < v.length; i++) {
+    const c = v[i];
+    if (quote) {
+      if (c === quote) quote = "";
+      continue;
+    }
+    if (c === '"' || c === "'") {
+      quote = c;
+      continue;
+    }
+    if (c === "#" && (i === 0 || /\s/.test(v[i - 1]))) return v.slice(0, i);
+  }
+  return v;
+}
+
+/** 源文件 front matter 原文（没有 front matter 返回 null）。 */
+function frontMatterOf(file) {
   const text = fs.readFileSync(file, "utf8");
-  const fm = text.match(/^---\r?\n([\s\S]*?)\r?\n---/);
-  if (!fm) return false; // 没有 front matter → 不是 profile 页
-  const line = fm[1].split(/\r?\n/).find((l) => /^profilePage\s*:/.test(l));
-  if (!line) return false;
-  const raw = line
-    .replace(/^profilePage\s*:\s*/, "")
-    .replace(/\s+#.*$/, "")
-    .trim();
-  if (raw === "") return false;
-  if (/^(['"]).*\1$/.test(raw)) return raw.length > 2; // 带引号的字符串：非空即真
-  return !["false", "no", "off", "null", "~"].includes(raw.toLowerCase());
+  const m = text.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+  return m ? m[1] : null;
+}
+
+/** front matter 里某个键的**原样字面量**（找不到返回 null）。
+ *    computed=true 时只找 eleventyComputed 块里的同名键。
+ *    缩进块里的注释行要先排除（`  # profilePage: true` 不是声明）。 */
+function scalarIn(block, key, computed = false) {
+  const lines = block.split(/\r?\n/);
+  const keyRe = new RegExp("^" + (computed ? "\\s+" : "") + key + "\\s*:");
+  let hit = null;
+  if (computed) {
+    const start = lines.findIndex((l) => /^eleventyComputed\s*:/.test(l));
+    if (start < 0) return null;
+    for (let i = start + 1; i < lines.length; i++) {
+      const l = lines[i];
+      // 下一个**顶层键** → 块结束（顶层注释行不算，它不以 # 开头却是缩进的）
+      if (/^[A-Za-z_][\w-]*\s*:/.test(l)) break;
+      if (l.trim().startsWith("#")) continue;
+      if (keyRe.test(l)) {
+        hit = l;
+        break;
+      }
+    }
+  } else {
+    hit = lines.find((l) => keyRe.test(l)) || null;
+  }
+  if (!hit) return null;
+  return stripYamlComment(hit.slice(hit.indexOf(":") + 1)).trim();
+}
+
+/** 沿页面源文件路径向上找生效的目录数据文件（外层在前，内层覆盖外层）。 */
+function directoryDataChain(file) {
+  const chain = [];
+  let dir = path.dirname(path.resolve(file));
+  while (dir.startsWith(ROOT + path.sep)) {
+    const base = path.basename(dir);
+    for (const ext of [".11tydata.cjs", ".11tydata.js", ".11tydata.mjs"]) {
+      const p = path.join(dir, base + ext);
+      if (fs.existsSync(p)) {
+        chain.push(p);
+        break;
+      }
+    }
+    dir = path.dirname(dir);
+  }
+  return chain.reverse();
+}
+
+/** 该页的"角色声明"（profilePage 开关）——按 Eleventy 的**数据层**找。
+ *
+ *  返回 { raw, where, kind, evaluable, error }
+ *    raw       —— 源文件里的**原样字面量**（红因要印它，不能印算出来的布尔）
+ *    where     —— 声明所在文件（仓库相对路径）
+ *    kind      —— front-matter / computed / directory-data / none
+ *    evaluable —— 该字面量能否被静态求值（含 {{ }} 的模板表达式不能）
+ *    error     —— 非空表示"读不出来"（目录数据文件 require 失败）
+ *
+ *  ⚠️ 为什么不能只看 front matter 顶层（JP 的实测）：
+ *    模板读的是**裸键** `profilePage`（base.njk:449），裸键在 Eleventy 里
+ *    有三条合法来源。判据只认其中一条 → 合法写法被判红（假红），
+ *    而假红会把人引到"改掉一处本来正确的东西"上去。 */
+function resolveDeclaredRole(file) {
+  const block = frontMatterOf(file);
+  if (block !== null) {
+    // ② eleventyComputed 的优先级高于 front matter 顶层（Eleventy：计算值最后合入）
+    const computed = scalarIn(block, "profilePage", true);
+    if (computed !== null) {
+      return roleResult(computed, path.relative(ROOT, file), "computed", valueFromComputed);
+    }
+    const top = scalarIn(block, "profilePage");
+    if (top !== null) {
+      return roleResult(top, path.relative(ROOT, file), "front-matter", valueFromFrontMatter);
+    }
+  }
+  // ③ 目录数据文件（裸键，优先级最低）
+  for (const p of directoryDataChain(file)) {
+    let mod;
+    try {
+      mod = require(p);
+    } catch (e) {
+      return {
+        raw: "",
+        where: path.relative(ROOT, p),
+        kind: "directory-data",
+        evaluable: false,
+        reason: `读不出目录数据文件（${e.message}）`,
+      };
+    }
+    let raw = null;
+    if (mod && Object.prototype.hasOwnProperty.call(mod, "profilePage")) {
+      raw = mod.profilePage;
+    } else if (
+      mod &&
+      mod.eleventyComputed &&
+      Object.prototype.hasOwnProperty.call(mod.eleventyComputed, "profilePage")
+    ) {
+      raw = mod.eleventyComputed.profilePage;
+    }
+    if (raw !== null) {
+      // 目录数据文件是**已经求过值的 JS 值** → 直接对它用 JS 真值，
+      // 不用再解析字面量（也省掉"字面量写法千奇百怪"这一类问题）。
+      return {
+        raw: String(raw),
+        where: path.relative(ROOT, p),
+        kind: "directory-data",
+        evaluable: true,
+        value: raw,
+      };
+    }
+  }
+  // 没有这一项 → 按约定视为 WebPage（假）
+  return { raw: "", where: path.relative(ROOT, file), kind: "none", evaluable: true, value: false };
 }
 
 /* ---------- 逐页检查 ---------- */
@@ -237,6 +453,8 @@ let j9Compared = 0; // J9 真正比过的论文数
 let j8Ids = 0; // J8 真正看过的 @id 个数
 let j10Compared = 0; // J10 真正核对过角色的页数
 let j10ProfilePages = 0; // J10 里声明为 ProfilePage 的页数
+let j10Declared = 0; // J10 里真的找到"角色声明"的页数（自证：解析确实跑过）
+const j10Kinds = {}; // 角色声明来自哪条数据层路径（front-matter / computed / directory-data / none）
 const websiteIds = new Set();
 // J8 的全站口径：@id → (@type 组合 → 出现在哪些页)
 const siteTypeUse = new Map();
@@ -353,8 +571,8 @@ for (const file of htmlFiles) {
   }
 
   /* ---- J10：页面实体的 @type 必须与源文件声明的角色一致 ----
-     角色声明的**唯一真源**是源文件 front matter 的 `profilePage` 开关
-     （base.njk 按它选 ProfilePage / WebPage）。判据回源文件逐页核对，
+     角色声明的真源是**数据层**（base.njk 按裸键 `profilePage` 选
+     ProfilePage / WebPage）。判据回源按 Eleventy 的优先级逐页核对，
      不在门禁里另抄一份 URL 清单 —— 路由一改，清单就会静默失配。 */
   if (pageNodes.length === 1) {
     const page = pageNodes[0];
@@ -374,17 +592,43 @@ for (const file of htmlFiles) {
         );
       } else {
         j10Compared++;
-        const isProfile = declaresProfilePage(srcPath);
-        if (isProfile) j10ProfilePages++;
-        const expected = isProfile ? "ProfilePage" : "WebPage";
-        const actual = typesOf(page).filter((t) => t === "WebPage" || t === "ProfilePage");
-        if (actual.length !== 1 || actual[0] !== expected) {
+        const role = resolveDeclaredRole(srcPath);
+        j10Kinds[role.kind] = (j10Kinds[role.kind] || 0) + 1;
+        if (role.error) {
+          // 读不出来 → 不猜。猜错就是一条假红。
+          fail(`${from}: 无法确定这一页的角色声明 —— ${role.error}`);
+        } else if (!role.evaluable) {
+          // 声明求不出真假（含模板表达式、语法错、引用了别处）→ 判据**求不出**。
+          // 这里**不猜**：猜错会把合法的写法判成"角色不一致"（假红），
+          // 把人引到去改一处本来正确的东西。但也不能静默跳过 ——
+          // "没报错"和"没问题"长得一模一样，跳过等于这一页的角色从此无人看守
+          // → 明确判红，并说清两条出路。
           fail(
-            `${from}: 页面实体的 @type 是 ${JSON.stringify(typesOf(page).join(" / ") || "(无)")}，` +
-              `但源文件 ${srcRel} 的 front matter 声明的是 ${expected}` +
-              `（profilePage: ${isProfile}）—— 这一页的角色与源文件不一致` +
-              `（ProfilePage 降级成 WebPage 消费方就读不出"这是关于某人的页面"）`
+            `${from}: 这一页的角色声明求不出真假（${role.where} 里写的是 ` +
+              `profilePage: ${role.raw}）—— ${role.reason}。` +
+              `J10 对这一页无法核对。请把它写成静态的 true / false，` +
+              `或同步修改 scripts/check-jsonld.cjs 的角色解析。`
           );
+        } else {
+          const isProfile = jsTruthy(role.value);
+          if (isProfile) j10ProfilePages++;
+          if (role.raw !== "") j10Declared++;
+          const expected = isProfile ? "ProfilePage" : "WebPage";
+          const actual = typesOf(page).filter((t) => t === "WebPage" || t === "ProfilePage");
+          if (actual.length !== 1 || actual[0] !== expected) {
+            // ⚠️ 红因印**源文件里的原样字面量**，不印算出来的布尔：
+            //    布尔是判据的结论，原值是作者写的东西。印布尔会让读者
+            //    照着提示去找一行并不存在的内容（"profilePage: true"）。
+            const said = role.raw
+              ? `写的是 profilePage: ${role.raw}`
+              : "**没有 profilePage 这一项**（按约定视为 WebPage）";
+            fail(
+              `${from}: 页面实体的 @type 是 ${JSON.stringify(typesOf(page).join(" / ") || "(无)")}，` +
+                `但源文件声明的角色是 ${expected}（${role.where} ${said}）` +
+                `—— 这一页的角色与源文件不一致` +
+                `（ProfilePage 降级成 WebPage 消费方就读不出"这是关于某人的页面"）`
+            );
+          }
         }
       }
     }
@@ -540,14 +784,23 @@ if (!j9Compared) {
 if (!j10Compared) {
   fail(
     "全站没有比到任何一页的页面角色 —— J10 从未真正执行过" +
-      "（页面实体与源文件 front matter 的 profilePage 声明从未被核对过）"
+      "（页面实体与源文件声明的 profilePage 角色从未被核对过）"
+  );
+}
+if (!j10Declared) {
+  // 自证：角色声明的**解析**确实跑过。若解析逻辑坏了（比如 front matter
+  // 的读法写错），它会"什么都没找到" → 全部按 WebPage 判 → 门禁照样绿，
+  // 而首页/关于页其实是 ProfilePage。缺了这一条，那类退化无人看守。
+  fail(
+    "全站没有一页找到角色声明 —— J10 的角色解析从未真正取到值" +
+      "（解析逻辑坏了：所有页都被当成 WebPage 判，门禁照样绿）"
   );
 }
 if (!j10ProfilePages) {
   fail(
     "全站没有一页声明 ProfilePage —— 页面角色这一层整个退化了，" +
       "消费方拿不到「这是关于某人的页面」" +
-      "（首页与关于页 front matter 里的 profilePage: true 是不是被改名或删掉了？）"
+      "（首页与关于页的 profilePage: true 是不是被改名或删掉了？）"
   );
 }
 
@@ -571,8 +824,11 @@ note(
     `${j9Compared} 篇论文的 mainEntityOfPage 指向本页的页面实体`
 );
 note(
-  `页面角色：${j10Compared} 页与源文件 front matter 的 profilePage 声明逐页核对一致` +
-    `（其中 ${j10ProfilePages} 页声明为 ProfilePage）`
+  `页面角色：${j10Compared} 页与源文件声明的 profilePage 角色逐页核对一致` +
+    `（其中 ${j10ProfilePages} 页声明为 ProfilePage；` +
+    `角色声明取自：front matter 顶层 ${j10Kinds["front-matter"] || 0} 处 / ` +
+    `eleventyComputed ${j10Kinds["computed"] || 0} 处 / ` +
+    `目录数据文件 ${j10Kinds["directory-data"] || 0} 处）`
 );
 notes.forEach((n) => console.log(`· ${n}`));
 console.log("✓ 结构化数据自检通过（门禁 J1–J10）");

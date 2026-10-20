@@ -10133,3 +10133,93 @@ F 节点名过、至今没人守的洞：**没有任何门禁挡住有人把 `sr
   - **待拍板 10 补记**（"可见身份链接的第二条路"）：peer 的 **W3** 给出了硬证据 —— `src/content/about.md:38` 的 CSDN 链接改成 `https://blog.csdn.net/impersonator` 后，**整链 build exit 0 全绿**，产物里"真句柄 3 处 + 冒名 1 处" → 页面公然指向非本人账号，而 JSON-LD 仍是本人。**D4 本轮没有扫 md，所以这一形态仍然无门禁。**
   - **待拍板 17 补记**（注释豁免）：现在的实现是"**整段注释内容遮罩**"（JS `//` `/* */`；Nunjucks `{# #}`；HTML `<!-- -->`），比原先的"行首是 `//` 或 `*`"**宽一点点**（块注释的续行原来会误报，现在放行）—— 放宽方向是少误报，**没有新增可钻的口子**。
 - 待拍板 1–19 见前几节，**不重复、不改口**。
+
+## 2026-10-19 · 17:10–17:25 场次（**不占轮次号**，避免与并发场次撞号）：J10 角色声明判据的两条边角修掉——真值口径改为「按来源求值 + JS 真值」，红因印原值，声明按数据层解析
+
+复验时的 HEAD = `c6cd002`（并发场次）。本场次只提交两处：`scripts/check-jsonld.cjs`、本日志。**未 push**。
+
+### A. 背景：J10 的两条边角（peer 会话实测，本场次复现并修掉）
+
+J10 是 `scripts/check-jsonld.cjs` 的第 10 条判据：**页面的 JSON-LD 页面实体 `@type`（WebPage / ProfilePage）必须与源文件里声明的 `profilePage` 角色一致**。它靠构建期写进产物的 `<!-- source: ... -->` 标注回源文件核对（`src/_includes/layouts/base.njk:494`）——因为站点 permalink 不统一，从 URL 反推源文件不可靠。
+
+两条边角：
+
+- **JN（真值口径）**：旧实现自己维护一张「哪些字面量算假」的表（`scripts/check-jsonld.cjs` HEAD 版 `declaresProfilePage`，第 228 行：`!["false","no","off","null","~"].includes(...)`）。这张表与模板的真实行为**不符**，且红因把**算出来的布尔**印成 `profilePage: true`，而源文件里写的是 `profilePage: 0` —— 照着提示去找那一行根本找不到（**红因指错地方比没有红因更坏**）。
+- **JP（声明位置）**：旧实现只认 front matter **顶层**（`/^profilePage\s*:/`）。而模板读的是**裸键** `profilePage`（`base.njk:449`），裸键在 Eleventy 的数据层有**三条合法来源**，优先级 目录数据 < front matter < 计算值。声明挪到后两条 → 假红。
+
+### B. 改进点 1：真值口径 —— 从「手写真值表」改成「按来源求值 + JS 真值」
+
+**三条实测依据**（都是本场次在仓里查出来的，不是推断）：
+
+1. **模板端的真值规则是纯 JS 真值。** Nunjucks 的 `{% if %}` 编译成 `if(<expr>)` —— `node_modules/nunjucks/src/compiler.js:496` 的 `this._emit('if(')`；Nunjucks **没有自己的真值函数**（`runtime.js` 里只有 `suppressValue`，没有 `isTruthy`）。所以假值只有 `false / null / undefined / 0 / ""`；**`[]` `{}` `"false"` `"0"` `"no"` 全都是真**。
+2. **每种来源的语义不同，不能共用一张表**：
+   - front matter → **YAML**（Eleventy 用 gray-matter：`@11ty/eleventy/src/TemplateContent.js:4` `import matter from "gray-matter"`）→ `no`/`off` 是**字符串**、`[]`/`{}` 是**容器**；
+   - eleventyComputed → **JavaScript 表达式** → `undefined` 是假、其余按 JS；
+   - 目录数据文件 → **已经求过值的 JS 值** → 直接用，不必再解析字面量。
+3. → **判据不能自己「认」字面量，必须让引擎来求值。** 实现改为：新增 `valueFromFrontMatter`（用 gray-matter 求值）/ `valueFromComputed`（用 JS 求值）/ `roleResult`（统一「求值 + 求不出时给原因」），删掉手写的 `nunjucksTruthy`。
+
+#### B1. 中途自查发现的第二批假红（本轮最重要的一段记账）
+
+我第一版实现是「把 `0` 修好就收工」，**没有对字面量做全枚举**。随后在隔离克隆里跑了一张 **14 档字面量真值表**（每档：注入 → 重建 → 读产物 `@type` → 跑门禁），结果发现**我自己的第一版实现还有 4 处假红** —— 而且是**修好 A 的同时引入了 B**：
+
+| 字面量 | 模板产物 `@type` | 旧门禁（HEAD） | **我第一版** | 最终版 |
+|---|---|---|---|---|
+| `true` / `false` | ProfilePage / WebPage | 绿 | 绿 | 绿 |
+| `1` / `42` | ProfilePage | 绿 | 绿 | 绿 |
+| `"true"` / `"false"` / `"0"` | ProfilePage | 绿 | 绿 | 绿 |
+| `null` | WebPage | 绿 | 绿 | 绿 |
+| **`0` / `0.0`** | WebPage | 🔴 **假红** | 🟢 修好了 | 🟢 |
+| **`no` / `off`** | ProfilePage | 🔴 **假红** | 🔴 **假红** | 🟢 修好了 |
+| **`[]` / `{}`** | ProfilePage | 🟢 | 🔴 **假红（我新引入的）** | 🟢 修好了 |
+
+- 旧门禁的真实假红是 **4 档**（`0` `0.0` `no` `off`）；`[]`/`{}` 旧门禁**恰好是绿的**（它的兜底把不在假值表里的一律当真）。
+- 我第一版的真实假红是 **4 档**（`no` `off` `[]` `{}`）：**修好了 `0`，却把 `[]`/`{}` 弄坏了** —— 根因是我照抄了「Nunjucks 文档里的假值集」（文档说 `[]`/`{}` 算假），而 **Nunjucks 的实际行为与之相反**（空数组是对象，JS 里为真）。**教训：判据不能自己「认」字面量，必须让引擎求值；只验原缺陷不枚举，会把缺陷平移到别的形态上。**
+- 最终版：**14/14 与产物逐值一致，零假红**（`true/false/0/0.0/1/42/"true"/"false"/"0"/no/off/null/[]/{}`）。
+
+### C. 改进点 2：红因与自证
+
+- **红因印源文件里的原样字面量**（`src/about.njk 写的是 profilePage: 0`），不印算出来的布尔；
+- 区分「**没有 profilePage 这一项**（按约定视为 WebPage）」与「写了但是假值」；
+- **求不出真假就不猜**（模板表达式 / 语法错 / 引用别处）→ 明确判红，并说清两条出路（写成静态 `true`/`false`，或同步改门禁）；
+- **自证**：新增 `j10Declared`（解析确实取到值才计数；取不到就判红 —— 防止「解析坏了仍全绿」）+ `j10Kinds`（声明来源分布，汇总 note 打印三类来源计数）。
+
+### D. 注入矩阵（6 档，隔离克隆 `/tmp/mh_j10_verify2`：完整历史 + `node_modules` 软链）
+
+| 档 | 注入 | 旧门禁（HEAD） | 新门禁 | 说明 |
+|---|---|---|---|---|
+| J0 | 基线 | 🟢 | 🟢 | 两条都绿 |
+| JN1 | `profilePage: 0`（产物实测 WebPage） | 🔴 **假红** | 🟢 | 假红消除 |
+| JN2 | 真错配（声明 `0` / 产物 ProfilePage） | 🔴 红，但红因印 `profilePage: false`（**指错地方**） | 🔴 红，红因印 **`profilePage: 0`**（原值） | 判红能力不变，红因指对了 |
+| JP1 | 声明挪进 `eleventyComputed` | 🔴 **假红** | 🟢 | 假红消除 |
+| JP2 | 声明是模板表达式 `"{{ site.author.name }}"` | 🔴 假红（说「声明的是 WebPage」） | 🔴 红，且明说「**求不出真假**」 | 不猜 |
+| JP3 | 声明放 `src/content/papers/papers.11tydata.cjs` | 🔴 **假红** | 🟢 | 假红消除 |
+
+### E. 对 peer 回执的答复（两条边角的处置结论）
+
+- **① JN —— 接受，处置方式调整过一轮**：确认「假值集与模板不一致 + 红因印布尔」是缺陷；但**修法不是把假值表补全**（那是把缺陷平移，见 B1），而是**改成按来源求值 + JS 真值**。红因印原值这一条照做。
+- **② JP —— 接受，处置方式按「按数据层三条路径解析 + 求不出就判红」落地**：不只解析 front matter 顶层，还认 `eleventyComputed` 与目录数据文件；**非静态声明一律判红**（不静默跳过，否则「没报错」与「没问题」同形）。
+- ⚠️ **JP 的「非静态声明一律判红」是一条新约定**（比原判据严）→ 登记为待拍板 18，**本场次不代拍**。
+
+### F. 验证结果
+
+- **本场次提交树**（隔离克隆 `/tmp/mh_j10_verify2`，完整历史 + 软链 `node_modules`）：`npm run build` → **exit 0、零 ✗ 行**。J10 自证行显示「角色声明取自：front matter 顶层 2 处 / eleventyComputed 0 处 / 目录数据文件 0 处」。
+- **6 档注入矩阵**：见 D，新旧对跑，**6/6 符合设计**。
+- **14 档字面量真值表**：**14/14 与产物逐值一致**（新旧门禁 A/B 对跑，见 B1）。
+- **线上巡检**（17:11 实测，与上轮一致）：`/` 200、`/blog/` 200、`/about/` 200、`/sitemap.xml` 200；`/papers/` `/publications.bib` `/feed.xml` 三条仍 **404** → 全是**旧部署**（线上仍是 2026-10-16 那版），本地 `_site` 对应产物均已存在且正确。**部署与否由本人决定。**
+
+### G. 诚实边界（本轮实测，写明不夸大）
+
+1. **本门禁现在 `require("gray-matter")`** —— 它是 Eleventy 的**直接依赖**（`@11ty/eleventy@3.1.6` → `gray-matter@^4.0.3`，仓库有 `package-lock.json` 版本已钉），但**本仓 `package.json` 没有单列**。本轮**不改 `package.json`**（并发场次正在改它，见待拍板 19）。若将来 gray-matter 被换掉，判据会 **require 失败 → build 直接红**，不会静默走偏。
+2. `new Function` 求值 `eleventyComputed` 里的字面量：信任级别 = **仓库自己源码**，Eleventy 构建时本来就要执行这段代码；求值失败一律判红，不猜。
+3. **模板表达式必须先拦下来再求值**：YAML 会把 `{{ x }}` 解析成一个**嵌套流映射**（**不报错**）—— 实测 `matter()` 对 `profilePage: "{{ site.author.name }}"` 返回 `{"[object Object]": null}`。不先拦就等于"求出了一个模板里根本没有的值"。
+4. 目录数据文件那条路径是 `require()` 进来的 —— 同样只信任仓库自己的源码；读不出来 → 判红，不猜。
+5. **本轮不碰 `src/_data/site.js`**（并发场次在改，nav 区域也是共享面），因此**没有**新增导航项，也没有新增页面。
+6. **本轮不 push**；共享工作树里 `package.json` / `scripts/screenshot*.js` / `scripts/lighthouse-runner.js` / `scripts/slow3g-runner.js` / `scripts/check-identity-derivation.cjs` / `scripts/check-image-assets.cjs` 等均为**并发场次在途**，本场次**不代落库**。
+
+### H. 待本人拍板
+
+- **待拍板 18（新增）｜J10 角色声明现约定为「必须求得出真假」——非静态声明（模板表达式 / 引用别处 / 语法错）一律判红，接受吗？**
+  现状：不接受就只能"静默跳过"，而静默跳过 = 这一页的角色从此无人看守（"没报错"和"没问题"同形）。**本场次不代拍。**
+- **待拍板 19（新增）｜本门禁依赖 `gray-matter`（Eleventy 的直接依赖，但本仓 `package.json` 未单列）——要不要显式写进 `devDependencies`？**
+  现状：不写也能跑（随 Eleventy 装上）；写进去的好处是"依赖是声明出来的"，坏处是要动 `package.json`（本轮并发场次正在改它）。**本场次不代拍。**
+- 待拍板 1 / 3 / 7 / 8 / 10 / 11 / 12 / 13 / 14 / 15 / 16 / 17 见前几节，**不重复、不改口**。
