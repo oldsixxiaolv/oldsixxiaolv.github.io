@@ -55,8 +55,20 @@ const GATE_FILE_RE = /^(check|verify)-.*\.cjs$/;
    于是该门禁**已经真正接进 build 链**，豁免登记随之删除。
 
    机制保留：将来若确有门禁不能进 build 链（例如必须联网、必须人工介入），
-   在这里登记并写明理由——理由要经得起"CI 真的做不了吗"这一问。 */
-const EXEMPT = {};
+   在这里登记并写明理由——理由要经得起"CI 真的做不了吗"这一问。
+
+   2026-10-20：第一条真实登记 —— `check-live-site.cjs`（线上部署核查）。
+   它必须联网，且**时机上**就不能接进 build 链：build 跑在 deploy **之前**，
+   此时线上还是上一次部署，把它放进 build 等于每次都对着旧站点判红，
+   把"部署还没发生"误报成"代码坏了"。它的位置在**部署之后**。 */
+const EXEMPT = {
+  "check-live-site.cjs":
+    "必须联网，且**时机上**不能接进 build 链：build 跑在 deploy 之前，" +
+    "此时线上还是上一次部署，把它放进 build 等于每次都对着旧站点判红，" +
+    "把「部署还没发生」误报成「代码坏了」。" +
+    "它的正确位置是**部署之后**：.github/workflows/deploy.yml 的 verify-live job" +
+    "（needs: deploy）是唯一的自动调用点；本地手动跑 npm run check:live。",
+};
 
 /* ---------- 读 package.json ---------- */
 if (!fs.existsSync(PKG)) {

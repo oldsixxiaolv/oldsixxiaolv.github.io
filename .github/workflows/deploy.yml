@@ -114,3 +114,53 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
+
+  # 线上部署核查（scripts/check-live-site.cjs）—— 这道门禁**不能**接进 build 链：
+  # build 跑在 deploy 之前，那时线上还是上一次部署，把它放进 build 等于每次都对着
+  # 旧站点判红，把"部署还没发生"误报成"代码坏了"（豁免理由见
+  # scripts/check-gates-wired.cjs 的 EXEMPT）。它属于**部署之后**。
+  #
+  # ⚠️ 登记豁免的代价是"没人跑 = 没人知道"，所以这里必须是**真的会自动跑**的那一处。
+  #   比较基准取**刚部署上去的那份产物**（github-pages artifact），而不是本地重跑一遍
+  #   —— 比"发出去的字节"与"在线上的字节"才是这道门禁真正要守的不变式。
+  verify-live:
+    needs: deploy
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Download the artifact that was just deployed
+        uses: actions/download-artifact@v4
+        with:
+          name: github-pages
+          path: _site
+
+      # 下载结果的目录层级必须对，否则后面会拿空目录当"期望值"，门禁会假绿。
+      - name: Assert the deployed artifact landed at _site/
+        run: |
+          if [ ! -f _site/index.html ]; then
+            echo "::error::_site/index.html 不存在 —— 下载到的部署产物层级不对，核查门禁会拿空目录当期望值（假绿）"
+            exit 1
+          fi
+
+      # 部署完到域名真正生效有一段传播延迟。先等站点起来，再让门禁去判。
+      # 这里**不**自己判红：真红不真红由门禁给结论，这一步只负责"别在还没生效时去查"。
+      - name: Wait until the site responds
+        run: |
+          url=$(node -e "console.log(require('./src/_data/site.js').url)")
+          for i in $(seq 1 12); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' "$url/" || true)
+            if [ "$code" = "200" ]; then echo "站点已上线（第 $i 次探测，HTTP $code）"; exit 0; fi
+            echo "第 $i 次探测 HTTP $code，等 10s 再试"
+            sleep 10
+          done
+          echo "::warning::站点在 120s 内没有正常响应，仍继续跑核查门禁（判红与否由门禁给结论）"
+
+      - name: Check the live site against the deployed artifact
+        run: node scripts/check-live-site.cjs
