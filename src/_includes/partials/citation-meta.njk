@@ -11,6 +11,16 @@
   Google 普通检索的富结果），两套都得有——但让论文真正进 Google Scholar
   的是这个文件，不是 JSON-LD。
 
+  —— 两个日期标签是**两件事**（2026-10-20 实测官方原文）——
+  收录说明第 (c) 条原文：citation_publication_date "must contain the date of
+  publication, i.e., the date that would normally be cited in references to this
+  paper from other papers. Don't use it for the date of entry into the repository
+  - that should go into citation_online_date instead."
+  即：出版商登记了 online 与 print 两个日期时，两者要分开装。本站目前
+  citation_publication_date 取的是上线日（2026-06-01），citation_online_date
+  也是上线日；`citation_publication_date` 该不该改用期号日（2026-06-16）是
+  **待本人拍板**项，本轮不代拍。
+
   —— 哪些标签是官方收录说明真列了，哪些是本站自己加的（2026-10-20 实测）——
   官方收录说明（https://scholar.google.com/intl/en/scholar/inclusion.html）
   逐条列举的是：citation_title / citation_author / citation_publication_date /
@@ -61,6 +71,22 @@
     {%- endfor %}
     {%- if pubDate %}
     <meta name="citation_publication_date" content="{{ pubDate | replace("-", "/") }}" />
+    {%- endif %}
+    {# citation_online_date = 文章**首次公开上线**的日期（= AGU 页面的
+       "First published"）。
+       官方收录说明第 (c) 条的原文：citation_publication_date 装的是
+       "the date that would normally be cited in references"，并明确
+       "Don't use it for the date of entry into the repository - that should
+       go into citation_online_date instead"。也就是说两个日期是**两件事**：
+       出版商登记了 online 与 print 两个日期（Crossref `published-online` /
+       `published-print`，unixref 里是 `publication_date media_type="online"`
+       / `media_type="print"`），此前本站只带了其中一个、还放在
+       citation_publication_date 上。
+       ⚠️ 口径待本人拍板（见 IMPROVEMENT-LOG.md 待决策段）：citation_publication_date
+          到底该用上线日（2026-06-01）还是期号日（2026-06-16）。本轮**不改**
+          它的取值，只把上线日另开一个标签，各归其位。 #}
+    {%- if pub.dates and pub.dates.publishedOnline %}
+    <meta name="citation_online_date" content="{{ pub.dates.publishedOnline | replace("-", "/") }}" />
     {%- endif %}
     {%- if pub.journal %}
     <meta name="citation_journal_title" content="{{ pub.journal }}" />

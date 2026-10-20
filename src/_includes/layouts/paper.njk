@@ -380,8 +380,12 @@ layout: layouts/base.njk
     </p>
     {%- endif %}
     {%- if pub.dates and pub.dates.received %}
+    {# 两个日期分列：上线日（"First published"，= AGU 文章页自己的措辞）
+       与期号日（期号 131(11) 的出版日）。此前这里只写了一个
+       "Published 2026-06-01"，读者无从判断那是上线日还是期号日——
+       而这两个日期在 AGU 上确实差半个月（2026-06-01 上线，2026-06-16 出期）。 #}
     <p class="paper-meta-notes__dates">
-      Received {{ pub.dates.received }} · Accepted {{ pub.dates.accepted or "—" }} · Published {{ pub.dates.published or "—" }}
+      Received {{ pub.dates.received }} · Accepted {{ pub.dates.accepted or "—" }} · First published {{ pub.dates.publishedOnline or pub.dates.published or "—" }}{% if pub.dates.publishedPrint %} · Issue {{ pub.dates.publishedPrint }}{% endif %}
     </p>
     {%- endif %}
   </section>

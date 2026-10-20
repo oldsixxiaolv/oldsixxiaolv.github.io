@@ -2030,6 +2030,23 @@ CSDN 521 并列）。那个归类对 ResearchGate / CSDN 成立，但对这一�
   「README 门禁 RD1 是单向的」那条同号（一个号两件事）；19:0x 场次就地改号为 31，
   29 归 RD1 那条。**同号两义 = 本人按号拍板会拍到错的那一件，详见本文件末尾本场次节。）
 
+
+- **`citation_publication_date` 该用"上线日 2026-06-01"还是"期号日 2026-06-16"？—— 引用时通常会写哪个日期**：
+  事实（2026-10-20 实测）：Google Scholar 官方收录说明第 (c) 条对 `citation_publication_date` 的定义是
+  "must contain the date of publication, i.e., the date that would normally be cited in references to this
+  paper from other papers. **Don't use it for the date of entry into the repository - that should go into
+  `citation_online_date` instead.**"；而 Crossref unixref（`10.1029/2026JD046836`）**同时登记了两个**
+  `publication_date`：`media_type="online"` = 2026-06-01（= `published-online`，AGU 页面 "First published:
+  01 June 2026"）、`media_type="print"` = 2026-06-16（= `published-print`，期号日）。
+  **两个日期都是出版商登记的事实**，差别只在"引用时通常会写哪个" —— 那是口径，属本人拍板，本场次不代拍。
+  备选：① 保持 2026-06-01（上线日；等于 "first published"，也是 `dates.published` 现值）——代价：与期号
+  2026-06-16 不一致，但 `dates.published` 的**四个消费点零改动**；② 改用 2026-06-16（期号日）——代价：
+  `dates.published` 的**四个消费点**（论文页可见日期、列表页 "2026-06"、JSON-LD `datePublished`、
+  BibTeX/RIS 的 year-month）都要跟着改，且 JSON-LD `datePublished` 改成期号日会让"首次上线"在机读层丢掉；
+  ③ 两个都给（`citation_publication_date` 用期号日、`citation_online_date` 用上线日）——代价：同 ②，另外
+  官方那句 "Don't use it for the date of entry into the repository" 意味着 `citation_online_date` 严格说该填
+  "进入本仓库的日期"，而本站填的是"出版商上线日"（这一读法差已在本场次节写明）。
+  （本场次不代拍，登记为待拍板 33）
 ---
 ## 2026-10-19 · 第十一轮（12:22–12:47 场次）：订阅源时间戳说真话 + 404 身份开关落地
 
@@ -12529,3 +12546,66 @@ peer 建议里"Og 图里烤着 GitHub 字面量"一条：现查 `src/assets/img/
   并发场次**未提交**的改动（citation-meta / README / site.js 那几条线），
   **不把它们卷进本次提交**；日志的提交内容由 **HEAD 版日志 + 本场次这一节**现场拼出，
   **不**整份烤工作树（避免捎带别人的在途节，也避免抹掉别人的在途节）。
+
+
+## 2026-10-20 · 01:20–01:55 场次（**不占轮次号**，避免与并发场次撞号）：引用元数据补 `citation_online_date` —— 出版商登记的"上线日"与"期号日"是**两个事实**，不混用一个；并给全仓最后一个没有注入矩阵的静默失效层补上矩阵
+
+### A. 巡检（2026-10-20 01:29 GMT 实测）
+
+线上 `https://github.lvyihang.xyz/`：状态码 `/` 200、`/blog/` 200、`/about/` 200、`/sitemap.xml` 200、
+`/404.html` 200；`/papers/` **404**、`/publications.bib` **404**、`/feed.xml` **404**、`/publications.ris` **404**。
+响应头 `last-modified: Fri, 16 Oct 2026 09:52:17 GMT`、`etag: "6ad1f3d1-9311"` → 确认仍是 **2026-10-16 旧部署**，
+不是站点损坏。那四个 404 属"待部署"（待拍板 7），**本场次不 push**，故不修。
+
+### B. 本场次实施（两个改进点）
+
+1. **引用元数据补 `citation_online_date`，并把"上线日 / 期号日"拆成两个具名字段**：
+   - `src/_data/site.js`：`dates` 拆出 `publishedOnline`（2026-06-01）与 `publishedPrint`（2026-06-16），
+     `published` 保持 "2026-06-01" 不动 → **四个消费点零变化**（论文页、列表页、JSON-LD、BibTeX/RIS）。
+   - `src/_includes/partials/citation-meta.njk`：新增 `citation_online_date`（值 = `dates.publishedOnline`
+     → 2026/06/01）；文件头补入 Google 官方对两个日期标签的**原文定义**。
+   - `src/_includes/layouts/paper.njk`：可见时间线由 `Published 2026-06-01` 改为
+     `First published 2026-06-01 · Issue 2026-06-16` —— 用 AGU 自己的措辞，如实呈现两个已核实事实。
+   - **为什么不取"进入本仓库的日期"**（Google 官方那句话的字面读法）：那会把日期变成 git 派生的构建期事实；
+     而"出版商登记的上线日"在三处一致（Crossref `published-online` / unixref `media_type="online"` /
+     AGU "First published: 01 June 2026"）→ 选了**有权威来源**的那个，并在模板文件头把两种读法的差写明。
+   - `citation_publication_date` **保持 2026/06/01 不动**：改用期号日属"引用时通常写哪个日期"的口径问题，
+     **不代拍**，登记为**待拍板 33**（见中央台账）。
+2. **给全仓最后一个没有注入矩阵的静默失效层补上矩阵**：`scripts/check-citation-meta.cjs` 的文件头自述
+   "删掉模板里那行 `citation_issn`，build 照样全绿" → 新建 `scripts/test-citation-meta.cjs`（10 档 M0–M9），
+   接进 `npm run build`（`check:citation-meta` 之后），README 命令清单同步登记（RD3 要求）。
+   同时给新判据 **C7**（上线日必须是日历上真实存在的 YYYY/MM/DD，且不得晚于出版日；数据侧 + 产物侧各查一次）
+   配了自证存活；`c7Compared` 计数器**提到文件顶部声明** —— 否则整段删 C7 会崩成 `ReferenceError` 堆栈
+   而不是干净判红（本仓吃过这个亏）。
+
+### C. 验证（隔离克隆 `/tmp/mh-r30/repo`，基线 HEAD `6ccb7b5` + 本场次 7 个文件）
+
+- `npm run build` **exit 0**、零 ✗（日志里 35 个 "✓ M"）。
+- 引用元数据门禁通过：共比对 32 处，C7 比对 2 处。
+- 注入矩阵 **10/10 全过**：M0 基线绿；M1 少了 `citation_online_date`；M2 取值不一致；M3 晚于出版日（C7）；
+  M4 少了 `citation_publication_date`；M5 `citation_issn` 取值不一致；M6 一个 `citation_*` 都没有；
+  M7 非论文页出现 `citation_*`；M8 引用导出缺失；M9 导出里这篇论文不见了。
+- 产物级 diff（对比上一轮基线克隆 `/tmp/mh-r29/repo/_site`）：论文页仅多出 `citation_online_date` 标签 +
+  可见日期行改写；`publications.bib` / `publications.ris` **逐字节相同**；JSON-LD `datePublished` 仍 "2026-06-01"；
+  `feed.xml` / `robots.txt` 的差异**仅为构建时间戳**。
+- 额外两档注入：数据侧 `publishedOnline` 改成 2027-01-01 → C7 判红"上线日期晚于出版日期"；
+  整段删掉 C7 判据 → 门禁 **exit 1** 且给出可读红因"C7（上线/出版日期的不变量）一条都没比过"。
+
+### D. 编号说明：本场次**主动跳过 32**
+
+并发场次正在新建 `scripts/check-decision-ids.cjs`（待拍板编号唯一性门禁），其**文件头**已声明占用 **32**
+（"台账要不要收编台账外的事项"那条）。本场次**没有**去抢这个号 —— 抢了就是"一个号两件事"，
+正是那道新门禁要防的病 → 本场次用 **33**，并在中央台账里登记。
+
+- **待拍板 33（新增）｜`citation_publication_date` 该用"上线日 2026-06-01"还是"期号日 2026-06-16"？—— 引用时通常会写哪个日期**
+
+### E. 本场次不新增其它待拍板
+
+"上线日取哪个"已并入**待拍板 33**（一条，不拆两条）。仍开着的、本场次**不重复、不改口**：
+待拍板 7（部署时机——本场次仍**不 push**）、29（RD1 单向覆盖）、30（豁免标记词表口径）。
+
+### F. 提交
+
+- 本场次 7 个改动文件 + 本日志节，**显式指定路径**提交（不用 `git add -A`：工作树上还有并发场次的在途改动
+  —— 身份门禁 I8 那条线，以及新建的 `check-decision-ids.cjs` / `test-decision-ids.cjs`）。
+- **未 push。**

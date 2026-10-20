@@ -90,6 +90,7 @@ Cloudflare Pages、Nginx 等任意静态服务。详细运行 / 调试见 `HOW_T
 | `npm run check:identity` | 身份句柄（ORCID / GitHub / CSDN / ResearchGate）登记一致 |
 | `npm run check:identity-derivation` | 身份 URL 必须**派生**出来，不许抄成字面量 |
 | `npm run check:citation-meta` | 论文页 `citation_*` 标签与 `site.js` 逐字一致 |
+| `npm run check:citation-meta-selftest` | 上面那道门禁的本地夹具自测（10 档注入矩阵，证明它能变红） |
 | `npm run check:citation-cff` | 仓库根 `CITATION.cff` 与 `site.js` 逐字节一致 |
 | `npm run gen:citation-cff` | 按 `site.js` **重写** `CITATION.cff`（改过事实后跑这个） |
 | `npm run check:citation-cff-selftest` | 上面那道门禁的本地夹具自测（10 档注入矩阵，证明它能变红） |

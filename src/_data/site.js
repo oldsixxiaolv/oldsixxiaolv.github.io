@@ -372,7 +372,31 @@ module.exports = {
       // "下载 PDF"的中间页，喂给 Google 的 citation_pdf_url 会被当成网页。
       pdf: "https://agupubs.onlinelibrary.wiley.com/doi/pdf/10.1029/2026JD046836",
       // 出版流程日期（Crossref assertion 字段）。审稿过程对学术主页读者有用。
-      dates: { received: "2026-04-04", accepted: "2026-05-22", published: "2026-06-01" },
+      //
+      // ⚠️ 出版商（AGU）自己登记的是**两个**日期，本轮把它们拆成具名字段：
+      //   publishedOnline = 2026-06-01
+      //     · Crossref `published-online`
+      //     · Crossref unixref：`publication_date media_type="online"`
+      //     · 文章页 "First published: 01 June 2026"
+      //   publishedPrint  = 2026-06-16
+      //     · Crossref `published-print`
+      //     · Crossref unixref：`publication_date media_type="print"`
+      //     · 期号 131(11) 的出版日
+      //   `published` 保持 2026-06-01 不动：它有**四个**消费点
+      //   （citation_publication_date / RIS DA / 可见日期行 / JSON-LD datePublished），
+      //   本轮一个都不改——改它属于"引用时通常写哪个日期"的口径问题，
+      //   见 IMPROVEMENT-LOG.md 待决策段，本轮不代拍。
+      //   仍要新增 publishedOnline 的理由：Google Scholar 官方收录说明把
+      //   "上线日期"单独归到 citation_online_date，而这个日期此前在站点上
+      //   只以 published 这个含糊的名字存在。拆名之后，将来口径一旦调整，
+      //   改一处就够，不会漏改。
+      dates: {
+        received: "2026-04-04",
+        accepted: "2026-05-22",
+        published: "2026-06-01",
+        publishedOnline: "2026-06-01",
+        publishedPrint: "2026-06-16",
+      },
       // 摘要取自 Crossref 登记的 VOR 摘要（JATS 标签已剥离）。此前站点只有
       // 标题+刊名，读者看不出这篇做了什么；摘要是最缺的那一块。
       abstract:

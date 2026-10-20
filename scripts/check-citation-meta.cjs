@@ -7,7 +7,7 @@
  *   `citation_*` 是 Highwire Press 约定、**Google Scholar 唯一认**的引用元数据
  *   形态（Scholar 不读 JSON-LD——本站 src/_includes/partials/citation-meta.njk
  *   的文件头已经写明这一点）。也就是说：**论文能不能被 Scholar 收录、
- *   收录后显示的题名/作者/卷期/页码对不对，全部只由这 21 个 <meta> 决定。**
+ *   收录后显示的题名/作者/卷期/页码对不对，全部只由这一整套 <meta> 决定。**
  *   而这一层此前是**零门禁看管的**：
  *     · 门禁 8 / 19 / 31 查的是 JSON-LD 实体，check-jsonld 的 J1–J10 查的
  *       也是 JSON-LD —— 它们**不看 <meta>**；
@@ -19,7 +19,7 @@
  *   也就是说：**删掉模板里那行 citation_issn，build 照样全绿，页面照出，
  *   而 Scholar 那边少一条字段。**这类缺陷不报错、不变红、只在收录时才显形。
  *
- * 四条判据：
+ * 判据一览：
  *   C1 论文页的 `citation_*` 标签集合与取值，必须与 src/_data/site.js
  *      **逐条**一致（标签多一条、少一条、值改一个字都判红）；
  *   C2 **反向**判据：除论文独立页外，全站任何一个页面都不许有 `citation_*`
@@ -35,6 +35,10 @@
  *      渲染出来的 3 条与 site.js 逐条一致（顺序也一致）。
  *   C6 **Plain Language Summary**（出版商随文存缴的通俗摘要）——同上：
  *      site.js 里的正文哈希等于出版商那一份，论文页渲染的段落与之逐字一致。
+ *   C7 **上线日期与出版日期的不变量**——C1–C6 的期望集全部**从 site.js 派生**，
+ *      所以"site.js 里两个日期自己前后矛盾"这类错，C1 是**抓不到**的
+ *      （两边一致，只是都错）。C7 补的是这条不依赖期望集的结构性约束：
+ *      上线日期必须是日历上真实存在的 YYYY/MM/DD，且**不得晚于**出版日期。
  *
  * ⚠️ C5/C6 的期望值**只存 sha256，不存全文**，且哈希是从 **Crossref 存缴
  *   原文**算出来的（不是从 site.js 算的）——否则就变成"改数据的同时改尺子"，
@@ -146,6 +150,12 @@ const expectedCitations = (pub) => {
       ? String(pub.dates.published).replace(/-/g, "/")
       : null
   );
+  add(
+    "citation_online_date",
+    pub.dates && pub.dates.publishedOnline
+      ? String(pub.dates.publishedOnline).replace(/-/g, "/")
+      : null
+  );
   add("citation_journal_title", pub.journal);
   add("citation_volume", pub.volume);
   add("citation_issue", pub.issue);
@@ -187,6 +197,11 @@ const show = (list) =>
 
 /* ================= C1 论文页标签集合与取值 ================= */
 let compared = 0;
+/* ⚠️ C7 的计数器**声明在这里**（不在 C7 那段里）——
+   判据被整段删掉时，下面「自证存活」那处引用不会变成 ReferenceError 崩栈，
+   而是干净地判红"C7 一条都没比过"。本仓在这上面吃过亏：
+   别的门禁的注入档 T1（整段删掉自证）崩成裸堆栈，而不是可读的判红。 */
+let c7Compared = 0;
 for (const pub of pubs) {
   if (!pub || !pub.slug) continue;
   const rel = `papers/${pub.slug}/index.html`;
@@ -678,6 +693,92 @@ for (const pub of pubs) {
   }
 }
 
+/* ================= C7 上线日期与出版日期的不变量 =================
+ *
+ * 为什么需要这条：前面 C1–C6 全部是"**期望集** vs **产物**"的逐条比对，
+ * 期望集又是**从 site.js 派生的**。也就是说：site.js 里两个日期字段
+ * **自己前后矛盾**（例如把上线日写成 2027-01-01、出版日写成 2026-06-01），
+ * C1 会**全绿**——两边一致，只是都错。
+ * 而"上线日不可能晚于出版日"是一条**不依赖期望集**的结构性约束，
+ * 正是 C1 抓不到的那一类。
+ *
+ * 两条：
+ *   C7-1 数据侧：site.js 的 dates.publishedOnline 必须是个真日期
+ *        （YYYY/MM/DD，且日历上真的存在），且不得晚于 dates.published；
+ *   C7-2 产物侧：论文页上 citation_online_date 与 citation_publication_date
+ *        同样要满足"前者 ≤ 后者"——模板或数据被改坏时，产物上先暴露。
+ */
+const parseSlashDate = (s) => {
+  const m = String(s == null ? "" : s).match(/^(\d{4})\/(\d{2})\/(\d{2})$/);
+  if (!m) return null;
+  const y = Number(m[1]);
+  const mo = Number(m[2]);
+  const d = Number(m[3]);
+  const t = Date.UTC(y, mo - 1, d);
+  const back = new Date(t);
+  // 日历回环校验：Date.UTC 会把 2 月 30 日滚成 3 月 2 日，那种"日期"要判红
+  if (
+    back.getUTCFullYear() !== y ||
+    back.getUTCMonth() !== mo - 1 ||
+    back.getUTCDate() !== d
+  ) {
+    return null;
+  }
+  return t;
+};
+
+for (const pub of pubs) {
+  if (!pub || !pub.slug) continue;
+  const rel = `papers/${pub.slug}/index.html`;
+  const online = pub.dates && pub.dates.publishedOnline;
+  const published = pub.dates && pub.dates.published;
+
+  /* ---------- C7-1 数据侧 ---------- */
+  if (online) {
+    c7Compared++;
+    const tOnline = parseSlashDate(String(online).replace(/-/g, "/"));
+    const tPublished = published ? parseSlashDate(String(published).replace(/-/g, "/")) : null;
+    if (tOnline === null) {
+      note(
+        `${rel}：site.js 的 dates.publishedOnline = ${JSON.stringify(online)} ` +
+          `不是一个日历上真实存在的 YYYY/MM/DD 日期。`
+      );
+    } else if (tPublished !== null && tOnline > tPublished) {
+      note(
+        `${rel}：上线日期晚于出版日期 —— dates.publishedOnline = ${JSON.stringify(online)}，` +
+          `dates.published = ${JSON.stringify(published)}。上线日不可能晚于出版日。`
+      );
+    }
+  }
+
+  /* ---------- C7-2 产物侧 ---------- */
+  const file = path.join(SITE, "papers", pub.slug, "index.html");
+  if (!fs.existsSync(file)) continue; // C1 已经为这个缺页报过红
+  const actual = readCitations(file);
+  const firstOf = (name) => {
+    const hit = actual.find(([n]) => n === name);
+    return hit ? hit[1] : null;
+  };
+  const onMeta = firstOf("citation_online_date");
+  const pubMeta = firstOf("citation_publication_date");
+  if (onMeta && pubMeta) {
+    c7Compared++;
+    const tOnline = parseSlashDate(onMeta);
+    const tPublished = parseSlashDate(pubMeta);
+    if (tOnline === null) {
+      note(
+        `${rel}：citation_online_date = ${JSON.stringify(onMeta)} ` +
+          `不是一个日历上真实存在的 YYYY/MM/DD 日期。`
+      );
+    } else if (tPublished !== null && tOnline > tPublished) {
+      note(
+        `${rel}：citation_online_date 晚于 citation_publication_date —— ` +
+          `${JSON.stringify(onMeta)} > ${JSON.stringify(pubMeta)}。上线日不可能晚于出版日。`
+      );
+    }
+  }
+}
+
 /* ---------- C4 门禁自己没被卸掉 + 自证存活 ---------- */
 const GATE_FILE = "check-citation-meta.cjs";
 if (!fs.existsSync(PKG)) {
@@ -742,6 +843,15 @@ if (!compared) {
         `plainLanguageSummary，但判据没有对任何一篇做过比对（判据被卸掉了）。`
     );
   }
+  /* C7 同理：site.js 里既然有 publishedOnline，判据就必须真的对每一篇
+     比过一次（含数据侧与产物侧各一次）。少一次 → 判据被卸掉了。 */
+  const c7Expected = pubs.filter((p) => p && p.dates && p.dates.publishedOnline).length;
+  if (c7Expected > 0 && c7Compared < c7Expected) {
+    note(
+      `C7（上线/出版日期的不变量）一条都没比过——site.js 里有 ${c7Expected} 篇论文带 ` +
+        `dates.publishedOnline，但判据没有对任何一篇做过比对（判据被卸掉了）。`
+    );
+  }
 }
 
 /* ---------- 汇总 ---------- */
@@ -758,6 +868,9 @@ console.log(
     (kpCompared || plsCompared
       ? `Key Points 与 Plain Language Summary 与出版商存缴原文一致（比对了 ` +
         `${kpCompared} + ${plsCompared} 处）。`
+      : "") +
+    (c7Compared
+      ? `上线日期不晚于出版日期（比对了 ${c7Compared} 处）。`
       : "")
 );
 if (known.length) {
