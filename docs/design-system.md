@@ -95,11 +95,13 @@
   --color-warning: #d99a2b;
   --color-danger:  #c84a3a;
   --color-info:    var(--color-brand-400);
+  --button-primary-bg: #1453d8;   /* brand 主按钮底色（白字 6.44:1 · AA pass） */
 
   /* —— 文本 / 链接 —— */
   --text-primary:   var(--color-neutral-900);
   --text-secondary: var(--color-neutral-600);
   --text-muted:     var(--color-neutral-500);
+  --text-accent:    var(--color-accent-600);   /* 强调色作文字用（暗色主题覆写为 accent-500） */
   --text-on-brand:  #ffffff;
   --link-color:     var(--color-brand-500);
   --link-hover:     var(--color-brand-700);
@@ -116,13 +118,14 @@
   --border-default: var(--color-neutral-300);
   --border-strong: var(--color-neutral-500);
 
-  /* —— 阴影（浅/中/强 三档） —— */
+  /* —— 阴影（浅/中/强 三档 + 焦点环） —— */
   --shadow-1: 0 1px 2px rgba(15, 13, 10, .04),
               0 1px 1px rgba(15, 13, 10, .03);
   --shadow-2: 0 4px 12px rgba(15, 13, 10, .06),
               0 2px 4px rgba(15, 13, 10, .04);
   --shadow-3: 0 16px 40px rgba(15, 13, 10, .10),
               0 4px 12px rgba(15, 13, 10, .06);
+  --shadow-focus: 0 0 0 3px rgba(58, 134, 255, .35);
 }
 ```
 
@@ -163,6 +166,10 @@
     --text-primary:   var(--color-neutral-900);
     --text-secondary: var(--color-neutral-600);
     --text-muted:     var(--color-neutral-500);
+    --text-accent:    var(--color-accent-500);
+    --link-color:     var(--color-brand-400);
+    --link-hover:     var(--color-brand-300);
+
     --bg-page:       var(--color-neutral-0);
     --bg-surface:    var(--color-neutral-100);
     --bg-muted:      #14131180;
@@ -174,13 +181,20 @@
     --shadow-1: 0 1px 2px rgba(0,0,0,.4);
     --shadow-2: 0 4px 12px rgba(0,0,0,.5), 0 2px 4px rgba(0,0,0,.4);
     --shadow-3: 0 16px 40px rgba(0,0,0,.6), 0 4px 12px rgba(0,0,0,.4);
+    --shadow-focus: 0 0 0 3px rgba(77, 151, 255, .35);
+
+    /* —— Semantic State（暗色下的覆写值） —— */
+    --color-success: #6fb988;
+    --color-warning: #e5b257;
+    --color-danger:  #e06757;
+    --button-primary-bg: #2563eb;   /* 浅色用的 #1453d8 在暗背景上仅 2.72:1，违反 AA */
   }
 }
 
 [data-theme="dark"] {
   /* 显式开关：覆盖 prefers-color-scheme */
   --text-primary:   var(--color-neutral-900);
-  /* ……同样用上面那套变量，可由 JS 注入 —— */
+  /* ……上面那套暗色变量在 tokens.css 里逐条列全了，此处只示意其中一条 —— */
 }
 ```
 

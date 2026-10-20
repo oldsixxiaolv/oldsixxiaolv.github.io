@@ -38,6 +38,28 @@
  *      ⚠️ **只对 tokens.css 判**：另有约 30 个 CSS 变量（--bg-card / --border / --kind-* /
  *      --ghost / --chart-stroke 等）定义在 a11y.css / pages.css / _paper.css / _button.css，
  *      属于**组件局部变量**，不在主题调色板内 —— 把它们算进来会误伤。
+ *   DC8 §2.2 / §2.3 == tokens.css 的调色板真源 —— §2.2「Light 模式 CSS 变量」与
+ *      §2.3「Dark 模式 CSS 变量」是**配色真源的文档副本**，必须与
+ *      `src/assets/css/tokens.css` 逐条对得上。2026-10-20 的 D21 实测发现它们**已经漂了**：
+ *        · §2.3 的暗色块只列了 35 个，tokens.css 的暗色块有 43 个 —— 漏掉 8 个覆写
+ *          （--text-accent / --link-color / --link-hover / --shadow-focus /
+ *            --color-success / --color-warning / --color-danger / --button-primary-bg）；
+ *          其中 success/warning/danger 的暗色值，正是 §2.4 对比表 Dark 列写的值 ——
+ *          §2.4 引用了一个在 §2.3 里**查不到出处**的量。
+ *        · §2.2 也漏了 3 个（--text-accent / --button-primary-bg / --shadow-focus）。
+ *      DC8 分三条子判据：
+ *        (a) **取值一致** —— 文档两个块里每个变量的取值，必须与 tokens.css 对应块同名变量
+ *            逐字相同（空格与换行不算差异，值本身必须一致）；
+ *        (b) **暗色块集合相等** —— §2.3 暗色块与 tokens.css 暗色块的变量集合必须**双向相等**
+ *            （漏一个 = 暗色下这个量根本没被覆写；多一个 = 文档里的暗色值是幻觉）；
+ *        (c) **浅色调色板不得漏项** —— tokens.css `:root` 里属于调色板家族的变量，
+ *            §2.2 必须全部列出（反向：§2.2 列了而 tokens.css 没有 ⇒ 死变量）。
+ *            ⚠️ **只对调色板家族做反向核对**（--color-/--text-/--link-/--bg-/--border-/
+ *            --shadow-/--button-）：§2.2 是**配色清单**，不是全量 token 表；全量清单在 §10
+ *            （由 DC7 盯），tokens.css 里另有约 50 个 --space-* / --fs-* / --font-* /
+ *            --ease-* / --dur-* 不属于调色板，算进来会误伤。
+ *      ⚠️ **不判 §2.3 里的 `[data-theme="dark"]` 块**：文档那一块是**有意简写**
+ *      （只示意一条，完整的一份在 tokens.css 里），不是漏项 —— 别去"修"它。
  *
  * 环境变量（供 scripts/test-design-system-contract.cjs 的注入矩阵用）：
  *   DCC_DOC            —— 覆盖设计系统文档路径。
@@ -69,6 +91,27 @@ const MIN_CSS_VARS = 50;
 const MIN_PARTIALS = 7;
 /** DC7 的覆盖度下限（§10 与 tokens.css 的主题 token 规模）。 */
 const MIN_THEME_VARS = 100;
+/** DC8 的覆盖度下限（§2.2 浅色调色板 / §2.3 暗色块 / tokens.css 暗色块）。 */
+const MIN_DOC_LIGHT_VARS = 50;
+const MIN_DOC_DARK_VARS = 40;
+const MIN_TOKENS_DARK_VARS = 40;
+
+/** DC8：暗色块的选择器（文档与 tokens.css 用的是同一个）。 */
+const DARK_SEL = ':root:not([data-theme="light"])';
+/**
+ * DC8：调色板家族 —— §2.2 是**配色清单**，只对这几个前缀做「不得漏」的反向核对。
+ * tokens.css 里其余约 50 个（--space-* / --fs-* / --font-* / --ease-* / --dur-*）
+ * 不是配色量，归 §10（DC7）管。
+ */
+const PALETTE_FAMILIES = [
+  "--color-",
+  "--text-",
+  "--link-",
+  "--bg-",
+  "--border-",
+  "--shadow-",
+  "--button-",
+];
 
 /**
  * 命令行开关白名单 —— 这些 `--xxx` 长得像 CSS 变量，但它们是命令参数，
@@ -134,6 +177,41 @@ function docTokens(text) {
   return new Set(m || []);
 }
 
+/* ---------------- DC8 的 CSS 块解析工具 ---------------- */
+
+/** 取出一段 markdown 里的第一个 ```css 代码块正文（没有就返回空串）。 */
+function cssFence(sectionText) {
+  const m = /```css[^\n]*\n([\s\S]*?)```/.exec(sectionText || "");
+  return m ? m[1] : "";
+}
+
+/** 解析 CSS 文本里的顶层块 —— 嵌套块按**内层**选择器算（`@media` 里的那个）。 */
+function cssBlocks(css) {
+  const out = [];
+  for (const m of (css || "").matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+    out.push({ sel: m[1].trim().split("\n").pop().trim(), body: m[2] });
+  }
+  return out;
+}
+
+/** 块里的自定义属性：名字 → {raw, norm}。norm 去掉全部空白，只用于比值。 */
+function blockVars(body) {
+  const out = new Map();
+  for (const m of (body || "").matchAll(/(--[A-Za-z][A-Za-z0-9_-]*)\s*:\s*([^;]+);/g)) {
+    const raw = m[2].trim().replace(/\s+/g, " ");
+    out.set(m[1], { raw, norm: raw.replace(/\s+/g, "") });
+  }
+  return out;
+}
+
+/** 按选择器**精确**取一个块里的变量表；取不到返回空表。 */
+function pickBlockVars(css, sel) {
+  for (const b of cssBlocks(css)) {
+    if (b.sel === sel) return blockVars(b.body);
+  }
+  return new Map();
+}
+
 /* ---------------- 读文件 ---------------- */
 
 if (!fs.existsSync(DOC)) {
@@ -158,6 +236,15 @@ const TOKENS_CSS = path.join(CSS_DIR, "tokens.css");
 const tokensCss = fs.existsSync(TOKENS_CSS) ? fs.readFileSync(TOKENS_CSS, "utf8") : "";
 const themeDocVars = s10 ? definedVars(s10) : new Set();
 const themeTokenVars = definedVars(tokensCss);
+
+/* ---------------- DC8 的输入：§2.2 / §2.3 与 tokens.css 的调色板 ---------------- */
+
+const s22 = section(docText, "2.2");
+const s23 = section(docText, "2.3");
+const docLight = pickBlockVars(cssFence(s22), ":root");
+const docDark = pickBlockVars(cssFence(s23), DARK_SEL);
+const tokLight = pickBlockVars(tokensCss, ":root");
+const tokDark = pickBlockVars(tokensCss, DARK_SEL);
 
 /* ---------------- DC1：徽标类名族齐全 ---------------- */
 
@@ -338,6 +425,24 @@ if (themeTokenVars.size < MIN_THEME_VARS) {
       `扫描面被收窄了，DC7 已经失去覆盖面。`
   );
 }
+if (docLight.size < MIN_DOC_LIGHT_VARS) {
+  fail(
+    `DC6 §2.2 只认出 ${docLight.size} 个调色板变量（要求至少 ${MIN_DOC_LIGHT_VARS} 个）—— ` +
+      `§2.2 被裁剪了，DC8 已经失去覆盖面。`
+  );
+}
+if (docDark.size < MIN_DOC_DARK_VARS) {
+  fail(
+    `DC6 §2.3 只认出 ${docDark.size} 个暗色变量（要求至少 ${MIN_DOC_DARK_VARS} 个）—— ` +
+      `§2.3 的暗色块被裁剪了，DC8 已经失去覆盖面。`
+  );
+}
+if (tokDark.size < MIN_TOKENS_DARK_VARS) {
+  fail(
+    `DC6 tokens.css 只认出 ${tokDark.size} 个暗色变量（要求至少 ${MIN_TOKENS_DARK_VARS} 个）—— ` +
+      `暗色块被收窄了，DC8 已经失去覆盖面。`
+  );
+}
 
 /* ---------------- DC7：§10 == tokens.css 的变量集合 ---------------- */
 
@@ -364,14 +469,80 @@ if (!s10) {
   }
 }
 
+/* ---------------- DC8：§2.2 / §2.3 == tokens.css 的调色板真源 ---------------- */
+
+if (!s22 || !docLight.size) {
+  fail(
+    "DC8 设计系统文档里找不到 §2.2 的 `:root` 变量块 —— " +
+      "这道门禁要盯的就是那份浅色调色板清单。"
+  );
+}
+if (!s23 || !docDark.size) {
+  fail(
+    `DC8 设计系统文档里找不到 §2.3 的 \`${DARK_SEL}\` 变量块 —— ` +
+      "读不到暗色覆写表就无从核对（§2.3 末尾的 `[data-theme=\"dark\"]` 块是有意简写，不在核对范围内）。"
+  );
+}
+
+// (a) 取值一致 —— 文档写的每个量，值必须和 tokens.css 逐字相同
+for (const [name, v] of docLight) {
+  const t = tokLight.get(name);
+  if (t && v.norm !== t.norm) {
+    fail(
+      `DC8 §2.2 里 \`${name}\` 的取值是 \`${v.raw}\`，但 tokens.css 的 \`:root\` 里是 \`${t.raw}\` —— ` +
+        `同一份浅色调色板，两处写了两个值；照文档实现的人会拿到和线上不一样的那一个。`
+    );
+  }
+}
+for (const [name, v] of docDark) {
+  const t = tokDark.get(name);
+  if (t && v.norm !== t.norm) {
+    fail(
+      `DC8 §2.3 暗色块里 \`${name}\` 的取值是 \`${v.raw}\`，但 tokens.css 的暗色块里是 \`${t.raw}\` —— ` +
+        `同一份暗色调色板，两处写了两个值。`
+    );
+  }
+}
+
+// (b) 暗色块集合相等（双向）—— 漏一个覆写 = 暗色下这个量根本没被改
+for (const name of [...tokDark.keys()].filter((n) => !docDark.has(n)).sort()) {
+  fail(
+    `DC8 §2.3 暗色块里没有 \`${name}\`，但 tokens.css 的暗色块里真实定义了它 —— ` +
+      `暗色下这个量压根没被覆写，文档漏的这一条就是规格的缺口。`
+  );
+}
+for (const name of [...docDark.keys()].filter((n) => !tokDark.has(n)).sort()) {
+  fail(
+    `DC8 §2.3 暗色块里列了 \`${name}\`，但 tokens.css 的暗色块里没有它 —— ` +
+      `文档里写的这个暗色值是幻觉，tokens.css 里根本不存在。`
+  );
+}
+
+// (c) 浅色调色板不得漏项 —— tokens.css 里的调色板变量，§2.2 必须全部列出
+const tokPalette = new Set(
+  [...tokLight.keys()].filter((n) => PALETTE_FAMILIES.some((f) => n.startsWith(f)))
+);
+for (const name of [...tokPalette].filter((n) => !docLight.has(n)).sort()) {
+  fail(
+    `DC8 §2.2 浅色调色板清单里没有 \`${name}\`，但 tokens.css 的 \`:root\` 里真实定义了它 —— ` +
+      `§2.2 是这份调色板的文档副本，漏一项就等于规格里没有它。`
+  );
+}
+for (const name of [...docLight.keys()].filter((n) => !tokLight.has(n)).sort()) {
+  fail(
+    `DC8 §2.2 里列了 \`${name}\`，但 tokens.css 的 \`:root\` 里没有定义它 —— ` +
+      `照抄 §2.2 会得到一个永远取不到值的死变量。`
+  );
+}
+
 /* ---------------- 汇总 ---------------- */
 if (problems.length) {
   console.error("设计系统文档契约门禁未通过：\n");
   problems.forEach((p) => console.error(`  ✗ ${p}`));
   console.error("");
   console.error(
-    `  判据出处：docs/DEFECT-BACKLOG.md D19 / D20（设计系统文档 §6 的类名族 / token / 构建模式、` +
-    `§10 的 token 集合与 tokens.css 对不上）。`
+    `  判据出处：docs/DEFECT-BACKLOG.md D19 / D20 / D21（设计系统文档 §6 的类名族 / token / 构建模式、` +
+    `§10 的 token 集合与 tokens.css 对不上、§2.2 / §2.3 的调色板与 tokens.css 对不上）。`
   );
   console.error("");
   process.exit(1);
@@ -384,4 +555,7 @@ console.log(
 console.log(`  · ${actualPartials.length} 个 partial 的清单三处一致；dev/prod 判定与 eleventy.config.js 一致。`);
 console.log(
   `  · §10 与 tokens.css 的主题 token 集合相等（各 ${themeDocVars.size} 个）。`
+);
+console.log(
+  `  · §2.2 浅色（${docLight.size} 个）与 §2.3 暗色（${docDark.size} 个）调色板与 tokens.css 逐条一致。`
 );

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * 设计系统文档契约门禁的**自测**（注入矩阵）—— 证明 DC1–DC7 每一条都**能变红**。
+ * 设计系统文档契约门禁的**自测**（注入矩阵）—— 证明 DC1–DC8 每一条都**能变红**。
  *
  * 为什么要有这个自测：
  *   一条**永远不会红**的判据，给出的是"看起来很确定的绿"——它比没有判据更坏，
@@ -14,7 +14,7 @@
  *   把门禁指向副本，断言门禁**确实**报出了对应的那条红因。
  *   ⚠️ 全程**不动仓库里的任何文件** —— 注入必须在副本上做。
  *
- * 八档：
+ * 十档：
  *   DT0 基线（原样）                        → 必须**全绿**（证明这套判据不是空跑）
  *   DT1 §6.0 徽标行删掉 `.badge--quiet`     → DC1（类名族漏项）
  *   DT2 文档里塞一个 CSS 里没有的 `--token`  → DC2（虚构 CSS 变量）
@@ -23,12 +23,15 @@
  *   DT5 §6.4 字号改成 `--fs-small`          → DC5（规格点了没被用的 token）
  *   DT6 裁剪副本里的 _badge.css              → DC6（覆盖度自证：扫描面被收窄）
  *   DT7 tokens.css 多一个 §10 没列的变量     → DC7（§10 与 tokens.css 集合不等）
+ *   DT8 §2.3 暗色块删掉一个覆写             → DC8（暗色块与 tokens.css 集合不等）
+ *   DT9 §2.2 改掉一个变量的取值             → DC8（同一份调色板两处写了两个值）
  *
  * ⚠️ 每档都断言**只触发它自己那一条判据**（判据编号只从红因行的开头取，
  *   免得正文里提到别的编号被算进来）。一档同时炸出两条 ⇒ 两条判据的覆盖面
  *   缠在一起了，各自都测不准 —— 这比"测不到"更隐蔽。
  *   注入点也据此挑：DT2 的注入点放在 §11（验收清单），**不放在 §10 里** ——
  *   §10 是 DC7 的比对面，塞进去会同时触发 DC2 与 DC7，就分不清是谁在报警了。
+ *   同理 DT8 / DT9 打在 §2.2 / §2.3 上（DC8 的比对面），不去动 tokens.css。
  *
  * 用法：node scripts/test-design-system-contract.cjs
  */
@@ -297,6 +300,8 @@ expectRed(
 );
 
 // DT7：副本的 tokens.css 里多一个 §10 没列的变量 ⇒ DC7
+// ⚠️ 注入的变量名**刻意不用 `--color-` 前缀**：DC8(c) 盯的是「tokens.css 里的调色板变量
+//    §2.2 是否都列了」，用调色板前缀会一箭双雕（DC7 与 DC8 同时炸），就分不清是谁在报警了。
 expectRed(
   "DT7 tokens.css 多一个 §10 没列的变量",
   ({ cssDir, read, write }) => {
@@ -306,7 +311,7 @@ expectRed(
       replaceOnce(
         read(p),
         "  --color-info:    var(--color-brand-400);",
-        "  --color-info:    var(--color-brand-400);\n  --color-injected-selftest: #123456;"
+        "  --color-info:    var(--color-brand-400);\n  --injected-selftest-xyz: #123456;"
       )
     );
   },
@@ -315,8 +320,45 @@ expectRed(
 );
 
 /* ---------- 汇总 ---------- */
+
+// DT8：文档 §2.3 的暗色块里删掉一个覆写 ⇒ DC8（暗色块集合与 tokens.css 不等）
+// ⚠️ 注入点选在**文档副本**的 §2.3 暗色块里（DC8 的比对面），不去动 tokens.css ——
+//    这一条注入的就是 D21 实测到的真实缺陷形态。
+expectRed(
+  "DT8 §2.3 暗色块删掉 `--color-success` 的覆写",
+  ({ docPath, read, write }) => {
+    write(
+      docPath,
+      replaceOnce(
+        read(docPath),
+        "    --color-success: #6fb988;\n    --color-warning: #e5b257;",
+        "    --color-warning: #e5b257;"
+      )
+    );
+  },
+  "DC8 §2.3 暗色块里没有",
+  ["DC8"]
+);
+
+// DT9：文档 §2.2 里改掉一个变量的取值 ⇒ DC8（同一份调色板两处写了两个值）
+expectRed(
+  "DT9 §2.2 里 `--color-brand-400` 的取值改成 `#000000`",
+  ({ docPath, read, write }) => {
+    write(
+      docPath,
+      replaceOnce(
+        read(docPath),
+        "  --color-brand-400: #3a86ff;   /* PRIMARY（流场蓝主色） */",
+        "  --color-brand-400: #000000;   /* PRIMARY（流场蓝主色） */"
+      )
+    );
+  },
+  "DC8 §2.2 里 `--color-brand-400` 的取值",
+  ["DC8"]
+);
+
 if (failed) {
   console.error(`\n设计系统契约自测：${failed} 档未通过。`);
   process.exit(1);
 }
-console.log("\n设计系统契约自测：8 档全部符合预期（DC1–DC7 都能变红，每档只触发自己那一条；基线是绿的）。");
+console.log("\n设计系统契约自测：10 档全部符合预期（DC1–DC8 都能变红，每档只触发自己那一条；基线是绿的）。");
