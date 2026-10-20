@@ -27,6 +27,16 @@
  *      为什么豁免要"写在同一行"：写在别处就分不清这句说的是哪个路径，
  *      门禁一旦要猜，红因就会变成假话（比不判红更坏）。
  *
+ *      **"站内路径"有两种写法，两种都要核**：相对写法（`/about/`）与
+ *      绝对写法（`https://本站域名/about/`）。第一版只认相对写法，
+ *      实测（2026-10-19）README 里写一条指向不存在页面的**绝对 URL** →
+ *      门禁 exit 0、路径计数**纹丝不动**（11 → 11）—— 覆盖度上的假绿，
+ *      与"尾斜杠漏匹配"那次同族：判据看上去在管这件事，实际没管。
+ *      本站域名**由产物推导**（`index.html` 的 canonical → `sitemap.xml` 的 loc），
+ *      写死域名会把"换域名"变成静默失效；**别人的域名一律不核**
+ *      （那是外部链接，不是站内路由 —— 核了就是假红）。
+ *      两个来源都读不出域名 → **判红**（判据视野不完整，不能装作核过了）。
+ *
  *   RD2 **README 声明的 Node 下限必须 ≥ `package.json` 的 `engines.node`。**
  *      方向是**一个方向**：README 说得比实际**更高**是允许的（更保守）；
  *      说得更低（"≥ 18"）会让按 README 装环境的人拿到一个跑不起来的 Node。
@@ -133,6 +143,48 @@ const topLevelExports = [];
   }
 })(SITE);
 
+/* ---------- 由产物推导"本站自己的域名"（供 RD1 核绝对 URL 用） ----------
+ * 为什么由产物推导：写死域名 → 换域名时这道判据会**静默失效**
+ *   （它会去核一个根本不属于本站的域名，或者干脆什么都不核）。
+ * 为什么两个来源：canonical 是页面自己声明的"我是谁"，sitemap 是给爬虫的
+ *   "我在哪"；两个都读不到 → 判据视野不完整 → 判红，不装作核过了。 */
+function canonicalOrigin(html) {
+  const tags = html.match(/<link\b[^>]*>/gi) || [];
+  for (const tag of tags) {
+    if (!/rel\s*=\s*["']?canonical/i.test(tag)) continue;
+    const m = tag.match(/href\s*=\s*["']([^"']+)["']/i);
+    if (!m) continue;
+    try {
+      return new URL(m[1]).origin;
+    } catch (e) {
+      return "";
+    }
+  }
+  return "";
+}
+
+let siteOrigin = "";
+try {
+  siteOrigin = canonicalOrigin(fs.readFileSync(path.join(SITE, "index.html"), "utf8"));
+} catch (e) {
+  siteOrigin = "";
+}
+if (!siteOrigin) {
+  try {
+    const sm = fs.readFileSync(path.join(SITE, "sitemap.xml"), "utf8");
+    const loc = sm.match(/<loc>\s*([^<\s]+)\s*<\/loc>/i);
+    if (loc) siteOrigin = new URL(loc[1]).origin;
+  } catch (e) {
+    siteOrigin = "";
+  }
+}
+if (!siteOrigin) {
+  problems.push(
+    "RD1 推不出本站自己的域名（index.html 的 canonical 与 sitemap.xml 的 loc 都读不到）—— " +
+      "README 里的**绝对 URL** 形式就无从判断是不是站内路径，判据视野不完整，判红。"
+  );
+}
+
 /* 仓库根的 CITATION.cff 也是对外出口（GitHub 的 "Cite this repository" 按钮读它）。 */
 const CFF = path.join(ROOT, "CITATION.cff");
 const hasCff = fs.existsSync(CFF);
@@ -163,6 +215,9 @@ const knownPaths = new Set([...routes, ...files]);
  */
 const PATH_RE =
   /(?<![A-Za-z0-9._~%+\-/:<>*|])(\/[A-Za-z0-9._~%+\/-]+)/g;
+/* 绝对 URL（RD1 的第二种写法）。只用来**取**它的 origin 与 path，
+ *   核不核由"origin 是不是本站"决定（见下面的扫描处）。 */
+const ABS_URL_RE = /https?:\/\/[^\s)\]"'`，。；：、（）]+/g;
 /* "这条路径还没实现" 的显式标记（必须与该路径在同一行）。
  *
  * ⚠️ 词表必须**具体**：第一版把"不存在"也算作标记，结果自测注入了一行
@@ -178,6 +233,7 @@ const mentionedPaths = new Map(); // 路径 → 首个出现的行号
 let notImplSkipped = 0;
 let placeholderSkipped = 0;
 let patternSkipped = 0;
+let absSitePathCount = 0; // 由绝对 URL 认出的站内路径条数（通过文案里要看得见）
 
 lines.forEach((line, i) => {
   const hits = line.match(PATH_RE) || [];
@@ -198,6 +254,35 @@ lines.forEach((line, i) => {
       continue; // 规划中的路径，同一行已显式标注
     }
     mentionedPaths.set(p, i + 1);
+  }
+
+  /* 绝对 URL 形式的站内路径（RD1 的第二种写法）。
+   * ⚠️ 只核**origin 等于本站**的：别人的域名是外部链接（README 里有一堆
+   *    GitHub 仓库、ORCID、本地开发地址），核它们就是假红。
+   * ⚠️ 相对写法那条正则**抓不到**绝对 URL 里的路径（前一个字符是字母，
+   *    触发 lookbehind），所以这里是**另开一路**扫，不是重复。 */
+  const absHits = line.match(ABS_URL_RE) || [];
+  for (const rawAbs of absHits) {
+    let u;
+    try {
+      u = new URL(rawAbs);
+    } catch (e) {
+      continue; // 不是合法 URL（多半是中文括号粘住了尾巴）→ 不核
+    }
+    if (!siteOrigin || u.origin !== siteOrigin) continue; // 外部链接 → 不是站内路由
+    const p = u.pathname;
+    if (!p || p === "/") continue; // 站点根本身永远存在
+    if (p.includes("...")) {
+      patternSkipped++;
+      continue;
+    }
+    if (NOT_IMPL_RE.test(line)) {
+      notImplSkipped++;
+      continue; // 规划中的地址，同一行已显式标注
+    }
+    if (mentionedPaths.has(p)) continue;
+    mentionedPaths.set(p, i + 1);
+    absSitePathCount++;
   }
 });
 
@@ -325,5 +410,6 @@ console.log(
   `README 事实核对门禁通过：${knownMentioned} 条路径、${mentionedScripts} 个命令、` +
     `${mentionedOutlets} 个对外出口与现状一致` +
     `（产物路由 ${routes.size} 个、顶层出口 ${topLevelExports.length} 个；` +
+    `绝对 URL 认出站内路径 ${absSitePathCount} 条（本站 ${siteOrigin}）；` +
     `放行占位符路径 ${placeholderSkipped} 条、通配 ${patternSkipped} 条、规划中 ${notImplSkipped} 条）。`
 );

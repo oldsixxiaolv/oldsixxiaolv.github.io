@@ -15,13 +15,15 @@
  *   （这正是门禁里加 `README_PATH` 这个开关的原因：没有它，自测就只能去改
  *     仓库文件，改坏了就是事故。）
  *
- * 六档：
+ * 八档：
  *   M0 基线（原样）           → 必须**全绿**（证明这套判据不是空跑）
  *   M1 README 写了一个不存在的路由 → RD1
  *   M2 README 的 Node 下限低于 package.json → RD2
  *   M3 README 漏掉了一个命令   → RD3
  *   M4 README 漏掉了一个对外出口 → RD4
  *   M5 判据自身失效（一个路由都认不出）→ RD5
+ *   M6 README 写了一个指向不存在站内页的**绝对 URL** → RD1
+ *   M7 **外部域名**的绝对 URL → 必须**仍绿**（合法路径应绿，防止过度核）
  *
  * 用法：node scripts/test-readme.cjs
  */
@@ -84,6 +86,19 @@ function replaceAll(text, from, to) {
 
 const cases = [];
 
+/* 本站域名（**由产物推导**，与门禁同一口径 —— 不写死域名，
+ *   否则换域名后这两档会一起坏跑、而没人知道）。 */
+const SITE_ORIGIN = (() => {
+  const html = fs.readFileSync(path.join(ROOT, "_site", "index.html"), "utf8");
+  const tags = html.match(/<link\b[^>]*>/gi) || [];
+  for (const tag of tags) {
+    if (!/rel\s*=\s*["']?canonical/i.test(tag)) continue;
+    const m = tag.match(/href\s*=\s*["']([^"']+)["']/i);
+    if (m) return new URL(m[1]).origin;
+  }
+  throw new Error("推不出本站域名（_site/index.html 里没有 canonical）—— 注入基准不存在，这一档是坏跑");
+})();
+
 /* M0 基线 */
 const m0 = run(null);
 cases.push(["M0 基线（原样 README）", m0.code === 0, m0.out.trim().split("\n").slice(-1)[0]]);
@@ -130,6 +145,27 @@ cases.push([
   "M5 判据自身失效（一个路径都认不出）",
   m5.code === 1 && m5.out.includes("RD5"),
   m5.out.trim().split("\n").slice(-1)[0],
+]);
+
+/* M6：README 写了一个指向**不存在站内页**的绝对 URL → RD1
+ *   为什么要有这一档：第一版只认相对写法，绝对 URL **整个逃过**——
+ *   实测 exit 0、路径计数纹丝不动（11 → 11），判据看上去在管、实际没管。
+ *   ⚠️ 注入行里不能出现任何"未实现"标记词，否则那一行被豁免、注入自己遮住自己。 */
+const m6 = run((t) => t + `\n绝对地址探针：${SITE_ORIGIN}/no-such-page-xyz/\n`);
+cases.push([
+  "M6 README 写了指向不存在站内页的绝对 URL",
+  m6.code === 1 && m6.out.includes("RD1") && m6.out.includes("/no-such-page-xyz/"),
+  m6.out.trim().split("\n").slice(-1)[0],
+]);
+
+/* M7：外部域名的绝对 URL → 必须**仍绿**（"合法路径应绿"那一档）
+ *   只核"指向本站"的绝对 URL 是 M6 的另一半：核过头就是假红。
+ *   用 RFC 2606 保留域，不取自被测数据。 */
+const m7 = run((t) => t + "\n外部链接：https://example.invalid/no-such-page-xyz/\n");
+cases.push([
+  "M7 外部域名的绝对 URL 不被判红",
+  m7.code === 0,
+  m7.out.trim().split("\n").slice(-1)[0],
 ]);
 
 /* ---------- 汇总 ---------- */
