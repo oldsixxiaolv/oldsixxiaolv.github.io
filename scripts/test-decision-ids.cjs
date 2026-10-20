@@ -15,7 +15,7 @@
  *     （这正是门禁里加 `LOG_PATH` 这个开关的原因：没有它，自测就只能去改
  *       仓库文件，改坏了就是事故 —— 而这个日志每天被并发场次追加。）
  *
- * 十一档：
+ * 十三档：
  *   M0 基线（原样）                    → 必须**全绿**（证明这套判据不是空跑）
  *   M1 台账里那条被换成**不相干**的事   → DI1
  *   M2 台账里多出一条认领同号的登记     → DI2
@@ -31,6 +31,9 @@
  *      会把"改述"误判成"同号两义"）
  *   M11 台账外同一个号被**认领两次**     → 必须**仍绿**（台账外不判红是待拍板 32 的口径），
  *      但通过文案里**必须逐号列出**这两处认领（证明那条报告是活的，不是死代码）
+ *   M12 台账里某条登记**改成不认领**      → 该号**退出判红范围** → 必须**仍绿**，
+ *      但通过文案里**必须立刻出现该号的逐号明细**（"判红范围缩了，报告不许跟着缩"），
+ *      且**基线里不能本来就有那一行**（否则证明不了是"范围缩小"逼出来的）
  *
  * 注入锚点**从真实日志里现取**（不写死编号、不写死标题）：
  *   日志每天被并发场次追加，写死的锚点随时会失效 → 锚点失效必须是**当场报错**，
@@ -210,6 +213,22 @@ if (!unlistedN) {
   console.error("  —— M11 那一档就没有基准了（这一整套矩阵会是坏跑）。");
   process.exit(1);
 }
+/** M12 要用：台账里**显式认领**、且在日志别处**另有声明**的号。
+ *  把它从认领里摘掉 → 该号退出判红范围 → 才能验证"报告不许跟着缩"这条是否真的生效。 */
+const m12Claim = parsed.claims
+  .filter((c) => c.n !== pair.claim.n && parsed.decls.some((d) => d.n === c.n))
+  .sort((a, b) => {
+    const da = parsed.decls.filter((d) => d.n === a.n).length;
+    const db = parsed.decls.filter((d) => d.n === b.n).length;
+    return db - da || a.n - b.n; // 优先挑声明多的（注入后必定 ≥2 处）
+  })[0];
+if (!m12Claim) {
+  console.error("待拍板编号自测失败：真实日志里找不到「台账认领、且别处另有声明」的号。");
+  console.error("  —— M12 那一档就没有基准了（这一整套矩阵会是坏跑）。");
+  process.exit(1);
+}
+/** M12 注入前的声明处数；注入会在台账外再加一处 → 期望处数 = 这个 + 1。 */
+const m12BaseDecls = parsed.decls.filter((d) => d.n === m12Claim.n).length;
 
 const cases = [];
 
@@ -361,6 +380,31 @@ cases.push([
   `M11 台账外的待拍板 ${unlistedN.n} 被认领两次（应仍绿，但必须被报出来）`,
   m11.code === 0 && m11.out.includes(M11_MARK),
   m11.out.trim().split("\n").slice(-1)[0],
+]);
+
+/* M12：把台账里某条登记的认领脚注**改掉** → 该号不再被认领 → 退出判红范围（DI1 不再比它）
+ *   → 必须**仍绿**（认领数没归零、其他号没动），但通过文案里**必须立刻出现该号的逐号明细**：
+ *   这就是"判红范围缩了，报告不许跟着缩"。
+ *   另外断言**基线里本来没有那一行** —— 否则证明不了这行是"范围缩小"逼出来的。 */
+const M12_CLAIM_RE = /登记为待拍板\s*\**\s*\d{1,3}/;
+const m12 = run((t) => {
+  const ls = t.split("\n");
+  const target = ls[m12Claim.line];
+  if (!M12_CLAIM_RE.test(target)) {
+    throw new Error("M12 注入锚点不在预期行上（坏跑）");
+  }
+  ls[m12Claim.line] = target.replace(M12_CLAIM_RE, "编号见本场次节");
+  return appendLine(
+    ls.join("\n"),
+    `- **待拍板 ${m12Claim.n}（注入：报告范围的验证）**：注入矩阵用来验证"该号退出判红范围后，报告不许跟着缩"的一条声明`
+  );
+});
+const m12Expect = m12BaseDecls + 1;
+const m12Mark = `· ${m12Claim.n} —— ${m12Expect} 处声明`;
+cases.push([
+  `M12 待拍板 ${m12Claim.n} 退出判红范围后仍绿、且报告必须逐号列出（${m12Expect} 处）`,
+  m12.code === 0 && m12.out.includes(m12Mark) && !m0.out.includes(m12Mark),
+  m12.out.trim().split("\n").slice(-1)[0],
 ]);
 
 /* ---------- 汇总 ---------- */

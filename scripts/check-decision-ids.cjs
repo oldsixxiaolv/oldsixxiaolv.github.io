@@ -319,6 +319,25 @@ const unlistedDetail = unlistedNums.map((n) => ({
   claims: unlisted.filter((u) => u.n === n).map((u) => `L${u.line}「${u.target}」`),
 }));
 
+/** 台账外、**在多处出现**的号（同一个号在日志别处有 ≥2 处声明）。
+ *
+ *  为什么单独把它们逐号列出来 —— 这是「判据的**范围**不许由被判对象自己推导」在本门禁上的落点：
+ *    判红范围（DI1 比对的号）= **台账认领的号**，那是**权威侧**（台账 = oracle），方向是对的；
+ *    但报告范围若也只跟着台账走，就会出现这个形态：
+ *      **一次改动**（把台账里某条登记的认领脚注改掉 → 该号不再被认领）
+ *      → 该号退出判红范围（DI0 只在认领数**归零**时才响，9→8 不响）
+ *      → 而它在报告里若只剩一个没有明细的名字，人就看不出"这个号其实有 2 处声明、指的是不同的事"。
+ *    所以：**判红范围可以缩，报告范围不许跟着缩** —— 该号退出判红后必须**立刻**获得逐号明细。
+ *  这里**不判红**：台账外认领算不算错 = 台账的组织口径 = 本人拍板（待拍板 32）。
+ */
+const offLedgerMulti = [];
+for (const n of [...new Set(decls.map((d) => d.n))].sort((a, b) => a - b)) {
+  if (ledgerNums.includes(n)) continue;
+  const ds = decls.filter((d) => d.n === n);
+  if (ds.length < 2) continue;
+  offLedgerMulti.push({ n, lines: ds.map((d) => `L${d.line}`) });
+}
+
 /** 本门禁**认不出**的「待拍板 N」写法：既不是列表项声明、也不是认领脚注、也不是正文交叉引用。
  *  只报数、不逐处列 —— 这类字样绝大多数是**引用**（"沿用待拍板 23""待拍板 1–7 见前几节"），
  *  从字面上分不出它是"引用别处已登记的那一条"还是"这里新登记了一件事"，
@@ -364,6 +383,19 @@ for (const d of unlistedDetail) {
   if (d.decls.length) parts.push(`声明 ${d.decls.join(" ｜ ")}`);
   if (d.claims.length) parts.push(`认领 ${d.claims.join(" ｜ ")}`);
   console.log(`      · ${d.n} —— ${parts.join("；") || "（无处可指）"}`);
+}
+console.log(
+  `  · 台账外**还有这些号在多处出现**（各有多少处声明、分别在哪几行，逐个列出来）：` +
+    `它们的声明互相比对属于台账的组织口径（待拍板 32），本门禁**不判红**；` +
+    `但它们是"一个号两件事"的高发区，**位置必须看得见** —— ` +
+    `某人若把台账里认领某号的登记改成不认领，该号就会落进这一族：` +
+    `**判红范围缩了，报告不许跟着缩**（本门禁的范围不许由被判对象自己推导）。`
+);
+for (const d of offLedgerMulti) {
+  console.log(`      · ${d.n} —— ${d.lines.length} 处声明：${d.lines.join(" ")}`);
+}
+if (!offLedgerMulti.length) {
+  console.log("      · （无）");
 }
 console.log(
   `  · "这些事项本人按号能不能找到"是台账的组织口径，本门禁**只报不判红**、属本人拍板（待拍板 32）。\n` +
