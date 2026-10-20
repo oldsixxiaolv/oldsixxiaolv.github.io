@@ -83,4 +83,9 @@ editPaths:
       <a href="{{ site.author.csdn }}" target="_blank" rel="noopener noreferrer">CSDN</a>
     </div>
   </section>
+
+  {# 数据图：介绍段说「Currently focused on Extreme precipitation over North China」，
+     紧接着给出这段话的**实证**——华北 1960-2025 的逐日降水与两个极端指数。
+     数值只存在 src/_data/extreme-precip.json 一处，图由构建期画成 inline SVG。 #}
+  {% include "partials/extreme-precip.njk" %}
 </article>

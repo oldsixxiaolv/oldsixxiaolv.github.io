@@ -510,3 +510,57 @@
   .home-signal { padding: var(--space-3); box-shadow: 6px 7px 0 color-mix(in srgb, var(--color-brand-400) 80%, transparent); }
   .home-intro__body { grid-template-columns: 1fr; }
 }
+
+/* ===========================================================================
+   首页数据图（华北降水 1960-2025）
+   ---------------------------------------------------------------------------
+   版式延续整站的"细线"语言：图表自己带一层细边框 + 纸面底色，不给每条数据
+   套卡片底色/阴影 —— 这一屏要读的是数据本身，壳越少越好。
+   颜色只走语义 token：A 面板品牌蓝、B 面板强调橙。它们是**图形**色不是文字色，
+   所以不受 A1（正文 4.5:1）约束，但仍按 WCAG 1.4.11 取了 ≥3:1 的档位
+   （brand-500 对纸白 6.4:1、accent-500 对纸白 3.9:1；暗色主题里两者都被提亮）。
+
+   ⚠️ 宽度上限 880px 的理由：SVG 里的字号跟着 viewBox 一起缩放，图表越宽字越大。
+   880px 时桌面两栏各约 392px（字号 ≈12px），手机单栏约 320px（≈9.8px），
+   两头都还在可读范围。改这个数要连着改 scripts/lib/chart-svg.cjs 里
+   VIEW/PLOT 的注释一起重算。
+
+   ⚠️ 为什么用 :nth-of-type 而不是 .chart__panel--a / --b：
+   scripts/check-dead-css.cjs 只在 **src/ 下**（模板/数据/脚本）与
+   eleventy.config.js 里找类名落点，**渲染器（scripts/lib/chart-svg.cjs）里的
+   类名它看不见**。若把 A/B 写成模板拼出来的类（chart__panel--{{ letter }}），
+   拼出来的完整类名在源码里根本不存在 → 会被判成"定义了却没用"的死类。
+   用元素选择器就没有这个问题。
+   =========================================================================== */
+.home-chart { margin-top: clamp(var(--space-7), 7vw, var(--space-8)); }
+.home-chart__lead { margin: var(--space-3) 0 0; max-inline-size: 68ch; color: var(--text-secondary); font-size: 15px; line-height: 1.7; }
+.chart { margin: var(--space-5) 0 0; max-inline-size: 880px; padding: var(--space-5); background: var(--bg-surface); border: 1px solid var(--border-default); border-radius: var(--radius-md); }
+.chart__panels { display: grid; gap: var(--space-5); grid-template-columns: 1fr; }
+@media (min-width: 760px) { .chart__panels { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.chart__panel { min-inline-size: 0; display: flex; flex-direction: column; }
+.chart__panel-title { margin: 0 0 var(--space-2); color: var(--text-secondary); font: 600 12px var(--font-mono); letter-spacing: .04em; }
+.chart__panel-letter { color: var(--text-primary); }
+/* 两个面板的图形色：按顺序取，不给面板写死类名（理由见上） */
+.chart__panels > div:nth-of-type(1) { --chart-stroke: var(--color-brand-500); }
+.chart__panels > div:nth-of-type(2) { --chart-stroke: var(--color-accent-500); }
+/* SVG 底部对齐：两个面板的标题行数不一定相同（A 的标题会折行、B 不会），
+   靠 margin-block-start:auto 把两个图推到底部，两条绘图区才在同一条基线上。
+   网格默认 align-items:stretch，两个 .chart__panel 等高，所以底对齐 = 绘图区对齐。 */
+.chart svg { display: block; width: 100%; height: auto; margin-block-start: auto; }
+.chart svg text { fill: var(--text-secondary); font-size: 11px; font-family: var(--font-mono); }
+.chart svg line { stroke: var(--border-default); stroke-width: 1; }
+.chart svg polyline { fill: none; stroke: var(--chart-stroke, var(--color-brand-500)); stroke-width: 1.25; }
+.chart svg path { fill: none; stroke: var(--chart-stroke, var(--color-brand-500)); stroke-width: 2.25; }
+.chart svg circle { fill: var(--chart-stroke, var(--color-brand-500)); }
+.chart__caption { margin-top: var(--space-5); padding-top: var(--space-4); border-top: 1px solid var(--border-default); max-inline-size: 80ch; color: var(--text-secondary); font-size: 13px; line-height: 1.75;
+  /* base.css 有一条全局 `figcaption { text-align: center }`（为博客正文里的
+     居中图注写的）。这里是一段多行英文说明，居中会让折行后的末行悬在中间、
+     读起来像排版事故，所以显式压回左对齐（同 .home-pub__caption 的处理）。 */
+  text-align: left; }
+.chart__caption p { margin: 0 0 var(--space-3); }
+.chart__caption p:last-child { margin-bottom: 0; }
+.chart__caption strong { color: var(--text-primary); font-weight: 600; }
+.chart__caption em { color: var(--text-primary); font-style: normal; font-weight: 600; }
+.chart__caption a { color: var(--text-secondary); text-decoration: underline; text-decoration-color: color-mix(in srgb, var(--text-secondary) 40%, transparent); text-underline-offset: 3px; }
+.chart__caption a:hover { text-decoration-color: var(--text-secondary); }
+@media (max-width: 640px) { .chart { padding: var(--space-3); } }

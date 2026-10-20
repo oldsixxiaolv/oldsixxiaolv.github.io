@@ -1,0 +1,76 @@
+{# ============================================================================
+   extreme-precip.njk · 首页的「华北降水」数据图
+   ----------------------------------------------------------------------------
+   数值只存在一处：src/_data/extremePrecip.json（Eleventy 全局数据）。
+   注意文件名的坑：Eleventy 3 的全局数据键 = 文件名原样，**不做 camelCase**
+   （见 node_modules/@11ty/eleventy/src/Data/TemplateData.js 的
+   getObjectPathForDataFile）。所以这个文件必须叫 extremePrecip.json，
+   改名成 extreme-precip.json 会让模板里 extremePrecip 直接变 undefined
+   ——而且是静默的：Nunjucks 取不到属性不报错，只有 join 之类的过滤器
+   才会炸出来。
+   图由 scripts/lib/chart-svg.cjs 在构建期画成 inline SVG ——
+   不引图表库、页面零 JS。理由与口径都写在那份渲染器的文件头里。
+
+   图注必须写清三件事，缺一件这张图就只是「看着像数据的装饰」：
+     ① 区域怎么定的（框 + 只算陆地 + cos(lat) 加权）
+     ② 两个指数怎么算的（湿日阈值、每格点 95 百分位、年最大 1 日）
+     ③ 趋势的统计口径（Mann-Kendall），以及**近 6 年才抬起来**这件事
+   ——③ 是这张图最容易骗人的地方：全期 1960-2025 看 R95p 占比是升的
+   （MK p = 0.04），但只取 1960-2019 就不显著了（p = 0.61），
+   升高的部分几乎全在 2020-2025。不写这一句，读者会读出一个站不住的结论。
+   ========================================================================== #}
+
+<section class="home-chart" id="north-china-precip" aria-labelledby="home-chart-title">
+  <h2 class="home-blockhead__title" id="home-chart-title">{{ extremePrecip.heading }}</h2>
+  <p class="home-chart__lead">{{ extremePrecip.lead }}</p>
+
+  <figure class="chart">
+    <div class="chart__panels">
+      {% for panel in extremePrecip.panels %}
+      <div class="chart__panel">
+        <p class="chart__panel-title" id="chart-{{ panel.key }}-title">
+          <span class="chart__panel-letter">{{ panel.letter }}</span> {{ panel.label }}
+        </p>
+        {{ extremePrecip | chartPanel(panel) | safe }}
+      </div>
+      {% endfor %}
+    </div>
+
+    <figcaption class="chart__caption">
+      <p>
+        <strong>Data.</strong> Daily precipitation from
+        <a href="{{ extremePrecip.source.dataUrl }}" target="_blank" rel="noopener noreferrer">{{ extremePrecip.source.name }}</a>
+        ({{ extremePrecip.source.grid }}) by {{ extremePrecip.source.authors }};
+        <a href="{{ extremePrecip.source.paperUrl }}" target="_blank" rel="noopener noreferrer">dataset paper</a>.
+        {{ extremePrecip.method.area }}. {{ extremePrecip.method.weighting }}.
+      </p>
+      <p>
+        <strong>Definitions.</strong>
+        <em>A</em> — {{ extremePrecip.method.r95p }}. A wet day is {{ extremePrecip.method.wetDay }},
+        and each gridpoint's threshold is {{ extremePrecip.method.threshold }}.
+        <em>B</em> — {{ extremePrecip.method.rx1day }}.
+        Thin line: annual value. Thick line and dots: mean of the decade
+        ({{ extremePrecip.summary.recentDecadeLabel }} holds six years, not ten).
+      </p>
+      <p>
+        <strong>What it shows.</strong> The region averages
+        {{ extremePrecip.summary.meanAnnualMm }} mm of precipitation a year, of which
+        {{ extremePrecip.summary.meanSharePct }}% falls on extreme days.
+        The extreme-day share rose
+        {{ extremePrecip.panels[0].trend.perDecade }} percentage points per decade over the
+        full record (Mann-Kendall p = {{ extremePrecip.panels[0].trend.mkP }}), but that rise sits
+        almost entirely in the last six years: over 1960-2019 alone it is not detectable
+        (p = {{ extremePrecip.panels[0].trend.mkPto2019 }}), and
+        {{ extremePrecip.summary.shareYearsAbovePre2020Max | join(' and ') }} both exceed the
+        highest value of the whole 1960-2019 record
+        ({{ extremePrecip.summary.sharePre2020MaxValue }}% in
+        {{ extremePrecip.summary.sharePre2020MaxYear }}). The wettest-day index shows the same
+        recent elevation ({{ extremePrecip.summary.recentRx1dayMm }} mm/day in
+        {{ extremePrecip.summary.recentDecadeLabel }} against
+        {{ extremePrecip.summary.earlierRx1dayRange[0] }}-{{ extremePrecip.summary.earlierRx1dayRange[1] }}
+        mm/day in earlier decades), but its full-record trend is not significant
+        (Mann-Kendall p = {{ extremePrecip.panels[1].trend.mkP }}).
+      </p>
+    </figcaption>
+  </figure>
+</section>

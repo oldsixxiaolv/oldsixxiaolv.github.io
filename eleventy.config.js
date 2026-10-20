@@ -19,6 +19,10 @@ const { execFileSync } = require("child_process");
 // git 失败的分类与"降级 or 抛"的决定 —— 与 scripts/verify-site.cjs 共用同一份
 // （见 scripts/lib/git-error.cjs 顶部的说明：抄两份会漂移，漂移会静默漏报）。
 const { classifyGitError, degradeOrThrow } = require("./scripts/lib/git-error.cjs");
+// 首页极端降水图的渲染器（手写 inline SVG，不引图表库；理由见该文件开头）。
+// 与 git-error.cjs 同理：渲染逻辑只此一份，图和 src/_data/extremePrecip.json
+// 里的数不可能对不上。
+const { renderChartPanel } = require("./scripts/lib/chart-svg.cjs");
 
 // ---------------------------------------------------------------------------
 // 输出目录：dev server 与生产构建必须写不同的目录
@@ -1335,6 +1339,17 @@ module.exports = function (eleventyConfig) {
   const MarkdownIt = require("markdown-it");
   const md = new MarkdownIt({ html: true, linkify: true, typographer: true });
   eleventyConfig.addFilter("md", (value) => (value ? md.render(String(value)) : ""));
+
+  /* ---------- 5a. chartPanel filter：画一个数据面板的 inline SVG ----------
+     {{ extremePrecip | chartPanel(panel) | safe }}
+     数据在 src/_data/extremePrecip.json（Eleventy 全局数据，键名 extremePrecip），
+     渲染在 scripts/lib/chart-svg.cjs。输出是纯 <svg>，页面不加载任何图表库。
+     口径、样式约定与"为什么不用图表库"都写在那份渲染器的文件头里。
+  */
+  eleventyConfig.addFilter("chartPanel", (data, panel) => {
+    if (!data || !panel) return "";
+    return renderChartPanel(data, panel);
+  });
 
   /* ---------- 5b. 内联 CSS shortcode ----------
      {% inlineCss "src/assets/css/tokens.css" %}
