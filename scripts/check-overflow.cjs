@@ -34,6 +34,23 @@
  *   （这条覆盖关系由 scripts/test-overflow-widths.cjs **逐条核对**，不靠人记；
  *    以后 CSS 加了新断点，那个自测会判红，逼着这里同步。）
  *
+ * ⚠️ 为什么还要量「正文列宽」（2026-10-20 修缺陷清单 D11 的**复发**风险）：
+ *   横向溢出这个判据有个**结构性盲区**：页面**没被撑宽**，但正文被挤成了一条窄带，
+ *   `scrollWidth` 仍然是视口宽 ⇒ 这个门禁**全绿**。
+ *   缺陷清单 D11 就是这一族：论文精读页在 ≤1024px 一直是两栏，
+ *   正文被塞进第一列 `minmax(200px,1fr)` —— 实测 360~1024px 下正文宽度只有
+ *   200~203px（占视口 20%），右边空出 110~690px；**build 与当时全部门禁都是绿的**。
+ *   ⇒ 这个门禁现在同时盯两件事：
+ *       ① 有没有元素把页面撑出横向滚动（原有判据，退出码同源）；
+ *       ② 每个页面的**正文列**有没有被挤窄（新增判据）。
+ *     判据：≤1024px 时正文列 ≥ 视口 **85%**（D11 自己写下的验收线）；
+ *           >1024px 时正文列 ≥ **480px**（绝对下限，约 30 个中文字符的可读宽度）。
+ *     为什么 ≥1024px 换成绝对值：宽屏下正文列是**居中定宽**的（实测最小 704px，
+ *     1920px 档只有 48%），用比例判会误报；窄屏下它是**跟着视口走**的，
+ *     用比例判才抓得住「被栅格挤成固定窄列」这一族。
+ *     「正文列」是哪个元素，逐页写在下表的 CONTENT_COLUMN_RULES 里；
+ *     没登记的页面默认盯 `main`；**选择器没命中 = 判红**（页面结构变了就得让人知道）。
+ *
  * 用法：
  *   node scripts/check-overflow.cjs                # 全部默认档位
  *   node scripts/check-overflow.cjs --width 320    # 只测某一档（调试用）
@@ -133,6 +150,58 @@ function findChrome() {
 
 /** 默认档位 —— 取法与理由见文件头。 */
 const DEFAULT_WIDTHS = [360, 390, 640, 768, 820, 1024, 1440];
+
+/* ---------- 正文列（窄带检测）的判据与规则表 ---------- */
+
+/** ≤1024px：正文列至少要占视口的这个比例（D11 自己写下的验收线）。 */
+const CONTENT_MIN_RATIO = 0.85;
+/** >1024px：正文列的绝对下限（px）—— 宽屏正文是居中定宽的，只能这么判。 */
+const CONTENT_MIN_PX_WIDE = 480;
+/** 比例判据适用的宽度上限（与站点的 1024px 断点一致）。 */
+const CONTENT_RATIO_MAX_WIDTH = 1024;
+
+/**
+ * 每页的「正文列」= 承载正文的那个元素。
+ *
+ * 为什么逐页写死而不是自动推断（这轮踩过的坑）：
+ *   试过「拿正文里最长的那段文字所在的元素」这种通用推断，结果**误报**——
+ *   首页英雄区在 768px 是**分栏**设计（实测一段正文只有 336px = 44%），
+ *   关于页的 bio 同样在分栏里（483px = 63%）；这些是**有意为之**，不是排版坏掉。
+ *   反过来，「正文列被挤窄」这一族（D11）在通用推断下**又抓得住**，
+ *   两头不兼容 ⇒ 只能把「这一页的正文列是哪个元素」显式写出来。
+ *
+ * 匹配规则：先找**完全相等**的，再找带通配符的前缀规则（`/papers/` + 通配 + `/`
+ * 匹配 `/papers/<slug>/`）。`/papers/`（列表页）与 `/papers/<slug>/`（精读页）
+ * 是两个不同的正文列，所以顺序上完全相等优先。
+ *
+ * 没登记的路由 ⇒ 默认盯 `main`（主容器不该被挤窄）。
+ * ⚠️ 选择器**没命中**一律判红：页面结构变了却悄悄跳过 = 假绿。
+ */
+const CONTENT_COLUMN_RULES = [
+  { match: "/", selector: ".home-hero", note: "首页英雄区（标题+导语+降水图）；它在 ≤1024px 是单栏，实测占视口 91~92%" },
+  { match: "/papers/*/", selector: ".paper-body", note: "论文精读页的正文列（D11 坏掉的就是这一列）" },
+  { match: "/papers/", selector: "article", note: "论文列表装在 article 容器里" },
+  { match: "/blog/", selector: "article", note: "博客列表装在 article 容器里（当前为空状态页）" },
+  { match: "/about/", selector: "article", note: "关于页正文在 article 里（英雄区是分栏，不算正文列）" },
+  { match: "/404.html", selector: "main", note: "短页，盯主容器" },
+];
+
+/** 取某个路由的正文列规则。 */
+function contentColumnRule(route) {
+  for (const r of CONTENT_COLUMN_RULES) {
+    if (!r.match.includes("*") && r.match === route) return r;
+  }
+  for (const r of CONTENT_COLUMN_RULES) {
+    if (!r.match.includes("*")) continue;
+    const star = r.match.indexOf("*");
+    const prefix = r.match.slice(0, star);
+    const suffix = r.match.slice(star + 1);
+    if (route.length > prefix.length && route.startsWith(prefix) && route.endsWith(suffix)) {
+      return r;
+    }
+  }
+  return { match: "(默认)", selector: "main", note: "未登记的路由，盯主容器" };
+}
 
 /**
  * 解析命令行里的宽度档位。
@@ -291,8 +360,13 @@ class CDP {
   }
 }
 
-/* ---------- 4. 页面里的测量脚本 ---------- */
-const MEASURE = `(() => {
+/* ---------- 4. 页面里的测量脚本 ----------
+ *
+ * 传进来一个正文列选择器，一并量它的宽度（窄带检测用）。
+ * 选择器**量不到**时 found=false —— 门禁据此判红，不当作「没事」。
+ */
+const measureScript = (contentSelector) => `(() => {
+  const CONTENT_SELECTOR = ${JSON.stringify(contentSelector)};
   const vw = document.documentElement.clientWidth;
   const sel = (el) => {
     let s = el.tagName.toLowerCase();
@@ -329,6 +403,13 @@ const MEASURE = `(() => {
   }
   // 只保留最外层的越界元素（子元素通常只是跟着父元素一起越界）
   const minimal = overflow.filter(o => !overflow.some(p => p !== o && p.sel !== o.sel && p.left <= o.left && p.right >= o.right));
+  // 正文列：量它的**盒子宽度**（不含外边距），与视口比
+  const ce = CONTENT_SELECTOR ? document.querySelector(CONTENT_SELECTOR) : null;
+  const content = {
+    selector: CONTENT_SELECTOR,
+    found: !!ce,
+    width: ce ? Math.round(ce.getBoundingClientRect().width) : null,
+  };
   return {
     vw,
     pageScrollWidth: document.documentElement.scrollWidth,
@@ -336,6 +417,7 @@ const MEASURE = `(() => {
     overflow: minimal.slice(0, 12),
     scrollers: scrollers.slice(0, 8),
     offcanvas: offcanvas.slice(0, 3),
+    content,
   };
 })()`;
 
@@ -413,6 +495,9 @@ const MEASURE = `(() => {
   const badPairs = []; // { width, route, scrollWidth } —— 溢出到底在哪一档、哪一页
   const viewportMismatch = []; // { width, route, actual } —— 请求的宽度与量到的布局视口对不上
   const perWidth = new Map(); // width → 该档测了多少页
+  const narrowColumns = []; // { width, route, selector, contentWidth, min, reason } —— 正文被挤窄的位置
+  const columnNotFound = []; // { width, route, selector } —— 正文列选择器没命中
+  let columnChecked = 0; // 正文列实际量了多少次（自证用）
 
   for (const width of WIDTHS) {
     /* ⚠️ 每一档都要**重新设置**设备尺寸 —— 只设一次的话，
@@ -429,7 +514,12 @@ const MEASURE = `(() => {
       await loaded;
       await new Promise((r) => setTimeout(r, 250)); // 等字体/布局稳定
 
-      const res = await cdp.send("Runtime.evaluate", { expression: MEASURE, returnByValue: true }, sessionId);
+      const rule = contentColumnRule(route);
+      const res = await cdp.send(
+        "Runtime.evaluate",
+        { expression: measureScript(rule.selector), returnByValue: true },
+        sessionId
+      );
       const m = res.result.value;
       measured++;
       perWidth.set(width, (perWidth.get(width) || 0) + 1);
@@ -441,8 +531,41 @@ const MEASURE = `(() => {
         viewportMismatch.push({ width, route, actual: m.vw });
       }
 
-      const status = m.hasHScroll ? "✗ 横向可拖" : "✓";
+      /* ---------- 正文列（窄带检测） ---------- */
+      const c = m.content;
+      const useRatio = m.vw <= CONTENT_RATIO_MAX_WIDTH;
+      const minWidth = useRatio
+        ? Math.round(m.vw * CONTENT_MIN_RATIO)
+        : CONTENT_MIN_PX_WIDE;
+      let columnOk = true;
+      let columnNote = "";
+      if (!c.found) {
+        columnOk = false;
+        columnNote = "正文列选择器没命中（页面结构变了？）";
+        columnNotFound.push({ width, route, selector: rule.selector });
+      } else if (c.width < minWidth) {
+        columnOk = false;
+        columnNote = useRatio
+          ? `正文被挤成窄带（占视口 ${Math.round((c.width / m.vw) * 100)}%，下限 ${Math.round(CONTENT_MIN_RATIO * 100)}%）`
+          : `正文列太窄（${c.width}px，下限 ${CONTENT_MIN_PX_WIDE}px）`;
+        narrowColumns.push({
+          width, route, selector: rule.selector,
+          contentWidth: c.width, viewport: m.vw, min: minWidth,
+          reason: useRatio ? "ratio" : "absolute",
+        });
+      }
+      if (c.found) columnChecked++;
+      const pct = c.found ? Math.round((c.width / m.vw) * 100) : null;
+      const columnLine = c.found
+        ? `      正文列 ${c.selector} ${c.width}px ${pct}%（下限 ${useRatio ? `${Math.round(CONTENT_MIN_RATIO * 100)}%` : `${CONTENT_MIN_PX_WIDE}px`}）${columnOk ? "✓" : "✗"}`
+        : `      正文列 ${c.selector} 未找到 ✗`;
+
+      /* ⚠️ 行首的 ✓/✗ 现在代表**本页本档的全部判据**（横向溢出 + 正文列宽）；
+         退出码与它同源 —— 下面两处计数加起来就是最终退出码的依据。 */
+      const status = m.hasHScroll ? "✗ 横向可拖" : columnOk ? "✓" : "✗";
       console.log(`  ${status} ${route}  (scrollWidth ${m.pageScrollWidth} / 视口 ${m.vw})`);
+      console.log(columnLine);
+      if (columnNote) console.log(`      ${columnNote}`);
       /* ⚠️ 退出码必须与打出来的 ✓/✗ **同源**：判据一律用 hasHScroll
          （页面真的能横向滚动 = documentElement.scrollWidth > 视口）。
          此前这里用的是 `m.overflow.length`（元素矩形扫描的结果）——两个条件
@@ -485,6 +608,13 @@ const MEASURE = `(() => {
         viewportMismatch.map((x) => `${x.route}@${x.width}px→${x.actual}px`).join("、")
     );
   }
+  /* 正文列也自证：每一页每一档都要量过一次（量到 = 选择器命中）。 */
+  if (columnChecked + columnNotFound.length !== expected) {
+    problems.push(
+      `正文列测量次数对不上：期望 ${expected} 次，实际 ${columnChecked + columnNotFound.length} 次 —— ` +
+        `有一页没被量到。`
+    );
+  }
 
   ws.close();
   chrome.proc.kill();
@@ -517,8 +647,26 @@ const MEASURE = `(() => {
     console.error("");
     process.exit(1);
   }
+  if (columnNotFound.length) {
+    console.error(`\n✗ ${columnNotFound.length} 处「正文列选择器没命中」—— 页面结构变了，门禁不能装作没看见：`);
+    columnNotFound.forEach((n) => console.error(`  · ${n.width}px  ${n.route}  选择器 ${n.selector}`));
+    console.error("");
+    process.exit(1);
+  }
+  if (narrowColumns.length) {
+    console.error(`\n✗ ${narrowColumns.length} 处「正文被挤成窄带」（宽度 → 路由）：`);
+    narrowColumns.forEach((n) => {
+      const limit = n.reason === "ratio"
+        ? `下限 ${Math.round(CONTENT_MIN_RATIO * 100)}%`
+        : `下限 ${CONTENT_MIN_PX_WIDE}px`;
+      console.error(`  · ${n.width}px  ${n.route}  正文列 ${n.selector} ${n.contentWidth}px / 视口 ${n.viewport}px（${limit}）`);
+    });
+    console.error("");
+    process.exit(1);
+  }
   console.log(
-    `✓ 所有页面在 ${WIDTHS.length} 档宽度（${widthList}）下均无横向溢出` +
+    `✓ 所有页面在 ${WIDTHS.length} 档宽度（${widthList}）下均无横向溢出，` +
+      `且正文列都不窄` +
       `（共 ${measured} 次测量，${routes.length} 个页面）`
   );
   process.exit(0);

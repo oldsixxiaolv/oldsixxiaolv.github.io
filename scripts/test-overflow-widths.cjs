@@ -17,6 +17,11 @@
  *   M3 断点   —— 每一个 CSS 宽度媒体查询的「匹配」与「不匹配」两侧都被测到
  *                （以后 CSS 加了新断点，这一档会判红，逼着门禁的档位列表同步）
  *   M4 参数   —— `--width abc` 这类拼错的宽度**判红**，而不是当成"没传"悄悄退回默认档
+ *   M5 窄带   —— 正文列被挤窄（缺陷清单 D11 那一族）**判红**；
+ *                正文列够宽**判绿**（不误报）；正文列选择器没命中**判红**（不许悄悄跳过）
+ *   M6 分支   —— 窄屏用**比例**判（≤1024px 的 85%），宽屏用**绝对值**判（480px）：
+ *                一个「占视口一半」的正文列在窄屏判红、在 1440px 判绿
+ *                （若宽屏也按 85% 判，1440px 那行就会红 ⇒ 这一行断言能钉住分支）
  *
  * 用法：node scripts/test-overflow-widths.cjs
  *   （已接进 npm run build，见 package.json 的 check:overflow-selftest）
@@ -87,6 +92,38 @@ const BAD_PAGE = page(
    <div style="width:200vw;height:8px;background:#c00"></div>`
 );
 
+/* ---------- 正文列（窄带判据）的三个夹具 ----------
+ *
+ * 路由都放在 `/papers/<slug>/` 下 —— 门禁的规则表里，论文精读页这一路的
+ * 正文列写死是 `.paper-body`，所以这三个夹具走的正是**真实规则**，
+ * 不是另开一条只为测试存在的旁路。
+ */
+const PAPER_TEXT = `<p>A paragraph of ordinary prose standing in for the body text of a
+   paper page. It only has to be long enough that the element carrying it reads as a
+   real reading column rather than a label, so the gate has something meaningful to
+   measure when it looks for a column squeezed into a narrow band.</p>`;
+
+/** 正文列被压成 200px 窄带 ⇒ 窄屏判红（这就是 D11 坏掉的形态）。 */
+const NARROW_PAPER = page(
+  "Overflow selftest — narrow content column",
+  `<div class="paper-body" style="width:200px">${PAPER_TEXT}</div>`
+);
+/** 正文列占满容器 ⇒ 判绿（这条判据不许误报）。 */
+const WIDE_PAPER = page(
+  "Overflow selftest — wide content column",
+  `<div class="paper-body">${PAPER_TEXT}</div>`
+);
+/** 页面结构变了、`.paper-body` 不在了 ⇒ 判红（不许悄悄跳过）。 */
+const MISSING_PAPER = page(
+  "Overflow selftest — missing content column",
+  PAPER_TEXT
+);
+/** 正文列恒为视口的一半 ⇒ 窄屏（比例判）红、宽屏（绝对值判）绿。 */
+const HALF_PAPER = page(
+  "Overflow selftest — half-width content column",
+  `<div class="paper-body" style="width:50%">${PAPER_TEXT}</div>`
+);
+
 /* ---------- 跑门禁 ---------- */
 function runGate(dir, extraArgs) {
   const r = spawnSync(process.execPath, [GATE, ...(extraArgs || [])], {
@@ -112,6 +149,7 @@ function parseGateOutput(out) {
   const widths = [];
   const rows = [];
   let cur = null;
+  let last = null;
   for (const line of out.split("\n")) {
     const h = line.match(/视口宽度 (\d+)px/);
     if (h) {
@@ -123,13 +161,31 @@ function parseGateOutput(out) {
       /^\s*([✓✗])\s+(?:横向可拖\s+)?(\/\S+)\s+\(scrollWidth\s+(\d+)\s*\/\s*视口\s+(\d+)/
     );
     if (p && cur !== null) {
-      rows.push({
+      last = {
         width: cur,
         route: p[2],
         passed: p[1] === "✓",
         scrollWidth: Number(p[3]),
         viewport: Number(p[4]),
-      });
+        column: null,
+      };
+      rows.push(last);
+      continue;
+    }
+    /* 正文列那行（紧跟在页面行后面）：`      正文列 .paper-body 942px 92%（下限 85%）✓`
+       —— 没命中时是 `      正文列 .paper-body 未找到 ✗` */
+    const c = line.match(
+      /^\s*正文列\s+(\S+)\s+(?:(\d+)px\s+(\d+)%（下限\s+(.+?)）|未找到)\s*([✓✗])/
+    );
+    if (c && last) {
+      last.column = {
+        selector: c[1],
+        found: c[2] !== undefined,
+        width: c[2] !== undefined ? Number(c[2]) : null,
+        percent: c[3] !== undefined ? Number(c[3]) : null,
+        limit: c[4] || null,
+        ok: c[5] === "✓",
+      };
     }
   }
   return { widths, rows };
@@ -259,6 +315,73 @@ try {
     "M4 拼错的 --widths 判红",
     `exit=${badArg2.code}`
   );
+
+  /* ---------- M5 / M6：正文列（窄带）判据 ---------- */
+  /* 只测三档：360 与 1024 落在**比例**分支，1440 落在**绝对值**分支。 */
+  const COL_WIDTHS = "360,1024,1440";
+  const colDir = path.join(tmp, "col");
+  const wideOnlyDir = path.join(tmp, "col-wide");
+  const writePaper = (dir, slug, html) => {
+    const d = path.join(dir, "papers", slug);
+    fs.mkdirSync(d, { recursive: true });
+    fs.writeFileSync(path.join(d, "index.html"), html);
+  };
+  writePaper(colDir, "selftest-narrow", NARROW_PAPER);
+  writePaper(colDir, "selftest-missing", MISSING_PAPER);
+  writePaper(colDir, "selftest-half", HALF_PAPER);
+  writePaper(wideOnlyDir, "selftest-wide", WIDE_PAPER);
+
+  const col = runGate(colDir, ["--widths", COL_WIDTHS]);
+  const colOut = parseGateOutput(col.out);
+  assert(col.code === 1, "M5 窄带/缺列的页面让门禁判红", `exit=${col.code}`);
+  const rowOf = (route, w) => colOut.rows.find((r) => r.route === route && r.width === w);
+
+  for (const w of [360, 1024]) {
+    const r = rowOf("/papers/selftest-narrow/", w);
+    assert(
+      !!r && r.column && !r.column.ok && r.column.width === 200,
+      `M5 宽度 ${w}px 抓到正文列被挤成窄带`,
+      r && r.column ? `正文列 ${r.column.width}px（占 ${r.column.percent}%，下限 ${r.column.limit}）` : "这一档没有测量记录"
+    );
+  }
+  const miss = rowOf("/papers/selftest-missing/", 360);
+  assert(
+    !!miss && miss.column && miss.column.found === false,
+    "M5 正文列选择器没命中时判红（不许悄悄跳过）",
+    miss && miss.column ? `选择器 ${miss.column.selector}` : "这一档没有测量记录"
+  );
+  assert(
+    /正文列选择器没命中/.test(col.out),
+    "M5 输出里说清了是「选择器没命中」",
+    ""
+  );
+
+  /* 宽屏走**绝对值**分支：一个恒为视口一半的正文列（360px 时 180px、1440px 时 720px）
+     在窄屏按 85% 判红，在 1440px 按 480px 判绿 —— 若宽屏也按比例判，
+     1440px 那行会红 ⇒ 这一行断言把「分支」钉住了。 */
+  for (const w of [360, 1024]) {
+    const r = rowOf("/papers/selftest-half/", w);
+    assert(
+      !!r && r.column && !r.column.ok,
+      `M6 宽度 ${w}px 半宽正文列按比例判红`,
+      r && r.column ? `正文列 ${r.column.width}px（占 ${r.column.percent}%，下限 ${r.column.limit}）` : "这一档没有测量记录"
+    );
+  }
+  const halfWide = rowOf("/papers/selftest-half/", 1440);
+  assert(
+    !!halfWide && halfWide.column && halfWide.column.ok && halfWide.column.width >= 480,
+    "M6 宽度 1440px 半宽正文列按绝对值判绿（宽屏不走比例判据）",
+    halfWide && halfWide.column ? `正文列 ${halfWide.column.width}px（占 ${halfWide.column.percent}%，下限 ${halfWide.column.limit}）` : "这一档没有测量记录"
+  );
+
+  /* 正文列够宽的站点必须判绿（这条判据不许误报） */
+  const wideOnly = runGate(wideOnlyDir, ["--widths", COL_WIDTHS]);
+  const wideOut = parseGateOutput(wideOnly.out);
+  assert(wideOnly.code === 0, "M5 正文列够宽的站点判绿（不误报）", `exit=${wideOnly.code}`);
+  for (const w of [360, 1024, 1440]) {
+    const r = wideOut.rows.find((x) => x.route === "/papers/selftest-wide/" && x.width === w);
+    assert(!!r && r.column && r.column.ok, `M5 宽度 ${w}px 宽正文列判绿`, r && r.column ? `正文列 ${r.column.width}px` : "这一档没有测量记录");
+  }
 } finally {
   try {
     fs.rmSync(tmp, { recursive: true, force: true });
