@@ -207,6 +207,7 @@ Node 下限、命令或公开出口，README 不同步就会红）。改过 `sit
 - 信息架构：`docs/information-architecture.md`（设计规划稿，含尚未实现的 `/tags/` `/search/` `/cv/`）
 - 设计规范：`docs/design-system.md`
 - 论文精读交互：`docs/papers-interaction.md`
+- 站内长文写作规范：`docs/blog-writing-guide.md`（front matter 契约、正文结构、发稿自查清单）
 - 部署说明：`docs/DEPLOY.md`
 - 工程取舍记录：`docs/implementation-notes.md`
 
