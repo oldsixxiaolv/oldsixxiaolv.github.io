@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * 门禁 J1–J10：站点实体（WebSite）与页面实体（WebPage / ProfilePage）这一层
+ * 门禁 J1–J11：站点实体（WebSite）与页面实体（WebPage / ProfilePage）这一层
  * 必须存在，并且彼此接得上；实体身份（@id）全站唯一。
  *
  * 为什么要有这个门禁：
@@ -80,6 +80,16 @@
  *      产物里的源文件路径由构建期写入（`<!-- source: ... -->`，base.njk），
  *      与 sitemap 的同名标注同一套约定 —— 站点的 permalink 不统一，
  *      从 URL 反推源文件不可靠。
+ *   J11 **论文页自己的 ScholarlyArticle 必须有 image 与 dateModified**。
+ *      缺这两个字段**不会报错**：页面照常渲染、JSON-LD 照常合法、
+ *      其余门禁全绿，只是消费方拿到的作品条目"无图、无时效信号"。
+ *      · image 必须**逐字等于**该页第一个 og:image 的 URL（社交平台只认
+ *        第一张；结构化数据里的图与页面上那张分享图不是同一张 = 图文不符）。
+ *      · dateModified 必须等于该页源文件**真实的最后提交时间**，
+ *        且"有/无"与"源文件提交过/没提交过"一致（本仓流程是先 build 后
+ *        commit，新写的论文页在 build 时还没进历史，就是"没有"这一档）。
+ *        取值与 sitemap 的 lastmod 同一数据源（eleventy 的 lastCommitTime），
+ *        浅克隆 / 不在 git 仓库里两边同样取不到 → 两边一致，不判有也不判无。
  *
  * 与既有门禁的关系（**刻意不重复**）：
  *   · verify-site 第 2 条查 JSON-LD 能否 JSON.parse → 本门禁不查解析本身，
@@ -95,7 +105,12 @@
  */
 const fs = require("fs");
 const path = require("path");
+const { execFileSync } = require("child_process");
 const matter = require("gray-matter"); // Eleventy 自己用的 front matter 解析器（J10 求值用）
+// git 失败的分类**必须用共用的一份**（scripts/lib/git-error.cjs，J11 用）：
+// "git 判定不出来"与编程错误要**抛**，不能伪装成"没有 git 历史"——
+// 那会让 J11 整块判据被跳过，门禁全绿而实际一页都没验证过。
+const { degradeOrThrow } = require("./lib/git-error.cjs");
 
 const SITE = process.env.SITE_DIR
   ? path.resolve(process.env.SITE_DIR)
@@ -221,6 +236,85 @@ function canonicalOf(html) {
 function sourceOf(html) {
   const m = html.match(/<!--\s*source:\s*([^>]*?)\s*-->/);
   return m ? m[1].trim() : "";
+}
+
+/** 该页**第一个** og:image 的 URL（J11 用）。
+    社交平台只认第一张，所以"这一页的 og:image"指的就是它。
+    属性顺序不固定，逐个 <meta> 标签看，不写死一个正则顺序。 */
+function ogImageOf(html) {
+  for (const m of html.matchAll(/<meta\b[^>]*>/gi)) {
+    const tag = m[0];
+    if (linkAttr(tag, "property").toLowerCase() !== "og:image") continue;
+    const content = linkAttr(tag, "content");
+    if (content) return content;
+  }
+  return "";
+}
+
+/* ---------- J11 需要"源文件真实的最后提交时间" ----------
+   与 verify-site.cjs 第 18 条（sitemap 的 lastmod）**同一套判据、同一份数据源**：
+   两者回答的是同一个问题——「这个 URL 的内容最后一次真的变过是什么时候」。
+   浅克隆里 `git log -1 -- <file>` 只能查到 HEAD 那一次，查出来的值
+   「看起来像提交时间、其实是 checkout 时间」⇒ 与 eleventy 的 lastCommitTime
+   filter **同样地**：浅克隆一律不给。 */
+let gitTopCache;
+let gitShallowCache;
+function gitTop() {
+  if (gitTopCache !== undefined) return gitTopCache;
+  try {
+    gitTopCache = execFileSync("git", ["rev-parse", "--show-toplevel"], {
+      cwd: ROOT,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+  } catch (e) {
+    gitTopCache = degradeOrThrow(e);
+  }
+  return gitTopCache;
+}
+function gitIsShallow() {
+  if (gitShallowCache !== undefined) return gitShallowCache;
+  try {
+    gitShallowCache =
+      execFileSync("git", ["rev-parse", "--is-shallow-repository"], {
+        cwd: ROOT,
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "ignore"],
+      }).trim() === "true";
+  } catch (e) {
+    // 判定不出来 ⇒ 当成"不可信"（与 eleventy 的同一判据）
+    const kind = require("./lib/git-error.cjs").classifyGitError(e);
+    if (kind === "unavailable" || kind === "no-history") gitShallowCache = true;
+    else degradeOrThrow(e);
+  }
+  return gitShallowCache;
+}
+
+/** 某个仓库相对路径最后一次提交的时间（UTC ISO，与产物里的格式一致）。
+    返回 null = **没有**这个时间：不在 git 仓库里 / 浅克隆 / 还没提交过。
+    ⚠️ "没有"与"判定不出来"必须分开：后者在上面就抛了，不会走到这里。 */
+function gitCommitTime(relPath) {
+  if (!relPath) return null;
+  const top = gitTop();
+  if (!top || gitIsShallow()) return null;
+  const abs = path.resolve(ROOT, relPath);
+  const rel = path.relative(top, abs);
+  if (!rel || rel.startsWith("..")) return null;
+  let out = "";
+  try {
+    out = execFileSync("git", ["log", "-1", "--format=%cI", "--", rel], {
+      cwd: top,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+  } catch (e) {
+    // git 跑了但退出码非 0 = 这个文件**还没有提交历史**（可降级）
+    out = degradeOrThrow(e) === null ? "" : "";
+  }
+  if (!out) return null;
+  const d = new Date(out);
+  if (isNaN(d.getTime())) return null;
+  return d.toISOString();
 }
 
 /* ---------- 角色声明的解析（真值口径 + 数据层）---------- */
@@ -454,6 +548,9 @@ let j8Ids = 0; // J8 真正看过的 @id 个数
 let j10Compared = 0; // J10 真正核对过角色的页数
 let j10ProfilePages = 0; // J10 里声明为 ProfilePage 的页数
 let j10Declared = 0; // J10 里真的找到"角色声明"的页数（自证：解析确实跑过）
+let j11Compared = 0; // J11 真正核对过的论文页数
+let j11ImageCompared = 0; // J11 里 image 真正逐字比过的次数
+let j11ModifiedCompared = 0; // J11 里 dateModified 真正逐字比过的次数（源文件已提交）
 const j10Kinds = {}; // 角色声明来自哪条数据层路径（front-matter / computed / directory-data / none）
 const websiteIds = new Set();
 // J8 的全站口径：@id → (@type 组合 → 出现在哪些页)
@@ -730,6 +827,79 @@ for (const file of htmlFiles) {
       );
     }
   }
+
+  /* ---- J11：论文页的 ScholarlyArticle 必须有 image 与 dateModified ----
+     缺这两个字段**不会报错**：页面照常渲染、JSON-LD 照常合法、其它门禁全绿，
+     只是消费方（Bing 实体、Wikipedia、Google 普通检索的富结果）拿到的
+     是一条"无图、无时效信号"的作品条目。
+     两条判据：
+       · image 必须**逐字等于**该页第一个 og:image 的 URL。
+         社交平台只认第一张 og:image；结构化数据里的图与页面上那张分享图
+         不是同一张就是"图文不符"—— 这条专治它。
+       · dateModified 必须等于该页源文件**真实的最后提交时间**，且
+         "有/无"要与"源文件提交过/没提交过"一致：
+           源文件提交过 → 必须有，且值必须对；
+           源文件还没提交 → 必须没有（本仓流程是「先 build 后 commit」，
+                              新写的论文页在 build 时还没进历史，就是这种）。
+         取不到（浅克隆 / 不在 git 仓库）→ 模板那边同样取不到
+         （同一份判据、同一处降级），两边一致，不判"有"也不判"无"。
+     只管「本页自己那篇论文」（@id == 本页 canonical 的那个 ScholarlyArticle）——
+     列表页那批论文实体不归这条管。 */
+  for (const a of articles) {
+    if (!canonical || a["@id"] !== canonical) continue;
+    j11Compared++;
+
+    /* —— image —— */
+    const ogImage = ogImageOf(html);
+    const img = typeof a.image === "string" ? a.image : "";
+    if (!img) {
+      fail(
+        `${from}: 论文实体「${a["@id"]}」没有 image —— ` +
+          `消费方拿到的作品条目是"无图条目"，在图搜与富结果里没有缩略图`
+      );
+    } else if (!ogImage) {
+      fail(
+        `${from}: 论文实体的 image 是 ${JSON.stringify(img)}，` +
+          `但该页**没有 og:image** —— 图与分享卡片对不上`
+      );
+    } else {
+      j11ImageCompared++;
+      if (img !== ogImage) {
+        fail(
+          `${from}: 论文实体的 image 是 ${JSON.stringify(img)}，` +
+            `与该页第一个 og:image（${JSON.stringify(ogImage)}）**不是同一个** —— ` +
+            `图文不符：机器读到的图与人看到的分享图不是同一张`
+        );
+      }
+    }
+
+    /* —— dateModified —— */
+    const srcRel = sourceOf(html);
+    const realCommit = srcRel ? gitCommitTime(srcRel) : null;
+    const modified = typeof a.dateModified === "string" ? a.dateModified : "";
+    if (realCommit) {
+      j11ModifiedCompared++;
+      if (!modified) {
+        fail(
+          `${from}: 论文实体「${a["@id"]}」没有 dateModified —— ` +
+            `但它的源文件（${srcRel}）最后一次提交时间是 ${realCommit}：` +
+            `这一页确实改过，机器侧却看不到时效信号`
+        );
+      } else if (modified !== realCommit) {
+        fail(
+          `${from}: 论文实体的 dateModified 是 ${JSON.stringify(modified)}，` +
+            `应是源文件（${srcRel}）真实的最后提交时间 ${JSON.stringify(realCommit)} —— ` +
+            `时间戳必须是真的`
+        );
+      }
+    } else if (modified) {
+      fail(
+        `${from}: 论文实体的 dateModified 是 ${JSON.stringify(modified)}，` +
+          `但它的源文件（${srcRel || "(没标 source)"}）查不到提交历史 —— ` +
+          `没有真实数据源却给出了时间戳`
+      );
+    }
+  }
 }
 
 /* ---- J5：全站只有一个站点实体 ---- */
@@ -803,6 +973,20 @@ if (!j10ProfilePages) {
       "（首页与关于页的 profilePage: true 是不是被改名或删掉了？）"
   );
 }
+if (!j11Compared) {
+  // 自证：J11 必须真的在论文页上跑过。否则"论文实体没有 image / dateModified"
+  // 这条判据就是空转的（列表页那批论文实体不归它管，@id != canonical）。
+  fail(
+    "全站没有核对到任何一页的论文实体 —— J11 从未真正执行过" +
+      "（论文页自己的 ScholarlyArticle 消失了，image / dateModified 就无人看守）"
+  );
+}
+if (!j11ImageCompared) {
+  fail(
+    "J11 没有比到任何一个 image —— 判据从未真正执行过" +
+      "（论文页的 ScholarlyArticle 没有 image，或该页没有 og:image 可比）"
+  );
+}
 
 /* ---------- 汇总 ---------- */
 if (problems.length) {
@@ -830,5 +1014,12 @@ note(
     `eleventyComputed ${j10Kinds["computed"] || 0} 处 / ` +
     `目录数据文件 ${j10Kinds["directory-data"] || 0} 处）`
 );
+note(
+  `论文实体的图与时效：${j11Compared} 页论文核对了 image（${j11ImageCompared} 处逐字比对，` +
+    `与该页第一个 og:image 相同）；dateModified 逐字核对 ${j11ModifiedCompared} 处` +
+    (j11ModifiedCompared < j11Compared
+      ? `（另有 ${j11Compared - j11ModifiedCompared} 页的源文件还没进 git 历史，按约定不给时间戳）`
+      : "")
+);
 notes.forEach((n) => console.log(`· ${n}`));
-console.log("✓ 结构化数据自检通过（门禁 J1–J10）");
+console.log("✓ 结构化数据自检通过（门禁 J1–J11）");

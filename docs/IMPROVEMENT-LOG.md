@@ -2161,6 +2161,27 @@ CSDN 521 并列）。那个归类对 ResearchGate / CSDN 成立，但对这一�
   误以为多比例 OG 生效（实际不会）。
   （本场次不代拍，登记为待拍板 40）
 
+- **列表页那批论文 JSON-LD 节点（与论文页**同一个 `@id`**）要不要跟论文页描述一致？**
+  事实（2026-10-20 09:00 实测）：本站在**两处**输出描述**同一件论文**的 JSON-LD 节点，
+  `@id` **完全相同**（都等于论文页 canonical）：
+  ① 论文页（`src/_includes/layouts/paper.njk` → `jsonLdPaper` 过滤链）：有 `datePublished`
+  （`2026-06-01`）、`dateModified`、`image`、`headline`、`identifier`、`sameAs`、`abstract`、`keywords`；
+  ② 列表页 `/papers/`（`eleventy.config.js` 的 `jsonLdArticles` 过滤链）：**只有**
+  `datePublished`（`2026-06`，由 `p.year` + `p.month` 拼出）、`headline`、`url`、`sameAs`。
+  差别有两处：① `datePublished` **精度不同**（日到 vs 月到）；② 列表页节点**没有**
+  `image` 与 `dateModified`。
+  后果：消费方按 `@id` 合并同一件作品时，会看到**两个出版日期**（`2026-06-01` 与 `2026-06`）；
+  只读列表页的消费方（例如只抓 `/papers/` 的聚合器）拿不到配图与时效信号。
+  站里有**完整日期的权威出处**：`src/_data/site.js` 的 `publications[].dates.published`
+  （论文页用的就是它）⇒ 列表页的月精度是**可以**补到日精度的，只是补不补属口径问题。
+  备选：① **逐字段一致** —— 列表页节点补 `image` / `dateModified`，`datePublished` 统一到日
+  ——代价：列表页 JSON-LD 变大；且要先定「这一天」（取 `dates.published` 的日部分）
+  是否就是对外口径；② **保持精简版** —— 列表页只留月精度的 `datePublished`，论文页不动
+  ——代价：同 `@id` 两个节点取值不同、只读列表页的消费方拿不到图；③ **列表页不再输出论文实体**
+  （只留站点级信息）——代价：站点级「我产出过什么」这层从 JSON-LD 里消失，搜索侧对论文的
+  站点归属表达变弱。
+  （本场次不代拍，登记为待拍板 41）
+
 
 ---
 ## 2026-10-19 · 第十一轮（12:22–12:47 场次）：订阅源时间戳说真话 + 404 身份开关落地
@@ -14499,3 +14520,131 @@ ROADMAP 里已经写了 front matter 字段名，但**字段名不等于契约**
    并指回原处；D5 / D6 同样指回 ROADMAP 与待拍板 7。
 3. 下一轮入口：**从 D1 取**（纯模板/数据侧改动，不依赖本人拍板，且验收条件可判定）；
    D5 等本人定 M1-3 选题主线；D6 等 push。
+
+---
+
+## 2026-10-20 · 09:00–09:30 场次（**不占轮次号**，避免与并发场次撞号）：D1 —— 论文页 JSON-LD 补 `dateModified` 与 `image`，让结构化数据说真话
+
+### A. 为什么这一轮取 D1
+
+1. **M0 已完成**：上一轮建好了 `docs/DEFECT-BACKLOG.md`，cron 的口径随即变成
+   「优先从 DEFECT-BACKLOG 取一条**待修**缺陷」，而不是继续往下推 ROADMAP 里程碑。
+2. **D1 是唯一不依赖本人拍板的那条**：纯模板 / 数据侧改动，验收条件**可判定**，
+   不牵涉任何口径决策。
+3. 其它各条的入口本轮都不成立：D5 依赖 M1-3 选题主线（本人未指定）、D6 依赖 push
+   （时机属既有待拍板 7）、D7 / D8 已判 `不修`、D2 与 D3 与待拍板 40 的口径绑定、
+   D4 要改 build 链与 CI（面更大，单独一轮更稳）。
+
+### B. 线上巡检（7 条 URL，2026-10-20 09:00 实测）
+
+| URL | 线上 | 本地产物 | 判定 |
+|---|---|---|---|
+| `/` | **200** | 有 | — |
+| `/papers/` | **404** | 有 | D6：部署滞后 |
+| `/blog/` | **200** | 有 | 空状态页（0 篇）⇒ D5 |
+| `/about/` | **200** | 有 | — |
+| `/publications.bib` | **404** | 有 | D6 |
+| `/feed.xml` | **404** | 有 | D6 |
+| `/sitemap.xml` | **200** | 有 | 线上仅 **3 条** loc |
+
+- canonical / og:url / sitemap 仍带旧的 `/MeteoHub/` 前缀；
+  线上 `feed.xml` 抓下来 **0 条**条目、sitemap **3 条** loc ⇒ 与上一轮**完全一致**，
+  再次确认是**部署滞后**而非代码缺陷。
+- ⚠️ 本轮**不 push**（线上部署时机属既有待拍板 7）。
+
+### C. 改了什么（5 个文件，+260 / −13）
+
+**C1 · 把 cover 的解析逻辑从模板搬进共用 filter**（`eleventy.config.js` 新增 `coverImageUrl`）
+
+原先 `src/_includes/layouts/base.njk` 里有**三段**内联的 `if/elif/else` 判定 cover
+（绝对 URL / 根相对 / 裸文件名），换掉它就要在两处模板里各写一遍。
+现在收成一个 filter：`coverImageUrl(cover, siteUrl, pageUrl, fallback)`，
+无 cover 时返回 `siteUrl + fallback`。
+**要点**：D1 的验收条件是「JSON-LD 的 `image` 与该页 `og:image` 的 URL **相同**」——
+若两处各写各的，今天相同、明天改一处就分叉。**让它们逐字相同，靠的是构造，不是事后对账。**
+
+**C2 · 默认分享图路径的单一出处**（`src/_data/site.js` 新增 `ogImage`）
+
+新增 `ogImage: "/assets/img/og/og-1200x630.png"`，`base.njk` 与 `paper.njk` 都从
+`site.ogImage` 取 ⇒ 全站默认分享图只有一个出处，不再是模板里的字面量。
+
+**C3 · `jsonLdPaper` 补两个字段**（`eleventy.config.js`）
+
+签名从 `(pub, siteData)` 改为 `(pub, siteData, pageUrl, opts)`：
+`article.image = opts.coverUrl`、`article.dateModified = opts.modified`。
+⚠️ `dateModified` **取不到就整条不输出**（宁缺勿假）—— 空字符串比错的日期安全。
+
+**C4 · 模板侧接线**（`base.njk` / `paper.njk`）
+
+- `base.njk`：内联三段 cover 解析换成 `{% set coverUrl = cover | coverImageUrl(site.url, page.url) %}`；
+  else 分支的第一张 og:image 改成 `{{ site.url }}{{ site.ogImage }}`。
+- `paper.njk`：`coverUrl = cover | coverImageUrl(site.url, page.url, site.ogImage)`；
+  `modified = page.inputPath | lastCommitTime`；两者作为 `ldOpts` 传给 filter。
+  ⚠️ `lastCommitTime` 与 sitemap 的 `lastmod` **同源** ⇒ `dateModified` 的语义是
+  「这份内容最后一次真的变过」，不是「构建时的时间」。
+
+**C5 · 门禁新增 J11**（`scripts/check-jsonld.cjs`，+195 行）
+
+`image` 必须**逐字等于**该页**第一个** `og:image`；`dateModified` 必须等于源文件
+**真实的最后提交时间**，且「有/无」与「源文件提交过 / 没提交过」一致。
+「有/无」这条判据**照搬 `scripts/verify-site.cjs` 第 18 条 sitemap lastmod 的规则 E**
+（源文件提交过 → 必须有且值必须对；源文件还没提交 → 必须没有）——
+既兼容本仓「先 build 后 commit」的流程，又能在 filter 静默失效时判红。
+浅克隆一律给 `null`（与 `lastCommitTime` 对称），git 失败走共用的
+`scripts/lib/git-error.cjs` 分类，**不允许静默跳过**。
+另加三个自证计数器（`j11Compared` / `j11ImageCompared` / `j11ModifiedCompared`）——
+**判据没真正跑过时门禁必须自己判红**（空跑的门禁等于没有门禁）。
+
+### D. 验证
+
+| 项 | 结果 |
+|---|---|
+| `npm run build` | **exit 0**（27 步全绿） |
+| `node scripts/check-jsonld.cjs` | **exit 0**（门禁 J1–J11） |
+| 产物实测 | 论文页 `ScholarlyArticle` 含 `image` = `https://github.lvyihang.xyz/assets/img/publications/trmm-fig10.jpg`（与该页 og:image **逐字相同**）、`dateModified` = `2026-10-19T20:22:37.000Z`（= `paper.md` 真实提交时间 `2026-10-19T13:22:37-07:00` 的 UTC 形式）、`datePublished` = `2026-06-01` |
+
+### E. 注入矩阵（J11 确实有牙齿）
+
+做法：复制 `_site` 到 `/var/tmp/xxx` → 用 python 改产物 → `SITE_DIR=/var/tmp/xxx node scripts/check-jsonld.cjs`。
+
+| 注入 | 期望 | 实测 |
+|---|---|---|
+| 删掉 `image` | 判红 | **exit 1**「没有 image」✓ |
+| `image` 换成别的 URL | 判红 | **exit 1**「不是同一个」✓ |
+| 删掉 `dateModified` | 判红 | **exit 1**「没有 dateModified」✓ |
+| `dateModified` 改成假时间 | 判红 | **exit 1**「应是源文件真实的最后提交时间」✓ |
+| 源文件存在但**从未提交** + 无 `dateModified` | **不误报** | **exit 0**（报告行如实写「另有 1 页的源文件还没进 git 历史，按约定不给时间戳」）✓ |
+
+### F. 回归：og:image 未受影响
+
+6 个页面的 `og:image` **URL 与数量完全未变**（5 页各 3 个、论文页 1 个）
+⇒ 这次把 cover 解析搬进共用 filter，**对既有页面的行为保持不变**。
+（这是「重构」最容易悄悄改掉东西的地方，所以单独量了一遍。）
+
+### G. 本轮新发现：**D9**（同 `@id` 的 `datePublished` 精度不一致）—— 本轮**只登记，不修**
+
+本站在**两处**输出描述**同一件论文**的 JSON-LD 节点，`@id` **完全相同**（= 论文页 canonical）：
+
+| 位置 | `datePublished` | `image` | `dateModified` |
+|---|---|---|---|
+| 论文页（`jsonLdPaper`） | `2026-06-01`（取 `site.js` 的 `dates.published`） | 有 | 有 |
+| 列表页 `/papers/`（`jsonLdArticles`） | `2026-06`（`p.year` + `p.month` 拼出） | **无** | **无** |
+
+后果：消费方按 `@id` 合并同一件作品时，会看到**两个出版日期**；只读列表页的消费方
+（例如只抓 `/papers/` 的聚合器）拿不到配图与时效信号。
+站里有**完整日期的权威出处**（`site.js` 的 `dates.published`）⇒ 列表页的月精度**是能补的**，
+只是补不补属口径问题。
+⚠️ 本轮**不修**：① 遵守「一轮一个改进点」；② 修法方向涉及日期口径
+（`2026-06` 与 `2026-06-01` 是否本就该一致）宜由本人拍板。
+⇒ 已按清单规则**新开编号 D9**（`docs/DEFECT-BACKLOG.md`，状态 `待修`），
+并在中央台账登记为**待拍板 41**（三个备选与各自代价见台账，本场次不代拍）。
+
+### H. 同步改动与纪律
+
+- `docs/DEFECT-BACKLOG.md`：**D1** 行状态改 `已修`，并在**同一行末尾**补上验证方式
+  （命令、J11 判据、4 档注入、回归结论）；**新增 D9**（状态 `待修`）。
+- `docs/IMPROVEMENT-LOG.md`：中央「待决策」段新增**待拍板 41**；末尾追加本场次小节。
+- 本轮纪律：**「逐字相同」靠构造保证，不靠对账**；**取不到值就整条不输出**；
+  **判据没真正跑过时门禁自己判红**；**一轮只做一个改进点**，新发现只登记不修。
+- 下一轮入口：从缺陷清单取**下一条**（D2 / D3 与待拍板 40 的口径绑定 ⇒ 若本人已拍板 40
+  才好动；D4 要改 build 链）；或等本人定 M1-3 选题主线后启动 D5。

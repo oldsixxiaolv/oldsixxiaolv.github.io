@@ -92,6 +92,13 @@ module.exports = {
   locale: "en",
   buildYear: new Date().getFullYear(),
 
+  // 全站**默认**分享图：页面没有自己的封面（front-matter `cover`）时用哪一张。
+  // 这条路径**只有一个出处** —— base.njk 的 og 块与论文页 JSON-LD 的 `image`
+  // 都从这里派生。此前它内联在模板里，而结构化数据那边走的是另一条推导：
+  // 两处各写一份，改图时只改一处就会让"分享卡片的图"与"结构化数据里的图"
+  // 变成两张 —— 而那种错没有任何门禁看得见（页面照常渲染、JSON-LD 照常合法）。
+  ogImage: "/assets/img/og/og-1200x630.png",
+
   // —— 网盘入口 ——
   // ⚠️ url 目前是 null：还没有确定链到哪个网盘。模板对 null 判空后整块
   // 不渲染，所以页面上不会出现一个点开是空白的"Cloud drive"。

@@ -1038,6 +1038,32 @@ module.exports = function (eleventyConfig) {
     };
   });
 
+  /* ---------- 4b-2. coverImageUrl filter：把 cover 解析成绝对 URL ----------
+     一份 cover 解析逻辑，**两个消费点必须共用**：
+       ① base.njk 的 og:image（分享图）
+       ② 论文页 JSON-LD 的 image（结构化数据里的图）
+     解析有三种形态（绝对 URL / 站点根相对 / 裸文件名），抄两遍迟早走样，
+     而走样的后果是「JSON-LD 里的 image 与页面上那张分享图不是同一张」——
+     那种错**没有任何门禁看得见**：页面照常渲染、JSON-LD 照常合法、
+     消费方只是把一条无图/错图的作品收进库里。
+     所以解析放在 filter 里，两个消费方都调它 ⇒ 两边**逐字相同**是构造出来的，
+     不是"对上了"。 */
+  eleventyConfig.addFilter("coverImageUrl", (cover, siteUrl, pageUrl, fallback) => {
+    const base = siteUrl || "";
+    if (!cover) {
+      // 没有自己的封面 → 全站默认分享图（fallback 由调用方给，
+      // 来自 site.ogImage 这一个出处）。
+      return fallback ? `${base}${fallback}` : "";
+    }
+    const c = String(cover).trim();
+    if (!c) return fallback ? `${base}${fallback}` : "";
+    if (/^https?:\/\//i.test(c)) return c;
+    if (c.startsWith("/")) return `${base}${c}`;
+    // 裸文件名：内容侧写在 index.html 同级（如 cover: "cover.svg"），
+    // permalink 恒以 / 结尾，直接拼即可。
+    return `${base}${pageUrl || ""}${c}`;
+  });
+
   /* ---------- 4c. jsonLdPaper filter：论文页的完整 JSON-LD @graph ----------
      输出一整个对象：{ "@context": ..., "@graph": [文章, 数据集, 胶囊] }。
 
@@ -1056,7 +1082,7 @@ module.exports = function (eleventyConfig) {
        10.24433/CO.6720035.v1  → types.schemaOrg = "SoftwareSourceCode"
      DataCite 是 DOI 注册机构，它给的映射就是权威口径。
   */
-  eleventyConfig.addFilter("jsonLdPaper", (pub, siteData, pageUrl) => {
+  eleventyConfig.addFilter("jsonLdPaper", (pub, siteData, pageUrl, opts) => {
     if (!pub) return null;
     const A = (siteData && siteData.author) || {};
     const siteUrl = (siteData && siteData.url) || "";
@@ -1106,6 +1132,22 @@ module.exports = function (eleventyConfig) {
       article.datePublished =
         pub.dates && pub.dates.published ? pub.dates.published : `${pub.year}-01-01`;
     }
+    // —— image 与 dateModified（2026-10-20 补；缺陷清单 D1）——
+    //   · image = 该页的 og:image。传进来的 coverUrl 由**同一个**
+    //     coverImageUrl filter 解析（base.njk 的 og:image 也调它），
+    //     所以两者逐字相同是**构造出来的**，不是"对上了"。
+    //     消费方（Bing 实体、Wikipedia、Google 普通检索的富结果）拿到论文
+    //     实体时需要一张图；缺了它，这条作品在图搜与卡片里就是"无图条目"。
+    //   · dateModified = 该页源文件**最后一次 git 提交时间**，
+    //     与 sitemap 的 lastmod 同一数据源（lastCommitTime filter），
+    //     语义是"这份内容最后一次真的变过是什么时候"。
+    //     ⚠️ 取不到（浅克隆 / 不在 git 仓库 / 该文件还没提交过）就**整条不输出**：
+    //     schema.org 里 dateModified 是建议项，**宁可没有，也不要一个假时间戳**。
+    //     （"没有"由门禁 J11 区分两种情况：源文件提交过却没有 → 判红；
+    //       源文件还没提交 → 不该有，不判红。详见 scripts/check-jsonld.cjs。）
+    const o = opts || {};
+    if (o.coverUrl) article.image = o.coverUrl;
+    if (o.modified) article.dateModified = o.modified;
     article.inLanguage = "en";
     // 开放获取状态取数据，不写死（付费墙内的论文写 true 是假声明）。
     if (pub.openAccess !== undefined) article.isAccessibleForFree = !!pub.openAccess;

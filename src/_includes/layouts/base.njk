@@ -223,13 +223,11 @@
          早先这里按站点根拼，产出过 https://.../MeteoHub/cover.svg（少一段），
          所有论文/博客/作品的社交分享图都是 404。
          page.url 对这三个 section 恒以 / 结尾，直接拼接即可。 #}
-    {% if cover.startsWith('http') %}
-      {% set coverUrl = cover %}
-    {% elif cover.startsWith('/') %}
-      {% set coverUrl = site.url + cover %}
-    {% else %}
-      {% set coverUrl = site.url + page.url + cover %}
-    {% endif %}
+    {# 解析规则已搬进 coverImageUrl filter（eleventy.config.js）——
+       论文页 JSON-LD 的 image 也调它，两边**逐字相同**是构造出来的。
+       此前这里内联三段 if/elif/else，论文页那边若另抄一份，
+       迟早走样成"分享图与结构化数据里的图不是同一张"，而那种错无人看守。 #}
+    {% set coverUrl = cover | coverImageUrl(site.url, page.url) %}
     {# og:image:type 必须与实际文件格式一致：cover 可能是 jpg/png/svg/webp，
        写死 image/png 会让部分抓取器按错误的 MIME 解析图片（论文页用的是
        JPEG 成果图，之前被标成 png）。这里按扩展名推导。 #}
@@ -268,8 +266,8 @@
          3. 1500×500  — X header-like 横幅
          所有图在 src/assets/img/og/ 下（SVG 源 + PNG 导出）。
     #}
-    <meta property="og:image" content="{{ site.url }}/assets/img/og/og-1200x630.png" />
-    <meta property="og:image:secure_url" content="{{ site.url }}/assets/img/og/og-1200x630.png" />
+    <meta property="og:image" content="{{ site.url }}{{ site.ogImage }}" />
+    <meta property="og:image:secure_url" content="{{ site.url }}{{ site.ogImage }}" />
     <meta property="og:image:type" content="image/png" />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
