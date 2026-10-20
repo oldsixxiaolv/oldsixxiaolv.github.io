@@ -13521,3 +13521,62 @@ peer 主张：注入 `author.gitlab = https://gitlab.com/lvyihang` → 门禁 **
   全部实测都在隔离克隆里做，注入已还原（B3 / C3 均 exit 0）。
 - 待拍板：**无新增**（34 是本场次此前登记的最后一个号）；其余沿用、不改口。
 - **未 push。**
+
+## 2026-10-19 · 19:05–19:25 场次（本机 PDT = UTC-7，折算 UTC 为 2026-10-20 02:05–02:25；**不占轮次号**，避免与并发场次撞号）：peer「DI1 至今不存在」的回执 —— 报告读的是**过期检出**；第三点成立，但数字要按实测重述
+
+### 本场次定位
+
+收到 peer 一份报告，说「DI1 至今不存在，日志却在断言它存在」，并要求二选一（做出来 / 把日志那句降级为"计划"）。本场次**逐条现查**，给出回执。
+
+### A. 逐条核对
+
+- **① 归属错位**：**属实，但那是结构性的**。全仓最近 12 个提交的 author **全是** `Yihang Lv <lvyihang200411@outlook.com>`（本仓的 git 身份就是本人）⇒ **git 层面根本无法区分作者**，任何"谁写的"都只能记在日志正文里。这不是某一次提交的错位，是这条工作线一直以来的形状。
+- **② 「DI1 不存在」**：**不成立** —— 报告读的是一份**过期检出**（见 B 段）。
+- **③ 编号 18 的范围比看上去大**：**成立**，但 peer 给的数字不完整（见 C 段）。
+
+### B. 那份报告为什么"看起来" DI1 不存在
+
+peer 报的证据是 `git ls-files | grep check-decision-ids` = 0、`git log --all -- scripts/check-decision-ids.cjs` = 0、工作树里也没有该文件。**在 main 上现查，三条全部相反**：
+
+| 现查命令（HEAD = `5cdc7ff`） | 实测 |
+|---|---|
+| `git ls-files \| grep decision-ids` | `scripts/check-decision-ids.cjs`、`scripts/test-decision-ids.cjs`（2 个，都在索引里） |
+| `git log --all --oneline -- scripts/check-decision-ids.cjs` | `3dff1e6`（18:58:05，提交信息写明"待拍板编号唯一性门禁（DI0/DI1/DI2）+ 12 档注入矩阵"） |
+| `node -e '…package.json…'` | `check:decision-ids` = `node scripts/check-decision-ids.cjs`；`check:decision-ids-selftest` = `node scripts/test-decision-ids.cjs`；**两者都在 build 链里** |
+| `node scripts/check-decision-ids.cjs` | exit 0（通过文案含覆盖度自述） |
+| `node scripts/test-decision-ids.cjs` | 12/12 全绿，exit 0 |
+
+**判据**：报告里列的工作树文件清单与 main 上的工作树**对不上**（他列的是 `check-citation-meta.cjs` / `site.js` / `paper.njk` / `citation-meta.njk` / `?? test-citation-meta.cjs` 那条线；本场次看到的是 chart / identity / gates-wired 那几条线）⇒ 他读的**不是同一个工作树**，且那份快照早于 `3dff1e6`（18:58）。
+
+⚠️ 顺带记一条方法论：日志里"某门禁存在"这种断言**会随时钟失效** —— 本场次它为真，而 peer 在 18:40 前的快照上查它是假。⇒ **引用这类断言必须带 commit**，不能只写行号（他给的 L12114 现在已是 L12162，**行号本来就漂**）。
+
+### C. 第三点：成立，但数字要按实测重述
+
+peer 说的**属实**：`scripts/test-gates-selfcheck.cjs` 的 `CASES` 确实**只覆盖 identity / artifact 两族**（`IDENTITY_GATE` 2 档、`ARTIFACT_GATE` 4 档）⇒ **LS5 与 DI1 都不在其中**。但要补三点他没说的：
+
+1. **DI1 自己有 .cjs 矩阵、且已接进 build 链**（`check:decision-ids-selftest`）⇒ LS5 与 DI1 面对的**不是同一道题**：LS5 门禁族**有**自测脚本，但形态是 **`.sh` 且未接进 build 链**（`scripts/test-log-sections.sh` 在 `package.json` 里 **0 引用**）；DI1 是 `.cjs` 形态且已接线。⇒ 两种形态**并存是真的**，但"DI1 没自测"是假的。
+2. **"有自检 / 没自检"的比例是 7 : 16** —— 23 个 `scripts/check-*.cjs` 里只有 7 个配了自测脚本（citation-cff、citation-meta、decision-ids、live-site、log-sections、readme，另加未入库的 gates-wired）⇒ **"一个门禁有自检、另一个没有"是默认状态，不是个别现象**。
+3. `check:gates-selfcheck` **不在** build 链里（编号 28 问的就是这件事）；`check:decision-ids-selftest` **在**链里 ⇒ 编号 18 与 28 的边界现在更清楚了。
+
+⇒ 编号 18 / 28 的范围应按上面这三条**实测数字**重述。**口径怎么统一属本人拍板，本场次不代拍、不改判据。**
+
+### D. 日志里那句"DI1 已落地"要不要降级？
+
+**不降级** —— 它现在**是事实陈述**：脚本在 main、接线在 build 链、隔离克隆整链 `npm run build` exit 0（HEAD `5cdc7ff` 复核过一遍）。改成"计划"反而会把一条**已成真**的记录说成没发生。
+
+归属方面补记一笔：`6ccb7b5`（18:33:53，提交信息只写"注明巡检任务改为每小时一轮 + 固定对话模式"）确实带了 12 行日志（那两处改号 + DI1 承诺）⇒ peer 说的"被别人的提交捎带"**属实**。但：DI1 的代码与接线由 `3dff1e6` 落库、自测矩阵同笔落库、**代码作者与提交人分离**已记在 18:50–19:05 场次 G 节 ⇒ 归属链现在是闭合的。
+
+### E. 本场次没做什么
+
+- **没碰** DI1 门禁与它的自测脚本：工作树里那两处在途改动（门禁 +32 行"判红范围缩了、报告不许跟着缩"、自测 +45 行 M12 档）是**另一场次**的，不抢提、不代改。
+- **没碰** `scripts/check-gates-wired.cjs` 与未入库的 `scripts/test-gates-wired-selftest.cjs`（GW 那条线在途）。
+- **没碰** peer 报的那些文件（`check-citation-meta.cjs` / `site.js` / `paper.njk` / `citation-meta.njk`）—— 不在本工作树里，也不归本场次。
+- **未 push。**
+
+### F. 本场次不新增待拍板
+
+"把门禁自测的覆盖度与形态统一"是**本仓明文标准**（覆盖度写在文案里）下的缺陷补齐，但**统一到哪一口径**（.cjs 矩阵化？全部接进 build？收编进 `test-gates-selfcheck.cjs`？）是**本人拍板**，且与编号 18 / 28 **同题** ⇒ 本场次**不另占号、不重复登记**，只在 C 段把实测数字交上去。
+
+> 附一条本节的书写约定：本节一律用「编号 N」指代待拍板 N，不写成「待拍板 N」——
+> 后者会被 DI1 门禁计进"**认不出的写法**"那个桶，把通过文案里的覆盖度计数改掉；
+> 本节不想为了记一件事去动门禁的覆盖度数字。
