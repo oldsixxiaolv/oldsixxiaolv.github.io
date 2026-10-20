@@ -20,9 +20,28 @@
  *   现在本模块的清单只承担 I2d 的**漂移核对**角色：它与独立期望集必须逐项一致，
  *   漂了就判红。
  *
- * ⚠️ 要增删一条身份句柄：**两处都要改**——
- *   ① 本文件的 IDENTITY_SAMEAS；② 门禁里的 ORACLE_SAMEAS + EXPECTED_COUNT
- *   + ORACLE_SET_SHA256（哈希锚；合法增删后跑一次门禁，红因里会给出该贴的新值）。
+ * ⚠️ 要增删一条身份句柄：**三个文件、五个改动点**——
+ *   ⚠️ 2026-10-19 实测校准：这一段此前写的是"**两处**都要改"，**与事实不符**。
+ *      下面①②是那"两处"，但还有第三处（③），漏了它门禁照样判红。
+ *   ① 本文件的 IDENTITY_SAMEAS ＋/－那一条；
+ *   ② 门禁 scripts/check-identity-handles.cjs 的 ORACLE_SAMEAS ＋/－那一条
+ *      ＋ EXPECTED_COUNT 改数 ＋ ORACLE_SET_SHA256 贴新哈希（哈希锚；合法
+ *      增删后跑一次门禁，红因里会直接给出该贴的新值）；
+ *   ③ src/_data/site.js 的 site.author 里**该平台的可见身份链接字段**
+ *      （author.github / author.csdn / author.researchgate / author.openalex
+ *      那一族）＋/－一项。
+ *
+ *   ⚠️ 第 ③ 处最容易被漏，原因在门禁里：I5 刻意**跳过** author.sameAs
+ *      （机读路径由 I1 / I2 管），它只认 site.author 里**单独写出来的**
+ *      可见链接字段 → 只加清单、不加可见字段，门禁必然判红。
+ *      实测（隔离克隆 2026-10-19）：只改 ①② → 门禁 exit 1，唯一红因
+ *      「site.author 里**数据源侧**的身份主页形态链接缺 https://gitlab.com/lvyihang」；
+ *      再补上 ③ → 门禁 exit 0（走绿）。
+ *
+ *   ⚠️ 那条红因**只说数据层名（site.author），不点名 src/_data/site.js**
+ *      ——红因里点名文件 / 直接写出同步清单属"待拍板 23"，未代拍。
+ *      所以"到底要改哪几处"目前只能靠这段注释说清。
+ *
  *   漏改任一处 → 门禁判红（这是有意的：漂了就该叫）。
  */
 const OWNER_ORCID = "https://orcid.org/0009-0005-3511-0546";
