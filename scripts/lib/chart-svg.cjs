@@ -115,9 +115,40 @@ function renderChartPanel(data, panel) {
   const id = `chart-${panel.key}`;
   const out = [];
 
+  /* 交互层需要的机器可读数据（2026-10-20 补 · 对应 ROADMAP M2 第 3 项）
+   *
+   * 为什么挂成一个 data-chart JSON，而不是让 JS 去猜：
+   *   · 绘图区在 viewBox 里的几何（plot）与数值→像素的映射（scale）**只有这里知道**
+   *     ——让前端重算一遍，就等于让它维护第二份几何，两份迟早对不上。
+   *   · 于是这份 JSON 与画出来的线**同源**：都是 panel.values / panel.decadal /
+   *     sc 三样东西算出来的，不存在"图是 A、数是 B"的可能。
+   *   · 键值是 data-*，不是 class ⇒ scripts/check-dead-css.cjs 看不见它、
+   *     不会把它误判成死类（那个门禁只认类名）。
+   *   · SVG 内部仍然不写任何 class、也不写颜色（见文件头）——
+   *     游标与数据点由 JS 摆成 HTML 元素，颜色走外层 --chart-stroke。
+   */
+  const chartData = {
+    y0,
+    y1,
+    years,
+    viewW: VIEW.w,
+    viewH: VIEW.h,
+    plot: { l: PLOT.left, r: PLOT.right, t: PLOT.top, b: PLOT.bottom },
+    scale: { lo: sc.lo, hi: sc.hi },
+    unit: panel.unit,
+    values: vals,
+    decades: panel.decadal.map((d) => ({
+      label: d.label,
+      start: d.start,
+      nYears: d.nYears,
+      value: d.value,
+    })),
+  };
+
   out.push(
     `<svg viewBox="0 0 ${VIEW.w} ${VIEW.h}" width="100%" ` +
-      `role="img" aria-labelledby="${id}-title" aria-describedby="${id}-desc">`
+      `role="img" aria-labelledby="${id}-title" aria-describedby="${id}-desc" ` +
+      `data-chart="${esc(JSON.stringify(chartData))}">`
   );
   out.push(`<desc id="${id}-desc">${esc(describe(panel, years))}</desc>`);
 

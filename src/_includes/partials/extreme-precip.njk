@@ -31,7 +31,24 @@
         <p class="chart__panel-title" id="chart-{{ panel.key }}-title">
           <span class="chart__panel-letter">{{ panel.letter }}</span> {{ panel.label }}
         </p>
-        {{ extremePrecip | chartPanel(panel) | safe }}
+        {# 交互层（ROADMAP M2 第 3 项 · 2026-10-20 补）
+           · 画布是可聚焦的（tabindex=0）：鼠标之外，键盘也能逐年读数
+           · 游标与数据点是**HTML 元素**，不塞进 SVG ——
+             SVG 内部不写 class、不写颜色是本仓的约定（见 scripts/lib/chart-svg.cjs），
+             而这两个东西的颜色要跟着面板走 --chart-stroke，放在 SVG 外正好继承。
+           · 读数条用 aria-live：读数变了，屏幕阅读器会念出来。 #}
+        <div class="chart__plot" data-chart-panel>
+          <div class="chart__canvas" data-chart-canvas tabindex="0" role="group"
+               aria-label="Interactive year readout for panel {{ panel.letter }}. Use the left and right arrow keys to step through each year.">
+            {{ extremePrecip | chartPanel(panel) | safe }}
+            <span class="chart__cursor" data-chart-cursor hidden></span>
+            <span class="chart__dot" data-chart-dot hidden></span>
+          </div>
+          <p class="chart__readout" data-chart-readout aria-live="polite">
+            <span class="chart__readout-main" data-chart-readout-main>Hover the plot, or focus it and use the left and right arrow keys to step through the years.</span>
+            <span class="chart__readout-mean" data-chart-readout-mean></span>
+          </p>
+        </div>
       </div>
       {% endfor %}
     </div>
@@ -73,4 +90,23 @@
       </p>
     </figcaption>
   </figure>
+
+  {# 交互层模块：只有这张图在页面上时才会去下载它
+     （与论文页 paper.njk 动态 import paper-reader 同一做法：
+       不给没有交互的页面白白加一个请求） #}
+  <script type="module">
+    if (document.querySelector("[data-chart-panel]")) {
+      {# ⚠️ specifier 必须以 "./" 开头，不能直接写 "assets/js/home-chart.js"。
+         ES 模块规范把 import() 的 specifier 分两类：
+           · URL-like：以 "/"、"./"、"../" 开头，或绝对 URL
+           · bare specifier：其余（看起来像路径，但不是）
+         bare specifier 只能靠 import map 解析；本仓没有 import map，
+         所以 Chrome 会直接抛 "Failed to resolve module specifier"，
+         页面静默失去交互（build 照样绿，静态门禁也照样绿）。
+         实测（2026-10-20）：`assets/js/x.js` 失败，`./assets/js/x.js` 正常。
+         论文页的 "../../assets/..." 已经是 URL-like，所以那边不用改。 #}
+      const { initHomeChart } = await import("./{{ '/assets/js/home-chart.js' | relUrl }}");
+      initHomeChart();
+    }
+  </script>
 </section>

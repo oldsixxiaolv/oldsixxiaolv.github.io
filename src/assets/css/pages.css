@@ -564,3 +564,24 @@
 .chart__caption a { color: var(--text-secondary); text-decoration: underline; text-decoration-color: color-mix(in srgb, var(--text-secondary) 40%, transparent); text-underline-offset: 3px; }
 .chart__caption a:hover { text-decoration-color: var(--text-secondary); }
 @media (max-width: 640px) { .chart { padding: var(--space-3); } }
+
+/* ---- 图表交互层（ROADMAP M2 第 3 项 · 2026-10-20 补） ----
+   游标与数据点是**HTML 元素**，不是 SVG 节点 ——
+   SVG 内部不写 class、不写颜色是本仓的约定（见 scripts/lib/chart-svg.cjs），
+   而这两个东西要跟着面板走 --chart-stroke，放在 SVG 外正好继承得到。
+   ⚠️ 这两个元素带 hidden 属性，**不要给它们写 display** ——
+      写了 display 就会盖掉 [hidden] 的 display:none，元素永远藏不住。 */
+.chart__plot { margin-top: var(--space-2); }
+.chart__canvas { position: relative; }
+.chart__cursor { position: absolute; inline-size: 1px; background: var(--border-strong); pointer-events: none; }
+.chart__dot { position: absolute; inline-size: 9px; block-size: 9px; border-radius: 50%;
+  background: var(--chart-stroke, var(--color-brand-500));
+  /* 2px 的底色环：数据点压在细线/粗线上时仍然看得清边界 */
+  box-shadow: 0 0 0 2px var(--bg-surface); pointer-events: none; transform: translate(-50%, -50%); }
+.chart__readout { margin: var(--space-2) 0 0; min-block-size: 1.5em; font: 12px/1.5 var(--font-mono); color: var(--text-secondary); }
+.chart__readout-main { color: var(--text-primary); }
+.chart__readout-mean { margin-inline-start: .5em; }
+/* 动效只在这条分支里：reduced-motion 下游标瞬移，不做过渡 */
+@media (prefers-reduced-motion: no-preference) {
+  .chart__cursor, .chart__dot { transition: left .12s ease-out, top .12s ease-out, height .12s ease-out; }
+}

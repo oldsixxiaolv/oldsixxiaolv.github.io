@@ -90,6 +90,8 @@ Cloudflare Pages、Nginx 等任意静态服务。详细运行 / 调试见 `HOW_T
 | `npm run check:overflow-selftest` | 上面那道门禁的本地夹具自测（证明它能变红：少测一档、视口没真改都判红） |
 | `npm run check:artifact` | 产物里的 @id / license / 版本 / 地址与 `site.js` 逐字一致 |
 | `npm run check:jsonld` | JSON-LD 合法，站点实体与页面实体接得上 |
+| `npm run check:home-chart` | 首页降水图的交互层：钩子齐全、**读数与数据同源**、键盘可达、模块与样式在位 |
+| `npm run check:home-chart-selftest` | 上面那道门禁的本地夹具自测（6 档注入矩阵，证明它能变红） |
 | `npm run check:identity` | 身份句柄（ORCID / GitHub / CSDN / ResearchGate）登记一致 |
 | `npm run check:identity-derivation` | 身份 URL 必须**派生**出来，不许抄成字面量 |
 | `npm run check:citation-meta` | 论文页 `citation_*` 标签与 `site.js` 逐字一致 |

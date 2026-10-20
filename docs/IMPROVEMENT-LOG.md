@@ -2182,6 +2182,25 @@ CSDN 521 并列）。那个归类对 ResearchGate / CSDN 成立，但对这一�
   站点归属表达变弱。
   （本场次不代拍，登记为待拍板 41）
 
+- **交互类改动要不要配常驻的浏览器级门禁？**
+  事实（2026-10-20 10:00–10:30 场次实测）：本轮把首页降水图做成**可交互**之后，它的交互行为
+  （悬停读数、键盘逐年步进、游标与数据点定位、`prefers-reduced-motion` 降级）**没有任何常驻门禁守着**
+  ——只被一次性实测脚本跑过。仓内唯一的浏览器级门禁是 `scripts/check-overflow.cjs`
+  （CDP 骨架就写在它自己文件里，没抽公共库）。
+  本轮就撞上过一个**只有真实浏览器能发现**的真 bug：动态 `import()` 的 specifier 写成 bare
+  （`assets/js/home-chart.js`）⇒ Chrome 抛 `Failed to resolve module specifier`，
+  整张图**静默失去交互**，而 build 与当时的静态门禁**都还是绿的**。
+  该类已由新判据 **HC6** 补上；但 HC6 只覆盖"specifier 形态"这一类，**不覆盖"行为对不对"**
+  （读数条里的数是不是还是那个数、游标是不是还落在那个位置）。
+  后果：下次有人改读数文案、动游标定位、改键盘映射，静态门禁照样全绿，
+  而页面上的数可能已经悄悄错了 —— 只有等真有人用鼠标去点才发现。
+  备选：① **补一道浏览器级门禁**（照 `check-overflow` 的路子，用真实浏览器打开首页断言读数/键盘/定位/降级）
+  并接进 build 链 ——代价：build 再涨约 5–10 s（现有 `check:overflow` 7 档已占约 14 s），
+  且 CI runner 镜像必须继续自带 Chrome（`deploy.yml` 里已有一行记录浏览器版本，镜像变了会**明确报错**而非静默跳过）；
+  ② 只在本地手跑、不进 build 链 ——代价：「没人跑 = 没人知道」（这正是 D7 登记过的老问题）；
+  ③ 不补，靠人工每轮实测 ——代价：本轮这种 bug 只有在真的去开浏览器时才会暴露。
+  （本场次不代拍，登记为待拍板 42）
+
 
 ---
 ## 2026-10-19 · 第十一轮（12:22–12:47 场次）：订阅源时间戳说真话 + 404 身份开关落地
@@ -14780,3 +14799,168 @@ D4 的验收条件只要求「至少 3 档（390 / 768 / 1024）」，本轮取 
 - 下一轮入口：从缺陷清单取**下一条**（D2 / D3 待拍板 40 拍板后；D9 待拍板 41 拍板后；D5 等 M1-3）；
   或按 ROADMAP 推进 M1-3 选题主线（需本人先定）。
 
+
+---
+
+## 2026-10-20 · 10:00–10:30 场次（**不占轮次号**，避免与并发场次撞号）：M2 第 3 项 —— 首页华北降水图升级成可交互（悬停读数 + 时间轴游标 + 键盘可达，仍零图表库）
+
+### A. 本轮为什么取 M2 第 3 项（缺陷清单当时**无可取项**）
+
+先按规矩从 `docs/DEFECT-BACKLOG.md` 取缺陷，取不到才动 ROADMAP。逐条核对：
+
+| 缺陷 | 为什么本轮不能取 |
+|---|---|
+| D1 | 已修（上一场次） |
+| **D2 / D3** | og 图口径与体积，绑定**待拍板 40**（含 `twitter:image` 同源约束）⇒ 属本人拍板项，不代拍 |
+| D4 | 已修（上一场次） |
+| **D5** | 依赖 **M1-3**（博客选题主线本人尚未指定）⇒ 不代拍 |
+| **D6** | 纯部署滞后，**由 push 触发**（待拍板 7）⇒ 本轮不 push |
+| D7 / D8 | 已判**不修**（理由已登记，避免重复登记） |
+| **D9** | JSON-LD 日期口径与 `image`/`dateModified`，绑定**待拍板 41** ⇒ 不代拍 |
+
+⇒ 缺陷清单确实无可取项。再看 ROADMAP：
+
+- **M1-1「封面裂图」确认无对象**：全仓唯一的 `cover:` 出现在论文页
+  `/assets/img/publications/trmm-fig10.jpg`（已生效）；博客 `useCovers=false` 且 `src/content/blog/` 下 0 篇文章。
+- **M2 第 1、2 项已做**：滚动进场在 `src/assets/js/main.js`（IntersectionObserver + `prefers-reduced-motion` 降级），
+  页面内锚点平滑滚动在 `src/assets/css/base.css:21`。
+- **M2 第 3 项是真缺口**：`src/assets/js/` 下**没有任何 chart 代码** —— 这张图一直是纯静态 SVG（页面零 JS）。
+
+⇒ 本轮做 **M2 第 3 项**：把首页华北降水图从「纯静态 SVG」升级为可交互，**仍零图表库、零第三方运行时依赖**。
+
+### B. 改了什么
+
+| 路径 | 性质 | 做了什么 |
+|---|---|---|
+| `scripts/lib/chart-svg.cjs` | M | 渲染器给 `<svg>` 根加**一个** `data-chart` 属性（JSON：绘图区矩形、value→pixel 映射、years / values / decades、unit） |
+| `src/_includes/partials/extreme-precip.njk` | M | 每个面板加 `.chart__plot` → `.chart__canvas`（`tabindex="0"` `role="group"` + `aria-label`）→ SVG + `.chart__cursor` + `.chart__dot`；下方 `.chart__readout`（`aria-live="polite"`）；section 末尾按需动态 `import()` 交互模块 |
+| `src/assets/js/home-chart.js` | A | 交互模块：`initHomeChart(root)`；鼠标/触点按 clientX→viewX→最近年份；键盘 `←`/`→`/`Home`/`End`/`Escape`；blur/pointerleave 复位 |
+| `src/assets/css/pages.css` | M | `.chart__plot` / `.chart__canvas` / `.chart__cursor` / `.chart__dot` / `.chart__readout` 系列；**过渡只写在 `@media (prefers-reduced-motion: no-preference)` 内** |
+| `scripts/check-home-chart.cjs` | A | 新门禁 **HC1–HC6** |
+| `scripts/test-home-chart.cjs` | A | 新自测：注入矩阵 **M0–M7**（接进 build 链） |
+| `package.json` | M | 新增 `check:home-chart` / `check:home-chart-selftest`，接在 `check:jsonld` 之后进 build 链 |
+| `README.md` | M | 补两行（`check:readme` 的 RD3 要求 package.json 每个脚本都被 README 提到） |
+
+**几个关键设计（都是"少一份真相"的取舍）**：
+
+1. **几何只存一份**：绘图区矩形、value→pixel 映射、years / values / decades 全部由渲染器写进 `data-chart`，
+   前端**不重算** ⇒ 读数条与画出来的线在结构上必然同源。HC2 门禁逐字核对这两份是否一致。
+2. **游标与数据点做成 HTML 元素，不塞进 SVG**：本仓约定 SVG 内部不写 class、不写颜色
+   （见 `scripts/lib/chart-svg.cjs` 文件头）；作为 canvas 的 HTML 子元素可直接继承面板的 `--chart-stroke`，
+   且能用百分比定位。
+3. **命中检测用坐标反算**（clientX → viewX → 最近年份），**不生成 66 个 hit-target 圆点** ⇒ DOM 零膨胀。
+4. **读数条固定在图下方**（不做跟随鼠标的浮动 tooltip）：两栏网格里浮层容易溢出（会撞 `check-overflow`），固定条更克制。
+5. **不给 `.chart__cursor` / `.chart__dot` 写 `display`** —— 写了就会盖掉 `[hidden]` 的 `display:none`，
+   元素永远藏不住。HC5 专门守这一条。
+6. **交互模块按需动态 `import()`**（与论文页 `paper.njk` 同一做法）：不给没有交互的页面白加一个请求。
+
+### C. ⚠️ 本轮踩到并修掉的一个真 bug：动态 `import()` 的 specifier 写成 **bare**
+
+**现象**：静态门禁全绿、build 全绿，但浏览器里**整张图点不动** —— 控制台一句
+`TypeError: Failed to resolve module specifier 'assets/js/home-chart.js'`。
+
+**根因**（不是路径写错，是**类型**错）：ES 模块规范把 `import()` 的 specifier 分成两类 ——
+**URL-like**（以 `/`、`./`、`../` 开头，或是绝对 URL）与 **bare specifier**（其余：看着像路径，但不是）。
+bare specifier 只能靠 **import map** 解析；本仓**没有 import map** ⇒ 浏览器直接抛上面那句。
+
+**实测矩阵**（本机 Chrome，首页 `/` 与论文页 `/papers/trmm-thunderstorm-stages/` 各测）：
+
+| specifier | 结果 |
+|---|---|
+| `import("assets/js/home-chart.js")` | ❌ 失败（bare） |
+| `import("./assets/js/home-chart.js")` | ✅ 正常 |
+| `import("/assets/js/home-chart.js")` | ✅ 正常 |
+| `import("../../assets/js/paper-reader/main.js")` | ✅ 正常（论文页一直就是好的，所以那边**不用改**） |
+
+⚠️ **不能靠 URL API 判断**：`new URL("assets/js/home-chart.js", base)` 是**成功**的 ——
+所以"能解析成 URL"不等于"浏览器会当模块解析"。
+
+**修法**：模板里改成 `import("./{{ '/assets/js/home-chart.js' | relUrl }}")`。
+`relUrl` 给的是相对当前页的路径（首页 = `assets/js/home-chart.js`，论文页 = `../../assets/...`），
+补 `./` 之后既 URL-like、又保住了"整个文件夹扔到哪都能跑"的全站原则。
+
+**为什么第一版没被挡住**：`HC4` 当时只查「模块存在 + 被首页引用 + 按 ESM 解析语法能过」——
+**没有查 specifier 能不能被浏览器解析**。这是**静态门禁的结构性盲区**：
+凡是"只有真实浏览器才判得出来"的行为，静态判据一条都看不见。
+
+### D. 新增门禁与自测
+
+**`scripts/check-home-chart.cjs`（HC1–HC6）**：
+
+| 判据 | 守什么 |
+|---|---|
+| HC1 | 每个面板的交互钩子齐全（canvas / cursor / dot / readout-main / readout-mean） |
+| HC2 | **读数与数据同源**：产物里 `data-chart` 的 years / values / decades 与 `src/_data/extremePrecip.json` 逐字一致 |
+| HC3 | 键盘可达：画布 `tabindex="0"` + 非空 `aria-label`；读数条 `aria-live` |
+| HC4 | 交互模块存在、被首页引用、且**按 ESM 解析**语法能过 |
+| **HC6** | **动态 `import()` 的 specifier 必须是 URL-like**（`/`、`./`、`../` 或绝对 URL）—— 这条是**全仓通用规则**，所以扫**全部产物页**（本轮实测 6 页 2 处动态 import 全合规）；bare specifier ⇒ 浏览器抛 `Failed to resolve module specifier`，交互静默消失 |
+| HC5 | 样式在位，且 `.chart__cursor` / `.chart__dot` **没有** `display` 声明 |
+
+**自测 `scripts/test-home-chart.cjs`（M0–M7，接进 build 链）**：
+M0 基线绿 / M1 数值不符→HC2 / M2 删 tabindex→HC3 / M3 删钩子→HC1 / M4 加 display→HC5 /
+M5 语法坏→HC4 / M6 删 decades→HC2 / **M7 去掉 `./` 前缀 → HC6**（真实踩过的那个坑）。
+注入全部在**副本**上做（`SITE_DIR` / `CHART_DATA_PATH` / `CHART_JS_PATH` / `CHART_CSS_PATH` 四个开关），
+仓库里的文件一个没动。**实测 7 档全部符合预期。**
+
+### E. 浏览器实测（真实 Chrome，46 条断言全绿）
+
+用 puppeteer-core 25.12.0 + 本机 Chrome 对**构建产物**跑，一次性脚本放在 `/tmp`（不入仓）：
+
+| 组 | 断言 |
+|---|---|
+| 结构 | 两个面板、画布可聚焦 + 有可访问名、读数条 `aria-live=polite`、SVG 仍保留 `role=img` 与 `<desc>`、`data-chart` 年份/数值/十年段完整（66 / 66 / 7，末段 2020-2025 六年） |
+| 悬停（5 个样例） | 读数条里的**年份/数值/十年均值**逐字等于 `extremePrecip.json`；游标 left/top/height 的百分比与 `data-chart` 几何一致（误差 < 0.15%）；数据点的纵向位置与数值→像素映射一致 |
+| 键盘（9 条） | `→` 起步落第 1 年、逐年步进、`←` 回退、`End` 跳末年、末年再 `→` **被钳住不越界**、`Home` 回首年、首年再 `←` **被钳住不越界**、`Esc` 清空并复位提示语 |
+| 降级 | `prefers-reduced-motion: reduce` 下过渡时长 ≈ 0（实测 `1e-05s`，来自全站 `base.css:260` 的 `transition-duration: 0.01ms !important` 兜底）；正常偏好下过渡是 `left/top/height 0.12s`（动效没被误关掉） |
+| 版面 | 无横向溢出（`scrollWidth == clientWidth == 1280`）、页面无 JS 报错、**Tab 键 1 次即走到画布**且 `:focus-visible` 生效（`box-shadow: rgba(77,151,255,0.35) 0 0 0 3px`） |
+
+⚠️ **两条一度判红的是我的测法不对，不是产品错**，如实记：
+
+1. reduced-motion 那条我原先判「transition 变 `none`」——但全站 `base.css:260–266` 早有一层兜底
+   （`transition-duration: 0.01ms !important`），所以实测是 `1e-05s` 而不是 `none`。
+   ⇒ 判据改成「时长 ≈ 0」，产品行为本来就是对的。
+2. 焦点样式那条我原先用 JS `focus()` 去量 `box-shadow` —— `:focus-visible` **只在键盘模态下才匹配**，
+   程序化 `focus()` 量出来永远是 `none`。⇒ 改成真的**按 Tab 走位**（这反而是更强的测试：
+   它同时证明了画布在 Tab 序里可达）。
+
+### F. 性能 A/B 与「看截图说话」
+
+**A/B**：before = HEAD（`ca1e5ac`，静态图版本，用 `git archive HEAD` 到 `/tmp` 单独构建），
+after = 工作树版本；本机 Chrome，1280×900，各跑 3 次取中位。
+
+| 指标 | before | after | Δ |
+|---|---|---|---|
+| FCP | 48 ms | 44 ms | −4 ms（噪声内） |
+| LCP | 80 ms | 88 ms | +8 ms（噪声内） |
+| CLS | 0.0237 | 0.0237 | **0**（无回归） |
+| 请求数 | 12 | 13 | **+1**（仅首页，且仅这张图在时） |
+| `index.html` | 57,016 B | 62,555 B | **+5,539 B**（gzip +1,333 B） |
+| `assets/css/pages.css` | 30,518 B | 32,030 B | **+1,512 B** |
+| `assets/js/home-chart.js` | — | 6,701 B | **+7,001 B**（gzip +2,754 B，新增） |
+
+⚠️ **第一版 A/B 报「传输 +139.5 KB」是假的**，原因是 Google Fonts 冷缓存噪声
+（`Noto Serif SC` 的字体 CSS 冷缓存 93,017 B、热缓存 0 B）⇒ 屏蔽字体请求后重测为 **+13.4 KB**。
+⚠️ **本轮未跑 Lighthouse**：工具链已从 `/tmp/screenshot-tool` 消失（`lighthouse` 包不在），
+所以「指标不劣化」只能用 FCP / LCP / CLS + 新增字节数作**代理指标**；此处如实记明，**没有**拿代理指标冒充 Lighthouse。
+
+**看截图说话**（截图在 `/tmp`，**不入仓**）：
+before（静态）与 after 的**图表本身像素一致**；idle 态只在图下多了一行等宽小字提示；
+hover 态是 1px 竖游标 + 9px 数据点（带 2px 底色环）+ 一行读数。
+⇒ 判断：**更利落，不是更花**。没有新增装饰层、没有浮动 tooltip 盖住数据、
+读数用 `--text-secondary` 而不是抢眼的高对比色。
+
+### G. 线上巡检（7 条 URL，与上轮**逐条一致**）
+
+`/` 200 · `/papers/` 404 · `/blog/` 200 · `/about/` 200 · `/publications.bib` 404 ·
+`/feed.xml` 404 · `/sitemap.xml` 200 ⇒ 仍是 **D6**（2026-10-16 的旧部署，纯部署滞后，不是代码缺陷）。
+本轮**不 push**（部署时机属既有待拍板 7）。
+
+### H. 同步改动与纪律
+
+- `docs/DEFECT-BACKLOG.md`：新增 **D10**（交互类改动缺常驻浏览器级门禁；状态「待修，修法方向属本人拍板」）。
+- `docs/ROADMAP.md`：M2 段加「进度（2026-10-20 10:30 实测）」，标明第 3 项已做、论文精读页交互未做。
+- `docs/IMPROVEMENT-LOG.md`：中央待决策段追加**待拍板 42**（要不要给交互类改动配常驻浏览器级门禁）；末尾追加本小节。
+- 本轮纪律：**先测后改**（浏览器实测先跑出真 bug 再改）；**能一测的判据不靠肉眼**；
+  **一轮只做一个改进点**；**不代拍**（浏览器门禁的取舍登记为待拍板 42 + D10，不自行决定）。
+- 下一轮入口：① 按 ROADMAP 做 **M2 第 4 项**（论文精读页交互按 `docs/papers-interaction.md` 补齐）；
+  ② 或从缺陷清单取下一条（D2 / D3 待拍板 40 拍板后；D9 待拍板 41 拍板后；D5 等 M1-3；D10 待拍板 42 拍板后）。

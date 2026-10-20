@@ -123,6 +123,17 @@
 - 首页华北降水数据图升级为**可交互**（悬停读数、时间轴游标、键盘可达），仍保持零图表库；
 - 论文精读页交互按 `docs/papers-interaction.md` 的既有规范补齐。
 
+**进度（2026-10-20 10:30 实测）**
+- 滚动进场：✅ 已做（`src/assets/js/main.js`，IntersectionObserver + `prefers-reduced-motion` 降级）
+- 列表卡/论文卡悬停与聚焦反馈、页面内锚点平滑滚动：✅ 已做（`src/assets/css/base.css:21` 等）
+- 首页华北降水图可交互：**✅ 已做（2026-10-20 10:00–10:30 场次）** ——
+  悬停/触点读数、年份-数值-十年均值三行读数条、时间轴游标 + 数据点、键盘
+  `←`/`→`/`Home`/`End`/`Escape` 逐年步进；**零图表库、零第三方运行时依赖**，
+  交互模块按需动态 `import()`（只有这张图在页面上时才下载）。
+  几何与数值由渲染器写进 SVG 的 `data-chart`，前端**不重算** ⇒ 读数与画出来的线同源。
+  证据见 `docs/IMPROVEMENT-LOG.md` 的「2026-10-20 · 10:00–10:30 场次」小节。
+- 论文精读页交互按 `docs/papers-interaction.md` 补齐：⬜ **未做**（下一轮候选）
+
 **验收**
 - 动效在 `prefers-reduced-motion: reduce` 下全部退化为无动画（可实测）；
 - 键盘可完整操作新增交互；`check-a11y`、`check-overflow`、`check-wrap` 仍全绿；
