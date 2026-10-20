@@ -13,7 +13,7 @@
  *   并且指名道姓地说出"哪一节没了、哪个提交删的"，
  *   好让恢复动作（`git show <删节提交>^:docs/IMPROVEMENT-LOG.md`）可以直接执行。
  *
- * 四条判据：
+ * 六条判据：
  *   LS1 日志在 HEAD 上存在，且能抽出 `## ` 节标题。
  *   LS2 **历史上出现过的每一个 `## ` 节标题，现在必须仍在 HEAD 的日志里**。
  *          —— 核心判据。只查"曾经新增"是因为日志节是只增不减的：删节才是事故。
@@ -46,6 +46,19 @@
  *          ⚠️ 全部用**内容锚**（按标题定位、再往后找收尾线），
  *             **不依赖任何行号** —— 这个日志每天被并发场次追加，
  *             行号随时在漂（实测同一分钟里中央段起始行就从 1493 挪到 1510）。
+ *   LS6 同一个 `## ` 节标题**不得出现多份**。
+ *          —— 为什么单列一条：LS1/LS2/LS4 都用**集合**（Set）收集节标题，
+ *            于是"同一个标题在日志里出现两次"会被**去重掉**：
+ *            这些判据只查"这个标题还在不在"（LS2）/"工作树有没有它"（LS4），
+ *            **同一节存在两份副本这件事对它们完全不可见**。
+ *            实测（2026-10-19～20 真实发生过，不是假想）：
+ *              · 「续四」节在日志里同时存在两份（提交 `3f56633`）；
+ *              · 去重（`6db69c5`）之后，一次**与该节无关**的提交
+ *                （`1580b7d`，整份提交工作树日志）把副本又带了回来 ⇒ 又变两份
+ *                （`c99b2f1` 仍是两份）；
+ *              · 整个过程 LS1–LS5 与 DI0–DI2 **全部 exit 0** ——
+ *                没有任何判据能看见它，直到人工二次去重（`5fc4e2f`）。
+ *            本条守的正是这件事。两侧都查：HEAD 侧（已入库的）与工作树侧（提交前）。
  *
  * ⚠️ LS2 为什么从"最近 40 个提交的窗口"改成"全历史"（2026-10-19 本轮）：
  *   旧实现只扫最近 `WINDOW = 40` 个提交。实测（HEAD = 8a7a953，125 个提交、
@@ -91,22 +104,51 @@ function git(args) {
 }
 
 /**
- * 取某个提交里日志的全部 `## ` 节标题。
+ * 取某个提交里日志的全部 `## ` 节标题，**带行号、保留重复**。
  * 返回 null 表示该提交里没有日志文件（根提交 / 早期提交）。
  *
  * 用 `git grep` 而不是 `git show`：日志有 10000+ 行 / 数百 KB，
  * 每次只把匹配行（几十行）传回，进程间数据量小一个量级。
  * git grep 的退出码：0 = 有匹配；1 = 文件在但没匹配；128 = 路径不存在。
+ *
+ * ⚠️ 为什么要"保留重复"：本函数供 LS6 用 —— 同一标题出现多份**正是要抓的东西**，
+ *    任何去重（Set/Map）都会把它藏掉。`headings()` 那层才做去重。
  */
-function headings(sha) {
-  const r = git(["grep", "-h", "-e", "^## ", sha, "--", LOG]);
+function headingRows(sha) {
+  const r = git(["grep", "-n", "-h", "-e", "^## ", sha, "--", LOG]);
   if (r.status === 128) return null; // 该提交里没有这个文件
-  const set = new Set();
+  const rows = [];
   for (const line of r.out.split("\n")) {
-    const t = line.trim();
-    if (t.startsWith("## ")) set.add(t);
+    const m = /^(\d+):(.*)$/.exec(line);
+    if (m) rows.push({ line: Number(m[1]), text: m[2] });
   }
-  return set;
+  return rows;
+}
+
+/** 某个提交里日志的节标题**集合**（去重）—— LS1/LS2 用。 */
+function headings(sha) {
+  const rows = headingRows(sha);
+  if (rows === null) return null;
+  return new Set(rows.map((r) => r.text.trim()));
+}
+
+/**
+ * 找出"同一个标题出现多份"的节标题。
+ * identity = 去掉首尾空白后的整行（与 LS2/LS4 的比较口径一致）。
+ * 返回 [{ text, lines: [行号, ...] }]。
+ */
+function duplicateHeadings(rows) {
+  const byText = new Map();
+  for (const r of rows) {
+    const t = r.text.trim();
+    if (!byText.has(t)) byText.set(t, []);
+    byText.get(t).push(r.line);
+  }
+  const out = [];
+  for (const [text, lines] of byText) {
+    if (lines.length > 1) out.push({ text, lines });
+  }
+  return out;
 }
 
 const problems = [];
@@ -362,6 +404,52 @@ if (!fs.existsSync(wtPath)) {
   }
 }
 
+/* ---------- LS6：同一个 `## ` 节标题出现多份 ⇒ 判红 ----------
+   两侧都查：HEAD 侧（已经进库的）与工作树侧（还没提交、正要提交的）。
+   判据的"范围"写死在这里（不是从被判对象推导出来的）：查的是**日志文件本身**，
+   与 LS2 的"历史上出现过、现在还在不在"是两个维度。
+
+   ⚠️ 中央段标题的副本**不**由本条报（LS5 单独报，且 LS5 说清"同一段出现副本"）——
+      两条判据都报同一件事会让红因变噪声，反而让人忽略另一条。 */
+let headDupes = [];
+let wtDupes = [];
+let headRowCount = 0;
+let wtRowCount = 0;
+
+{
+  const headRows = headingRows("HEAD");
+  headRowCount = headRows ? headRows.length : 0;
+  headDupes = headRows ? duplicateHeadings(headRows) : [];
+  for (const d of headDupes) {
+    if (d.text === CENTRAL_TITLE) continue;
+    problems.push(
+      `HEAD 上的日志里同一个 "## " 节标题出现了 ${d.lines.length} 份（第 ` +
+        `${d.lines.join(" / ")} 行）：「${d.text}」—— 同一节在日志里存在多份副本，` +
+        `读者会读到两遍；而 LS1/LS2/LS4 用**集合**收集节标题，**看不见**这件事` +
+        `（LS2 只查"这个标题还在不在"）。` +
+        `最常见的成因：一次**整份提交工作树日志**的提交，把刚去掉的副本又带了回来。` +
+        `修复方式：确认哪一份是最新的，删掉其余的。`
+    );
+  }
+}
+
+if (fs.existsSync(wtPath)) {
+  const wtRows = [];
+  fs.readFileSync(wtPath, "utf8").split("\n").forEach((l, i) => {
+    if (l.trim().startsWith("## ")) wtRows.push({ line: i + 1, text: l });
+  });
+  wtRowCount = wtRows.length;
+  wtDupes = duplicateHeadings(wtRows);
+  for (const d of wtDupes) {
+    if (d.text === CENTRAL_TITLE) continue;
+    problems.push(
+      `工作树上的日志里同一个 "## " 节标题出现了 ${d.lines.length} 份（第 ` +
+        `${d.lines.join(" / ")} 行）：「${d.text}」—— 同一节在日志里存在多份副本。` +
+        `提交之前就要拦住它：一旦入库，读者会读到两遍，事后只能靠翻 git 历史才发现。`
+    );
+  }
+}
+
 /* ---------- 汇总 ---------- */
 if (problems.length) {
   console.error("日志节不得消失门禁未通过：\n");
@@ -385,6 +473,9 @@ console.log(
     `历史上出现过 ${everSeen.size} 个节，HEAD 上现存 ${headSet ? headSet.size : 0} 个，` +
     `历史上出现过的节全部仍在 HEAD 上；` +
     `工作树上的 ${wtCount} 个节也覆盖了 HEAD 的全部节。` +
+    `节标题重复体检：HEAD 上 ${headRowCount} 行节标题（${headSet ? headSet.size : 0} 个不同标题）、` +
+    `工作树上 ${wtRowCount} 行节标题（${wtCount} 个不同标题），` +
+    `两侧都没有"同一标题出现多份"的副本。` +
     (centralSummary
       ? `中央待决策段（第 ${centralSummary.titleLine}–${centralSummary.endLine} 行）：` +
         `标题唯一、收尾分隔线在位、段内 ${centralSummary.entries} 条登记条目、` +

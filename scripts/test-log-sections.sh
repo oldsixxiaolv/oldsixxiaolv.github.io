@@ -36,8 +36,8 @@ build_repo() {
   cp "$GATE" "$SB/scripts/check-log-sections.cjs"
   ( cd "$SB" || exit 1
     git init -q . && git config user.email injector@example.com && git config user.name injector
-    printf '# 注入用日志\n' > docs/IMPROVEMENT-LOG.md
-    git add -A >/dev/null && git commit -qm "chore: 建空日志"
+    printf '# 注入用日志\n\n## 待决策（需要本人拍板，任务不会自己动）\n\n- 注入用的一条登记条目（沙箱）\n\n---\n' > docs/IMPROVEMENT-LOG.md
+    git add -A >/dev/null && git commit -qm "chore: 建带中央待决策段的空日志"
     for i in 2 3 4 5 6 7 8 9 10 11; do
       printf '## 场次 %02d：铺垫节\n' "$i" >> docs/IMPROVEMENT-LOG.md
       git add -A >/dev/null && git commit -qm "docs(log): 铺垫 $i"
@@ -97,6 +97,25 @@ say "用例 6：工作树比 HEAD 多一节（未提交的在途内容）—— 
 SB="$BASE/wtextra"; build_repo "$SB" no
 ( cd "$SB" && printf '## 2026-10-19 · 注入场次：还没提交的一节\n\n这节在工作树里，还没进 HEAD。\n' >> docs/IMPROVEMENT-LOG.md )
 expect_ok "工作树多节不误报" "$(run_gate "$SB")" "$(gate_code "$SB")"
+
+say "用例 7：同一个节标题出现两份（工作树侧，未提交）—— 期望红，且红因指名该标题与份数"
+SB="$BASE/wtdup"; build_repo "$SB" no
+( cd "$SB" && printf '\n## 场次 07：铺垫节\n\n这一节在工作树里出现了第二份（LS6 抓的就是它）。\n' >> docs/IMPROVEMENT-LOG.md )
+OUT="$(run_gate "$SB")"; CODE="$(gate_code "$SB")"
+expect_red "工作树侧重复节标题被抓到" "$OUT" "$CODE" "场次 07：铺垫节" "工作树上的日志里同一个" "2 份"
+
+say "用例 8：同一个节标题出现两份（已进 HEAD）—— 期望红，且红因指名 HEAD 侧"
+SB="$BASE/headdup"; build_repo "$SB" no
+( cd "$SB" && printf '\n## 场次 07：铺垫节\n\n这一节被提交进去了，于是 HEAD 上也有两份。\n' >> docs/IMPROVEMENT-LOG.md \
+  && git add -A >/dev/null && git commit -qm "docs(log): 注入：同一节标题两份（已提交）" )
+OUT="$(run_gate "$SB")"; CODE="$(gate_code "$SB")"
+expect_red "HEAD 侧重复节标题被抓到" "$OUT" "$CODE" "HEAD 上的日志里同一个" "场次 07：铺垫节" "2 份"
+
+say "用例 9：中央待决策段标题出现两份 —— 期望红（由 LS5 报，LS6 不重复报）"
+SB="$BASE/centdup"; build_repo "$SB" no
+( cd "$SB" && printf '\n## 待决策（需要本人拍板，任务不会自己动）\n\n- 副本\n\n---\n' >> docs/IMPROVEMENT-LOG.md )
+OUT="$(run_gate "$SB")"; CODE="$(gate_code "$SB")"
+expect_red "中央段标题副本被抓到" "$OUT" "$CODE" "中央待决策段的标题出现了" "2 次"
 
 printf '\n================ 结论 ================\n'
 printf '通过 %d 条，失败 %d 条\n' "$PASS" "$FAIL"
