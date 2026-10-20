@@ -11,6 +11,16 @@ layout: layouts/base.njk
   ========================================================================== #}
 {% set isPortfolio = tags and "portfolio" in tags %}
 {% set isBlog = tags and "blog" in tags %}
+{# —— 展示用的主题标签 ——
+   集合名（"blog" / "portfolio"）是目录数据文件注入的，只用来**判定版式**，
+   不该出现在读者眼前。列表页 src/blog.njk 早就把它滤掉了，这个版式原先**没有**，
+   于是每篇文章的 meta 行顶部都会多出一个 `· blog`（2026-10-20 实测）。
+   ⚠️ 只能滤「展示用」的这一份：**不能动 tags 本身** ——
+      isBlog / isPortfolio 靠它判定版式，把 tags 滤掉等于把文章偷偷换成首页版式。
+   ⚠️ 集合名清单要与 src/content/*/*.11tydata.cjs 保持一致：
+      scripts/check-tag-leak.cjs 从那些文件里推出集合名并核这一份清单，
+      新增集合忘了滤 ⇒ build 判红。 #}
+{% set topicTags = tags | reject("equalto", "blog") | reject("equalto", "portfolio") %}
 {% if isPortfolio %}
   {% set listHref = "/portfolio/" %}
   {% set listLabel = "Portfolio" %}
@@ -29,8 +39,8 @@ layout: layouts/base.njk
       {% if isBlog and date %}
         <time datetime="{{ page.date | date('yyyy-LL-dd') }}">{{ page.date | date('yyyy-LL-dd') }}</time>
         {% if readingTime %} · <span>{{ readingTime }} min read</span>{% endif %}
-        {% if tags and tags.length %}
-          {% for tag in tags %}<span> · {{ tag }}</span>{% endfor %}
+        {% if topicTags and topicTags.length %}
+          {% for tag in topicTags %}<span> · {{ tag }}</span>{% endfor %}
         {% endif %}
       {% endif %}
       {% if isPortfolio %}

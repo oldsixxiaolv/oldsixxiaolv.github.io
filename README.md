@@ -79,6 +79,8 @@ Cloudflare Pages、Nginx 等任意静态服务。详细运行 / 调试见 `HOW_T
 | `npm run check:decision-ids-selftest` | 上面那道门禁的本地夹具自测（14 档注入矩阵，证明它能变红） |
 | `npm run check:blog-frontmatter` | 博客 front matter 契约（`docs/blog-writing-guide.md`）：形状 / slug 命名 / 字段类型 / 不得覆盖自动注入的字段 |
 | `npm run check:blog-frontmatter-selftest` | 上面那道门禁的本地夹具自测（15 档注入矩阵，证明它能变红） |
+| `npm run check:tag-leak` | 集合名标签不许漏到读者眼前：渲染详情页版式与列表页，确认集合名（`blog` / `portfolio`）没被当主题标签印出来 |
+| `npm run check:tag-leak-selftest` | 上面那道门禁的本地夹具自测（7 档注入矩阵，证明它能变红） |
 | `npm run check:css` | CSS 大括号平衡 + 死 CSS |
 | `npm run check:wrap` | 长 DOI / 长 URL 不能把窄屏页面撑破 |
 | `npm run check:tool-routes` | 浏览器工具量到的必须是真页面，不是本站 404 页 |

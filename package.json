@@ -13,7 +13,7 @@
     "check:decision-ids": "node scripts/check-decision-ids.cjs",
     "check:decision-ids-selftest": "node scripts/test-decision-ids.cjs",
     "check:tracked-refs": "node scripts/check-tracked-refs.cjs",
-    "build": "npm run check:gates && npm run check:tracked-refs && npm run check:log-sections && npm run check:decision-ids && npm run check:decision-ids-selftest && npm run check:blog-frontmatter && npm run check:blog-frontmatter-selftest && npm run check:css && npm run check:wrap && eleventy && npm run check:tool-routes && npm run check:site && npm run check:image && npm run check:lang && npm run check:a11y && npm run check:print-theme && npm run check:copy && npm run check:overflow && npm run check:overflow-selftest && npm run check:artifact && npm run check:readme && npm run check:readme-selftest && npm run check:jsonld && npm run check:home-chart && npm run check:home-chart-selftest && npm run check:identity && npm run check:identity-derivation && npm run check:citation-meta && npm run check:citation-meta-selftest && npm run check:citation-cff && npm run check:citation-cff-selftest && npm run check:live-selftest",
+    "build": "npm run check:gates && npm run check:tracked-refs && npm run check:log-sections && npm run check:decision-ids && npm run check:decision-ids-selftest && npm run check:blog-frontmatter && npm run check:blog-frontmatter-selftest && npm run check:tag-leak && npm run check:tag-leak-selftest && npm run check:css && npm run check:wrap && eleventy && npm run check:tool-routes && npm run check:site && npm run check:image && npm run check:lang && npm run check:a11y && npm run check:print-theme && npm run check:copy && npm run check:overflow && npm run check:overflow-selftest && npm run check:artifact && npm run check:readme && npm run check:readme-selftest && npm run check:jsonld && npm run check:home-chart && npm run check:home-chart-selftest && npm run check:identity && npm run check:identity-derivation && npm run check:citation-meta && npm run check:citation-meta-selftest && npm run check:citation-cff && npm run check:citation-cff-selftest && npm run check:live-selftest",
     "serve": "eleventy --serve --quiet --port=8080",
     "check:a11y": "node scripts/check-a11y.cjs",
     "check:copy": "node scripts/check-copy-export.cjs",
@@ -38,7 +38,9 @@
     "check:readme": "node scripts/check-readme.cjs",
     "check:readme-selftest": "node scripts/test-readme.cjs",
     "check:blog-frontmatter": "node scripts/check-blog-frontmatter.cjs",
-    "check:blog-frontmatter-selftest": "node scripts/test-blog-frontmatter.cjs"
+    "check:blog-frontmatter-selftest": "node scripts/test-blog-frontmatter.cjs",
+    "check:tag-leak": "node scripts/check-tag-leak.cjs",
+    "check:tag-leak-selftest": "node scripts/test-tag-leak.cjs"
   },
   "engines": {
     "node": ">=22"
