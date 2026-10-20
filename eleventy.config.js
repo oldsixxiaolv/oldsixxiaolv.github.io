@@ -1528,6 +1528,32 @@ module.exports = function (eleventyConfig) {
      ⚠️ 只用于**页面内的 href / src**。canonical / og:url / og:image /
         JSON-LD 里的 url 必须保持完整绝对地址（搜索引擎靠它们定位页面），
         那些位置继续用 {{ site.url }} 直接拼，不经过这个过滤器。
+
+     ⚠️⚠️ 404 页是**唯一的例外**，也是本过滤器里唯一一处"非相对"输出 ——
+        为什么必须这样（一次具体的实测，不是假想）：
+          GitHub Pages 对**任何**未匹配的路径都返回 `/404.html` 的内容，
+          但**浏览器地址栏仍停在请求的 URL 上**（不会跳到 /404.html）。
+          于是一个请求 `/papers/does-not-exist/`，浏览器就按
+          `/papers/does-not-exist/` 这个基址去解析 404 页里的相对 URL：
+            "assets/css/components.css" → /papers/does-not-exist/assets/css/components.css
+            "blog/"                      → /papers/does-not-exist/blog/
+          ⇒ 4 个 preload 换装的样式表全部加载失败、6 条站内链接全部 404，
+            页面只剩内联 critical CSS ⇒ 版式全失、导航全断。
+          （2026-10-20 用真实 Chrome 实测坐实，见 scripts/check-404-depth.cjs。）
+        相对路径在 404 场景下**必然**解析到"请求路径"下面，而请求路径的
+        深度是不可知的 ⇒ 相对路径在这个页面上没有正确解。
+        所以 404 页的站内 URL 一律**根绝对**（"/assets/..."、"/blog/"）。
+        ⚠️ 取舍：这样一来，404 页就不满足"整个文件夹扔到哪都能跑"了 ——
+           若站点将来挂在子路径下，根绝对 URL 会指到挂载点之外。
+           但那种场景下相对 URL 同样坏（而且更隐蔽：样式与导航一起断），
+           而当前部署是**域名根**（site.url = https://github.lvyihang.xyz），
+           根绝对在当前部署下是正确解。
+        ⚠️ 这个分支只认 `this.ctx.is404`（404.njk front matter 的开关）。
+           实测（2026-10-20）：该标记在**版式里**（base.njk / header.njk /
+           footer.njk）也能读到 —— Eleventy 把模板 front matter 传进了
+           版式的渲染上下文，`ctx.is404` 为 true；而其余页面上它是 undefined。
+           ⚠️ 只有"站内路径"走这条分支；外部地址 / 锚点 / 查询串在它之前
+              就已经原样返回了，canonical / og:url 等压根不经过本过滤器。
   -------------------------------------------------------------------------- */
   eleventyConfig.addFilter("relUrl", function (url, pageUrl) {
     const target = String(url);
@@ -1536,12 +1562,16 @@ module.exports = function (eleventyConfig) {
         target.startsWith("#") || target.startsWith("?")) {
       return target;
     }
+    const clean = target.replace(/^\/+/, "");
+    // 404 页：站内 URL 一律根绝对（理由见上面的注释块）
+    if (this && this.ctx && this.ctx.is404) {
+      return "/" + clean;
+    }
     // 当前页路径：优先用传入值，其次用模板上下文里的 page.url
     const here = pageUrl || (this && this.page && this.page.url) || "/";
     // 目录深度 = 去掉所有非斜杠字符后，斜杠的个数减 1
     //   "/" → 1 个斜杠 → 0 层；"/about/" → 2 个 → 1 层；"/a/b/" → 3 个 → 2 层
     const depth = Math.max(0, here.replace(/[^/]/g, "").length - 1);
-    const clean = target.replace(/^\/+/, "");
     const prefix = "../".repeat(depth);
     // 目标塌缩成**站点根**（"/"）时 clean 是空串。此时分两种：
     //   · depth > 0 → prefix 本身就是根（"../"），原样返回；

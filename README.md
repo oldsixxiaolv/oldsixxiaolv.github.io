@@ -85,6 +85,8 @@ Cloudflare Pages、Nginx 等任意静态服务。详细运行 / 调试见 `HOW_T
 | `npm run check:wrap` | 长 DOI / 长 URL 不能把窄屏页面撑破 |
 | `npm run check:tool-routes` | 浏览器工具量到的必须是真页面，不是本站 404 页 |
 | `npm run check:site` | 结构化数据与元数据逐项核对（`scripts/verify-site.cjs`） |
+| `npm run check:404-depth` | 404 页的站内 URL 必须根绝对（GitHub Pages 把 404 页送到任意缺失路径，相对 URL 会被解析到请求路径下） |
+| `npm run check:404-depth-selftest` | 上面那道门禁的本地夹具自测（4 档注入矩阵，证明它能变红） |
 | `npm run check:image` | 页面里声明的图与产物里真实存在的图是同一张 |
 | `npm run check:lang` | 语言标记统一 + 编码损坏 |
 | `npm run check:a11y` | WCAG AA 实测缺陷固化成可重复检查 |

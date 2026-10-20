@@ -12,6 +12,8 @@
  * 编号体系（第九轮统一，务必先看这张表再引用条号）：
  *   每页检查（对每个 HTML 产物跑一遍）：
  *     1. 本地引用（href/src）能否在产物里找到对应文件
+ *        （站内引用不得用根绝对路径 —— **404 页是唯一例外**：
+ *          GitHub Pages 的 404 语义要求如此，见 D17 与 scripts/check-404-depth.cjs）
  *     2. JSON-LD 能否被 JSON.parse 解析
  *     3. canonical 与 og:url 是否一致（且非错误页必须有 canonical）
  *    4b. 错误页的索引控制：404 页要有 noindex 与 follow（按 token 判定）、
@@ -208,22 +210,36 @@ function resolveLocal(fromFile, raw) {
 }
 
 let refCount = 0;
-let absoluteCount = 0;
+let absoluteCount = 0;      // 非错误页的根绝对引用（应恒为 0）
+let errorAbsoluteCount = 0; // 错误页的根绝对引用（D17 要求它不为 0）
 // 每页解析成功的 JSON-LD 记录，供第 10 / 12 / 16 条门禁复查
 const ldRecords = [];
 
 for (const file of htmlFiles) {
   const html = fs.readFileSync(file, "utf8");
   const from = rel(file);
+  const isErrorPage = from.endsWith("404.html");
 
   // 1) 本地引用能否解析
   for (const m of html.matchAll(refAttrs)) {
     const raw = m[1].trim();
     if (!raw) continue;
 
+    // 根绝对路径引用会破坏"整个文件夹扔到哪都能跑" —— **404 页是唯一例外**（D17）。
+    //   机制：GitHub Pages 对**任何**未匹配的路径都返回 404 页的内容，而浏览器
+    //   **地址栏仍停在请求的 URL 上**（不会跳到 /404.html）；404 页若用相对 URL，
+    //   浏览器就按**请求路径**去解析 ⇒ 请求 /papers/does-not-exist/ 时
+    //   assets/css/components.css 变成 /papers/does-not-exist/assets/css/components.css
+    //   ⇒ 样式表全挂、站内链接全 404（实测见 docs/DEFECT-BACKLOG.md 的 D17）。
+    //   ⇒ 错误页必须用**根绝对**路径；**其余页面一律保持相对**（本条判据一字未改）。
+    //   配套门禁 scripts/check-404-depth.cjs 的 E1（错误页必须根绝对）
+    //   与 E3（其余页面必须仍是相对）把两侧都钉死 —— 这不是放宽，是把边界写清楚。
     if (raw.startsWith("/") && !EXTERNAL.test(raw)) {
-      absoluteCount++;
-      fail(`${from}: 根绝对路径引用 "${raw}" —— 会破坏"整个文件夹扔到哪都能跑"`);
+      if (isErrorPage) errorAbsoluteCount++;
+      else {
+        absoluteCount++;
+        fail(`${from}: 根绝对路径引用 "${raw}" —— 会破坏"整个文件夹扔到哪都能跑"`);
+      }
     }
 
     const target = resolveLocal(file, raw);
@@ -252,7 +268,7 @@ for (const file of htmlFiles) {
   if (canonical && ogUrl && canonical !== ogUrl) {
     fail(`${from}: canonical (${canonical}) 与 og:url (${ogUrl}) 不一致`);
   }
-  if (!canonical && !from.endsWith("404.html")) {
+  if (!canonical && !isErrorPage) {
     fail(`${from}: 缺 canonical`);
   }
 
@@ -2919,7 +2935,8 @@ if (!risExists) {
 
 /* ---------- 汇总 ---------- */
 console.log(`产物：${htmlFiles.length} 个 HTML 页，${refCount} 条本地引用，${sitemapUrls.length} 条 sitemap URL`);
-if (absoluteCount === 0) console.log("站内引用全部为相对路径 ✓");
+if (absoluteCount === 0) console.log("除 404 页外，站内引用全部为相对路径 ✓");
+if (errorAbsoluteCount > 0) console.log(`404 页的 ${errorAbsoluteCount} 条站内引用为根绝对路径 ✓（D17：GitHub Pages 的 404 语义要求如此）`);
 // notes 是给"检查通过但值得记一笔"的信息用的（例如 feed 的条数、
 // "本人"实体的 @id）。此前它是个**只写不读**的累加器（note() 从没被
 // 调用，notes.push 写进去也没人打印），白占一个变量还误导后来的人。
