@@ -259,6 +259,23 @@ let visibilityDeclared = 0;
    两个标志分工：visibilityReached = 段跑到了；visibilityChecked = 真判了。 */
 let visibilityReached = false;
 
+/* I6 的两个标志：与 I8 同款分工——
+   orcidReached = I6 段**跑到了**（哪怕它主动跳过）；
+   orcidChecked = ORCID 值域**真判了**（白名单锚可信、比较确实执行过）。
+   为什么必须分两个：I6 在白名单锚失守时会**主动跳过**（此刻的白名单不可信，
+   拿它比产物只会得到假阳性），那种跳过**不是缺陷**；而**整段 I6 被删 / 被注释**
+   是缺陷。只看计数（orcidFoundInSite / orcidFoundInSource）分不开这两者——
+   跳过与被删都会留下 0。 */
+let orcidReached = false;
+let orcidChecked = false;
+/* I6 的两个计数（产物侧 / 数据源侧扫到的 ORCID 条数）——
+   ⚠️ 声明也放在**文件顶部**，不放在 I6 段里：
+   整段 I6 被删时，这两个计数若跟着消失，末尾摘要读它们就会崩成
+   ReferenceError —— 崩栈比没有红因更坏（人只会当成脚本 bug，
+   反而看不出有人把判据整段删了）。与 I8 的那几个变量同一处置。 */
+let orcidFoundInSite = 0;
+let orcidFoundInSource = 0;
+
 /* I8 的判据**范围**：全站公共页脚负责统一渲染的本人身份句柄**字段名**。
    ⚠️ 写死在这里（与 ORACLE_SAMEAS 同一层：期望集必须独立于被判数据），
      **不**从 footer.njk 里读出来——范围若由被判对象自己决定就会**自我收缩**：
@@ -784,9 +801,9 @@ if (anchorTrustworthy) {
      ② 数据源侧（authorList[].orcid 的**值**）—— 抓"改了但暂时没渲染的"。
         只扫产物侧的话，把一个不渲染的字段改成错值就又是一个盲区。
 */
-let orcidFoundInSite = 0;
-let orcidFoundInSource = 0;
 {
+  /* "段跑到了"——与下面的"真判了"分开记，见文件顶部这几个标志的说明。 */
+  orcidReached = true;
   const normId = (raw) => {
     const m = String(raw || "").trim().match(/([0-9]{4}-[0-9]{4}-[0-9]{4}-[0-9]{3}[0-9Xx])/);
     return m ? m[1].toLowerCase() : "";
@@ -873,7 +890,7 @@ let orcidFoundInSource = 0;
     for (const [id, locs] of inSource) {
       if (allow.has(id)) continue;
       fail(
-        `数据源里出现**未登记**的 ORCID ${id}（${locs.join("、")}）——` +
+        `作者列表数据源里出现**未登记**的 ORCID ${id}（${locs.join("、")}）——` +
           `白名单是 ${fmt(ORCID_ALLOWLIST)}。` +
           `没渲染出来的错值同样要抓：否则改一个暂时不渲染的字段就又是一个盲区。`
       );
@@ -886,20 +903,37 @@ let orcidFoundInSource = 0;
       );
     }
     if (!inSource.size) {
-      fail(`数据源里一个 ORCID 值都没扫到——本条没有生效。`);
+      fail(
+        `作者列表数据源里一个 ORCID 值都没扫到` +
+          `（扫的是 publications[].authorList[].orcid）——本条没有生效。`
+      );
     }
-    /* ⑤ 白名单覆盖：登记在册的每一个 ORCID 都得在数据源里真的出现，
-       否则"清单"和"数据源"已经对不上（删了一方而另一方还留着）。 */
+    /* ⑤ 白名单覆盖：登记在册的每一个 ORCID 都得在**作者列表数据源**里真的出现，
+       否则"清单"和"数据源"已经对不上（删了一方而另一方还留着）。
+
+       ⚠️ 红因必须点名"查的是哪一处"（2026-10-20 订正）：
+         本站有**两处** ORCID 数据源——
+           ① publications[].authorList[].orcid（作者列表）——**本条查的是这一处**；
+           ② site.author.orcid（站点作者档案，src/_data/site.js）——**本条不查**。
+         旧文案只写"在数据源里一处都没出现"，读者会跑到 site.author.orcid 那边找，
+         而那边**明明还有**这个 ORCID（作者列表才是被删的那一处）→
+         看起来像误报。红因要指到**真正的责任方**，否则排查方向就是错的。 */
     for (const id of allow) {
       if (!inSource.has(id)) {
         fail(
-          `登记在册的 ORCID ${id} 在数据源里一处都没出现——` +
-            `清单与数据源对不上（可能删了数据却没删登记，或反之）。`
+          `登记在册的 ORCID ${id} 在**作者列表数据源**里一处都没出现` +
+            `（扫的是 publications[].authorList[].orcid）——` +
+            `白名单与作者列表对不上（可能删了作者列表里的值却没删登记，或反之）。` +
+            `⚠️ 别去 src/_data/site.js 的 site.author.orcid 找：那是**另一处**数据源，` +
+            `本条不查它（它归 I5「site.author 里页面上看得见的身份链接」管）。`
         );
       }
     }
     orcidFoundInSite = inSite.size;
     orcidFoundInSource = inSource.size;
+    /* "真判了"：比较确实执行完（白名单锚可信、两侧都扫到了东西）。
+       末尾通过文案里的 ORCID 那句读的就是这两个计数。 */
+    orcidChecked = true;
   }
 }
 
@@ -1224,6 +1258,19 @@ if (!visibilityReached) {
   );
 }
 
+/* I6 的**结构性兜底**：整段 I6 被删 / 被注释 → 段内那条"自证存活"也不会跑，
+   这里再兜一层（变量声明在文件顶部、这段在文件底部，两处不同位置）。
+   ⚠️ 判据用 orcidReached（"段跑到了"）而不是 orcidChecked（"真判了"）：
+      白名单锚失守时 I6 会**主动**跳过并留一条 note，那不是缺陷；
+      要是用 orcidChecked 兜底，这种正常跳过会被误报成"判据被删"。 */
+if (!orcidReached) {
+  fail(
+    "ORCID 值域判定（I6）没有跑起来（判据代码被删、被注释，或整段没执行）——" +
+      "这一条缺失时，门禁就算照常打印「通过」，也只是「没看见」，不是「核过」：" +
+      "全站出现未登记的 ORCID 这一形态就没人管了。"
+  );
+}
+
 if (problems.length) {
   console.error("身份句柄完整性门禁未通过：\n");
   problems.forEach((p) => console.error(`  ✗ ${p}`));
@@ -1250,7 +1297,11 @@ console.log(
       ? `判据范围内的 ${visibilityDeclared} 条可见身份链接` +
         `（${SCOPE_KEYS.join(" / ")}），` +
         `在每一份产物里都找得到可见的 <a href>（某一份产物上少一条就判红）。`
-      : `可见性一致性本轮未判定。`)
+      : `可见性一致性本轮未判定。`) +
+    (orcidChecked
+      ? `ORCID 值域：产物里扫到 ${orcidFoundInSite} 个不同的 ORCID、` +
+        `数据源里扫到 ${orcidFoundInSource} 个 ORCID 值，全部在登记白名单内。`
+      : `ORCID 值域本轮未判定（白名单锚失守，I6 主动跳过）。`)
 );
 if (notes.length) {
   console.log("—");
