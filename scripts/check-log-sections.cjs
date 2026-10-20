@@ -31,6 +31,21 @@
  *             LS4 让这一步当场变红，而不是等提交后才由 LS2 事后发现。
  *          方向只能是"工作树 ⊇ HEAD"：工作树多出未提交的节是**正常**的
  *          （每个场次都先写日志再提交），少一个节才是事故。
+ *   LS5 中央「待决策」段的**结构**必须完整 —— 这一段是全仓唯一的
+ *          "需要本人拍板"台账。LS1–LS4 守的是"`## ` 节标题还在不在"，
+ *          而中央段**也是**一个 `## ` 节，所以 LS2 只守得住"标题那一行
+ *          没被删"——**段里的条目、段的收尾分隔线、条目有没有被写到段外去**，
+ *          LS1–LS4 一概看不见。
+ *          实测（本场次自己踩的坑，不是假想）：把一条待决策登记写进日志
+ *          **文件头** —— 起因是用 `text.indexOf("\n---\n")` 去找中央段的
+ *          收尾线，而**文件头第 6 行也有一道 `---`** → 命中了那一道 →
+ *          条目被插到第 8 行。那一版日志 LS1–LS4 **全绿**（节标题一个没少），
+ *          但中央段之外多了一条"待拍板"条目：读者按标题找过去根本看不到它
+ *          → 决策事实上从台面上消失了。
+ *          LS5 守的正是这一段：结构坏成那样，当场红。
+ *          ⚠️ 全部用**内容锚**（按标题定位、再往后找收尾线），
+ *             **不依赖任何行号** —— 这个日志每天被并发场次追加，
+ *             行号随时在漂（实测同一分钟里中央段起始行就从 1493 挪到 1510）。
  *
  * ⚠️ LS2 为什么从"最近 40 个提交的窗口"改成"全历史"（2026-10-19 本轮）：
  *   旧实现只扫最近 `WINDOW = 40` 个提交。实测（HEAD = 8a7a953，125 个提交、
@@ -238,6 +253,115 @@ if (!fs.existsSync(wtPath)) {
   }
 }
 
+/* ---------- LS5：中央「待决策」段的结构完整性 ----------
+   全部按**内容**定位，不看行号（理由见文件头）。 */
+const CENTRAL_TITLE = "## 待决策（需要本人拍板，任务不会自己动）";
+/* 待决策条目的识别特征。刻意收窄：只认"待拍板 + 编号"或"待决策（"，
+   免得把正文里泛泛提到"待决策"的普通句子也算成条目。 */
+const DECISION_TOKEN = /待拍板\s*\d+|待决策（/;
+/* 供通过文案用：中央段的体检结果（"扫到了什么"要说清楚）。 */
+let centralSummary = null;
+
+if (!fs.existsSync(wtPath)) {
+  // 文件整个不见了 —— 已由 LS4 判红，这里不重复报。
+} else {
+  const lines = fs.readFileSync(wtPath, "utf8").split("\n");
+  const titleIdx = [];
+  lines.forEach((l, i) => {
+    if (l.trim() === CENTRAL_TITLE) titleIdx.push(i);
+  });
+
+  if (titleIdx.length === 0) {
+    problems.push(
+      `工作树上的 ${LOG} 里找不到中央待决策段的标题「${CENTRAL_TITLE}」—— ` +
+        `这一段是全仓唯一的"需要本人拍板"台账；它不见了，那些待决事项就没人管了。` +
+        `（节标题本身由 LS2 守着；本条守的是它的**位置与结构**。）`
+    );
+  } else if (titleIdx.length > 1) {
+    problems.push(
+      `中央待决策段的标题出现了 ${titleIdx.length} 次（第 ` +
+        `${titleIdx.map((i) => i + 1).join(" / ")} 行）—— 同一段出现副本，` +
+        `读者会读到两份内容不同的"待决策"清单，迟早按其中一份拍板。`
+    );
+  } else {
+    const t = titleIdx[0];
+    /* 收尾分隔线：标题之后**第一道**独立的 "---"。 */
+    let term = -1;
+    for (let i = t + 1; i < lines.length; i++) {
+      if (lines[i].trim() === "---") {
+        term = i;
+        break;
+      }
+    }
+
+    if (term < 0) {
+      problems.push(
+        `中央待决策段没有收尾分隔线（标题之后找不到独立的 "---" 行）—— ` +
+          `段的边界就没了，后面所有的场次小节都会被当成这一段的内容。`
+      );
+    } else {
+      const block = lines.slice(t + 1, term);
+
+      /* 段内不得混入场次小节标题：那是"段的边界乱了"的直接证据。 */
+      const innerH2 = [];
+      block.forEach((l, i) => {
+        if (l.startsWith("## ")) innerH2.push(t + 2 + i);
+      });
+      if (innerH2.length) {
+        problems.push(
+          `中央待决策段里混进了 ${innerH2.length} 个 "## " 节标题（第 ` +
+            `${innerH2.join(" / ")} 行）—— 场次小节不该写进中央段；` +
+            `多半是中央段的收尾分隔线被删了、或被写到了别的位置。`
+        );
+      }
+
+      /* 段不得是空的（只认顶格条目 `- `，缩进的子条目不算独立登记）。 */
+      const entries = block.filter((l) => l.startsWith("- "));
+      centralSummary = { titleLine: t + 1, endLine: term + 1, entries: entries.length };
+      if (entries.length === 0) {
+        problems.push(
+          `中央待决策段是空的（标题与收尾线之间 ${block.length} 行，0 条登记条目）—— ` +
+            `段标题还在，所以 LS2 看不见；但待决事项已经不在台账上了。`
+        );
+      }
+
+      /* 段内不得有**逐字重复**的登记条目：并发场次各写一份，
+         是"同号两义"那一族缺陷的前身。 */
+      const seen = new Set();
+      const dupes = [];
+      for (const e of entries) {
+        if (seen.has(e)) dupes.push(e);
+        else seen.add(e);
+      }
+      if (dupes.length) {
+        problems.push(
+          `中央待决策段里有 ${dupes.length} 条**逐字重复**的登记条目` +
+            `（例如「${dupes[0].trim().slice(0, 40)}…」）—— 同一件事登记了两遍，` +
+            `读者会当成两件事。`
+        );
+      }
+    }
+
+    /* 文件头（第一个 "## " 节标题之前）不得出现待决策条目：
+       条目必须写在中央段里；写进文件头 = 读者按标题找过去看不到它
+       （本门禁 LS5 存在的直接起因，见文件头）。 */
+    const firstH2 = lines.findIndex((l) => l.startsWith("## "));
+    if (firstH2 >= 0) {
+      const stray = [];
+      lines.slice(0, firstH2).forEach((l, i) => {
+        if (DECISION_TOKEN.test(l)) stray.push(i + 1);
+      });
+      if (stray.length) {
+        problems.push(
+          `日志文件头（第 ${stray.join(" / ")} 行）里出现了待决策条目 —— ` +
+            `中央段的条目必须写在中央段里。写进文件头是最常见的一种走位：` +
+            `节标题一个没少，LS1–LS4 照样全绿，但读者按标题找过去看不到它。`
+        );
+      }
+    }
+  }
+}
+
 /* ---------- 汇总 ---------- */
 if (problems.length) {
   console.error("日志节不得消失门禁未通过：\n");
@@ -260,5 +384,10 @@ console.log(
     `（仓库共 ${Number.isFinite(total) ? total : "?"} 个提交，扫的是全历史，不是窗口）、` +
     `历史上出现过 ${everSeen.size} 个节，HEAD 上现存 ${headSet ? headSet.size : 0} 个，` +
     `历史上出现过的节全部仍在 HEAD 上；` +
-    `工作树上的 ${wtCount} 个节也覆盖了 HEAD 的全部节。`
+    `工作树上的 ${wtCount} 个节也覆盖了 HEAD 的全部节。` +
+    (centralSummary
+      ? `中央待决策段（第 ${centralSummary.titleLine}–${centralSummary.endLine} 行）：` +
+        `标题唯一、收尾分隔线在位、段内 ${centralSummary.entries} 条登记条目、` +
+        `无混进来的场次小节、无逐字重复条目，日志文件头里也没有待决策条目。`
+      : `（中央待决策段未体检：标题没找到——按理上面已经判红了。）`)
 );
