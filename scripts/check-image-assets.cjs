@@ -19,7 +19,7 @@
  *     · 没有任何门禁读图片**字节** → og:image:width / height 写错、
  *       或图换了尺寸但声明没换，都没有人拦。
  *
- * 编号体系：**独立编号 IA1–IA6**，不与既有编号续接
+ * 编号体系：**独立编号 IA1–IA7**，不与既有编号续接
  *   （scripts/verify-site.cjs 用 1–32、check-a11y.cjs 用 A1–A7、
  *    check-wrapping.cjs 用 W1–W3、check-gates-wired.cjs 用 GW1–GW3）。
  *   也**不写死**对方的编号区间——那个区间会随对方加门禁而过期，
@@ -49,6 +49,19 @@
  *        （应验数 == 实验数，且 ≥ 1），否则判红。
  *        （本仓库反复修的那族病：判据依赖可被截断的输入时会**静默空跑**，
  *          空跑的门禁等于没有门禁。）
+ *   IA7 分享图声明**必须存在**（逐页）：每个页面至少一条 og:image、
+ *        至少一条 twitter:image，缺一条就判红。
+ *        为什么 IA1–IA6 抓不到这一形态：**它们只在"声明了但对不上"时才说话**，
+ *        而"声明本身消失"这一形态，它们一句都不会说 ——
+ *        它们的"应验集"是**从产物里找到的引用**算出来的（expectedFiles），
+ *        引用没了，"应验集"也跟着空，IA6 甚至会因为"验不到图"而判红，
+ *        但那说的是"没有图可验"，不是"分享图没声明"。
+ *        实测（隔离克隆里删掉 base.njk 中全部 og:image / twitter:image 声明）：
+ *          整条 `npm run build` **exit 0、全部门禁全绿**，
+ *          门禁照样打印"✓ 图片资产自检通过（门禁 IA1–IA6）"，
+ *          而产物里分享图声明为 **0** —— 分享出去全是无图卡片。
+ *        这条与 IA1–IA6 互补：IA1–IA6 管"声明了的那条对不对"，
+ *        IA7 管"声明在不在"。
  */
 
 const fs = require("fs");
@@ -281,6 +294,21 @@ for (const pageFile of pages) {
 
   /* --- 分享卡片图：og:image 家族 + twitter:image --- */
   const ogPairs = pairOgImages(html);
+  const tw = pairTwitterImage(html);
+
+  /* IA7：分享图声明**必须存在**（逐页）。见文件头 IA7 那段：
+     声明消失这一形态 IA1–IA6 抓不到（它们的应验集是从产物里的引用算出来的，
+     引用没了应验集跟着空）→ 整条 build 链会 exit 0 全绿。 */
+  const missingShare = [];
+  if (ogPairs.length === 0) missingShare.push("og:image");
+  if (!tw) missingShare.push("twitter:image");
+  if (missingShare.length) {
+    fail(
+      `门禁 IA7：${pageRel} 没有声明 ${missingShare.join(" 与 ")} —— ` +
+        `分享到社交平台时没有预览图（分享出去是无图卡片，站点自己看不出来）`
+    );
+  }
+
   for (const p of ogPairs) {
     ogRefCount++;
     const file = register("og:image", p.image, pageFile);
@@ -353,7 +381,6 @@ for (const pageFile of pages) {
     }
   }
 
-  const tw = pairTwitterImage(html);
   if (tw) {
     ogRefCount++;
     const file = register("twitter:image", tw.image, pageFile);
@@ -472,7 +499,7 @@ if (missingFiles.size) {
 }
 if (!problems.length) {
   note(
-    `门禁 IA1–IA6：共验 ${verifiable.length} 张图` +
+    `门禁 IA1–IA7：共验 ${verifiable.length} 张图` +
       `（分享图引用 ${ogRefCount} 处、页面图引用 ${imgRefCount} 处；` +
       `同一张图被引用多次只读一次字节）`
   );
@@ -487,4 +514,4 @@ if (problems.length) {
   problems.forEach((p) => console.error("  " + p));
   process.exit(1);
 }
-console.log("✓ 图片资产自检通过（门禁 IA1–IA6：分享图与页面图的声明 ↔ 实物一致）");
+console.log("✓ 图片资产自检通过（门禁 IA1–IA7：分享图与页面图的声明 ↔ 实物一致）");

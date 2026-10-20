@@ -10066,3 +10066,70 @@ F 节点名过、至今没人守的洞：**没有任何门禁挡住有人把 `sr
 - **待拍板 19（新增）｜`citation_*` 的"官方收录说明出处"要不要也变成可核对的清单？**
   现状：`citation-meta.njk` 的注释里已经写清**哪 15 类是 Scholar 官方收录说明列出的、哪些是本站自加的**（`citation_doi` / `citation_abstract` / `citation_keywords` / `citation_language` / `citation_publisher` / `citation_abstract_html_url` 不在官方清单里，但被保留）。但**注释不是门禁**——哪天官方改了收录说明、或有人删了其中一条，build 不会叫。做成"清单 + 门禁"要维护一份逐条出处，**本场次不代拍。**
 - 待拍板 1–17 见前几节，**不重复、不改口**；ISSN 口径沿用**日志 7269 行既有待决策第 1 条**。
+
+## 2026-10-19 · 17:10–17:40 场次（**不占轮次号**，避免与并发场次撞号）：身份派生门禁扩到**模板层**（关掉 peer 的 W1）+ peer 的 IA7 补丁合入（分享图声明"消失"第一次有门禁）+ 第三封回执「等长替换全盲」指认的**决定性复现**
+
+### A. 背景与归属
+
+- 本场次开始时 HEAD = `c6cd002`（本场次上一节提交）。本场次推进过程中被并发场次推进到 **`a77b569`**（引用元数据门禁 C1–C4，3 个文件：`scripts/check-citation-meta.cjs` 新增 + `package.json` 接线 + 日志一节）。
+- **`a77b569` 没有动本场次的两个文件**（`git log c6cd002..HEAD -- scripts/check-identity-derivation.cjs scripts/check-image-assets.cjs` 为空）→ 本场次在工作树上的改动**没有覆盖任何人的实现**（改前逐字比对过 HEAD 版与 `c6cd002` 版，两个文件均无差异）。
+- 本节回应的是 peer 场次（`mvs_e41cfa12…`）的**第三封回执**（内容与 16:3x 那封的 ②④ 同族：主张"现行版把期望全集改为从共享模块取 → 对等长替换全盲"）。
+
+### B. 改进点 1：身份派生门禁扩到**模板层**（新增判据 D4）→ 关掉 peer 的 W1
+
+- **W1 是什么**：模板里烤死一条身份 URL（peer 实测形如 `base.njk` 写死 `https://github.com/oldsixxiaolv`）→ **数据源是干净的、页面却已经不指向本人**，而上一版 D1（只扫 `src/_data/site.js`）**整链 build exit 0 全绿**。
+- **做法**：同一脚本内加第 4 条判据 **D4**，扫描面 = `src` 下 **21 个 `.njk` 模板**。
+  - 判据形状与 D1 一致：整条 URL 必须**被引号包住**且**引号内没有多余内容**（允许末尾一个斜杠 —— 同一个 URL 的常见写法变体）→ 代码仓 `…/oldsixxiaolv/Manuscript_Lvyh` 与站点仓 `…/oldsixxiaolv.github.io` **不会命中**（实测 `site.js` 里这两处、以及 `paper.njk:77` 提到代码仓的那处，均不误伤）。
+  - **注释遮罩**：JS 用 `//` 与 `/* */`；Nunjucks/HTML 用 `{# #}` 与 `<!-- -->`。遮罩保留行号与列位置 → 红因仍能点名"第几行"。
+  - **扫描面空跑即判红**（`src` 下一个 `.njk` 都找不到 → 判红），与本仓"应验集空 = 判红"的纪律一致。
+- **刻意不扫 `.md`**：`src/content/about.md:38` 那条 CSDN 字面量是并发场次已登记的**待拍板 10**；扫了等于把待拍板变成 build 断点。**本门禁不代拍。**
+- 顺带修的两处（都是本脚本内部，不扩大扫描面）：
+  1. 注释豁免从"行首是 `//` / `*` / `/*`"改成"**整段注释内容遮罩**"—— 块注释的续行原来会**误报**（那行不以 `*` 开头），现在放行。**放宽方向是"少误报"，没有新增可钻的口子**（注释终究不是数据）。
+  2. 匹配形状允许末尾一个斜杠。
+- **自写 bug（如实记）**：文件头注释里写了 `src/**/*.njk`，那个 `**/` 把块注释**提前闭合** → `node --check` 直接 `SyntaxError: Unexpected token '*'`（第一次跑 build 就撞上）。已修（注释里不写 glob）。**教训：写门禁脚本时，文件头注释里别出现 `*/` 序列。**
+
+### C. 改进点 2：合入 peer 的 **IA7** 补丁（分享图声明"消失"第一次有门禁）
+
+- **归属**：代码是 peer 场次（`mvs_e41cfa12…`）写的，补丁文件 `/tmp/mh_w48_e41cfa12/patch_ia7.diff`；**本场次只做合入与复验**，署名见提交信息。`git apply --check` 在当前 HEAD 上干净（exit 0）。
+- **洞**：IA1–IA6 只在"声明了但对不上"时才说话；**"声明本身消失"这一形态它们一句都不说** —— 它们的"应验集"是从产物里的引用算出来的，引用没了、应验集跟着空 → 整链 exit 0 全绿，而产物里分享图声明为 0。
+- **合入内容**：`scripts/check-image-assets.cjs` 新增 **IA7** = 逐页至少一条 `og:image` + 至少一条 `twitter:image`，缺一条就判红，红因**点名页面与缺哪一项**。与 IA1–IA6 互补：IA1–IA6 管"声明了的那条对不对"，IA7 管"声明在不在"。
+
+### D. 注入矩阵（隔离克隆 `/tmp/mh_clean6`：HEAD=`a77b569` + 本场次两处改动，`node_modules` 软链）
+
+| 档 | 注入 | 结果 |
+|---|---|---|
+| P | 基线 | 整链 build **exit 0、零 ✗**；`IA1–IA7` 绿；`D1+D4` 绿（21 个模板扫过） |
+| W1 | `footer.njk:6` 把 `{{ site.author.github }}` 换成字面量 `https://github.com/oldsixxiaolv`（peer W1 同形） | **D4 红**，点名 `src/_includes/partials/footer.njk 第 6 行`；**数据源仍干净**（这正是 W1 的形态：上一版整链全绿） |
+| I7 | `base.njk` 删掉两处 `twitter:image` 声明 + 重建 | **IA7 红，6 条红因逐页点名**（404 / about / blog / index / papers 列表 / 论文页），每条点名缺 `twitter:image` |
+| **E** | **`scripts/lib/identity.cjs` 里 GitHub 那条等长替换成 `https://example.com/impersonator` + 重建** | **身份门禁红，3 条红因**：① I2d 模块↔门禁 oracle 逐字核对（多出冒名 / 少了 GitHub）② 产物 sameAs 缺 `https://github.com/oldsixxiaolv`（14 个节点 / 6 个产物）③ `site.author` 可见链接缺 GitHub。**整链 build exit 1** |
+| R | 全部还原 | 整链 build **exit 0、零 ✗** |
+
+### E. peer 第三封回执的逐条裁定（关键：它描述的"现行版"是**过期快照**）
+
+- **核心指控**："现行版把期望全集改为从 `scripts/lib/identity.cjs` 取 → 等长替换全盲（GREEN / exit 0）"。
+- **在当前 HEAD 上重新实测**（不是引用上一轮的结论）：
+  - `scripts/check-identity-handles.cjs` 里 `ORACLE_SAMEAS` 是**门禁内置写死的 5 条**（第 117 行起），`EXPECTED_COUNT = 5` 且判据是 `size !== EXPECTED_COUNT`（**严格相等**，不是 `>=`），另有 `ORACLE_SET_SHA256` 哈希锚（第 131 行）；共享模块 `identity.cjs` 只被 `require` 进来做 **I2d 漂移核对**（第 222 行起）。
+  - 实测（E 档）：等长替换后门禁 **exit 1、3 条红因**；整链 build **exit 1**。
+  - → peer 描述的"GREEN / exit 0 / 只有现行版全盲"是**旧镜像**（`/tmp/mh_v37_wt`）的形态，**不是现行 HEAD**。peer 提的形状（"门禁里保留一份写死的期望全集，产物侧与数据源侧都逐字与它比对"）**现行 HEAD 已经是这个形状** → **不需要再改**。这是"**快照过期**"与"**真缺陷**"必须分开的一个实例：peer 的**结论方向对**，但它据以判断的"现状"是错的。
+  - peer 明确承认的代价（将来加句柄要动两处：门禁 oracle + `identity.cjs`）**成立且已被接受**（待拍板 8 的口径）：一处忘改会被逐字核对**当场抓住** —— 这正是"该留两份"的判据（对照本仓给 git 判据立的规矩：那是"**逻辑**"两处抄才该抽模块）。
+- **"唯一阻断仍是 `package.json` 缺 `check:refs` 接线（1 行）"**：**已过时** —— 现行 `package.json` 的 build 链里 `check:tracked-refs` 在 `check:gates` 之后（接线提交 `0fcbdcb`）。
+- **peer 撤回的"主机白名单"**：**维持不采纳**（弱不变量：只挡换域、挡不住同域换账号；会把等长替换的盲区放回去）—— peer 自己也说明它只挡换域。
+- **peer 的"多挂一条未登记句柄 → 绿 + 一条 note"**：**旧版形态**；现行 I1 要求产物 sameAs 集合**等于**期望集 → 多一条判红。
+
+### F. 诚实边界（本轮实测，写明不夸大）
+
+1. **D4 守"模板里不许烤死身份 URL 字面量"**，**不**守模板里取到的值是否与清单一致（取值由 I5 + 产物侧门禁守）；扫描面只有 `.njk`，**没有** `.md`（待拍板 10），也没有构建配置。
+2. **D4 的判据形状仍会漏两种写法**：URL 被拆成两段拼接（`"https://github.com/" + "oldsixxiaolv"`）、或先存进变量再拼。**结构层判据不声称能挡运行时拼接。**
+3. **注释遮罩 = 刻意开的口子**（待拍板 17）：注释里留一份 URL、字段留空这种写法不受约束。
+4. **协同篡改**（门禁 oracle + 共享清单 + 哈希锚三者一致地改）→ 仍全绿；落在**代码审查**范畴，本门禁不声称能挡。
+5. **IA7 依赖"每一页都经 `base.njk` 渲染分享图声明"**：将来若某页改用别的模板，IA7 会点名该页（设计意图，不是误伤）。
+6. **本轮不碰**（并发场次在途或已 staged，本场次只记账）：`scripts/check-artifact-metadata.cjs`（M4 的 `data-code-repo` 标记 —— peer 的 **W2**：标记被摘除时门禁只 note 不判红）、`scripts/screenshot.js` / `screenshot-paper.js` / `lighthouse-runner.js` / `slow3g-runner.js` / `check-jsonld.cjs` / `check-tool-routes.cjs` / `lib/page-check.cjs` / `lib/site-routes.cjs`、`src/content/about.md`（待拍板 10）。
+7. **共享工作树的 build 此刻的状态由并发场次在途文件决定**；本场次报的绿是**提交树上的绿**（干净克隆实测），不冒充共享树的状态。
+8. 本轮**未新增任何站外链接、未引入任何外部依赖/密钥/账号**。
+
+### G. 待本人拍板
+
+- **本轮不新增待拍板**（并发场次已把清单推进到 19 条；本场次**不重复、不改口**）。两处补**事实**：
+  - **待拍板 10 补记**（"可见身份链接的第二条路"）：peer 的 **W3** 给出了硬证据 —— `src/content/about.md:38` 的 CSDN 链接改成 `https://blog.csdn.net/impersonator` 后，**整链 build exit 0 全绿**，产物里"真句柄 3 处 + 冒名 1 处" → 页面公然指向非本人账号，而 JSON-LD 仍是本人。**D4 本轮没有扫 md，所以这一形态仍然无门禁。**
+  - **待拍板 17 补记**（注释豁免）：现在的实现是"**整段注释内容遮罩**"（JS `//` `/* */`；Nunjucks `{# #}`；HTML `<!-- -->`），比原先的"行首是 `//` 或 `*`"**宽一点点**（块注释的续行原来会误报，现在放行）—— 放宽方向是少误报，**没有新增可钻的口子**。
+- 待拍板 1–19 见前几节，**不重复、不改口**。
