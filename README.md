@@ -98,8 +98,9 @@ Cloudflare Pages、Nginx 等任意静态服务。详细运行 / 调试见 `HOW_T
 | `npm run check:a11y` | WCAG AA 实测缺陷固化成可重复检查 |
 | `npm run check:print-theme` | 打印结果与屏幕主题无关（深色底不会打成白底） |
 | `npm run check:copy` | 直接出字节的出口（`.bib` / `.ris`）取值方式正确 |
-| `npm run check:overflow` | 多档宽度（360 / 390 / 640 / 768 / 820 / 1024 / 1440）都无横向溢出（真浏览器实测，每档重新设视口） |
+| `npm run check:overflow` | 多档宽度（360 / 390 / 640 / 768 / 820 / 1024 / 1440）都无横向溢出，且独立交互目标的点击区达到 WCAG 2.5.8 的要求（真浏览器实测，每档重新设视口） |
 | `npm run check:overflow-selftest` | 上面那道门禁的本地夹具自测（证明它能变红：少测一档、视口没真改都判红） |
+| `npm run check:overflow-targets-selftest` | 上面那道门禁里**触点尺寸**判据的本地夹具自测（证明它能变红：触点过小且换行处紧邻会判红；判定或收集被卸掉也会判红） |
 | `npm run check:artifact` | 产物里的 @id / license / 版本 / 地址与 `site.js` 逐字一致 |
 | `npm run check:jsonld` | JSON-LD 合法，站点实体与页面实体接得上 |
 | `npm run check:home-chart` | 首页降水图的交互层：钩子齐全、**读数与数据同源**、键盘可达、模块与样式在位 |

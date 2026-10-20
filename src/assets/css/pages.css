@@ -421,8 +421,15 @@
    "机器读的元信息"语气；悬停除变色外加下划线（WCAG 1.4.1 不只靠颜色）。 */
 .home-pub__link {
   display: inline-flex;
-  align-items: baseline;
+  align-items: center;
   gap: 5px;
+  /* 可点区域至少 24×24 CSS px —— WCAG 2.5.8（Target Size, Minimum, AA）。
+     原来这批链接是 13px 高的一行小字（font 10px/1.3 且无 padding），
+     窄屏上换行处上下两个的 24px 圆还**互相相交**（实测圆心距 17.4px）
+     ⇒ spacing 例外也不成立 ⇒ 这是 AA 级不通过，不是风格偏好。
+     min-height 把可点区域撑到 24px；align-items 由 baseline 改成 center，
+     是为了让这 24px **对称地**罩住文字，而不是全堆在文字下方。 */
+  min-height: 24px;
   color: var(--text-secondary);
   font: 600 10px/1.3 var(--font-mono);
   letter-spacing: .12em;

@@ -50,6 +50,18 @@ function assert(cond, label, detail) {
 /* ---------- 造两个临时页面：一个干净、一个超宽 ---------- */
 const VIEWPORT_META = '<meta name="viewport" content="width=device-width, initial-scale=1.0" />';
 
+/**
+ * 夹具页的公共骨架。
+ *
+ * ⚠️ 那句 `ordinary inline link` **不是装饰，别删**（2026-10-20 D23 实测）：
+ *   D23 给 check-overflow.cjs 加了触点尺寸判据（WCAG 2.5.8），其中 **TS1** 是
+ *   「一个触点都没量到 ⇒ 判红」——防止这条判据空跑。
+ *   夹具页本来**一个交互目标都没有**（只有 <p> / <ul> / <div>），
+ *   于是 TS1 在 M0 / M5 这两档「干净产物应当判绿」的自测里判红：
+ *   门禁没错，是**夹具不像真页面**（真页面总有链接）。
+ *   加一个**句子里**的链接正好顺带把「行内例外」那条路也走了一遍。
+ *   删掉它 ⇒ 这份自测会红，且红因是 TS1 而不是它本该测的东西。
+ */
 function page(title, body) {
   return `<!doctype html>
 <html lang="en">
@@ -61,6 +73,9 @@ ${VIEWPORT_META}
 <body>
 <main>
 <h1>${title}</h1>
+<p>This fixture page belongs to the overflow gate selftest and carries an
+<a href="/">ordinary inline link</a> so that the touch-target judgement has
+something to measure at all.</p>
 ${body}
 </main>
 </body>

@@ -51,6 +51,31 @@
  *     「正文列」是哪个元素，逐页写在下表的 CONTENT_COLUMN_RULES 里；
  *     没登记的页面默认盯 `main`；**选择器没命中 = 判红**（页面结构变了就得让人知道）。
  *
+ * ⚠️ 为什么还要量「触点尺寸」（2026-10-20 修缺陷清单 D23）：
+ *   前两条判据盯的都是**版面**（有没有撑破、正文有没有被挤窄），
+ *   都没管**能不能点得中** —— 而这一族坏版式在手机上是**看不见**的：
+ *   桌面截图上那七个资源出口（Paper / DOI / PDF / Code / Capsule / Data / Figure）
+ *   排得整整齐齐，窄屏下却只剩 **13px 高**的一行小字，
+ *   换成手指（或触屏笔）几乎点不准。
+ *   实测 375px：`.home-pub__link` 高 **13px**、宽 34~63px；
+ *   换行处上下两个的 24px 圆**互相相交**（实测圆心距 **17.4px < 24px**）
+ *   ⇒ WCAG 2.5.8（Target Size, Minimum, AA）的 **spacing 例外不成立**
+ *   ⇒ 这是**实打实的 AA 级不通过**，不是风格偏好。
+ *   判据按 WCAG 原文实现：一个目标算通过有三条路
+ *     ① 渲染尺寸 ≥ **24×24** CSS px（最省事、也最稳）；
+ *     ② **spacing 例外** —— 以它的包围盒为圆心画 24px 直径的圆，
+ *        这个圆**不与任何其它目标的盒子相交、也不与任何其它欠尺寸目标的圆相交**；
+ *     ③ **行内例外** —— 目标**在句子里**（散文里的行内链接），
+ *        尺寸受同一行非目标文字的行高约束 ⇒ 豁免。
+ *   ⚠️ ③ 的判据是「**行内盒** 且 **最近的块级祖先去掉所有目标之后还剩着非目标文字**」，
+ *      **不是**「只要是 inline 就放过」—— 那会把「独占一行、旁边没别的字」的链接也放过去。
+ *   判据编号 TS1–TS4：
+ *     TS1 触点判据**自证存活**（一个目标都没量到 ⇒ 判红，防判据空跑）；
+ *     TS2 测量**覆盖度自证**（每页每档都量过触点，缺一次就判红）；
+ *     TS3 ① / ② / ③ 三条路的判定本身；
+ *     TS4 **豁免如实报数**（被行内例外放过的目标有几个，必须在通过文案里说出来 ——
+ *        默默放过就等于判据自己把范围缩掉了）。
+ *
  * 用法：
  *   node scripts/check-overflow.cjs                # 全部默认档位
  *   node scripts/check-overflow.cjs --width 320    # 只测某一档（调试用）
@@ -201,6 +226,83 @@ function contentColumnRule(route) {
     }
   }
   return { match: "(默认)", selector: "main", note: "未登记的路由，盯主容器" };
+}
+
+/* ---------- 触点尺寸（WCAG 2.5.8 Target Size, Minimum）---------- */
+
+/**
+ * 触点最小尺寸（CSS px）—— WCAG 2.5.8 的下限。
+ * 判据实现照 WCAG 原文：一个目标只要满足「≥24×24」或「spacing 例外成立」
+ * 或「行内例外」三者之一，就算通过（详见文件头）。
+ */
+const TARGET_MIN = 24;
+
+/**
+ * 判定一个目标算不算「在句子里」（行内例外）。
+ * 判据两条同时成立才算：
+ *   ① 自身是**行内盒**（computed display === 'inline'）——
+ *      行内盒的尺寸受同一行非目标文字的行高约束，这正是 WCAG 说的
+ *      「its size is otherwise constrained by the line-height of non-target text」；
+ *   ② **父元素里还有别的文字** —— 只有自己一段文字的链接不算「在句子里」，
+ *      它的大小没受任何非目标文字约束 ⇒ 行内例外不成立，要走 ① / ② 两条路。
+ */
+function isInSentence(t) {
+  return t.display === "inline" && t.inSentence;
+}
+
+/** 以目标包围盒为圆心、半径 TARGET_MIN/2 的圆。 */
+function targetCircle(t) {
+  return { cx: t.x + t.w / 2, cy: t.y + t.h / 2, r: TARGET_MIN / 2 };
+}
+
+/** 两个圆是否相交（相切不算相交 —— WCAG 说的是 "does not intersect"）。 */
+function circlesHit(a, b) {
+  return Math.hypot(a.cx - b.cx, a.cy - b.cy) < a.r + b.r;
+}
+
+/** 圆与矩形是否相交（相切不算相交）。 */
+function circleHitsRect(c, r) {
+  const nx = Math.max(r.x, Math.min(c.cx, r.x + r.w));
+  const ny = Math.max(r.y, Math.min(c.cy, r.y + r.h));
+  return Math.hypot(nx - c.cx, ny - c.cy) < c.r;
+}
+
+/**
+ * 按 WCAG 2.5.8 判定一批目标。
+ * 返回 { violations, exemptInline, undersized }：
+ *   violations —— 没过三条路的（每个附上「撞上了谁」）
+ *   exemptInline —— 走行内例外的（数量要在通过文案里报出来，TS4）
+ *   undersized —— 渲染尺寸不足 24×24 的（不论过没过，都报出来供人看）
+ */
+function evaluateTargets(targets) {
+  const violations = [];
+  let exemptInline = 0;
+  let undersized = 0;
+  for (const t of targets) {
+    const small = t.w < TARGET_MIN || t.h < TARGET_MIN;
+    if (small) undersized++;
+    if (isInSentence(t)) {
+      exemptInline++;
+      continue;
+    }
+    if (t.w >= TARGET_MIN && t.h >= TARGET_MIN) continue;
+    // spacing 例外：24px 圆不许碰到任何别的目标，也不许碰到别的欠尺寸目标的圆
+    const c = targetCircle(t);
+    let hit = null;
+    for (const o of targets) {
+      if (o === t) continue;
+      if (circleHitsRect(c, o)) {
+        hit = { other: o, why: "圆与它的盒子相交" };
+        break;
+      }
+      if ((o.w < TARGET_MIN || o.h < TARGET_MIN) && circlesHit(c, targetCircle(o))) {
+        hit = { other: o, why: "圆与它的 24px 圆相交" };
+        break;
+      }
+    }
+    if (hit) violations.push({ target: t, ...hit });
+  }
+  return { violations, exemptInline, undersized };
 }
 
 /**
@@ -410,6 +512,53 @@ const measureScript = (contentSelector) => `(() => {
     found: !!ce,
     width: ce ? Math.round(ce.getBoundingClientRect().width) : null,
   };
+  /* ---------- 触点（WCAG 2.5.8）----------
+     只收**能用指针激活**的目标（链接 / 按钮 / 表单控件 / role=button）。
+     刻意不收 [tabindex] 之类：可聚焦不等于可点击 ——
+     首页降水图那个 tabindex="0" 的画布是**读数用**的可聚焦组，不是指针目标。 */
+  const TARGET_SELECTOR = 'a[href], button, input, select, textarea, [role="button"]';
+  const targets = [];
+  for (const el of document.querySelectorAll(TARGET_SELECTOR)) {
+    const r = el.getBoundingClientRect();
+    if (r.width === 0 && r.height === 0) continue;
+    const cs = getComputedStyle(el);
+    if (cs.visibility === 'hidden' || cs.display === 'none') continue;
+    /* 「在句子里」：**向上找到最近的块级祖先**，看它去掉所有目标之后还剩不剩
+       非目标文字。剩下的文字就是和它同处一个行内排版上下文的那些字
+       （作者串里的「, 」、正文里的句子……）⇒ 它的尺寸受非目标文字的行高约束
+       ⇒ 走行内例外。
+       ⚠️ 为什么不能只看**直接父级**：本人（site.author）的名字被
+       一个 strong.home-pub__self 包着，直接父级去掉目标后是空的，
+       而它其实在作者串「Xueke Wu, Yihang Lyu, Guohao Hu」里 —— 那个「, 」
+       是**祖父级**里的非目标文字。所以要往上走到块级祖先为止。
+       ⚠️ 为什么必须止于**块级**：块级祖先是行内排版上下文的边界；
+       再往上走（到 <body>）几乎总能捞到文字，那样**任何**链接都会被当成
+       「在句子里」，例外就等于没有。 */
+    let inSentence = false;
+    let node = el;
+    while (node && node !== document.documentElement) {
+      const ncs = getComputedStyle(node);
+      const blockish =
+        !/^(inline|inline-block|inline-flex|inline-grid|ruby|ruby-base|ruby-text|contents)$/.test(ncs.display);
+      if (blockish) {
+        const clone = node.cloneNode(true);
+        clone.querySelectorAll(TARGET_SELECTOR).forEach((n) => n.remove());
+        inSentence = (clone.textContent || "").replace(/\\s+/g, " ").trim().length > 0;
+        break;
+      }
+      node = node.parentElement;
+    }
+    targets.push({
+      sel: sel(el),
+      text: (el.textContent || '').replace(/\\s+/g, ' ').trim().slice(0, 40),
+      x: Math.round(r.left * 10) / 10,
+      y: Math.round(r.top * 10) / 10,
+      w: Math.round(r.width * 10) / 10,
+      h: Math.round(r.height * 10) / 10,
+      display: cs.display,
+      inSentence,
+    });
+  }
   return {
     vw,
     pageScrollWidth: document.documentElement.scrollWidth,
@@ -418,6 +567,7 @@ const measureScript = (contentSelector) => `(() => {
     scrollers: scrollers.slice(0, 8),
     offcanvas: offcanvas.slice(0, 3),
     content,
+    targets,
   };
 })()`;
 
@@ -498,6 +648,10 @@ const measureScript = (contentSelector) => `(() => {
   const narrowColumns = []; // { width, route, selector, contentWidth, min, reason } —— 正文被挤窄的位置
   const columnNotFound = []; // { width, route, selector } —— 正文列选择器没命中
   let columnChecked = 0; // 正文列实际量了多少次（自证用）
+  const targetViolations = []; // { width, route, target, other, why } —— 触点没达到 WCAG 2.5.8
+  let targetMeasured = 0; // 量到过触点的（页 × 档）次数（自证用）
+  let targetCount = 0; // 一共量到多少个触点（自证用）
+  let inlineExempt = 0; // 走行内例外被豁免的目标总数（TS4 如实报数）
 
   for (const width of WIDTHS) {
     /* ⚠️ 每一档都要**重新设置**设备尺寸 —— 只设一次的话，
@@ -560,12 +714,45 @@ const measureScript = (contentSelector) => `(() => {
         ? `      正文列 ${c.selector} ${c.width}px ${pct}%（下限 ${useRatio ? `${Math.round(CONTENT_MIN_RATIO * 100)}%` : `${CONTENT_MIN_PX_WIDE}px`}）${columnOk ? "✓" : "✗"}`
         : `      正文列 ${c.selector} 未找到 ✗`;
 
-      /* ⚠️ 行首的 ✓/✗ 现在代表**本页本档的全部判据**（横向溢出 + 正文列宽）；
-         退出码与它同源 —— 下面两处计数加起来就是最终退出码的依据。 */
-      const status = m.hasHScroll ? "✗ 横向可拖" : columnOk ? "✓" : "✗";
+      /* ---------- 触点尺寸（WCAG 2.5.8） ---------- */
+      const targets = m.targets || [];
+      targetMeasured++;
+      targetCount += targets.length;
+      const tEval = evaluateTargets(targets);
+      inlineExempt += tEval.exemptInline;
+      const smallest = targets.reduce(
+        (acc, t) => (acc === null || t.h < acc.h ? t : acc),
+        null
+      );
+      const targetLine =
+        `      触点 ${targets.length} 个` +
+        (smallest ? `（最矮 ${Math.round(smallest.h)}×${Math.round(smallest.w)}px ${smallest.sel}）` : "") +
+        (tEval.undersized ? `，其中 ${tEval.undersized} 个不足 ${TARGET_MIN}×${TARGET_MIN}` : "") +
+        (tEval.violations.length ? ` ✗ ${tEval.violations.length} 个不达标` : " ✓");
+      tEval.violations.forEach((v) => {
+        targetViolations.push({
+          width, route,
+          target: v.target, other: v.other, why: v.why,
+        });
+      });
+
+      /* ⚠️ 行首的 ✓/✗ 现在代表**本页本档的全部判据**（横向溢出 + 正文列宽 + 触点尺寸）；
+         退出码与它同源 —— 下面几处计数加起来就是最终退出码的依据。 */
+      const status = m.hasHScroll
+        ? "✗ 横向可拖"
+        : columnOk && tEval.violations.length === 0
+        ? "✓"
+        : "✗";
       console.log(`  ${status} ${route}  (scrollWidth ${m.pageScrollWidth} / 视口 ${m.vw})`);
       console.log(columnLine);
+      console.log(targetLine);
       if (columnNote) console.log(`      ${columnNote}`);
+      tEval.violations.forEach((v) => {
+        console.log(
+          `      触点过小：${v.target.sel}「${v.target.text}」${Math.round(v.target.w)}×${Math.round(v.target.h)}px` +
+            `（下限 ${TARGET_MIN}×${TARGET_MIN}，且 ${v.why}：${v.other.sel}「${v.other.text}」）`
+        );
+      });
       /* ⚠️ 退出码必须与打出来的 ✓/✗ **同源**：判据一律用 hasHScroll
          （页面真的能横向滚动 = documentElement.scrollWidth > 视口）。
          此前这里用的是 `m.overflow.length`（元素矩形扫描的结果）——两个条件
@@ -613,6 +800,19 @@ const measureScript = (contentSelector) => `(() => {
     problems.push(
       `正文列测量次数对不上：期望 ${expected} 次，实际 ${columnChecked + columnNotFound.length} 次 —— ` +
         `有一页没被量到。`
+    );
+  }
+  /* TS1 / TS2：触点判据自证 —— 每页每档都要量一次触点，且**至少量到过一个**。
+     一个都没量到 = 判据空跑（选择器写错、页面结构变了……）⇒ 判红。 */
+  if (targetMeasured !== expected) {
+    problems.push(
+      `触点测量次数对不上：期望 ${expected} 次（每页每档一次），实际 ${targetMeasured} 次 —— ` +
+        `有一页没被量到触点。`
+    );
+  }
+  if (targetCount === 0) {
+    problems.push(
+      `TS1 一个触点都没量到 —— 触点判据此刻等于**空跑**，空跑的门禁等于没有门禁，所以判红。`
     );
   }
 
@@ -664,10 +864,25 @@ const measureScript = (contentSelector) => `(() => {
     console.error("");
     process.exit(1);
   }
+  if (targetViolations.length) {
+    console.error(
+      `\n✗ ${targetViolations.length} 处触点未达 WCAG 2.5.8（Target Size, Minimum, AA）` +
+        `（下限 ${TARGET_MIN}×${TARGET_MIN} CSS px，或 spacing 例外成立）：`
+    );
+    targetViolations.forEach((v) => {
+      console.error(
+        `  · ${v.width}px  ${v.route}  ${v.target.sel}「${v.target.text}」` +
+          `${Math.round(v.target.w)}×${Math.round(v.target.h)}px（${v.why}：${v.other.sel}「${v.other.text}」）`
+      );
+    });
+    console.error("");
+    process.exit(1);
+  }
   console.log(
     `✓ 所有页面在 ${WIDTHS.length} 档宽度（${widthList}）下均无横向溢出，` +
-      `且正文列都不窄` +
-      `（共 ${measured} 次测量，${routes.length} 个页面）`
+      `且正文列都不窄、触点都达到 WCAG 2.5.8 的要求` +
+      `（共 ${measured} 次测量，${routes.length} 个页面；` +
+      `量到触点 ${targetCount} 个，其中 ${inlineExempt} 个按**行内例外**豁免）`
   );
   process.exit(0);
 })().catch((e) => {
