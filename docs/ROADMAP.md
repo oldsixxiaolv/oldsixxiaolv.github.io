@@ -1,0 +1,173 @@
+# MeteoHub 路线图（2026-10-20 起）
+
+> 本文件是**改进目标与里程碑的唯一清单**，由本人 2026-10-20 指示创建。
+> 详细的每一轮改动记录一律写进 `docs/IMPROVEMENT-LOG.md`（含中央「待拍板」台账）；
+> **本文件不另立待决策编号**，避免同一件事出现第二份副本。
+> 术语与现状以仓库实测为准；与代码冲突时以代码为准，并回头修本文件。
+
+---
+
+## 0. 目标（一句话）
+
+把 MeteoHub 做成一个**学术访客愿意反复回访**的站点：前端观感与动效做得扎实、
+内容有真正的阅读价值、并且**本人能登录后台直接写博客**。
+
+四个硬指标（用户原话拆解）：
+
+| 编号 | 目标 | 判定 |
+|---|---|---|
+| **G-A** | 后端前端都很好 | 构建链零红、页面无坏链无裂图、SEO/可访问性/性能门禁全绿 |
+| **G-B** | 内容非常吸引人 | 站内博客有真实长文（不是空列表页）、首屏有人愿意读、feed 有订阅价值 |
+| **G-C** | 有动态效果 | 滚动进场、悬停反馈、数据图交互、页面切换；动效不牺牲可访问性与性能 |
+| **G-D** | 有后台供本人写博客 | `/admin/` 可登录、可新建/编辑/发布文章，发布即上线 |
+
+---
+
+## 1. 现状基线（2026-10-20 实测，不是推测）
+
+- **栈**：Eleventy 3.1.6 纯静态站 → GitHub Pages（`.github/workflows/deploy.yml`，push `main` 自动构建部署）。
+  Node ≥ 22。
+- **构建链**：`npm run build` 共 27 步（门禁 → eleventy → 产物核对），**必须 exit 0**。
+  现有门禁覆盖：日志段结构(LS)、待拍板编号(DI)、CSS 括号/死代码、换行、窄屏溢出、
+  a11y、JSON-LD、身份句柄、引用元数据/CITATION.cff、README 事实核对(RD)、路径引用(TR)、
+  语言一致性、图片资产、打印主题、拷贝导出等。
+- **路由**：`/`、`/papers/`、`/blog/`、`/about/`、论文独立页 `/papers/<slug>/`，
+  对外出口 `publications.bib` / `publications.ris` / `feed.xml` / `sitemap.xml`。
+- **站内语言：全站英文**（`src/_data/site.js` 的 locale 说明，`scripts/check-lang.cjs` 强制）。
+  → **站内博客正文必须是英文**；CSDN 上的中文笔记要进站必须改写，不是搬运。
+- **博客现状：`src/content/blog/` 里 0 篇文章**（`collections.blog` 为空，
+  注释写明「技术笔记都发在 CSDN 上」）。`/blog/` 现在靠空状态页指向 CSDN。
+- **文章形态**：`src/content/blog/<slug>/index.md` → permalink `/blog/<slug>/`；
+  模板消费的 front matter 字段：**`title` / `date` / `excerpt` / `cover` / `tags` / `readingTime`**。
+  `tags` 已由目录级 `blog.11tydata.cjs` 自动补 `blog` 标签。
+- **已知内容侧缺陷（现成可做的小活）**：`src/blog.njk` 里 `useCovers = false`，
+  原因是历史 front matter 写 `cover: cover.png` 而磁盘上那个文件其实是 **SVG 文本**
+  （扩展名骗了服务器，Chrome 拒解码 → naturalWidth=0 → 裂图）。
+  正解：内容侧把 `cover.png` 改名 `cover.svg` 并同步 front matter，之后才把开关打开。
+- **已有动效资产**：`src/assets/js/` 下 `theme.js`（明暗）、`nav.js`、`main.js`、
+  `paper-reader/`（论文精读交互）；首页华北降水图是**手写 inline SVG、零图表库、页面零 JS**。
+- **零运行时依赖**：目前没有任何第三方前端库/框架，样式与脚本全手写。
+  **这个约束要保持**（性能 + 可控 + 无供应链风险）。
+
+---
+
+## 2. 里程碑（按顺序推进，一轮一个点）
+
+### M1 · 内容引擎（最高优先，因为博客现在是空的）
+
+**为什么先做**：G-B 与 G-D 都依赖它。一个没有文章的 `/blog/` 页，再多动效也是空壳。
+
+**做什么**
+1. 修封面裂图：内容侧 `cover.png` → `cover.svg`（front matter 同步），确认 `useCovers` 能安全打开。
+2. 写「站内长文写作规范」：front matter 契约（title/date/excerpt/readingTime/tags/cover）+
+   正文结构（结论先行、图/代码/数据出处、延伸阅读）+ 英文风格要求 + 与 `check-lang`/`check-a11y`/
+   `check-wrap` 的兼容点。
+3. 产出**首批真实长文**：只允许基于仓库里已有的真实材料改写 ——
+   CSDN 上的 Python/xarray/Fortran/WRF 技术笔记、`/papers/trmm-thunderstorm-stages/` 论文精读、
+   华北降水数据集（`src/_data/extremePrecip.json`）。**不得编造数据、结论或引用**。
+4. 文章之间、��章与论文页、博客与 `/about/` 之间建立互链；`feed.xml` 里能看到新文章。
+
+**验收**
+- `/blog/` 不再是空状态页，至少 3 篇真实长文，列表卡有 excerpt / readingTime / 主题标签。
+- 每篇：标题与日期完整、excerpt 非空、封面不裂（有封面的话）、`/blog/<slug>/` 可打开。
+- `npm run build` exit 0；线上 `/blog/` 与 `/blog/<slug>/` 全部 200。
+
+---
+
+### M2 · 动效与前端质感（对应 G-C + G-A）
+
+**做什么**
+- 滚动进场（`IntersectionObserver` + `prefers-reduced-motion` 降级为直接显示）；
+- 列表卡/论文卡的悬停与聚焦反馈；页面内锚点平滑滚动；
+- 首页华北降水数据图升级为**可交互**（悬停读数、时间轴游标、键盘可达），仍保持零图表库；
+- 论文精读页交互按 `docs/papers-interaction.md` 的既有规范补齐。
+
+**验收**
+- 动效在 `prefers-reduced-motion: reduce` 下全部退化为无动画（可实测）；
+- 键盘可完整操作新增交互；`check-a11y`、`check-overflow`、`check-wrap` 仍全绿；
+- Lighthouse 指标不劣化（对照 `docs/lighthouse/` 的历史快照重测并记录差值）。
+
+---
+
+### M3 · 后台：让本人能登录写博客（对应 G-D）
+
+**推荐方案：Decap CMS（`/admin/`）**
+
+- **形态**：纯静态后台，跟站点一起发布在 GitHub Pages 上，**不需要维护任何服务器**。
+- **写入路径与现有构建完全对齐**：Decap 的 folder collection 天然就是
+  `folder/<slug>/index.md`，与本项目 `src/content/blog/<slug>/index.md` 一一对应，
+  写完直接 commit → 触发 `deploy.yml` → 自动上线。
+- **登录**：GitHub OAuth（一次性建一个 OAuth App，回调指向 Decap 的 OAuth 中转地址）。
+  只用 GitHub，**不引入新的外部服务/账号/密钥**（凭据在 OAuth App 里，不进仓库）。
+- **需要做的**：`src/admin/index.html`、`src/admin/config.yml`（blog 集合的字段与
+  `src/content/blog` 路径对齐）、`.gitignore` 里放行 admin、README 里补一句使用说明。
+
+**为什么是它**（对照另两个方案）
+
+| 方案 | 代价 | 结论 |
+|---|---|---|
+| **Decap CMS**（静态） | 一次 OAuth 配置；无服务器 | ✅ **采用** |
+| 自建 Node 后端（Orange Pi + SQLite + 管理 UI） | 要另起一套服务、备份、TLS、鉴权；**且 GitHub Pages 构建要再从它取内容 → 两份内容源** | 备选，除非本人明确要「真·服务端后台」 |
+| 托管 CMS（Tina/Sanity 等） | 新账号、新密钥、外网依赖 | 不采用 |
+
+**前置依赖**：M1 的 front matter 契约必须先定稿，否则 CMS 字段会返工。
+
+**验收**
+- `/admin/` 能用 GitHub 账号登录；
+- 新建一篇文章 → 提交 → CI 构建 → 线上 `/blog/<slug>/` 出现（**本轮不 push 时只能验证到 commit 与构建通过，push 由本人决定**）；
+- `npm run build` exit 0；README 中提到 `/admin/` 时该路由**必须已经存在**（RD1 门禁会核）。
+
+---
+
+### M4 · 检索与出口（对应 G-A / G-B）
+
+- 站内搜索（静态索引方案，如 pagefind；构建期产出索引、运行时零后端）；
+- 内容 API（`/api/posts.json` 等 JSON 出口，给未来的前端/外部工具用）；
+- `feed.xml` 增加博客条目后的订阅完整性自检；`sitemap.xml` 覆盖新路由。
+
+**验收**：搜索可用且不拖慢首屏；JSON 出口可被 `curl` 取到并被机器校验；feed/sitemap 无遗漏。
+
+---
+
+### M5 · 收尾（对应 G-A）
+
+- 暗色模式全站覆盖一致性；打印主题覆盖新页面；移动端断点复核；
+- 首页首屏信息密度与「回访理由」（更新了什么/最新文章/最新论文）复查。
+
+---
+
+## 3. 硬约束（每轮都必须守住）
+
+1. **不 push**。只 commit 到本地 `main`；线上部署由本人决定。
+2. **不引入新的外部服务、密钥、账号**；不加未经核实的外部链接（找不到真实 URL 宁可不加）。
+3. **站内文字一律英文**（`check-lang` 强制）；中文只在 commit message 与日志里。
+4. **内容不得编造**：不得虚构数据、结论、引用或实验结果；写不出来就写「本轮无内容可写」。
+5. **保持零第三方前端运行时依赖**；动效只用原生 API。
+6. **不破坏既有门禁**：每次改动后 `npm run build` 必须 exit 0；门禁红了先定位红因再改，
+   不许为了让门禁变绿而放宽判据。
+7. **待本人拍板的事写进 `docs/IMPROVEMENT-LOG.md` 中央台账**（编号连续），不要自己拍板。
+8. 文件删除用 `mavis-trash`，不用 `rm`。
+9. 每轮只推进 **1 个** 改进点，做完即止；不要一轮铺开半个里程碑。
+
+---
+
+## 4. 与既有文档的分工
+
+| 文档 | 管什么 |
+|---|---|
+| `docs/ROADMAP.md`（本文件） | **目标与里程碑**（改什么、按什么顺序） |
+| `docs/IMPROVEMENT-LOG.md` | 每一轮实际做了什么、验证结果、中央「待拍板」台账 |
+| `docs/design-system.md` | 颜色 token / 字号阶梯 / 间距 / 圆角阴影 |
+| `docs/papers-interaction.md` | 论文精读页的交互规范 |
+| `docs/information-architecture.md` | 信息架构规划稿（含尚未实现的 `/tags/` `/search/` `/cv/`） |
+| `docs/DEPLOY.md` | 部署与故障排查 |
+| `docs/acceptance-report.md`、`docs/lighthouse*`、`docs/fa-data/` | 历史实测快照，不随代码更新 |
+
+---
+
+## 5. 起步建议（下一轮就从这里接）
+
+**M1-1：修封面裂图**（小、稳、立刻见效）
+把 `src/content/blog/*/index.md` 的 `cover:` 改成真实存在的 `cover.svg`，
+确认图片资产门禁与 `check:image` 通过后，再评估打开 `src/blog.njk` 的 `useCovers`。
+若 M1 尚未产出任何文章，则先做「站内长文写作规范」那一条。
