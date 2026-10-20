@@ -657,7 +657,8 @@ if (anchorTrustworthy) {
   if (missingVisible.length) {
     fail(
       `site.author 里**数据源侧**的身份主页形态链接缺 ${fmt(missingVisible)}——` +
-        `登记清单里有、site.author 里没有（或指向别的账号）：人读路径与机读路径对不上，` +
+        `登记清单里有、site.author 里没有（或指向别的账号）：**页面上可见**的身份链接` +
+        `与登记清单对不上——人读路径与机读路径对不上，` +
         `读者看到的身份和结构化数据里声明的身份不是一回事。` +
         `（本条扫的是**数据源字段**；产物里真正渲染出去的链接由 I7 单独扫。）`
     );
@@ -665,7 +666,7 @@ if (anchorTrustworthy) {
   if (extraVisible.length) {
     fail(
       `site.author 里**数据源侧**的身份主页形态链接多出 ${fmt(extraVisible)}——` +
-        `它们不在本判据的登记清单里：页面上露出来的身份没有登记，等于少一个锚。` +
+        `它们不在本判据的登记清单里：**页面上可见**的身份没有登记，等于少一个锚。` +
         `两种情形都长这样：① 真要新增一个身份平台（换个主机的账号）→ 先登记进 ` +
         `scripts/lib/identity.cjs 的 IDENTITY_SAMEAS **和**本文件的 ORACLE_SAMEAS` +
         `（并同步 EXPECTED_COUNT / ORACLE_SET_SHA256）；` +
