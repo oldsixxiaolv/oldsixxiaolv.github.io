@@ -39,6 +39,10 @@
  *   同样，oracle + 数据源 + 产物**一致地**改 → 全链路仍然绿。
  *   本门禁**不声称**能挡有意的协同篡改。
  *
+ * ⚠️ 另有一处**已知差异**（不判红，理由见下面「摘要」段）：RIS 导出**没有**
+ *   AB 行，而页面发 citation_abstract。是否输出 AB 是**待本人拍板**项，
+ *   本门禁只把它**登记**下来、每次 build 都点名，不替本人拍板。
+ *
  * ⚠️ 为什么不写进 scripts/verify-site.cjs：那里的门禁是**一个连续编号**
  *   的整体（文件头清单 + 代码段 + 对照表三处必须一一对应，见门禁 24/29），
  *   插入新号要同时改三处、且号必须连续。本门禁是独立主题的**引用层**检查，
@@ -59,6 +63,12 @@ const PKG = path.join(ROOT, "package.json");
 
 const problems = [];
 const note = (msg) => problems.push(msg);
+/* 已知差异：不判红，只在通过时点名打印。
+   用途：把"待本人拍板的差异"从**日志里**搬到**每次 build 的输出**上——
+   让它不会随时间被忘掉；同时避免"把待拍板直接变成 build 断点"
+   （那等于用工具替本人做决定，比不做更糟）。 */
+const known = [];
+const diverge = (msg) => known.push(msg);
 
 /* ---------- 单一真源 ---------- */
 let siteData = null;
@@ -466,6 +476,38 @@ for (const pub of pubs) {
       note(`${rel}：语言两处不一致 —— 页面 ${JSON.stringify(metaLang)}，RIS ${JSON.stringify(risLang)}。`);
     }
   }
+
+  /* 摘要：页面 citation_abstract ↔ RIS AB。
+     ⚠️ 现状（2026-10-19 实测）：eleventy.config.js 的 `ris` filter **不输出
+        摘要**（RIS 记录里没有 AB 行），而页面发 citation_abstract —— 同一篇
+        论文的摘要在"Scholar 看到的"与"导入文献管理器得到的"两处口径不同。
+        这属于**待本人拍板**项（日志「待决策」段的"RIS 的 AB/SP 两条"）：
+        输出 AB 会让论文页与 /publications.ris 的 <pre> 里多出一条约 2000 字符
+        的单行，可读性要本人看一眼再定。
+        所以本条**不**把"RIS 缺 AB"判红 —— 那等于用工具替本人做决定，
+        比不做更糟。本条只做两件事：
+          ① RIS 里**有** AB 时，它必须与页面 citation_abstract 逐字一致；
+             漂移（有人补了 AB 却写错了）即判红；
+          ② RIS 里**没有** AB 时，登记成"已知差异"，在通过信息里点名，
+             让这道差异不会随着时间被忘掉。 */
+  const metaAbs = metaVal("citation_abstract");
+  const risAbs = risVal("AB");
+  if (metaAbs) {
+    compared++;
+    if (risAbs !== null) {
+      if (risAbs !== metaAbs) {
+        note(
+          `${rel}：摘要两处不一致 —— 页面 citation_abstract = ${JSON.stringify(metaAbs)}，` +
+            `RIS AB = ${JSON.stringify(risAbs)}。`
+        );
+      }
+    } else {
+      diverge(
+        `${rel}：RIS 记录**没有** AB（摘要）行，而页面发了 citation_abstract —— ` +
+          `已知差异，待本人拍板（是否输出 AB），本门禁不代拍。`
+      );
+    }
+  }
 }
 
 /* ---------- C4 门禁自己没被卸掉 + 自证存活 ---------- */
@@ -523,3 +565,9 @@ console.log(
   `引用元数据门禁通过：${pubs.length} 篇论文的 citation_* 标签集合与取值与 site.js 逐条一致；` +
     `非论文页零 citation_*；页面 / BibTeX / RIS 三处口径一致；共比对 ${compared} 处。`
 );
+if (known.length) {
+  console.log(
+    `已知差异（**不判红**，待本人拍板，本门禁不代拍）：\n` +
+      known.map((k) => `  · ${k}`).join("\n")
+  );
+}
