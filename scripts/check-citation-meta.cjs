@@ -1,0 +1,525 @@
+#!/usr/bin/env node
+/**
+ * 引用元数据门禁 —— 守住"Google Scholar 唯一读的那套 `citation_*` 标签，
+ * 必须与单一真源一致、只出现在论文页、且与 BibTeX / RIS 导出三处同口径"。
+ *
+ * 为什么要有这个门禁（一次具体的核对结果，不是假想）：
+ *   `citation_*` 是 Highwire Press 约定、**Google Scholar 唯一认**的引用元数据
+ *   形态（Scholar 不读 JSON-LD——本站 src/_includes/partials/citation-meta.njk
+ *   的文件头已经写明这一点）。也就是说：**论文能不能被 Scholar 收录、
+ *   收录后显示的题名/作者/卷期/页码对不对，全部只由这 21 个 <meta> 决定。**
+ *   而这一层此前是**零门禁看管的**：
+ *     · 门禁 8 / 19 / 31 查的是 JSON-LD 实体，check-jsonld 的 J1–J10 查的
+ *       也是 JSON-LD —— 它们**不看 <meta>**；
+ *     · 门禁 30 查的是 /publications.ris 文件与论文页 RIS 复制块一致，
+ *       查不到 <meta>；
+ *     · 门禁 4b/4c/4d、check-artifact-metadata 查的是 canonical/sitemap/
+ *       产出物，同样不碰 <meta>。
+ *   全仓 scripts/ 下 grep "citation_" 零命中（2026-10-19 实测）——
+ *   也就是说：**删掉模板里那行 citation_issn，build 照样全绿，页面照出，
+ *   而 Scholar 那边少一条字段。**这类缺陷不报错、不变红、只在收录时才显形。
+ *
+ * 四条判据：
+ *   C1 论文页的 `citation_*` 标签集合与取值，必须与 src/_data/site.js
+ *      **逐条**一致（标签多一条、少一条、值改一个字都判红）；
+ *   C2 **反向**判据：除论文独立页外，全站任何一个页面都不许有 `citation_*`
+ *      （Scholar 建议"每篇文章一个页面"；把多篇的标签混在列表页上，
+ *      Scholar 只会认其中一组，其余静默丢失）；
+ *   C3 三处口径交叉核对：`citation_*` ↔ /publications.bib ↔ /publications.ris
+ *      对同一字段必须给出同一个值（DOI / 题名 / 刊名 / 卷 / 期 / 页码 /
+ *      ISSN / 出版方 / URL / 作者顺序 / 日期 / 关键词 / 语言）；
+ *   C4 门禁自己没被卸掉 + **自证存活**——一处都没比过就判红
+ *      （"没报错"和"没问题"长得一模一样）。
+ *
+ * ⚠️ 本门禁的**诚实边界**（写在文件头，不写在日志里）：
+ *   期望值取自 site.js，与被投影的模板**同源**。所以本门禁能挡的是
+ *   "**投影走样**"（模板漏输出 / 改错值 / 顺序被改 / 多站输出），
+ *   挡不住"site.js 里的数据本身写错了"（那是共同真源错了，
+ *   要靠 Crossref/DataCite 权威核对 + git 历史审计）。
+ *   同样，oracle + 数据源 + 产物**一致地**改 → 全链路仍然绿。
+ *   本门禁**不声称**能挡有意的协同篡改。
+ *
+ * ⚠️ 为什么不写进 scripts/verify-site.cjs：那里的门禁是**一个连续编号**
+ *   的整体（文件头清单 + 代码段 + 对照表三处必须一一对应，见门禁 24/29），
+ *   插入新号要同时改三处、且号必须连续。本门禁是独立主题的**引用层**检查，
+ *   与 check-a11y（A1–A4）、check-wrapping（W1–W3）、check-artifact-metadata
+ *   （M1–M6）同一形态：自带编号、单独成文件。因此不占用 verify-site.cjs 的号段。
+ */
+const fs = require("fs");
+const path = require("path");
+
+const ROOT = path.resolve(__dirname, "..");
+/* 产物目录。SITE_DIR 只是给"故障注入"用的——改产物做注入测试时如果直接改
+   _site，会和并发的 build 抢同一个目录，也可能在外接卷上留下 ._* 资源叉。
+   指向 /tmp 下的副本就没有这两个问题（与 verify-site.cjs 同一约定）。 */
+const SITE = process.env.SITE_DIR
+  ? path.resolve(process.env.SITE_DIR)
+  : path.join(ROOT, "_site");
+const PKG = path.join(ROOT, "package.json");
+
+const problems = [];
+const note = (msg) => problems.push(msg);
+
+/* ---------- 单一真源 ---------- */
+let siteData = null;
+try {
+  siteData = require(path.join(ROOT, "src/_data/site.js"));
+} catch (e) {
+  note(`读不到 src/_data/site.js（${e.message}）——本门禁没有真源可比，直接判红。`);
+}
+if (!siteData) {
+  console.error("引用元数据门禁未通过：\n");
+  problems.forEach((p) => console.error(`  ✗ ${p}`));
+  console.error("");
+  process.exit(1);
+}
+const pubs = Array.isArray(siteData.publications) ? siteData.publications : [];
+const siteLocale = String(siteData.locale || "").trim();
+
+/* ---------- HTML 实体解码（产物里的属性值是转义过的） ---------- */
+const decodeEntities = (s) =>
+  String(s)
+    .replace(/&#x([0-9a-fA-F]+);/g, (_, h) => String.fromCodePoint(parseInt(h, 16)))
+    .replace(/&#(\d+);/g, (_, d) => String.fromCodePoint(Number(d)))
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&"); // 必须最后
+
+/* ---------- 从产物 HTML 里取 citation_* ---------- */
+const attrOf = (tag, name) => {
+  const m = tag.match(new RegExp(`\\b${name}\\s*=\\s*"([^"]*)"`, "i"));
+  return m ? m[1] : null;
+};
+const readCitations = (file) => {
+  const html = fs.readFileSync(file, "utf8");
+  const out = [];
+  for (const m of html.matchAll(/<meta\b[^>]*>/gi)) {
+    const name = attrOf(m[0], "name");
+    if (!name || !name.startsWith("citation_")) continue;
+    const content = attrOf(m[0], "content");
+    out.push([name, content === null ? "" : decodeEntities(content)]);
+  }
+  return out;
+};
+
+/* ---------- 期望集：从 site.js 派生，判据与模板的判空规则一致 ---------- */
+const authorNames = (pub) =>
+  (pub.authorList || [])
+    .map((a) => a.name || [a.given, a.family].filter(Boolean).join(" "))
+    .filter(Boolean);
+
+const expectedCitations = (pub) => {
+  const exp = [];
+  const add = (name, value) => {
+    if (value === null || value === undefined) return;
+    const v = String(value);
+    if (v === "") return; // 与模板一致：缺就是缺，不写空标签
+    exp.push([name, v]);
+  };
+  add("citation_title", pub.title);
+  for (const n of authorNames(pub)) add("citation_author", n);
+  add(
+    "citation_publication_date",
+    pub.dates && pub.dates.published
+      ? String(pub.dates.published).replace(/-/g, "/")
+      : null
+  );
+  add("citation_journal_title", pub.journal);
+  add("citation_volume", pub.volume);
+  add("citation_issue", pub.issue);
+  add("citation_firstpage", pub.pages || pub.articleNumber);
+  add("citation_doi", pub.doi);
+  add("citation_pdf_url", pub.pdf);
+  add("citation_abstract", pub.abstract);
+  add("citation_issn", pub.issn && pub.issn.print ? pub.issn.print : null);
+  add(
+    "citation_keywords",
+    Array.isArray(pub.keywords) && pub.keywords.length ? pub.keywords.join("; ") : null
+  );
+  add("citation_language", siteLocale || "en");
+  add("citation_publisher", pub.publisher);
+  add("citation_abstract_html_url", pub.url);
+  return exp;
+};
+
+/* BibTeX 的 month 是三字母缩写（jun）→ 两位数字，与页面 "2026/06/01" 对齐 */
+const BIB_MONTHS = ["jan", "feb", "mar", "apr", "may", "jun",
+                    "jul", "aug", "sep", "oct", "nov", "dec"];
+const bibMonthToNum = (m) => {
+  const i = BIB_MONTHS.indexOf(String(m).trim().toLowerCase());
+  return i < 0 ? null : String(i + 1).padStart(2, "0");
+};
+
+/* 红因里把取值打出来。⚠️ 这里必须同时吃两种形态：
+   C1 传的是"值数组"（["2169-897X"]），C2 传的是"键值对数组"（[["citation_title","X"]]）。
+   早先只按键值对解构，把值数组当字符串迭代 → "2169-897X" 被拆成 "2" / "1"，
+   红因打出 `2="1"` 这种看不懂的东西（注入矩阵 I1 档实测暴露）。 */
+const fmtVal = (v) => {
+  const s = typeof v === "string" ? v : String(v);
+  return JSON.stringify(s.length > 60 ? s.slice(0, 57) + "…" : s);
+};
+const show = (list) =>
+  list
+    .map((x) => (Array.isArray(x) ? `${x[0]}=${fmtVal(x[1])}` : fmtVal(x)))
+    .join(", ");
+
+/* ================= C1 论文页标签集合与取值 ================= */
+let compared = 0;
+for (const pub of pubs) {
+  if (!pub || !pub.slug) continue;
+  const rel = `papers/${pub.slug}/index.html`;
+  const file = path.join(SITE, "papers", pub.slug, "index.html");
+  if (!fs.existsSync(file)) {
+    note(`论文页产物不存在：${rel}（site.js 里有 ${pub.slug} 这条论文，但没有对应页面）`);
+    continue;
+  }
+  const actual = readCitations(file);
+  const expected = expectedCitations(pub);
+  compared++;
+
+  if (!actual.length) {
+    note(
+      `${rel}：一个 citation_* 标签都没有 —— Scholar 认不到这篇论文。` +
+        `（本页 front-matter 的 pubKey 是否还在？）`
+    );
+    continue;
+  }
+
+  // 逐名对比：多出的 / 少了的 / 值不同的，分开报，别混成一句。
+  const actualMap = new Map();
+  for (const [n, v] of actual) {
+    if (!actualMap.has(n)) actualMap.set(n, []);
+    actualMap.get(n).push(v);
+  }
+  const expectedMap = new Map();
+  for (const [n, v] of expected) {
+    if (!expectedMap.has(n)) expectedMap.set(n, []);
+    expectedMap.get(n).push(v);
+  }
+
+  for (const name of new Set([...actualMap.keys(), ...expectedMap.keys()])) {
+    const a = actualMap.get(name) || [];
+    const e = expectedMap.get(name) || [];
+    compared++;
+    if (a.length === e.length && a.every((v, i) => v === e[i])) continue;
+    if (!a.length) {
+      note(
+        `${rel}：少了 ${name} —— 期望 ${e.length} 条（${show(e)}），产物里一条都没有。` +
+          `Scholar 那边就是缺这一项。`
+      );
+    } else if (!e.length) {
+      note(
+        `${rel}：多出了 ${name} —— 产物里有 ${a.length} 条（${show(a)}），` +
+          `但 site.js 的这篇论文没有对应数据，模板不该输出它。`
+      );
+    } else if (a.length !== e.length) {
+      note(
+        `${rel}：${name} 的条数不对 —— 产物 ${a.length} 条，期望 ${e.length} 条` +
+          `（期望：${show(e)}；产物：${show(a)}）。`
+      );
+    } else {
+      const diffs = a
+        .map((v, i) => (v === e[i] ? null : `第 ${i + 1} 条：产物 ${JSON.stringify(v)} ≠ 期望 ${JSON.stringify(e[i])}`))
+        .filter(Boolean);
+      note(`${rel}：${name} 的取值与 site.js 不一致 —— ${diffs.join("；")}。`);
+    }
+  }
+}
+
+/* ================= C2 非论文页不得有 citation_* ================= */
+const paperPages = new Set(pubs.filter((p) => p && p.slug).map((p) => `papers/${p.slug}/index.html`));
+const walkHtml = (dir, out = []) => {
+  let entries = [];
+  try {
+    entries = fs.readdirSync(dir, { withFileTypes: true });
+  } catch (e) {
+    return out;
+  }
+  for (const e of entries) {
+    const full = path.join(dir, e.name);
+    if (e.isDirectory()) walkHtml(full, out);
+    else if (e.isFile() && e.name.endsWith(".html")) out.push(full);
+  }
+  return out;
+};
+let nonPaperScanned = 0;
+for (const file of walkHtml(SITE)) {
+  const rel = path.relative(SITE, file).split(path.sep).join("/");
+  if (paperPages.has(rel)) continue;
+  nonPaperScanned++;
+  const hits = readCitations(file);
+  if (hits.length) {
+    note(
+      `${rel}：页面上有 ${hits.length} 个 citation_* 标签（${show(hits)}）—— ` +
+        `Scholar 建议"每篇文章一个页面"，标签混在非论文页上会被它只认走一组、其余静默丢弃。`
+    );
+  }
+}
+if (!nonPaperScanned) {
+  note("_site 下一个非论文页的 HTML 都没扫到——C2 这条判据没生效（可能产物目录不对）。");
+}
+
+/* ================= C3 citation_* ↔ BibTeX ↔ RIS 三处口径 ================= */
+/* --- BibTeX 解析 --- */
+const unescapeBib = (v) => String(v).replace(/\\([&%$#_])/g, "$1");
+const parseBib = (text) => {
+  const entries = [];
+  const re = /@(\w+)\s*\{([^,]*),\n([\s\S]*?)\n\}/g;
+  let m;
+  while ((m = re.exec(text)) !== null) {
+    const fields = {};
+    for (const line of m[3].split("\n")) {
+      const fm = line.match(/^\s*(\w+)\s*=\s*\{((?:[^{}]|\{[^{}]*\})*)\}\s*,?\s*$/);
+      if (fm) fields[fm[1]] = unescapeBib(fm[2]);
+    }
+    entries.push({ type: m[1], key: m[2].trim(), fields });
+  }
+  return entries;
+};
+/* --- RIS 解析（一条记录一行一个字段） --- */
+const parseRis = (text) => {
+  const records = [];
+  let cur = null;
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.trim();
+    if (!line) continue;
+    const m = line.match(/^([A-Z][A-Z0-9])\s{2}-\s?(.*)$/);
+    if (!m) continue;
+    const tag = m[1];
+    const value = m[2];
+    if (tag === "ER") {
+      if (cur) records.push(cur);
+      cur = null;
+      continue;
+    }
+    if (!cur) cur = {};
+    (cur[tag] = cur[tag] || []).push(value);
+  }
+  return records;
+};
+
+const BIB_FILE = path.join(SITE, "publications.bib");
+const RIS_FILE = path.join(SITE, "publications.ris");
+let bibEntries = [];
+let risRecords = [];
+if (!fs.existsSync(BIB_FILE)) {
+  note("产物里没有 publications.bib —— 引用导出缺失，C3 无法核对。");
+} else {
+  bibEntries = parseBib(fs.readFileSync(BIB_FILE, "utf8"));
+}
+if (!fs.existsSync(RIS_FILE)) {
+  note("产物里没有 publications.ris —— 引用导出缺失，C3 无法核对。");
+} else {
+  risRecords = parseRis(fs.readFileSync(RIS_FILE, "utf8"));
+}
+
+/* 作者名归一：meta 是"名 姓"，bib/ris 是"姓, 名" → 统一成"名 姓" */
+const toGivenFamily = (s) => {
+  const t = String(s).trim();
+  if (t.includes(",")) {
+    const [last, ...rest] = t.split(",").map((x) => x.trim());
+    return `${rest.join(" ")} ${last}`.trim();
+  }
+  return t;
+};
+const bibAuthors = (f) =>
+  String(f.author || "")
+    .split(/\s+and\s+/i)
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .map(toGivenFamily);
+const risAuthors = (r) => (r.AU || []).map(toGivenFamily);
+
+/* 三方共有的字段。meta 侧是 citation_* 标签名，bib/ris 侧是各自的键。 */
+const TRI_FIELDS = [
+  { key: "题名", meta: "citation_title", bib: "title", ris: "TI" },
+  { key: "刊名", meta: "citation_journal_title", bib: "journal", ris: "T2" },
+  { key: "卷", meta: "citation_volume", bib: "volume", ris: "VL" },
+  { key: "期", meta: "citation_issue", bib: "number", ris: "IS" },
+  { key: "页码/文章号", meta: "citation_firstpage", bib: "pages", ris: "SP" },
+  { key: "DOI", meta: "citation_doi", bib: "doi", ris: "DO" },
+  { key: "URL", meta: "citation_abstract_html_url", bib: "url", ris: "UR" },
+  { key: "ISSN", meta: "citation_issn", bib: "issn", ris: "SN" },
+  { key: "出版方", meta: "citation_publisher", bib: "publisher", ris: "PB" },
+];
+
+for (const pub of pubs) {
+  if (!pub || !pub.slug || !pub.doi) continue;
+  const rel = `papers/${pub.slug}/index.html`;
+  const file = path.join(SITE, "papers", pub.slug, "index.html");
+  if (!fs.existsSync(file)) continue;
+
+  const actual = readCitations(file);
+  const metaMap = new Map();
+  for (const [n, v] of actual) {
+    if (!metaMap.has(n)) metaMap.set(n, []);
+    metaMap.get(n).push(v);
+  }
+  const metaVal = (n) => {
+    const a = metaMap.get(n) || [];
+    return a.length ? a[0] : null;
+  };
+
+  const bib = bibEntries.find((e) => e.fields.doi === pub.doi);
+  if (!bib) {
+    note(`publications.bib：没有 DOI = ${pub.doi} 的条目 —— 引用导出里这篇论文不见了。`);
+    continue;
+  }
+  const ris = risRecords.find((r) => (r.DO || []).includes(pub.doi));
+  if (!ris) {
+    note(`publications.ris：没有 DOI = ${pub.doi} 的记录 —— 引用导出里这篇论文不见了。`);
+    continue;
+  }
+  const risVal = (tag) => {
+    const a = ris[tag] || [];
+    return a.length ? a[0] : null;
+  };
+
+  for (const f of TRI_FIELDS) {
+    const vals = [
+      { src: `页面 ${f.meta}`, v: metaVal(f.meta) },
+      { src: `BibTeX ${f.bib}`, v: bib.fields[f.bib] === undefined ? null : bib.fields[f.bib] },
+      { src: `RIS ${f.ris}`, v: risVal(f.ris) },
+    ].filter((x) => x.v !== null && x.v !== "");
+    if (!vals.length) continue;
+    compared++;
+    const distinct = [...new Set(vals.map((x) => String(x.v)))];
+    if (distinct.length > 1) {
+      note(
+        `${rel}：${f.key} 三处口径不一致 —— ` +
+          vals.map((x) => `${x.src} = ${JSON.stringify(x.v)}`).join("，") +
+          `。同一篇论文的同一字段，读者从 Scholar 拿到的和从 .bib/.ris 导入的会不一样。`
+      );
+    }
+  }
+
+  /* 作者：顺序也要一致（Scholar 与文献管理器都按位置配对） */
+  const metaAuthors = (metaMap.get("citation_author") || []).slice();
+  const bAuthors = bibAuthors(bib.fields);
+  const rAuthors = risAuthors(ris);
+  if (metaAuthors.length) {
+    compared++;
+    if (metaAuthors.join(" | ") !== bAuthors.join(" | ")) {
+      note(
+        `${rel}：作者顺序与 BibTeX 不一致 —— 页面 ${JSON.stringify(metaAuthors)}，` +
+          `BibTeX ${JSON.stringify(bAuthors)}。`
+      );
+    }
+    compared++;
+    if (metaAuthors.join(" | ") !== rAuthors.join(" | ")) {
+      note(
+        `${rel}：作者顺序与 RIS 不一致 —— 页面 ${JSON.stringify(metaAuthors)}，` +
+          `RIS ${JSON.stringify(rAuthors)}。`
+      );
+    }
+  }
+
+  /* 日期：页面 "2026/06/01" ↔ RIS DA "2026/06/01" ↔ BibTeX year+month */
+  const metaDate = metaVal("citation_publication_date");
+  if (metaDate) {
+    compared++;
+    const risDate = risVal("DA");
+    if (risDate && risDate !== metaDate) {
+      note(
+        `${rel}：发表日期两处不一致 —— 页面 citation_publication_date = ${JSON.stringify(metaDate)}，` +
+          `RIS DA = ${JSON.stringify(risDate)}。`
+      );
+    }
+    const bibYear = bib.fields.year;
+    if (bibYear && metaDate.slice(0, 4) !== String(bibYear)) {
+      note(
+        `${rel}：发表日期两处不一致 —— 页面 citation_publication_date = ${JSON.stringify(metaDate)}，` +
+          `BibTeX year = ${JSON.stringify(bibYear)}。`
+      );
+    }
+    const bibMonth = bib.fields.month;
+    if (bibMonth && metaDate.slice(5, 7) !== bibMonthToNum(bibMonth)) {
+      note(
+        `${rel}：发表月份两处不一致 —— 页面 citation_publication_date = ${JSON.stringify(metaDate)}，` +
+          `BibTeX month = ${JSON.stringify(bibMonth)}。`
+      );
+    }
+  }
+
+  /* 关键词：页面 "a; b; c" ↔ RIS 的多条 KW */
+  const metaKw = metaVal("citation_keywords");
+  if (metaKw) {
+    compared++;
+    const pageKw = metaKw.split(";").map((s) => s.trim()).filter(Boolean);
+    const risKw = (ris.KW || []).map((s) => s.trim()).filter(Boolean);
+    if (pageKw.join(" | ") !== risKw.join(" | ")) {
+      note(
+        `${rel}：关键词两处不一致 —— 页面 ${JSON.stringify(pageKw)}，RIS ${JSON.stringify(risKw)}。`
+      );
+    }
+  }
+
+  /* 语言：页面 citation_language ↔ RIS LA */
+  const metaLang = metaVal("citation_language");
+  const risLang = risVal("LA");
+  if (metaLang && risLang) {
+    compared++;
+    if (metaLang !== risLang) {
+      note(`${rel}：语言两处不一致 —— 页面 ${JSON.stringify(metaLang)}，RIS ${JSON.stringify(risLang)}。`);
+    }
+  }
+}
+
+/* ---------- C4 门禁自己没被卸掉 + 自证存活 ---------- */
+const GATE_FILE = "check-citation-meta.cjs";
+if (!fs.existsSync(PKG)) {
+  note("找不到 package.json，无法确认本门禁是否接在 build 上。");
+} else {
+  const pkg = JSON.parse(fs.readFileSync(PKG, "utf8"));
+  const scripts = pkg.scripts || {};
+  /* 可达性：与 check-gates-wired.cjs 同一套算法（沿 npm run X 这条边走） */
+  const NPM_RUN_RE = /\bnpm\s+run\s+([A-Za-z0-9:_-]+)/g;
+  const seen = new Set();
+  const queue = ["build"];
+  while (queue.length) {
+    const name = queue.shift();
+    if (seen.has(name)) continue;
+    seen.add(name);
+    const cmd = scripts[name] || "";
+    NPM_RUN_RE.lastIndex = 0;
+    let m;
+    while ((m = NPM_RUN_RE.exec(cmd)) !== null) {
+      if (scripts[m[1]] !== undefined) queue.push(m[1]);
+    }
+  }
+  const refs = Object.keys(scripts).filter((n) => (scripts[n] || "").includes(GATE_FILE));
+  const live = refs.filter((n) => seen.has(n));
+  if (!refs.length) {
+    note(
+      `门禁自己被卸掉了：package.json 里没有任何 script 指向 scripts/${GATE_FILE} —— ` +
+        `这个门禁永远不会执行。`
+    );
+  } else if (!live.length) {
+    note(
+      `门禁自己被卸掉了：scripts/${GATE_FILE} 只被 npm script「${refs.join(" / ")}」引用，` +
+        `但那些 script 不在 build 链上。`
+    );
+  }
+}
+if (!compared) {
+  note(
+    "本门禁一处都没比过——判据可能已经失效" +
+      "（与「没报错」和「没问题」长得一模一样是同一类病）。"
+  );
+}
+
+/* ---------- 汇总 ---------- */
+if (problems.length) {
+  console.error("引用元数据门禁未通过：\n");
+  problems.forEach((p) => console.error(`  ✗ ${p}`));
+  console.error("");
+  process.exit(1);
+}
+
+console.log(
+  `引用元数据门禁通过：${pubs.length} 篇论文的 citation_* 标签集合与取值与 site.js 逐条一致；` +
+    `非论文页零 citation_*；页面 / BibTeX / RIS 三处口径一致；共比对 ${compared} 处。`
+);

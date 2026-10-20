@@ -9984,3 +9984,85 @@ F 节点名过、至今没人守的洞：**没有任何门禁挡住有人把 `sr
 - **待拍板 17（新增）｜身份派生门禁的注释豁免要不要收紧？**
   现状：注释行里出现这些 URL 放行（文档豁免）。收紧（要求注释里提到 URL 时该字段仍须派生）＝更严，但要维护一份"哪些行是注释"的判断。**本场次倾向保持宽松，不代拍。**
 - 待拍板 1 / 3 / 7 / 8 / 10 / 11 / 12 / 13 / 14 / 15 见前几节，**不重复、不改口**。
+
+## 2026-10-19 · 17:05–17:25 场次（**不占轮次号**，避免与并发场次撞号）：引用元数据门禁（C1–C4）——「Google Scholar 唯一读的那 21 个 `citation_*` 标签」第一次有门禁 + 10 档故障注入矩阵
+
+### A. 巡检（17:10 实测）
+
+| URL | 状态码 | 判定 |
+|---|---|---|
+| `/` `/blog/` `/about/` `/sitemap.xml` `/robots.txt` | 200 | 正常 |
+| `/papers/` | **404** | **旧部署**，非代码回归 |
+| `/publications.bib` | **404** | 同上 |
+| `/publications.ris` | **404** | 同上（本轮新增抽查） |
+| `/feed.xml` | **404** | 同上 |
+
+依据：线上 canonical 仍是 `https://github.lvyihang.xyz/MeteoHub/`、sitemap 的 `<loc>` 也仍带 `/MeteoHub/` 前缀、`last-modified: Fri, 16 Oct 2026 09:52:17 GMT` → 线上跑的还是 10-16 那版部署；本地 main 早已去掉子路径，`_site` 里 `papers/`、`publications.bib`、`publications.ris`、`feed.xml` 均已存在且正确。**部署与否由本人决定（本场次不 push）**，沿用「待拍板 7」。
+
+### B. 改进点：`scripts/check-citation-meta.cjs`（C1–C4）
+
+**为什么是它**（一次具体的核对，不是假想）：`citation_*` 是 Highwire Press 约定、**Google Scholar 唯一认**的引用元数据形态——Scholar 不读 JSON-LD（`src/_includes/partials/citation-meta.njk` 文件头已写明）。也就是说，**这篇论文能不能被 Scholar 收录、收录后显示的题名/作者/卷期/页码对不对，全部只由论文页那 21 个 `<meta>` 决定**。而这一层此前是**零门禁看管的**：
+
+- 门禁 8 / 19 / 31 查 JSON-LD 实体，`check-jsonld` 的 J1–J10 也查 JSON-LD——**都不看 `<meta>`**；
+- 门禁 30 查 `/publications.ris` 文件与论文页 RIS 复制块一致，**查不到 `<meta>`**；
+- 门禁 4b/4c/4d、`check-artifact-metadata` 查 canonical/sitemap/产出物，同样不碰 `<meta>`；
+- 全仓 `scripts/` 下 grep `citation_` **零命中**（17:00 实测）。
+
+→ 也就是说：**删掉模板里那行 `citation_issn`，build 照样全绿、页面照出，而 Scholar 那边少一条字段。**这类缺陷不报错、不变红、只在被收录时才显形。
+
+**四条判据**：
+
+| # | 判据 | 抓什么 |
+|---|---|---|
+| **C1** | 论文页 `citation_*` 的**标签集合与取值**必须与 `src/_data/site.js` 逐条一致 | 模板漏输出 / 改错值 / 作者顺序被改 / 多输出一条 |
+| **C2** | **反向**判据：除论文独立页外，全站任何页面都不许有 `citation_*` | Scholar 建议"每篇文章一个页面"；标签混在列表页上，它只认走一组、其余静默丢弃 |
+| **C3** | `citation_*` ↔ `/publications.bib` ↔ `/publications.ris` **三处口径交叉核对**（题名/刊名/卷/期/页码/DOI/URL/ISSN/出版方/作者顺序/日期/关键词/语言） | 同一事实三份投影各说各话：读者从 Scholar 拿到的和从 `.bib`/`.ris` 导入的不一样 |
+| **C4** | 门禁自己没被卸掉 + **自证存活** | "门禁文件存在"和"门禁在跑"是两件事，后者当时无人看守 |
+
+期望集**从 site.js 派生**，判空规则与模板一致（缺就是缺，不写空标签）；`citation_language` 的期望值取 `site.locale`（模板此前把 `en` 写死——若 `site.locale` 改了而模板没改，本门禁会红，这是有意的耦合）。实测基线：论文页 **21 个标签 / 15 类**（`citation_author` 7 条），首页/列表页/博客/关于/404 页**各 0 个**。
+
+### C. 故障注入矩阵（10 档；注入打在**判据实际读的那份数据**上——`SITE_DIR` 指向的产物副本，不碰共享 `_site`）
+
+| 档 | 注入 | 期望 | 实测 |
+|---|---|---|---|
+| I1 | 论文页删掉 `citation_issn` 标签 | 红 | 红：`少了 citation_issn —— 期望 1 条（"2169-897X"）` |
+| I2 | `citation_volume` 131→132 | 红 | 红（2 条）：取值不一致 + `卷 三处口径不一致` |
+| I3 | `about/index.html` 混输一条 `citation_title` | 红 | 红：`about/index.html：页面上有 1 个 citation_* 标签` |
+| I4 | 论文页前两位作者对调 | 红 | 红（3 条）：取值不一致 + 作者顺序与 BibTeX / RIS 均不一致 |
+| I5 | `publications.bib` 题名改一个字 | 红 | 红：`题名 三处口径不一致`（页面/BibTeX/RIS 三方都点名列出来） |
+| I6 | `publications.ris` 的 `SN` 换成 electronic | 红 | 红：`ISSN 三处口径不一致` |
+| I7 | 论文页整个 `citation_*` 块消失 | 红 | 红：`一个 citation_* 标签都没有` |
+| I8 | `citation_issn` 改成 electronic 值 | 红 | 红（2 条）：取值不一致 + ISSN 三处不一致 |
+| I9 | `citation_keywords` 少一个关键词 | 红 | 红（2 条）：取值不一致 + 关键词两处不一致 |
+| I0 | 对照档：不注入 | 绿 | 绿，30 处比对 |
+
+**一次失败尝试（如实记）**：I1 档第一版红因打出 `期望 1 条（2="1"）`——`show()` 辅助函数按"键值对"解构，但 C1 传进去的是**值数组**，字符串被逐字符拆开。注入矩阵的"红因文案断言"这一档把它逼出来了（只看退出码会漏掉）。修法：让 `show()` 同时吃两种形态；修后复跑 10/10。
+
+### D. 验证结果
+
+- **本场次提交树**（隔离克隆：完整历史 + 软链 `node_modules`，`HEAD=c6cd002` + 本场次两个文件）→ `npm run build` **exit 0**，链尾新门禁通过：`1 篇论文的 citation_* 标签集合与取值与 site.js 逐条一致；非论文页零 citation_*；页面 / BibTeX / RIS 三处口径一致；共比对 30 处`。
+- **共享工作树**：本场次**未跑** build（并发场次有在途文件 `scripts/check-tool-routes.cjs`、`scripts/lib/page-check.cjs`、`scripts/lib/site-routes.cjs`、`scripts/check-jsonld.cjs` 等）。权威验证一律以隔离副本为准。
+- 隔离副本必须是**完整克隆**（浅克隆会让 `check:log-sections` 扫不到 10 个提交而判红、`verify-site` 算不出 `lastmod`），且**必须含 `.git`**（`check:tracked-refs` 要 `git ls-files`）。
+
+### E. 诚实边界（本轮实测，写明不夸大）
+
+1. **期望值取自 site.js，与被投影的模板同源** → 本门禁能挡"**投影走样**"（模板漏输出/改错值/顺序被改/多站输出），**挡不住"site.js 里的数据本身写错了"**（那是共同真源错了，要靠 Crossref/DataCite 权威核对 + git 历史审计）。
+2. 与本仓同类门禁一致：oracle + 数据源 + 产物**一致地**改 → 全链路仍绿，**不声称**能挡有意的协同篡改。
+3. **`citation_issn` 口径当前钉在 print `2169-897X`**（与 BibTeX / RIS / Crossref 首项同值），与 AGU 官方导出的 electronic `2169-8996` 不同 → 沿用**日志 7269 行既有待决策第 1 条**，本场次**不代拍**。附带效应：若将来改口径，本门禁会**当场变红**（C3 会指出三处口径不一致）——这是有意的，口径变更必须是**一次显式决定**，不能悄悄漂。
+4. **新门禁尚未纳入 `scripts/test-gates-selfcheck.cjs` 的注入矩阵**（那一支目前只覆盖 identity / artifact 两族）→ 本场次的 10 档矩阵是**一次性自证脚本，没有入库**。该脚本自己的文件头写明："**没人跑 = 没人知道判据被卸了**"。这是已知缺口，已登记为待拍板 18。
+5. C3 只核对"**论文这一条**"在 `.bib` / `.ris` 里的对应条目；数据集与胶囊那两条引用条目不在本门禁范围（它们的口径由 `check-artifact-metadata` 守）。
+6. 本轮**未新增任何站外链接、未引入任何外部依赖/密钥/账号**。
+
+### F. 本场次提交
+
+- 文件三个：`scripts/check-citation-meta.cjs`（新）、`package.json`（接线）、`docs/IMPROVEMENT-LOG.md`（本文件）。
+- 提交用**私有索引**（`GIT_INDEX_FILE`）只提交本场次这三个文件：`package.json` 里并发场次的 `check:tool-routes` 接线**留在工作树、未进本次提交**（否则本场次的提交树会引用一个尚未入库的文件 → build 断）。工作树上的 `package.json` 是**两份改动并存**的版本，下一个提交它的人不会把本场次的接线冲掉。
+- **未 push。**
+
+### G. 待本人拍板
+
+- **待拍板 18（新增）｜新门禁要不要补进 `scripts/test-gates-selfcheck.cjs` 的注入矩阵？**
+  现状：那一支只覆盖 identity / artifact 两族；本场次的 10 档矩阵是一次性脚本、**没有入库**。补进去＝以后每次改判据都有机器复核的注入证据；不补＝"判据被卸掉"这件事在 `citation_*` 这一层仍然只能靠人记得手动跑。**本场次不代拍。**
+- **待拍板 19（新增）｜`citation_*` 的"官方收录说明出处"要不要也变成可核对的清单？**
+  现状：`citation-meta.njk` 的注释里已经写清**哪 15 类是 Scholar 官方收录说明列出的、哪些是本站自加的**（`citation_doi` / `citation_abstract` / `citation_keywords` / `citation_language` / `citation_publisher` / `citation_abstract_html_url` 不在官方清单里，但被保留）。但**注释不是门禁**——哪天官方改了收录说明、或有人删了其中一条，build 不会叫。做成"清单 + 门禁"要维护一份逐条出处，**本场次不代拍。**
+- 待拍板 1–17 见前几节，**不重复、不改口**；ISSN 口径沿用**日志 7269 行既有待决策第 1 条**。
