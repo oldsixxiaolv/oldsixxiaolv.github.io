@@ -78,8 +78,47 @@
  *              正文里写死的字面量（如 src/content/about.md:38 的 CSDN 链接）。
  *              实测（peer 的 W3）：把那条换成冒名账号 → 整链 build exit 0、
  *              门禁全绿，页面公然指向非本人账号，而 JSON-LD 仍是本人。
- *              **只判"多出"不判"缺"**（"缺"归 I5）；**ORCID 不由本条判**
+ *              **只判"多出"不判"缺"**（"缺"归 I8：数据源声明了却渲染不出来
+ *              才是矛盾；"这一条要不要展示"是本人的口径选择，不归本条）；
+ *              **ORCID 不由本条判**
  *              （那是 I6 的值域白名单该管的事）。
+ *   I8 可见性一致 —— **全站页脚负责统一渲染**的那几条本人身份句柄，
+ *              在**每一份产物**里都必须至少有一处可见的 <a href>；
+ *              某份产物上一处都没有 → 判红。
+ *              这条守的是 I5（数据源）与 I7（产物"多出"）之间那段夹缝：
+ *              I5 比数据源，I7 只判"多出"、刻意不判"缺"，
+ *              于是"声明了却渲染不出来"这一形态两边都不管。
+ *              实测（隔离克隆 131ca98，整链 build + 重建产物）：
+ *              把 footer.njk 里渲染 site.author.github 的那行注释掉
+ *              （**数据源字段原样留着**）→ 404 / blog / papers 三份产物的
+ *              页脚里它就没了 → **门禁 exit 0、零红因**，
+ *              通过文案还照样打「可见链接 4 个…全部在登记清单内」。
+ *              ⚠️ 判据对象**只有页脚统一渲染的那几条**（GitHub / ORCID /
+ *                 OpenAlex）——CSDN 写在 about.md 正文里、ResearchGate 只在
+ *                 首页介绍区，**本来就**不是每页都有，拿"每份产物都得有"
+ *                 去要求它们是越权（实测：那样写基线自己就误伤 2 条）。
+ *              ⚠️ 判据对象**不**从模板里读（第一版那样做过，踩了坑）：
+ *                 范围若由**被判对象自己**决定，就会**自我收缩**——
+ *                 把页脚那一行删掉，字段名就不再出现在模板里，范围里
+ *                 也就没有它了，本条不再检查它，**改动本身反而让这一条
+ *                 失去监视**。实测：把 footer.njk 里渲染 site.author.github
+ *                 的**整行**删掉（数据源字段原样留着）→ GitHub 从 6 份产物里
+ *                 的 4 份消失（404 / blog / papers / 单篇页的页脚里它没了，
+ *                 这 4 份里 GitHub 原本**只有**页脚这一处）→ 门禁 exit 0、
+ *                 零红因。⇒ 范围**写死**在本判据里（SCOPE_KEYS，
+ *                 与 ORACLE_SAMEAS 同一层纪律：期望集必须独立于被判数据），
+ *                 再与页脚模板做**交叉核对**（页脚渲染了登记在册的句柄、
+ *                 而它不在范围里 → 判红）——范围只能靠**显式**动作缩小。
+ *              ⚠️ 本条**不**要求"每条句柄都上页脚"——OpenAlex 放不放页脚
+ *                 仍是本人的待决策项，本条不代拍；
+ *                 本条只要求"**在判据范围里的那几条**，在每份产物上都得真的在"。
+ *                 一条句柄若连数据源字段一起删掉，本条就不管它
+ *                 （"要不要展示"是口径选择，不是矛盾）；
+ *                 但**只删页脚那一行不够**——那会让本条失去监视，
+ *                 必须同时从 SCOPE_KEYS 里显式去掉（见红因里的三种可能）。
+ *                 ORCID 同样在本条视野内（本条比的是**逐字 URL**，
+ *                 不是形态，同行 ORCID 是不同的字符串，不会混进来；
+ *                 ORCID 的"值域对不对"归 I6 白名单管）。
  *
  * ⚠️ I5 要守的洞（一次具体的实测漏洞，不是假想）：
  *   I1–I4 查的全是 JSON-LD 里的 sameAs；**页面上可见**的 author.github /
@@ -204,6 +243,39 @@ const ANCHOR_ORCID = "https://orcid.org/0009-0005-3511-0546";
    规范形式 = 期望集按字典序排序后用 "\n" 连接（无尾随换行）。
    合法增删句柄后不必手算：跑一次本门禁，红因里会直接给出该贴的新值。 */
 const ORACLE_SET_SHA256 = "cd9e39b57ef069d59b2065be2a52658c0eecc243e7f4bfbdc35b895914817ac7";
+
+/* I8 的结果变量：**声明在文件顶部的常量区**（离 I8 段很远）——
+   这样"整段 I8 被删掉"时，门禁不会因为 ReferenceError 崩掉，
+   而是走"本轮未判定"分支 → 与真实的静默放行**同构**；
+   再由文件底部的结构性兜底判红。
+   （红因指错地方比没有红因更坏：崩在 undefined 上，人只会当成脚本 bug，
+     反而看不出有人把判据整段删了。
+     ——踩过一次：变量声明原本紧挨着 I8 段，一起被删 → 兜底自己崩了。） */
+let visibilityChecked = false;
+let visibilityDeclared = 0;
+/* I8 段"有没有被执行到"——与"执行到了但主动跳过"要分得开：
+   锚失守时 I8 会**主动**跳过（期望集不可信，"产物里少了谁"会是假阳性），
+   那种情况不算缺陷；但**整段 I8 被删 / 被注释**是缺陷。
+   两个标志分工：visibilityReached = 段跑到了；visibilityChecked = 真判了。 */
+let visibilityReached = false;
+
+/* I8 的判据**范围**：全站公共页脚负责统一渲染的本人身份句柄**字段名**。
+   ⚠️ 写死在这里（与 ORACLE_SAMEAS 同一层：期望集必须独立于被判数据），
+     **不**从 footer.njk 里读出来——范围若由被判对象自己决定就会**自我收缩**：
+     把页脚那一行删掉 → 字段名不再出现在模板里 → 范围里就没有它了
+     → 本条不再检查它 → **改动本身反而让这一条失去监视**。
+     实测（隔离克隆 131ca98）：把 footer.njk 里渲染 site.author.github 的
+     **整行**删掉（数据源字段原样留着）→ GitHub 从 6 份产物里的 4 份消失
+     （404 / blog / papers / 单篇页里 GitHub 原本**只有**页脚这一处）
+     → 门禁 exit 0、零红因。**改动把洞藏起来了。**
+     ⇒ 范围缩小必须走**显式**动作：改这一行（并在红因里被告知要改哪几处）。
+   为什么是这三条：footer.njk 是**全站公共 partial**，每一份产物都带它 →
+     这一类"少一份产物就少一处"是**真的矛盾**（模板不再渲染它了）。
+     而 CSDN 写在 about.md 正文里、ResearchGate 只在首页介绍区，
+     **本来就**不是每页都有 → 不在本条范围（越权，基线会自己红）。
+   ⚠️ 这一行与页脚模板必须**同步**：页脚新增一条登记在册的句柄而这里没跟上
+     → I8 交叉核对判红（否则新句柄会静默地不受本条监视）。 */
+const SCOPE_KEYS = ["github", "orcid", "openalex"];
 
 /* ---------- I6 的白名单：全站声明的 ORCID 值域（写死在本判据里） ----------
    ⚠️ 为什么它**不能**从数据源取：scripts/lib/identity.cjs 正是产物的发射源，
@@ -850,7 +922,13 @@ let orcidFoundInSource = 0;
        · 候选必须逐字落在登记清单里 → **多出 = 判红**；
        · **只判"多出"，不判"缺"**：本站不必把 5 条句柄全都显示出来
          （OpenAlex 放不放页脚是本人的待决策项，见日志「待决策」段），
-         "缺"的方向归 I5（它看的是 site.author 那一份数据源）。
+         但"**声明了却渲染不出来**"是另一回事，由 **I8** 管（数据源 ↔ 产物的
+         可见性一致），别跟"要不要展示它"混为一谈。
+         ⚠️ 此前这里写的是"'缺'的方向归 I5"——**不准确**：
+           I5 比的是 site.author 那一份**数据源**（字段在不在），
+           它看不见产物上那条链接**渲染出来没有**；
+           数据源里有、产物里没有，正是 I5 与 I7 都绿的那一段夹缝
+           （实测见 I8 段）。
        · **ORCID 不由本条判**：orcid.org 上每一个 id 都是"某个人"的身份主页形态，
          论文页会合法地链到**同行**的 ORCID（形态与本人的完全一样）——
          那是 **I6 的值域白名单**该管的事，两条判据不重复管同一件事。
@@ -919,6 +997,194 @@ if (anchorTrustworthy) {
   );
 }
 
+/* ---------- I8：可见性一致 —— 数据源声明的句柄，产物里必须真的看得见 ----------
+   为什么要有这条（一次具体的实测漏洞，不是假想）：
+     I5 比的是**数据源**（site.author 里那些字段）；
+     I7 比的是**产物**里"多出了谁"——它**刻意不判"缺"**（理由见 I7 段：
+       本站不必把 5 条句柄全都显示出来，OpenAlex 放不放页脚是本人的待决策项）。
+     于是夹在中间的这一段没人管：
+       **数据源里声明了某个身份句柄（作者页有它）→ 模板却不再渲染它
+         → 产物上人读路径就少了一条身份，而全部门禁都绿。**
+     实测（隔离克隆 131ca98，整链 build + 重建产物）：
+       把 src/_includes/partials/footer.njk 里渲染 site.author.github 的那行
+       注释掉（**数据源字段原样留着**）→ 产物里 github.com/oldsixxiaolv
+       的可见 <a> 从 20 处掉到 6 处 → **门禁 exit 0、零红因**，
+       通过文案还照样打印「产物里被识别为账号主页形态的可见链接 4 个…
+       全部在登记清单内」——**数字没变，也没说少了一条**。
+       页面上人读到的身份与作者页声明的身份**不再是同一组**，
+       而没有任何一道门禁叫。
+
+   本条判的是**一致性**，不是"每条都必须上页脚"：
+     · 起点是**数据源**（site.author 里实际存在的可见身份链接字段）；
+     · 终点是**产物**（该 URL 在 HTML 里至少有一处可见的 <a href>）；
+     · 数据源里有、产物里一处都看不见 → 判红（声明与产物不一致）。
+   ⚠️ 为什么这样切口径才不越权：
+     · 它**不**要求"5 条句柄每条都必须出现在产物里"——OpenAlex 是否上页脚
+       仍是本人的待决策项（见日志「待决策」段），本条不代拍；
+       本条只要求"**在判据范围里的那几条**，在每份产物上都得真的在"。
+     · 一条句柄若**从数据源里去掉**（连字段一起删），本条不管——
+       那是"要不要展示它"的口径选择，归本人；本条只管
+       "声明了却展示不出来"这种**自相矛盾**。
+   ⚠️ 覆盖范围要说清（不夸大）：
+     · 扫的是产物里**可见的 <a href>**——JSON-LD 里的 sameAs 是机读路径，
+       由 I1 / I2 管，不在本条视野内（一条句柄完全不出现在人读路径、只出现在
+       JSON-LD 里，本条**不**判红：那是"展示口径"的选择，不是矛盾）。
+     · ORCID **在本条视野内**：本条比的是**逐字 URL**（本人那个 ORCID 字符串），
+       论文页链到同行的 ORCID 是**另一个字符串**，不会混进来；
+       ORCID 的"值域对不对"仍归 I6 的白名单管。
+     · 判定用**逐字 URL**（不是 profileKey 归一）——本条问的是
+       "这条 URL 有没有渲染出来"，与 I7 的"这个账号是不是登记在册"
+       是两件不同的事，两处各用各的判据，不互相借用。 */
+{
+  /* 起点：**判据范围**（SCOPE_KEYS，写死在本文件顶部的常量区）。
+     ⚠️ 为什么不从页脚模板里读出范围（第一版那样做过，踩了坑）：
+       范围若由**被判对象自己**决定，就会**自我收缩**——
+       把页脚那一行删掉 → 字段名不再出现在模板里 → 范围里就没有它了
+       → 本条不再检查它 → **改动本身反而让这一条失去监视**。
+       实测（隔离克隆 131ca98）：把 footer.njk 里渲染 site.author.github 的
+       **整行**删掉（数据源字段原样留着）→ GitHub 从 6 份产物里的 4 份消失
+       （404 / blog / papers / 单篇页里 GitHub 原本**只有**页脚这一处）
+       → 门禁 exit 0、零红因。**改动把洞藏起来了。**
+     ⇒ 范围写死（与 ORACLE_SAMEAS 同一层纪律：期望集必须独立于被判数据），
+       再用下面的**交叉核对**保证它与页脚不脱节。 */
+  const scopeKeys = SCOPE_KEYS;
+  visibilityReached = true;
+
+  if (!anchorTrustworthy) {
+    note(
+      `期望集自身失守（锚判据已判红）→ 本轮**跳过**可见性一致性判定（I8）：` +
+        `理由同 I1 / I7——此刻的期望集不可信，"产物里少了谁"会是假阳性。`
+    );
+  } else {
+    const registered = new Set(expectedSet);
+    const author = siteData.author || {};
+    const urlsOf = (v) => (Array.isArray(v) ? v : typeof v === "string" ? [v] : []);
+
+    /* 页脚模板：**只**用来做交叉核对与诊断信息，不用来决定判据范围。 */
+    const FOOTER = path.join(ROOT, "src", "_includes", "partials", "footer.njk");
+    const footerKeys = new Set();
+    let footerRead = false;
+    if (fs.existsSync(FOOTER)) {
+      footerRead = true;
+      const footerSrc = fs.readFileSync(FOOTER, "utf8");
+      for (const m of footerSrc.matchAll(/site\.author\.([A-Za-z0-9_]+)/g)) {
+        footerKeys.add(m[1]);
+      }
+    }
+    if (!footerRead) {
+      fail(
+        `读不到全站页脚模板 src/_includes/partials/footer.njk——` +
+          `本条靠它做"页脚渲染的句柄与判据范围是否同步"的交叉核对，` +
+          `读不到就没人管这一形态。`
+      );
+    }
+
+    /* 数据源里，判据范围内那几个键对应的 URL 值 */
+    const declared = new Map(); // URL → 字段名
+    for (const key of scopeKeys) {
+      for (const u of urlsOf(author[key])) {
+        const t = String(u || "").trim();
+        if (!t) continue;
+        if (!/^https?:\/\//i.test(t)) continue; // 相对路径 / 非 URL 不在本条视野内
+        declared.set(t, key);
+      }
+    }
+
+    /* 自证存活：一个判据对象都没取到 = 本条没有生效
+       （字段名全变了、数据源里那些字段没值了）。
+       "没报错"和"没问题"长得一模一样，必须自己叫出来。 */
+    if (!declared.size) {
+      fail(
+        `判据范围（SCOPE_KEYS = ${scopeKeys.join(" / ")}）里的身份链接字段，` +
+          `一条 URL 都没从 site.author 取到——` +
+          `本条没有生效，可见性一致性这一形态就没人管了。`
+      );
+    }
+
+    /* 交叉核对：页脚渲染了**登记在册**的句柄，而它不在判据范围里 → 判红。
+       （反方向**不**判红：范围里的键页脚不再渲染 → 本条照样要求它在每份
+         产物上可见，那正是要抓的"声明了却渲染不出来"；红因里会说明页脚现状。） */
+    for (const key of footerKeys) {
+      if (scopeKeys.includes(key)) continue;
+      for (const u of urlsOf(author[key])) {
+        const t = String(u || "").trim();
+        if (!t || !registered.has(t)) continue; // 只管登记在册的本人句柄
+        fail(
+          `全站页脚渲染了登记在册的身份链接 ${t}（site.author.${key}），` +
+            `但它不在本条的判据范围里（SCOPE_KEYS = ${scopeKeys.join(" / ")}）——` +
+            `本条只监视范围内的那几条，这个被页脚渲染出来的身份` +
+            `**没有任何门禁保证它在每份产物上都看得见**。` +
+            `请把 "${key}" 加进 scripts/check-identity-handles.cjs 顶部的 SCOPE_KEYS。`
+        );
+      }
+    }
+
+    /* 终点：**逐份产物**地看，这个 URL 有没有渲染成可见链接。
+       ⚠️ 为什么要"逐产物"而不是"全站合计有一处就行"：
+         站点有 6 份 HTML，页脚在**每一份**里都渲染（footer.njk）。
+         如果只问"全站合计有没有出现过这个 URL"，那么
+         **只要还有任意一份产物留着它，这条就永远绿**——
+         实测：把 footer.njk 里渲染 site.author.github 的那行注释掉
+         （数据源字段原样留着）→ 404 / blog / papers 三份产物的页脚里
+         它就没了，但 index / about 的"首页介绍区"还留着 →
+         全站合计仍有 2 处 → **全站口径判不出来**。
+         逐产物看则能看出"这几份产物上作者页已经不再展示这个身份了"。
+       每一份产物**各自**至少要有一处——不要求"每份都有 N 处"，
+       也不要求"每条句柄都出现在每一份产物里"（那才是越权）。 */
+    const renderedPerFile = new Map(); // 产物相对路径 → Set(可见 href)
+    for (const file of htmlFiles) {
+      const rel = path.relative(SITE, file);
+      const html = fs.readFileSync(file, "utf8");
+      const hrefs = new Set();
+      for (const m of html.matchAll(/<a\b[^>]*\bhref\s*=\s*["']([^"']+)["']/gi)) {
+        hrefs.add(String(m[1] || "").trim());
+      }
+      renderedPerFile.set(rel, hrefs);
+    }
+
+    const checked = []; // { url, field } —— 真正纳入本条判定的句柄
+    const silent = []; // { url, field, missingIn: [产物相对路径…] }
+    for (const [u, field] of declared) {
+      if (!registered.has(u)) continue; // 非本人登记句柄 → 归 I5
+      checked.push({ url: u, field });
+      const missingIn = [];
+      for (const [rel, hrefs] of renderedPerFile) {
+        if (!hrefs.has(u)) missingIn.push(rel);
+      }
+      if (missingIn.length) silent.push({ url: u, field, missingIn });
+    }
+
+    if (silent.length) {
+      const footerNow = scopeKeys.filter((k) => footerKeys.has(k));
+      for (const { url: u, field, missingIn } of silent) {
+        const shown =
+          missingIn.slice(0, 3).join("、") +
+          (missingIn.length > 3 ? ` 等 ${missingIn.length} 份产物` : "");
+        fail(
+          `判据范围内的可见身份链接 ${u}（site.author.${field}），` +
+            `但它在 ${missingIn.length} 份产物里**一处可见的 <a href> 都找不到**（${shown}）——` +
+            `页脚是全站公共 partial，每一页都该有它；` +
+            `作者页声明要展示这个身份，可这些页面上它已经渲染不出来了：` +
+            `页面上人读到的身份与作者页声明的身份**不再是同一组**。` +
+            `这与 I7 的"多出"是**反向**的同一个洞（I7 抓"多了谁"，本条抓"少了谁"）。` +
+            `（页脚当前渲染的身份字段：${footerNow.length ? footerNow.join("、") : "（一条都没有）"}）` +
+            `三种可能，请按实际情形处理：` +
+            `① 页脚不再渲染它了（这一条字段白留着）→ 要么把渲染补回去，` +
+            `要么把该字段从 site.author 里**一起去掉**（去掉后本条不再管它，` +
+            `因为"要不要展示这一条"是你的口径选择，本条不代拍），` +
+            `要么把 "${field}" 从本条的判据范围（SCOPE_KEYS）里**显式**去掉` +
+            `（**只删页脚那一行是不够的**——那只会让本条失去监视，门禁不会叫你）；` +
+            `② 渲染处的 URL 与数据源里的**不是逐字同一个**（大小写、尾斜杠、www 前缀等）` +
+            `→ 改成逐字一致；` +
+            `③ 这一条本来就不打算展示 → 同 ①，删掉那个字段。`
+        );
+      }
+    }
+    visibilityDeclared = checked.length;
+    visibilityChecked = true;
+  }
+}
+
 /* ---------- I4：自证存活 ---------- */
 if (group.length < 2) {
   fail(
@@ -943,6 +1209,21 @@ if (!shapeSelfCheckPassed) {
   );
 }
 
+/* I8 的**结构性兜底**：整段 I8 被删 / 被注释 → 上面那个"自证存活"也不会跑，
+   这里再兜一层（变量声明在文件顶部、这段在文件底部，两处不同位置）。
+   少这一层的话，"I8 整段被删"这种改法会安静地留下一个绿——
+   变量声明虽然移到了段外（不崩栈），但没人检查它跑没跑。
+   ⚠️ 判据用 visibilityReached（"段跑到了"）而不是 visibilityChecked
+      （"真判了"）：锚失守时 I8 会**主动**跳过并留一条 note，那不是缺陷；
+      要是用 visibilityChecked 兜底，这种正常跳过会被误报成"判据被删"。 */
+if (!visibilityReached) {
+  fail(
+    "可见性一致性判定（I8）没有跑起来（判据代码被删、被注释，或整段没执行）——" +
+      "这一条缺失时，门禁就算照常打印「通过」，也只是「没看见」，不是「核过」：" +
+      "页脚渲染的身份链接在某份产物上消失这一形态就没人管了。"
+  );
+}
+
 if (problems.length) {
   console.error("身份句柄完整性门禁未通过：\n");
   problems.forEach((p) => console.error(`  ✗ ${p}`));
@@ -964,7 +1245,12 @@ console.log(
       ? `产物里**被识别为**「账号主页形态」的可见链接 ${productVisibleCount} 个` +
         `（按主机+路径去重，扫过 ${htmlFiles.length} 个 HTML；同样是"被识别出来的"个数），` +
         `全部在登记清单内。`
-      : `产物侧可见身份链接本轮未判定（期望集自身失守）。`)
+      : `产物侧可见身份链接本轮未判定（期望集自身失守）。`) +
+    (visibilityChecked
+      ? `判据范围内的 ${visibilityDeclared} 条可见身份链接` +
+        `（${SCOPE_KEYS.join(" / ")}），` +
+        `在每一份产物里都找得到可见的 <a href>（某一份产物上少一条就判红）。`
+      : `可见性一致性本轮未判定。`)
 );
 if (notes.length) {
   console.log("—");
