@@ -16115,3 +16115,204 @@ D17 改了 404 页的路径形态，但**写给人看的活文档**还在无条�
    **门禁只钉住了"承诺"这一类文档漂移**，还没有「文档里写的默认值 / 口径 vs 代码实际行为」的通用对照
    （比如某条判据的措辞变了、某个默认值改了而文档没跟）。
    要往下走，得先想清楚**哪些文档句子是可以机械核对的** —— 否则配出来的门禁只会是假绿。
+
+## 2026-10-20 · 14:00–14:30 场次（**不占轮次号**，避免与并发场次撞号）：D19 —— 视觉规范 §6 与实际 CSS 脱节：徽标类名族、dev/prod 判定口径，全改成与代码一致，并给它配上门禁
+
+### 本轮定位
+
+上一场次（D18）的「下一轮入口」②留了一条线索：
+**门禁只钉住了"承诺"这一类文档漂移**，还没有「文档里写的默认值 / 口径 vs 代码实际行为」的通用对照
+（比如某条判据的措辞变了、某个默认值改了而文档没跟）——
+并附带一句前提：**「得先想清楚哪些文档句子是可以机械核对的，否则配出来的门禁只会是假绿」**。
+
+本轮照例先读三份文档、线上巡检 7 条 URL、跑 build，再回缺陷清单取一条待修 ——
+清单里"待修"的 7 条仍全被拍板项绑定（**D2 / D3** ↔ 待拍板 40、**D9** ↔ 41、**D10** ↔ 42、**D12** ↔ 43；
+**D5** 等本人定选题主线、**D6** 由 push 触发 = 待拍板 7、**M3** 等本人自建 OAuth App）
+⇒ 仍走 ROADMAP M0 §3「发现新缺陷 ⇒ 新开编号」，本轮新开 **D19**。
+
+这次撞见的缺陷**翻代码看不见**：它是**另一份文档**和代码脱节 ——
+`docs/design-system.md`（这份文档自己写着「本文档是视觉规范的**唯一来源**」）的 §6 已经在讲**代码里不存在的类名**。
+
+### A. 缺陷事实
+
+先把「哪些句子是可以机械核对的」这条前提落实：**类名、token 名、partial 清单、构建模式判定**——
+这四样都是**有唯一真源**的（CSS 文件本身 / `eleventy.config.js` 本身），
+所以能配出**判红与判绿都确定**的门禁，不靠人读措辞。
+
+逐条实测出来的三处脱节（全部在 `docs/design-system.md` §6）：
+
+- **① §6.0 的 `_badge.css` 行把类名写成了 CSS 变量。**
+  原文：`` `.badge`、`--brand` / `--accent` / `--sage` / `--warning` / `--danger` / `--filled-brand` ``。
+  实际（`src/assets/css/components/_badge.css`）：`.badge`（第 9 行）、`.badge--brand`（25）、
+  `.badge--accent`（39）、`.badge--sage`（56）、`.badge--warning`（66）、`.badge--danger`（77）、
+  `.badge--filled-brand`（88），**外加 `.badge--quiet`（98）—— 文档完全没写**。
+  两个问题：① 那六个 `--xxx` 读起来像 CSS 自定义属性，实际是**类名后缀**；
+  ② `.badge--quiet` 漏了，而它**在模板里被真实使用**（`src/blog.njk` 的阅读时长标签、
+  `src/_includes/partials/publications.njk` 的角色标签）。
+  ⚠️ 同表其它行（`_nav.css` / `_button.css` / `_list.css` / `_paper.css` / `_misc.css`）**都带前导点**，
+  只有这一行不带 ⇒ 这行读起来就是异类。
+- **② §6.4 的示例 HTML 用的是**不存在**的类名。**
+  原文 `<span class="badge badge-brand">` / `badge-accent` / `badge-neutral` ——
+  **单横线**。实测全仓 `src/assets/css/` 里**一个单横线 `.badge-*` 都没有**（本项目类名一律双横线），
+  `.badge-neutral` **根本不存在**（真实的中性变体是 `.badge--sage`）。
+  照抄这段示例 ⇒ 三个类里有两个不生效、一个根本不存在。
+- **③ §6.0 的 dev/prod 双模表把判定条件写反了。**
+  原文：dev = 「NODE_ENV 不等于 `production`（**含裸跑 `npm run build`**）」，prod = 「`production`」。
+  实测 `eleventy.config.js:169–171`：
+  `isDevServer = process.argv.includes("--serve") && process.env.NODE_ENV !== "production"`、
+  `isProductionBuild = !isDevServer` ⇒ **裸跑构建（不带 `--serve`）走的是 prod 分支**。
+  旁证：产物 `_site/assets/css/components.css` 头部写着 `bundled (production)`。
+  同表两个体积数字：dev「654 B」**实测对得上**（按钩子重算正是 654 B），
+  prod「约 35 KB」**实测是 72,825 B**（差一倍多）。
+- **④ 顺带查出的两处小漂移**（同属「文档写的量 vs 代码实际用的量」）：
+  §6.4 写「字号 `--fs-small`」，而 `_badge.css` 里实际是 `var(--fs-caption)`；
+  §6.4 写「默认透明底 + **主题色**边框 + **主题色**字」，而基础 `.badge` 用的是中性的
+  `--border-default` / `--text-secondary`（主题色由变体给出）。
+- **为什么这是缺陷、而不是"文档小事"**：这份文档是**视觉规范的唯一来源**，
+  §6.4 是「**怎么用**」的示例 —— 照抄就写出无效类名；而 §6.0 的双模表决定
+  「**以为裸跑构建能拿到 dev 产物**」这种错误前提（后者会让调试时拿到的是合并后的单文件，
+  以为改了 partial 会即时生效）。
+- **而且没有任何门禁守着**：全仓门禁都判**产物**或**源码**，
+  **没有一条**核对「文档写的类名 / token / 模式 vs 代码实际」。
+
+### B. 改了什么（10 个文件）
+
+1. **`docs/design-system.md` §6.0 的 `_badge.css` 行** → 改成**真实类名**并补齐：
+   `.badge`、`.badge--brand`、`.badge--accent`、`.badge--sage`、`.badge--warning`、
+   `.badge--danger`、`.badge--filled-brand`、`.badge--quiet`（八个，与 CSS 一一对应）。
+2. **同节 dev/prod 双模表** → 改按 **`--serve`** 判定：dev = `eleventy --serve` 且 `NODE_ENV`
+   不为 `production`；prod = **其余全部构建（含裸跑 `npm run build`、含 `NODE_ENV=production`）**。
+   并把两个体积数字改成**不含数字**的写法 —— **为什么不用一个新数字**：那个数字每次改 CSS 都会变，
+   写死必然再漂（D18 同款病：快照数字必然过期）。表下补一句说明「判定只看 `eleventy.config.js` 那两行」。
+3. **`docs/design-system.md` §6.4** → 示例 HTML 改成**双横线真实类名**（`badge-neutral` 换成
+   `badge--sage`）；新增一张**变体表**（七个变体逐个列出真实类名与用途）；
+   字号改成 `--fs-caption`；默认样式描述改成中性边框/文字。
+4. **新增门禁 `scripts/check-design-system-contract.cjs`**（判据 **DC1–DC6**）：
+   - **DC1 徽标类名族齐全** —— §6.0 的 `_badge.css` 行必须列出 `_badge.css` 里定义的**全部**顶层类。
+   - **DC2 不得虚构 CSS 变量** —— 文档里每一个 `--token` 必须在 `src/assets/css` 下真实定义。
+     ⚠️ 关键细节：扫描用**负向前瞻**排除「类名里的双横线」（`.badge--brand` 里的 `--brand` **不是**变量）——
+     没有这一条，旧写法会被当成"已定义"从而**漏判**。
+     命令行开关（`--serve`）走**白名单**排除：它长得像变量但不是。
+   - **DC3 partial 清单三处一致** —— §6.0 的拆分表 / `eleventy.config.js` 的 `order` 数组 /
+     `components/` 目录里的实际文件，三者一一对应（少一个 partial，文档就少一整块规格）。
+   - **DC4 双模口径 == 代码** —— 代码里 dev 的入口必须是 `--serve`；文档 dev 行必须写 `--serve`
+     且**不得**把裸跑构建算成 dev；prod 行必须点明「npm run build」。
+   - **DC5 徽章规格的 token 要真被用** —— §6.4 点名的每个 `--token` 必须在 `_badge.css` 里
+     被 `var()` **真正引用**（否则规格写的是别的组件的量）。
+   - **DC6 覆盖度自证** —— 徽标类数 / partial 数有下限，防「改空了就通过」。
+5. **新增自测 `scripts/test-design-system-contract.cjs`**（**7 档**注入矩阵，DT0–DT6）——
+   把文档、`src/assets/css` 目录、`eleventy.config.js` **各复制**一份到临时目录再改副本，
+   用 `DCC_DOC` / `DCC_CSS_DIR` / `DCC_COMPONENTS_DIR` / `DCC_CONFIG` 把门禁指向副本，
+   **全程不动仓库里的任何文件**；每档都做内容指纹核对，**注入没生效就当场报错**（不许记成"测过了"）。
+6. **接线**：`package.json` 加 `check:design-contract` / `check:design-contract-selftest`，
+   接在 build 链 `check:mount-contract-selftest` 之后（只读源码与文档，**不需要产物**，早失败）；
+   `README.md` 命令清单补两行。
+7. **台账**：`docs/DEFECT-BACKLOG.md` 加 **D19**（已修 + 验证方式）；
+   **另开 D20（待修）** —— 见 §F。
+8. **`docs/ROADMAP.md`** M0 进度推进到 D20，并补 D19 那一段。
+9. **顺手归一 `scripts/` 的文件模式**：D18 场次新加的 `scripts/check-mount-contract.cjs` 与
+   `scripts/test-mount-contract.cjs` 被记成了 `100755`，而 `scripts/` 下 **54 个文件里 52 个是 `100644`**
+   （**带 shebang 的 644 脚本有 88 个** ⇒ 可执行位**不是**本目录的约定，755 那两个是偏差）。
+   本轮把这两个改成 `100644` —— **零功能影响**（它们都由 `node scripts/x.cjs` 调用，不靠可执行位），
+   只是让目录内一致；这是 D18 留下的**同目录**不一致，属顺手可收的连带项。
+10. **无其它改动**：没碰 `src/`、没碰 `eleventy.config.js`、没碰并发场次的两个文件。
+
+### C. 验证
+
+- `node scripts/check-design-system-contract.cjs` exit 0 —— **8 个**徽标顶层类全部在 §6.0 列出；
+  文档的 **108 个** CSS token 全部在 `src/assets/css` 下真实定义；
+  **7 个** partial 的清单（文档 / `order` 数组 / 实际文件）三处一致；
+  dev/prod 判定与 `eleventy.config.js` 一致；§6.4 点名的 4 个 token 全部被 `_badge.css` 的 `var()` 引用。
+- `node scripts/test-design-system-contract.cjs` exit 0 —— **7 档** DT0–DT6：
+  DT0 基线绿；DT1 §6.0 徽标行删掉 `.badge--quiet` ⇒ **DC1** 点名；
+  DT2 文档塞一个未定义的 `--token` ⇒ **DC2** 点名；
+  DT3 `order` 数组多一个 partial ⇒ **DC3** 点名；
+  DT4 dev 行把「npm run build」也算成 dev ⇒ **DC4** 点名；
+  DT5 §6.4 字号改成 `--fs-small` ⇒ **DC5** 点名；
+  DT6 裁剪副本里的 `_badge.css` ⇒ **DC6** 点名。
+  **另外逐档核对了「本档实际命中的判据集合」**：DT1–DT5 **各自只触发它自己那一条**，
+  DT6 只触发 DC6（DC6 的文案里提到「DC1」，一度让我以为两条耦合了，单跑一次才确认是**文案里的字样**，不是耦合）。
+- `npm run build` exit 0 —— **40 步** npm 脚本链（本轮 +2）。
+  门禁接线门禁随之从 27 → **28 个门禁脚本**、自测从 15 → **16 个**（接在 build 链的 11 → **12 个**）；
+  README 命令清单门禁从 41 → **43 条命令**。
+- `node scripts/check-log-sections.cjs` 与 `node scripts/check-decision-ids.cjs` 均 exit 0。
+
+### D. 负对照（这一段最关键）
+
+- **把门禁指向 HEAD `dbab0cc` 的文档**（修前那三处脱节，用 `git show` 取到临时目录）
+  ⇒ **exit 1**，**16 条**红因逐条点名：
+  **DC1 7 条**（`.badge--brand` / `--accent` / `--sage` / `--warning` / `--danger` /
+  `--filled-brand` / `--quiet` 七个类逐个点名"文档没列出"）；
+  **DC2 5 条**（`--brand` / `--sage` / `--warning` / `--danger` / `--filled-brand` 逐个点名"CSS 里没定义"）；
+  **DC4 3 条**（dev 行没提 `--serve` / dev 行把裸跑构建算成 dev / prod 行没点明「npm run build」）；
+  **DC5 1 条**（`--fs-small` 没被 `_badge.css` 引用）。
+  **DC3 绿** —— 这是对的：partial 清单本来就是对的，不是本轮才补的（门禁判红 ≠ 每次都红）。
+- **反向自证（防止门禁自己骗自己）**：门禁建好后第一版跑出的 token 数比预期多 ——
+  查下来是 **`--serve` 被当成了 CSS 变量**（命令行开关长得像变量）。
+  处理办法不是放宽判据，而是**把命令行开关单列白名单**并写明理由 ——
+  判据本身没松，只是把"不是这类东西"的那类排除掉。
+  记下来是因为它说明：**"文档里出现 `--xxx`"这句话本身就有歧义**，判据必须把歧义显式处理掉。
+
+### E. 产物比对
+
+- 本轮只碰**文档与门禁脚本**，没碰 `src/`、没碰 `eleventy.config.js`；
+  且 `docs/` **不在 Eleventy 的输入区**（`eleventy.config.js` 的 `dir.input` 是 `src`）⇒ 站点产物**理应零变化**。
+- 与 HEAD `dbab0cc` 的对照构建（`git worktree add --detach` **共享对象库**，不复制 1.1G 的 `.git`；
+  `node_modules` 用软链挂过去）逐字节比对：**49 个产物文件里 47 个逐字节相同**，
+  只有 `feed.xml` 与 `robots.txt` 不同，差异**只有构建时间戳**
+  （`lastBuildDate` 21:10:19 vs 21:10:17、「生成时间」相差 2 秒）⇒ **站点行为零变化**。
+- 线上仍是旧部署（**D6** / 待拍板 7）：`/` 200、`/papers/` **404**、`/blog/` 200、`/about/` 200、
+  `/publications.bib` **404**、`/feed.xml` **404**、`/sitemap.xml` 200 —— 本轮**未 push**。
+
+### F. 边界与已知不足（如实记，不藏）
+
+- **DC1 只盯 `_badge.css` 这一行**，没有把「§6.0 其余行的类名族」也纳入 ——
+  因为那几行写的是**通配族**（`.topbar*` / `.list__*`），不可枚举，硬判只会制造假红。
+  DC3 从另一个角度（partial 清单三处一致）把整张表**间接**守住。
+- **DC2 判的是"文档提到 ⇒ CSS 里得有"，不判反向**（"CSS 里有的 ⇒ 文档得提"）——
+  因为组件局部变量（`a11y.css` / `pages.css` / `_paper.css` / `_button.css` 里那约 30 个）
+  本来就**不该**进设计系统的主题调色板清单，反向判会误伤。
+- **顺带查出了同族的另一个缺口，已另开 D20（待修）**：`docs/design-system.md` §10 标题写
+  「CSS **完整**自定义属性（可直接复制到 global.css）」，但实测 `src/assets/css/tokens.css` 定义
+  **109** 个变量、§10 只列 **107** 个，缺 `--font-serif` 与 `--text-accent`。
+  （**§10 列出的那 107 个本身全对** —— 逐个核对，107 个全部在全仓 CSS 里真实存在。）
+  本轮**没顺手修**：那是 §10、不是 §6，是另一条缺陷、另一个验收条件、还要给门禁加一条**反向**判据
+  ⇒ 属"另一个改进点"，按 M0 §3 补号销账（**D20**），下轮可做。
+- **双模表的两个体积数字被删掉了**，没有换成新数字 —— 这是刻意的：
+  那两个数**每次改 CSS 都会变**，写死必然再漂（D18 同款病）。
+  代价是读者看不到"大概多大"；判断依据改由**产物头部那行 `bundled (production)`** 自己给出。
+- **DC4 靠字面量判**（dev 行必须含 `--serve`、prod 行必须含 `npm run build`）——
+  措辞一改就会判红。这是**故意的**：这行是"构建模式怎么判"的规格，措辞漂了正是要拦的事。
+- **本轮没跑浏览器**：改动只碰文档与门禁脚本，产物逐字节相同 ⇒ 页面行为不可能变（首屏字节没变）。
+- **未新增待拍板**：D19 是纯缺陷修复，没有需要本人定的口径分歧。
+
+### G. 本轮纪律
+
+- **清单里的待修条目全被拍板项绑定 ⇒ 走 ROADMAP M0 §3 的「发现新缺陷 ⇒ 新开编号」**（D19），
+  没有硬改绑着的条目，也没有替本人把拍板项当成已拍。
+- **一轮只做一个改进点**（D19 = §6 的脱节）；**不代拍**；**不新增待拍板**。
+- **范围自己收住了**：查出来同族的 §10 缺口（**D20**）**没有顺手塞进本轮**，
+  而是按 M0 §3 补号留在清单里。
+- **门禁红了先定位红因，不放宽判据**：本轮没有门禁红；负对照里新门禁**主动判红并点名**；
+  门禁建好后自己报出的"token 数多了一个"被当**真问题**查到底（改的是白名单，不是判据）。
+- **不碰并发场次的文件**：`scripts/check-identity-handles.cjs`、`scripts/test-gates-selfcheck.cjs`
+  属另一个场次，本轮**未提交、未覆写**。
+- **不 push**：本地 `main` 领先源码远端 `oldsixxiaolv/main`（`f47357d`）**170** 个提交（提交本轮后为 171）；
+  部署远端 `origin`（`oldsixxiaolv.github.io`）本轮**未碰**。
+- 临时产物只落在 `/tmp`；删文件用 `mavis-trash` 不用 `rm`；conda 一律 `xiaolv`。
+
+### 下一轮入口
+
+① **D2 / D3** 待待拍板 40 拍板（且要先解决「模板注释说多比例有效、实测说只取第一张」这句矛盾）；
+   **D9** 待 41；**D10** 待 42；**D12** 待 43；**D5** 等本人定选题主线；**D6** 等 push（待拍板 7）；
+   **M3** 等本人自建 OAuth App；**待拍板 47** 等本人定 `portfolio` 的去留；
+   **待拍板 48** 等本人定 404 页的根绝对前缀要不要跟着挂载点走。
+② **D20**（本轮新开，待修）：把 `docs/design-system.md` §10 补上 `--font-serif` 与 `--text-accent`，
+   并给 `scripts/check-design-system-contract.cjs` 加一条**反向**判据
+   （`tokens.css` 里定义的每个变量都必须在 §10 出现，**只对 `tokens.css`**，不扫组件局部变量）+ 对应自测档。
+   这是本轮已经查清、改法已经定好的下一个动作。
+③ 或继续在 M0 找新缺陷 —— 本轮把 D18 留的那条线索**走完了一段**：
+   「哪些文档句子是可以机械核对的」现在有了具体答案（类名 / token 名 / 文件清单 / 构建模式判定），
+   也证明**配出来的门禁确实能判红**（负对照 16 条红因）。
+   还没覆盖的是**文档里的数值与默认值**（例如某个默认断点、某个默认阈值、某个默认文案）
+   —— 那类要先确认「真源在哪儿」，否则又会变成只能靠人读的假门禁。

@@ -89,6 +89,8 @@ Cloudflare Pages、Nginx 等任意静态服务。详细运行 / 调试见 `HOW_T
 | `npm run check:404-depth-selftest` | 上面那道门禁的本地夹具自测（4 档注入矩阵，证明它能变红） |
 | `npm run check:mount-contract` | 文档与代码口径一致：凡是承诺产物可整体搬迁到任意部署位置的行，都必须带例外限定；README 要讲清 404 页这个例外，`relUrl` 的 404 特判也得在位 |
 | `npm run check:mount-contract-selftest` | 上面那道门禁的本地夹具自测（5 档注入矩阵，证明它能变红） |
+| `npm run check:design-contract` | 设计系统文档与代码一致：徽标类名族、token、partial 清单、dev/prod 判定都必须与 `src/assets/css` / `eleventy.config.js` 对得上 |
+| `npm run check:design-contract-selftest` | 上面那道门禁的本地夹具自测（7 档注入矩阵，证明它能变红） |
 | `npm run check:image` | 页面里声明的图与产物里真实存在的图是同一张 |
 | `npm run check:lang` | 语言标记统一 + 编码损坏 |
 | `npm run check:a11y` | WCAG AA 实测缺陷固化成可重复检查 |

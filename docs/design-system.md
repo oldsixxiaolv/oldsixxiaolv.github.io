@@ -412,7 +412,7 @@ body { text-autospace: normal; }
 |---|---|---|
 | `_nav.css` | brand + nav + theme-toggle + topbar + footer | `.brand`、`.nav`、`.topbar*`、`.foot`、`.theme-toggle` |
 | `_button.css` | 按钮 + 表单 | `.btn`、`form` 相关 |
-| `_badge.css` | 徽标 / 标签 / pill | `.badge`、`--brand` / `--accent` / `--sage` / `--warning` / `--danger` / `--filled-brand` |
+| `_badge.css` | 徽标 / 标签 / pill | `.badge`、`.badge--brand`、`.badge--accent`、`.badge--sage`、`.badge--warning`、`.badge--danger`、`.badge--filled-brand`、`.badge--quiet` |
 | `_card.css` | **占位**（未来扩展） | — |
 | `_list.css` | 列表 + 详情页 + tag-cloud + breadcrumb | `.list` / `.list__*`、`.detail`、`.index`、`.list-page`、`.crumbs`、`.tag-cloud`、`.page-header` |
 | `_paper.css` | 论文精读：annotation + paper 容器 | `.annot-*`、`.paper`、`.paper-head`、`.paper-tabs`、`.paper-toc`、`.paper-body` |
@@ -420,10 +420,13 @@ body { text-autospace: normal; }
 
 **dev / prod 双模生成**（`eleventy.config.js` 的 `eleventy.after` 钩子）：
 
-| 模式 | `NODE_ENV` | `_site/assets/css/components.css` 内容 |
+| 模式 | 判定 | `_site/assets/css/components.css` 内容 |
 |---|---|---|
-| dev | 不等于 `production`（含裸跑 `npm run build`） | 654 B 的 `@import` hub，浏览器按需拉 7 个 partial |
-| prod | `production` | 约 35 KB 单文件 concat 7 个 partial（含分块标记） |
+| dev | `eleventy --serve` 且 `NODE_ENV` 不为 `production` | `@import` hub，浏览器按需拉 7 个 partial |
+| prod | 其余全部构建（含**裸跑 `npm run build`**、含 `NODE_ENV=production`） | 单文件 concat 7 个 partial（含分块标记） |
+
+判定只看 `eleventy.config.js` 里那两行：`isDevServer` 要求进程带 `--serve`，
+所以 `NODE_ENV` 不等于 `production` **并不**等于 dev —— 裸跑构建走的是 prod 分支。
 
 切换 partial 顺序时同步修改 `src/assets/css/components/index.css` 的 `@import` 顺序 + `eleventy.config.js` 钩子中的 `order` 数组。
 
@@ -469,15 +472,26 @@ body { text-autospace: normal; }
 ### 6.4 徽章 / 标签（Badge / Tag）
 
 ```html
-<span class="badge badge-brand">大气物理</span>
-<span class="badge badge-accent">v1.0</span>
-<span class="badge badge-neutral">笔记</span>
+<span class="badge badge--brand">大气物理</span>
+<span class="badge badge--accent">v1.0</span>
+<span class="badge badge--sage">笔记</span>
 ```
 
 - 圆角 `--radius-pill`
-- 字号 `--fs-small`
-- 默认透明底 + 主题色边框 + 主题色字
-- 实心变体 `.badge-filled-*`，谨慎使用，按钮级别高亮
+- 字号 `--fs-caption`
+- 默认透明底 + 中性边框与文字（`--border-default` / `--text-secondary`），主题色由变体给出
+
+变体（类名一律**双横线**分隔，与 `_badge.css` 里的定义一一对应）：
+
+| 类名 | 用途 |
+|---|---|
+| `.badge--brand` | 主色强调 |
+| `.badge--accent` | 辅色强调 |
+| `.badge--sage` | 中性 / 次级信息 |
+| `.badge--warning` | 警示 |
+| `.badge--danger` | 危险 / 错误 |
+| `.badge--filled-brand` | 实心主色，谨慎使用，按钮级别高亮 |
+| `.badge--quiet` | 次级标签（阅读时长、角色标签等） |
 
 ### 6.5 引用块（Blockquote）
 
