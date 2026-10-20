@@ -91,6 +91,8 @@ Cloudflare Pages、Nginx 等任意静态服务。详细运行 / 调试见 `HOW_T
 | `npm run check:mount-contract-selftest` | 上面那道门禁的本地夹具自测（5 档注入矩阵，证明它能变红） |
 | `npm run check:design-contract` | 设计系统文档与代码一致：徽标类名族、token、partial 清单、dev/prod 判定都必须与 `src/assets/css` / `eleventy.config.js` 对得上 |
 | `npm run check:design-contract-selftest` | 上面那道门禁的本地夹具自测（7 档注入矩阵，证明它能变红） |
+| `npm run check:doc-snapshot` | 现状陈述里不许写死每轮都会变的数量（如 build 链的段数）：含缺陷编号的历史块按原样保留，现状块里出现「数字 + 步」就判红 |
+| `npm run check:doc-snapshot-selftest` | 上面那道门禁的本地夹具自测（注入矩阵，证明它能变红，且每档只触发自己那一条判据） |
 | `npm run check:image` | 页面里声明的图与产物里真实存在的图是同一张 |
 | `npm run check:lang` | 语言标记统一 + 编码损坏 |
 | `npm run check:a11y` | WCAG AA 实测缺陷固化成可重复检查 |
