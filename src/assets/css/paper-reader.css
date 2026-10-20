@@ -57,8 +57,13 @@
 .paper-reader-wrap:not(:has(.annot-pane)) {
   grid-template-columns: minmax(200px, 1fr) minmax(0, 3.4fr);
 }
+/* ≤1024px 退成单栏堆叠（papers-interaction.md §2.3）。
+   ⚠️ 两个选择器都要写：上面那条 :not(:has(.annot-pane)) 的特异度 (0,2,0) 高于
+   本条里的 .paper-reader-wrap (0,1,0)，而特异度压过来源顺序 —— 只写后者时
+   这条媒体查询压不住它，≤1024px 仍是两栏，正文被塞进 200px 宽的第一列。 */
 @media (max-width: 1024px) {
-  .paper-reader-wrap {
+  .paper-reader-wrap,
+  .paper-reader-wrap:not(:has(.annot-pane)) {
     grid-template-columns: minmax(0, 1fr);
     gap: var(--space-6);
   }

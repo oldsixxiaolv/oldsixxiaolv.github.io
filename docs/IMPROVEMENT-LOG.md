@@ -2200,6 +2200,24 @@ CSDN 521 并列）。那个归类对 ResearchGate / CSDN 成立，但对这一�
   ② 只在本地手跑、不进 build 链 ——代价：「没人跑 = 没人知道」（这正是 D7 登记过的老问题）；
   ③ 不补，靠人工每轮实测 ——代价：本轮这种 bug 只有在真的去开浏览器时才会暴露。
   （本场次不代拍，登记为待拍板 42）
+- **要不要真的启用论文批注层（`annotations.json`）？**
+  事实（2026-10-20 10:30–11:00 场次实测）：批注子系统**整层不可达**。
+  `src/_includes/layouts/paper.njk:449` 用 `hasAnnotations` 决定传不传 `annotationsUrl`，
+  但 `hasAnnotations` **全仓没有任何地方定义**（`grep -rn hasAnnotations` 只命中模板那 1 行）
+  ⇒ 恒为假 ⇒ `annotationsUrl` 永远不传 ⇒ `paper-reader/main.js:45` 整段跳过
+  `annotations.js`（355 行）与 `highlight.js`（169 行）⇒ 产物里 `.annot-pane` /
+  `.annot-toggle` / `paper-anchor` **一个都没有**（浏览器实测
+  `querySelectorAll('[class*=annot]').length === 0`，产物里 `data-anchor-id` 0 处）。
+  仓内也确实**没有** `annotations.json`（全仓 find = 0 个）。
+  后果：`docs/papers-interaction.md` §9.1 写的批注写作工作流（「`paper.md` 同目录
+  `annotations.json`，手动维护」）**照文档做也不生效** —— 放了文件，页面也不会出现批注。
+  备选：① **真的写批注**：定义 `hasAnnotations`（构建期按文件存在与否判定）**且**由**本人**提供
+  `annotations.json` ——批注是本人自己的精读笔记，**定时任务代写等于伪造作者的阅读记录**，
+  所以这一条不能代做；② **明确不启用**：把 `annotations.js` / `highlight.js` /
+  `paper-reader.css` 里对应的死代码清掉（≈524 行 JS + 一批 CSS），或在文档里写明
+  「Stage 2 才接」——代价：死代码继续躺在仓里，且 `?a=` 直链、搜索框、kind 过滤 chips
+  这些**已经写好的能力**永远用不上；③ 保留现状不动（= ② 的最省事版本）。
+  （本场次不代拍，登记为待拍板 43）
 
 
 ---
@@ -14964,3 +14982,157 @@ hover 态是 1px 竖游标 + 9px 数据点（带 2px 底色环）+ 一行读数�
   **一轮只做一个改进点**；**不代拍**（浏览器门禁的取舍登记为待拍板 42 + D10，不自行决定）。
 - 下一轮入口：① 按 ROADMAP 做 **M2 第 4 项**（论文精读页交互按 `docs/papers-interaction.md` 补齐）；
   ② 或从缺陷清单取下一条（D2 / D3 待拍板 40 拍板后；D9 待拍板 41 拍板后；D5 等 M1-3；D10 待拍板 42 拍板后）。
+
+---
+
+## 2026-10-20 · 10:30–11:00 场次（**不占轮次号**，避免与并发场次撞号）：M2 第 4 项（第一部分）—— 论文精读页在 ≤1024px 恢复单栏，触屏第一次有了目录
+
+### A. 本轮为什么取 M2 第 4 项，以及**怎么定的子项**
+
+起手照例读三份文档 + 线上巡检 7 条 URL（`/` 200 · `/papers/` 404 · `/blog/` 200 · `/about/` 200 ·
+`/publications.bib` 404 · `/feed.xml` 404 · `/sitemap.xml` 200 ⇒ 与上轮**逐条一致**，仍是 **D6** 的部署滞后），
+然后盘缺陷清单：**D2/D3**（↔待拍板 40）、**D5**（↔M1-3 等本人定选题主线）、**D6**（↔push，时机属待拍板 7）、
+**D9**（↔待拍板 41）、**D10**（↔待拍板 42）、**D7/D8**（已判不修）—— **没有一条能直接动手** ⇒ 走 ROADMAP
+**M2 第 4 项**（论文精读页交互按 `docs/papers-interaction.md` 补齐）。
+
+M2 第 4 项下面有四个候选子项（移动端三 Tab / `?kind=` URL 持久化 / `annotations.json` 下载链接 / 移动端段下手风琴）。
+**先做了一件该做的事：去盘论文页的真实实现**，而不是照着规范标题猜。盘完发现两件事：
+
+1. **规范里说的"移动端三 Tab"对应的批注层，整层不可达**（详见 C 节与 D12）。
+   `annotations.js`（355 行）+ `highlight.js`（169 行）从不加载 ⇒ 批注 Tab 没有内容可显示、
+   `?kind=` 过滤没有对象可过滤 ⇒ 这两个子项**在本轮都是空中楼阁**，硬做等于给死代码加装饰。
+2. **但 390px 实况图暴露了一个更基础的问题**（这是本轮真正的收获）：论文精读页在
+   **≤1024px（全部手机 + 平板）** 排版坏成一条窄带。
+
+⇒ 本轮子项定为：**「论文精读页 ≤1024px 恢复 `§2.3` 的单栏堆叠 + 目录在移动端可达」**，
+一次改动、两处 CSS、零 JS 改动、零新依赖。
+
+### B. 根因：一条 CSS **特异度** bug（不是"少写了一条媒体查询"）
+
+翻 `src/assets/css/paper-reader.css`，单栏媒体查询**本来就写了**：
+
+```css
+.paper-reader-wrap:not(:has(.annot-pane)) { grid-template-columns: minmax(200px, 1fr) minmax(0, 3.4fr); }
+@media (max-width: 1024px) { .paper-reader-wrap { grid-template-columns: minmax(0, 1fr); } }
+```
+
+看着没毛病，但**它压不住上面那条**：
+
+| 选择器 | 特异度 |
+|---|---|
+| `.paper-reader-wrap:not(:has(.annot-pane))` | **(0,2,0)** —— `:not()` 取参数里最高的特异度，`:has(.annot-pane)` 贡献一个类 |
+| 媒体查询里的 `.paper-reader-wrap` | (0,1,0) |
+
+**特异度高于来源顺序** ⇒ 媒体查询即使写在后面也**永远不生效**，≤1024px 一直是两栏。
+再叠上第二个条件：目录在 ≤1024px 是 `display: none`（**不生成网格项**），于是正文这个唯一的
+在流子项掉进第一列 `minmax(200px, 1fr)` —— 实测正文宽度只有 **200~203px**，右边空出 110~690px 的整列。
+
+⇒ 修法有两处，**必须一起改**，只改一处都不够：
+
+1. `paper-reader.css` 的媒体查询里把两个选择器都写上（`.paper-reader-wrap` 与
+   `.paper-reader-wrap:not(:has(.annot-pane))`）—— 后者特异度 (0,2,0) 与被压的那条**平级**，
+   但在它**之后**，按来源顺序取胜。
+2. `components/_paper.css` 里 ≤1024px 的 `.paper-toc { display: none; }` 改成**正文上方的静态块**
+   （`position: static`、链接排两列、触控高 ≥ 24px）。
+
+### C. 顺手盘出来的一个**真缺陷**（登记，不代拍）：批注层整层不可达
+
+`src/_includes/layouts/paper.njk:449` 用 `{%- if hasAnnotations %}` 决定传不传 `annotationsUrl`，
+但 **`hasAnnotations` 全仓没有任何地方定义** —— `grep -rn hasAnnotations` 只命中模板那 1 行。
+⇒ 恒为假 ⇒ `annotationsUrl` 永远不传 ⇒ `paper-reader/main.js:45` 整段跳过批注模块。
+
+产物级实证：论文页里 `.annot-pane` / `.annot-toggle` / `paper-anchor` **一个都没有**
+（浏览器实测 `querySelectorAll('[class*=annot]').length === 0`），`data-anchor-id` 在产物里 **0 处**，
+仓内也确实**没有** `annotations.json`（全仓 find = 0 个）。
+
+**最要命的是**：`docs/papers-interaction.md` §9.1 写的批注写作工作流是「`paper.md` 同目录
+`annotations.json`，手动维护」——**照文档做也不生效**，因为那个开关根本没接线。
+
+⇒ 登记为 **D12**，并在中央台账登记**待拍板 43**。**不代拍**：批注是**本人**自己的精读笔记，
+定时任务代写等于伪造作者的阅读记录；要不要启用、要不要清掉那 524 行死代码，是本人的取舍。
+
+### D. 改了什么（2 个 CSS 文件，**零 JS、零新依赖**）
+
+| 文件 | 改动 |
+|---|---|
+| `src/assets/css/paper-reader.css` | ≤1024px 媒体查询补上 `.paper-reader-wrap:not(:has(.annot-pane))` 选择器，并写清特异度陷阱 |
+| `src/assets/css/components/_paper.css` | ≤1024px 的 `.paper-toc` 从 `display: none` 改为正文上方的静态块（`position: static` / 两列 / 触控高 ≥ 24px / 底部一条分隔线） |
+
+**没动**：模板、`toc.js`、其余任何 JS、任何门禁脚本、`package.json`、依赖。
+桌面端（≥1025px）**一个像素都没变** —— 见 E 节②的 SHA-256 对照。
+
+### E. 验证
+
+**① 浏览器断言（真实 Chrome，一次性脚本 `/tmp/mh_paper_assert.cjs`，不入仓）**
+8 档宽度（360 / 390 / 640 / 768 / 820 / 1024 / 1280 / 1440）：
+**AFTER 62 项全绿**；同一脚本跑 **BEFORE（HEAD `27d4b25`）36 项红**（6 档 ≤1024px × 6 条判据）⇒ **负对照有效**。
+
+**② 正文宽度实测（before → after）**
+
+| 视口 | 360 | 390 | 640 | 768 | 820 | 1024 | 1280 | 1440 |
+|---|---|---|---|---|---|---|---|---|
+| before | 200 | 200 | 200 | 200 | 200 | 203 | 890 | 921 |
+| **after** | **328** | **358** | **589** | **707** | **754** | **942** | 890 | 921 |
+
+桌面两档**完全不变**；更强的一条证据：`.paper-reader-wrap` 元素在 1280px 下的截图
+**SHA-256 前后完全相同**（`9f36e56f…`）⇒ 桌面**逐像素**未变。
+
+**③ 目录可达（≤1024px）**：`display: block` / `position: static` / 链接 **2 列** / 链接触控高 **27px**
+（≥ WCAG 2.5.8 的 24px）/ 位于正文上方（top=80，文章从 328 开始）；
+点「Abstract」→ 滚到 `y=2446`、`hash=#paper-abstract-title`、目标标题距视口顶 **0px**、
+当前节高亮切到 Abstract（IntersectionObserver 的 `.is-active` 仍然工作）。
+
+**④ 无回归**：8 档 × 论文页均无横向溢出；`npm run check:overflow` **42 次测量 exit 0**；
+页面无 JS 报错（`pageerror` / `console.error` 各 **0** 条）。
+`npm run build` **exit 0**（27 步门禁全链，0 项红）。
+
+### F. 性能 A/B 与「看截图说话」
+
+**A/B**：before = HEAD（`27d4b25`）用 `git archive` 到 `/tmp` 单独构建，after = 工作树；
+本机 Chrome，屏蔽 Google Fonts（否则冷/热缓存差 93 KB 会污染传输量对比，上一轮已实测复现），
+各跑 3 次取中位。
+
+| 指标 | before | after | Δ |
+|---|---|---|---|
+| FCP（390px / 1280px） | 48 / 44 ms | 48 / 44 ms | **0** |
+| LCP（390px / 1280px） | 48 / 44 ms | 48 / 44 ms | **0** |
+| CLS（390px / 1280px） | 0 / 0.6353 | 0 / 0.6353 | **0** |
+| 请求数（390px / 1280px） | 14 / 15 | 14 / 15 | **0** |
+| `components.css` | 72,110 B | 72,825 B | **+715 B** |
+| 论文页 HTML | 90,000 B | 90,513 B | **+513 B** |
+| **页面总高（390px）** | 15,841 px | **9,923 px** | **−37%** |
+
+字节那 +1,228 B 里**绝大部分是注释**（`paper-reader.css` 是内联进每个论文页的，
+那 +513 B 就是解释特异度陷阱的注释本身）；真正起作用的是 715 B 的 CSS 规则。
+**页面总高 −37%** 才是这一轮真正的收益：正文宽了 1.79 倍，同样内容少 37% 的行。
+
+⚠️ **本轮未跑 Lighthouse**：工具链已从 `/tmp/screenshot-tool` 消失（`lighthouse` 包不在），
+「指标不劣化」只能用 FCP / LCP / CLS + 字节数作**代理指标**；此处如实记明，**没有**拿代理指标冒充 Lighthouse。
+⚠️ 1280px 那个 **CLS 0.6353** 是**既有的**（before/after 同值），与本轮改动无关，未在本轮处理。
+
+**看截图说话**（截图在 `/tmp`，**不入仓**）：390px 下 before 的正文挤在左边一条 200px 的窄带里、
+右侧近一半屏幕全空，标题占 11 行、链接行被压成「Pa/per · D/OI · P/F …」这样的碎片；
+after 正文占满 358px、标题 8 行、链接一行排开，顶部多一个两列的 CONTENTS 块（176px）。
+⇒ 判断：**更利落，不是更花**。多出来的只有一块目录，其余全是"把该有的空间还回去"。
+
+### G. 线上巡检（7 条 URL，与上轮**逐条一致**）
+
+`/` 200 · `/papers/` 404 · `/blog/` 200 · `/about/` 200 · `/publications.bib` 404 ·
+`/feed.xml` 404 · `/sitemap.xml` 200 ⇒ 仍是 **D6**（2026-10-16 的旧部署，纯部署滞后，不是代码缺陷）。
+本轮**不 push**（部署时机属既有待拍板 7）。
+
+### H. 同步改动与纪律
+
+- `docs/DEFECT-BACKLOG.md`：新增 **D11**（≤1024px 论文正文被挤成 200px 窄条 + 目录在触屏不可达；
+  状态「已修」，附完整验证方式）、新增 **D12**（批注层整层不可达；状态「待修，修法属本人拍板」）。
+- `docs/ROADMAP.md`：M2 段第 4 项改为「◐ 部分」—— 移动端版式已完成，批注层与三 Tab / `?kind=` 仍未做。
+- `docs/papers-interaction.md`：**订正两处与实现不符的原文** —— §2.3 加「落地现状」框，
+  附录 D.8 里「用 `<details>` 折叠代替」这句**是错的**（Stage 1 既没有 `<details>` 也没有 Tab Bar，
+  目录当时是直接被 `display: none` 掉的），并新增 **D.9** 记录本轮的取舍与实测数字。
+- `docs/IMPROVEMENT-LOG.md`：中央待决策段追加**待拍板 43**（要不要真的启用批注层）；末尾追加本小节。
+- 本轮纪律：**先量后改**（先跑出 200px 这个数再动手）；**能一测的判据不靠肉眼**；
+  **一轮只做一个改进点**；**不代拍**（批注层的取舍登记为待拍板 43 + D12）；
+  **桌面零改动有硬证据**（元素截图 SHA-256 相同）。
+- 下一轮入口：① M2 第 4 项的**下一部分** —— 但要先等**待拍板 43** 拍板：批注层若启用，
+  三 Tab 与 `?kind=` 才有内容可挂；若不启用，应先清死代码再谈其它交互；
+  ② 或从缺陷清单取下一条（D2 / D3 待拍板 40；D9 待拍板 41；D10 待拍板 42；D5 等 M1-3）。

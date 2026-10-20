@@ -499,8 +499,28 @@ strong[data-annotation-ids] {
   color: var(--text-muted);
 }
 
+/* ≤1024px：目录不再是桌面侧栏，改成正文上方的静态块（papers-interaction.md §2.3）。
+   原来这里是 display:none，理由是「触屏场景本来就不走它」—— 但这篇正文实测高
+   1.7 万像素，触屏读者因此没有任何跳转手段。链接排两列压住高度。 */
 @media (max-width: 1024px) {
-  .paper-toc { display: none; }
+  .paper-toc {
+    position: static;
+    max-height: none;
+    overflow-y: visible;
+    padding-inline-end: 0;
+    margin-bottom: var(--space-4);
+    padding-bottom: var(--space-3);
+    border-bottom: 1px solid var(--border-subtle);
+  }
+  .paper-toc ol {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0 var(--space-4);
+  }
+  .paper-toc a {
+    min-height: 26px;
+    padding-block: 3px;
+  }
 }
 
 
