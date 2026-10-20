@@ -74,7 +74,7 @@
   font-weight: 600;
 }
 
-@media (max-width: 720px) {
+@media (max-width: 768px) {
   .nav__link {
     padding: 0 var(--space-2);
     font-size: var(--fs-caption);
@@ -218,11 +218,14 @@ html body .topbar__inner {
    所以窄屏必须主动让位——标记缩到 16px、间距收到 8px、字号走 --fs-caption、
    nowrap 兜底。断点按实测余量定：≥361px 保留标记，≤360px 隐藏标记只留文字。
 
-   注意这里的 selector 必须带 `html body`：_misc.css 里有一条
+   注意这里的 selector 必须带 `html body`：_misc.css 原本也有一条
    `@media (max-width:640px) { .topbar__nav { gap: var(--space-3) } }`，
    而 _nav.css 排在 _misc.css 之前（同 specificity 会输），不提高优先级的话
-   这条窄屏规则根本不生效，实测 columnGap 仍是 16px。
-   同理 .topbar__link 的字号也要压过 _misc.css 的 12px 声明。 */
+   那条同 specificity 的窄屏规则会赢、实测 columnGap 仍是 16px。
+   同理 .topbar__link 的字号也要压过 _misc.css 的 12px 声明。
+   2026-10 巡检已把 _misc.css 里那两条同断点的顶栏声明删掉（它们被本文件
+   这两条高优先级版本完全覆盖、从未生效），顶栏窄屏样式的所有权现在
+   只在本文件一处。 */
 @media (max-width: 640px) {
   .topbar__sep { display: none; }
   .topbar__mark { width: 16px; height: 16px; }

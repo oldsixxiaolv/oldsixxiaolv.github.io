@@ -23,7 +23,11 @@
   .paper-head h1 {
     font-size: 26px;
   }
-  .topbar__nav { gap: var(--space-3); }
-  .topbar__link { font-size: 12px; }
   .foot__inner { flex-direction: column; align-items: flex-start; gap: var(--space-2); }
 }
+
+/* ⚠️ 本块原本还有两条顶栏规则（.topbar__nav 的 gap、.topbar__link 的 12px
+   字号），已删除：_nav.css 里同断点的 `html body .topbar__*` 版本
+   specificity 更高（且 _nav.css 排在 _misc.css 之前），同 specificity 的
+   这两条从来就没赢过，属于事实上的死代码。留着只会让人以为改这里能生效。
+   顶栏窄屏样式的所有权现在只在 _nav.css 一处。 */

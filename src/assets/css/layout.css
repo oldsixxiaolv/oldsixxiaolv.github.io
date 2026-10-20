@@ -117,6 +117,6 @@
 .mb-4 { margin-bottom: var(--space-4); }
 .mb-5 { margin-bottom: var(--space-5); }
 .hide-mobile { display: initial; }
-@media (max-width: 720px) { .hide-mobile { display: none; } }
+@media (max-width: 768px) { .hide-mobile { display: none; } }
 .show-mobile { display: none; }
-@media (max-width: 720px) { .show-mobile { display: initial; } }
+@media (max-width: 768px) { .show-mobile { display: initial; } }

@@ -953,7 +953,7 @@ strong[data-annotation-ids] {
    数值根本读不出来——那这张图就白挂了。窄屏改成"可横向滑动"：图按
    680px 最小宽度渲染，触屏原生可滑。滚动发生在 .paper-figure__plate
    内部，不会让整页出现横向滚动条（scripts/check-overflow.cjs 复验这一点）。 */
-@media (max-width: 760px) {
+@media (max-width: 768px) {
   .paper-figure__plate { overflow-x: auto; }
   .paper-figure__img { min-width: 680px; }
 }
