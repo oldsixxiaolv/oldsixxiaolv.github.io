@@ -149,6 +149,22 @@ const ANCHOR_ORCID = "https://orcid.org/0009-0005-3511-0546";
    合法增删句柄后不必手算：跑一次本门禁，红因里会直接给出该贴的新值。 */
 const ORACLE_SET_SHA256 = "cd9e39b57ef069d59b2065be2a52658c0eecc243e7f4bfbdc35b895914817ac7";
 
+/* ---------- I6 的白名单：全站声明的 ORCID 值域（写死在本判据里） ----------
+   ⚠️ 为什么它**不能**从数据源取：scripts/lib/identity.cjs 正是产物的发射源，
+   期望值若也从那里取，就回到文件头说的"拿自己和自己比"的老问题。
+   下面这份必须与产物、数据源都**独立**：数据源里的 ORCID 值改了，
+   期望值不会跟着变 → 才红得了。 */
+const ORCID_ALLOWLIST = [
+  "0009-0005-3511-0546", // 本人
+  "0000-0001-6144-0120", // 合作者 Xueke Wu
+  "0009-0002-2576-1108", // 合作者 Guohao Hu
+];
+const ORCID_ALLOWLIST_COUNT = 3;
+/* 白名单自身的哈希锚（规范形式与 ORACLE_SET_SHA256 相同：排序后 "\n" 连接）。
+   白名单被改过（哪怕等长替换）而没同步 → 判红。 */
+const ORCID_ALLOWLIST_SHA256 =
+  "3339bc28f8b27e7781c3178c7c1c9c176ddbd927473c43af97cef0c275493350";
+
 const problems = [];
 const notes = [];
 const fail = (msg) => problems.push(msg);
@@ -489,6 +505,139 @@ if (anchorTrustworthy) {
       `理由同 I1——此刻的期望集不可信，` +
       `"页面上少了谁 / 多出了谁"这种结论会顺着假阳性把人引到改错的地方。`
   );
+}
+
+/* ---------- I6：ORCID 值域 —— 全站声明的每一个 ORCID 都必须已登记 ----------
+   为什么要有这条（一次实测出来的漏洞，不是假想）：
+     门禁 23 查的是**产物 JSON-LD 里** Person 节点的 sameAs ↔ canonical @id
+     双向绑定。而作者列表里的 publications[].authorList[].orcid 只渲染成
+     HTML 里的 <a href="https://orcid.org/…">，**从不进入 JSON-LD**
+     → 那一路根本不在门禁 23 的视野里。
+     又因为门禁 23 查的是"节点之间一致"，把作者列表里的 ORCID **一致地**
+     换成别的 ID，各节点之间仍然彼此一致 → 全绿。
+     实测（隔离克隆，整链 build）：把 authorList 里 3 个非 null 的 orcid
+     统一改成同一个不存在的 ID → **build exit 0、门禁全绿**，
+     而产物里 19 处 orcid.org/0000-0003-1710-892X 照常渲染出去。
+     → 现有门禁守的是"自洽"，**不守"这个 ORCID 值对不对"**。
+     换句话说：门禁能抓住"各节点之间打架"，抓不住"全站一致地写错"。
+
+   两侧都要扫，缺一不可：
+     ① 产物侧（HTML 里的 orcid.org/<id>）—— 抓"已经渲染出去、被人看到的"；
+     ② 数据源侧（authorList[].orcid 的**值**）—— 抓"改了但暂时没渲染的"。
+        只扫产物侧的话，把一个不渲染的字段改成错值就又是一个盲区。
+*/
+let orcidFoundInSite = 0;
+let orcidFoundInSource = 0;
+{
+  const normId = (raw) => {
+    const m = String(raw || "").trim().match(/([0-9]{4}-[0-9]{4}-[0-9]{4}-[0-9]{3}[0-9Xx])/);
+    return m ? m[1].toLowerCase() : "";
+  };
+  const allow = new Set(ORCID_ALLOWLIST.map((s) => s.toLowerCase()));
+
+  /* 锚：条数 + 哈希。白名单自身失守时**不**拿它去比产物
+     （拿一把自己坏掉的尺子量产物，报出来的是假阳性）。 */
+  let allowTrustworthy = true;
+  if (allow.size !== ORCID_ALLOWLIST_COUNT) {
+    allowTrustworthy = false;
+    fail(
+      `ORCID 白名单有 ${allow.size} 条，与本判据锚定的 ${ORCID_ALLOWLIST_COUNT} 条不符` +
+        `——白名单被改短（或改长）时判据就跟着变，红不了了。` +
+        `确要增删 ORCID，请同步改 scripts/check-identity-handles.cjs 的 ORCID_ALLOWLIST_COUNT。`
+    );
+  }
+  const allowHash = crypto
+    .createHash("sha256")
+    .update([...allow].sort().join("\n"))
+    .digest("hex");
+  if (allowHash !== ORCID_ALLOWLIST_SHA256) {
+    allowTrustworthy = false;
+    fail(
+      `ORCID 白名单的哈希锚对不上：现在算出来是 ${allowHash}，` +
+        `本文件锚着 ${ORCID_ALLOWLIST_SHA256}——白名单被改过而哈希锚没同步` +
+        `（改白名单是合法操作，但要把上面这串新哈希贴回 ORCID_ALLOWLIST_SHA256）。`
+    );
+  }
+
+  if (!allowTrustworthy) {
+    note(
+      `ORCID 白名单自身失守（条数锚或哈希锚已判红）→ 本轮**跳过** ORCID 值域判定（I6）：` +
+        `此刻的白名单不可信，拿它去比产物，报出来的"这个 ORCID 没登记"是**假阳性**。`
+    );
+  } else {
+    /* ① 产物侧：HTML 里的 orcid.org/<id> */
+    const inSite = new Map(); // id → Set(相对路径)
+    for (const file of htmlFiles) {
+      const rel = path.relative(SITE, file);
+      const html = fs.readFileSync(file, "utf8");
+      for (const m of html.matchAll(
+        /orcid\.org\/([0-9]{4}-[0-9]{4}-[0-9]{4}-[0-9]{3}[0-9Xx])/g
+      )) {
+        const id = m[1].toLowerCase();
+        if (!inSite.has(id)) inSite.set(id, new Set());
+        inSite.get(id).add(rel);
+      }
+    }
+    /* ② 数据源侧：作者列表里的 orcid 值 */
+    const inSource = new Map(); // id → 位置描述数组
+    for (const [pi, pub] of (siteData.publications || []).entries()) {
+      for (const [ai, a] of ((pub && pub.authorList) || []).entries()) {
+        if (!a || !a.orcid) continue;
+        const id = normId(a.orcid);
+        if (!id) {
+          fail(
+            `publications[${pi}].authorList[${ai}].orcid 的值不是合法 ORCID 形态` +
+              `（${a.orcid}）——本条判不出它是哪个标识，只能判红。`
+          );
+          continue;
+        }
+        if (!inSource.has(id)) inSource.set(id, []);
+        inSource.get(id).push(`publications[${pi}].authorList[${ai}]（${a.name}）`);
+      }
+    }
+
+    /* ③ 判定：白名单外的 id 一律判红 */
+    for (const [id, rels] of inSite) {
+      if (allow.has(id)) continue;
+      const shown = [...rels].slice(0, 3).join("、") + (rels.size > 3 ? ` 等 ${rels.size} 个产物` : "");
+      fail(
+        `产物里出现**未登记**的 ORCID ${id}（${shown}）——` +
+          `本站声明的身份标识必须是登记在册的那几个（${fmt(ORCID_ALLOWLIST)}）。` +
+          `真要声明新的 ORCID，先把它登记进 ORCID_ALLOWLIST` +
+          `（并同步 ORCID_ALLOWLIST_COUNT 与 ORCID_ALLOWLIST_SHA256），再改数据。`
+      );
+    }
+    for (const [id, locs] of inSource) {
+      if (allow.has(id)) continue;
+      fail(
+        `数据源里出现**未登记**的 ORCID ${id}（${locs.join("、")}）——` +
+          `白名单是 ${fmt(ORCID_ALLOWLIST)}。` +
+          `没渲染出来的错值同样要抓：否则改一个暂时不渲染的字段就又是一个盲区。`
+      );
+    }
+
+    /* ④ 自证存活：一条都没扫到 = 本条没生效（"没报错"和"没问题"长得一样） */
+    if (!inSite.size) {
+      fail(
+        `产物里一处 ORCID 链接都没扫到（扫了 ${htmlFiles.length} 个 HTML）——本条没有生效。`
+      );
+    }
+    if (!inSource.size) {
+      fail(`数据源里一个 ORCID 值都没扫到——本条没有生效。`);
+    }
+    /* ⑤ 白名单覆盖：登记在册的每一个 ORCID 都得在数据源里真的出现，
+       否则"清单"和"数据源"已经对不上（删了一方而另一方还留着）。 */
+    for (const id of allow) {
+      if (!inSource.has(id)) {
+        fail(
+          `登记在册的 ORCID ${id} 在数据源里一处都没出现——` +
+            `清单与数据源对不上（可能删了数据却没删登记，或反之）。`
+        );
+      }
+    }
+    orcidFoundInSite = inSite.size;
+    orcidFoundInSource = inSource.size;
+  }
 }
 
 /* ---------- I4：自证存活 ---------- */

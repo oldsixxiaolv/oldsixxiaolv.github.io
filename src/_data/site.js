@@ -462,6 +462,9 @@ module.exports = {
         // ↓ 以下取自 https://api.datacite.org/dois/10.5281/zenodo.18041880
         //    （第十三轮重新拉取逐字核对：resourceType=Dataset、version=2.0、
         //    license=CC BY 4.0、registeredTitle、conceptDoi 均与登记一致）
+        // resourceType = DataCite 登记的 resourceTypeGeneral。页面上**不渲染**
+        //    它——"Dataset Dataset" 那处重复标签已删，dt 术语本身就说完了；
+        //    留在这里是为了记录登记事实（将来引用/结构化数据要用从这里取）。
         resourceType: "Dataset",
         version: "2.0",
         // ⚠️ publisher 是**唯一**没照抄登记的一项：DataCite 登记里它是
@@ -543,6 +546,10 @@ module.exports = {
         // ↓ 以下取自 https://api.datacite.org/dois/10.24433/CO.6720035.v1
         // DataCite 登记的 resourceTypeGeneral 是 "Software"（胶囊是软件制品）；
         // resourceType 这里放给人看的 "Capsule"，dataciteType 保留登记原值。
+        // ⚠️ 2026-10-19：页面上**不再渲染**这两个字段——dt 术语已经说了
+        //    "Reproducible capsule"，再挂一个类型徽标就是同一句话印两遍
+        //    （"Reproducible capsule Capsule"）。它们现在只作登记事实的记录；
+        //    将来若要在页面上标出"DataCite 登记类型 = Software"，从这里取。
         resourceType: "Capsule",
         dataciteType: "Software",
         version: "1.0",

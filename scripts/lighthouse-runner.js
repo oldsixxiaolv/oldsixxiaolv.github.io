@@ -11,16 +11,23 @@
 const lighthouse = require('lighthouse').default || require('lighthouse');
 const fs         = require('fs');
 const path       = require('path');
+const { assertPagesOk } = require('./lib/page-check.cjs');
+const { TOOL_BASE, TOOL_PAGES, toolUrl } = require('./lib/site-routes.cjs');
 
-const OUT_DIR = '/Volumes/Kingston/Mac/MeteoHub/docs/lighthouse';
-const PORT   = process.env.METEO_PORT || '8765';
-const BASE   = `http://localhost:${PORT}${process.env.METEO_PREFIX || '/MeteoHub'}`;
+const OUT_DIR = path.resolve(__dirname, '../docs/lighthouse');
 
-const targets = [
-  { slug: 'home',          url: BASE + '/' },
-  { slug: 'papers',        url: BASE + '/papers/' },
-  { slug: 'paper-detail',  url: BASE + '/papers/trmm-lyu-2026/' },
-];
+/* 路由来自共享真源 scripts/lib/site-routes.cjs（从 src/_data/site.js 派生），
+ * 这里**不再手写任何路由，也不再有 base path 前缀**。
+ *
+ * 两条独立的过期事实（都实测过）：
+ *   ① 路由写的是 /papers/trmm-lyu-2026/ —— 早已改名成
+ *      /papers/trmm-thunderstorm-stages/，而本脚本**不检查 HTTP 状态码**，
+ *      于是照常产出一份"可访问性 93 分"的 JSON，测的却是本站 404 页。
+ *   ② 基址默认带 /MeteoHub 前缀 —— 那是**子路径托管时代**的遗留；
+ *      站点现已挂在根路径（pathPrefix = "/"），那一档里**每个**目标 URL
+ *      都指向不存在的 /MeteoHub/，全是 404。
+ * 两条都靠"路由来自数据源 + 开测前做可达性自检"一起堵死。 */
+const targets = TOOL_PAGES.map((p) => ({ slug: p.name, url: toolUrl(p.route) }));
 
 const presets = [
   { tag: 'desktop', config: { extends: 'lighthouse:default', settings: { formFactor: 'desktop', screenEmulation: { mobile: false, width: 1350, height: 940, deviceScaleFactor: 1, disabled: false }, throttling: { rttMs: 40, throughputKbps: 10240, cpuSlowdownMultiplier: 1, requestLatencyMs: 0, downloadThroughputKbps: 0, uploadThroughputKbps: 0 }, throttlingMethod: 'simulate' } } },
@@ -28,6 +35,10 @@ const presets = [
 ];
 
 (async () => {
+  /* 开测**之前**先确认每个 URL 是它自己。
+   * 失败就抛错退出——绝不产出一份"404 页的可访问性 93 分"。 */
+  await assertPagesOk(targets.map((t) => ({ label: t.slug, url: t.url })));
+
   if (!fs.existsSync(OUT_DIR)) fs.mkdirSync(OUT_DIR, { recursive: true });
 
   const results = [];

@@ -42,6 +42,41 @@
   :root,
   :root:not([data-theme="light"]),
   :root[data-theme="dark"] {
+    /* ---------- 2a. 中性色阶整体回浅色（关键，修一个真 bug） ----------
+       ⚠️ 下面那组 --bg-* / --text-* / --border-* 全是**派生令牌**，
+       它们的**上游**是 tokens.css 里的 --color-neutral-* 色阶：
+         --bg-page:      var(--color-neutral-50)
+         --bg-muted:     var(--color-neutral-100)
+         --text-primary: var(--color-neutral-900)   （--text-muted → 500）
+       早先这里只覆盖了派生值、**上游没覆盖** → 暗色模式下
+       --color-neutral-50 / 100 仍是 #161513 / #1d1c19（**暗底**），
+       而文字被本块强制成 #000000（**黑字**）→ 纸面上是黑底黑字：
+       摘要块、关键词、引用块（BibTeX / RIS）整段读不出来。
+       实测：打印 PDF 的文本层里摘要全文都在（内容没丢），
+       但人眼看上去是空的——是**视觉不可读**，不是没输出。
+
+       修法：把整条色阶按 tokens.css **浅色 :root 的原值**重置。
+       为什么整条都重置、而不是只补 50 / 100 两个：
+         ① 50 / 100 是**背景**的来源（暗底问题）；
+         ② 400 / 500 / 600 / 700 / 900 是**边框与墨色**的来源
+            （暗色下是浅墨 #d2cfc6 / #f5f2ea，落到白纸上会淡到看不见）；
+         ③ 一次改完 = 将来任何新写的、直接引用中性色阶的样式
+            （高亮边线、批注墨色……）自动在打印时正确，不必再回来补。
+
+       改完得到一个**可断言的不变量**：打印结果与屏幕主题无关——
+       浅色屏幕打印出来的纸 与 深色屏幕打印出来的纸 完全一致。 */
+    --color-neutral-0: #ffffff;
+    --color-neutral-50: #faf8f5;
+    --color-neutral-100: #f2efea;
+    --color-neutral-200: #e6e2db;
+    --color-neutral-300: #d1ccc3;
+    --color-neutral-400: #a8a298;
+    --color-neutral-500: #6b665d;
+    --color-neutral-600: #575049;
+    --color-neutral-700: #38332d;
+    --color-neutral-800: #221f1b;
+    --color-neutral-900: #0f0d0a;
+
     --bg-page: #ffffff;
     --bg-surface: #ffffff;
     --bg-elevated: #ffffff;

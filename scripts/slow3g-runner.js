@@ -12,21 +12,30 @@
 const puppeteer = require('puppeteer-core');
 const path = require('path');
 const fs = require('fs');
+const { assertPagesOk } = require('./lib/page-check.cjs');
+const { TOOL_PAGES, toolUrl } = require('./lib/site-routes.cjs');
 
 const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
-const OUT    = '/Volumes/Kingston/Mac/MeteoHub/docs/screenshots';
-const OUT_METRICS = '/Volumes/Kingston/Mac/MeteoHub/docs/lighthouse';
-const PORT   = process.env.METEO_PORT || '8765';
-const BASE   = `http://localhost:${PORT}${process.env.METEO_PREFIX || ''}`;
+const OUT    = path.resolve(__dirname, '../docs/screenshots');
+const OUT_METRICS = path.resolve(__dirname, '../docs/lighthouse');
 
-const pages = [
-  { name: 'home',          url: BASE + '/',                       viewport: { width: 1280, height: 900 } },
-  { name: 'papers',        url: BASE + '/papers/',                viewport: { width: 1280, height: 900 } },
-  { name: 'paper-detail',  url: BASE + '/papers/trmm-lyu-2026/',  viewport: { width: 1280, height: 1400 } },
-];
+/* 路由来自共享真源 scripts/lib/site-routes.cjs（从 src/_data/site.js 派生），
+ * 这里**不再手写任何路由**。
+ * 原先写的是 /papers/trmm-lyu-2026/ —— 早已改名成
+ * /papers/trmm-thunderstorm-stages/，而本脚本**不检查 HTTP 状态码**，
+ * 于是照常记下一组 FCP/LCP/CLS 数字 —— 属于本站 404 页的。 */
+const pages = TOOL_PAGES.map((p) => ({
+  name: p.name,
+  url: toolUrl(p.route),
+  viewport: p.viewport,
+}));
 const schemes = ['light', 'dark'];
 
 (async () => {
+  /* 开浏览器**之前**先确认每个 URL 是它自己。
+   * 失败就抛错退出——绝不记下一组属于 404 页的 FCP/LCP。 */
+  await assertPagesOk(pages.map((p) => ({ label: p.name, url: p.url })));
+
   const browser = await puppeteer.launch({
     executablePath: CHROME,
     headless: 'new',

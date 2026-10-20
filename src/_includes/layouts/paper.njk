@@ -240,7 +240,13 @@ layout: layouts/base.njk
     <h2 id="paper-availability-title">Data and code availability</h2>
     <dl class="paper-availability__list">
       {%- if pub.software and pub.software.url %}
-      <dt>Dataset <span class="paper-availability__badge">{{ pub.software.resourceType or "Dataset" }}</span></dt>
+      {# 术语后面**不挂类型徽标**。DataCite 登记的 resourceType 就是
+         "Dataset"，术语本身已经说了这句话——再挂一个徽标就是
+         "Dataset Dataset"，同一句话印两遍（打印出来尤其扎眼）。
+         登记原值（capsule 在 DataCite 上登记为 Software）留在
+         site.js 的 resourceType / dataciteType 字段里备查，
+         页面上不重复它。 #}
+      <dt>Dataset</dt>
       <dd>
         {# 链接文字用**这一版在 Zenodo 登记的标题**（registeredTitle）——
            读者点进去看到的就是它。论文引用里那条的写法（citeTitle）不同，
@@ -302,7 +308,7 @@ layout: layouts/base.njk
       </dd>
       {%- endif %}
       {%- if pub.capsule and pub.capsule.url %}
-      <dt>Reproducible capsule <span class="paper-availability__badge">{{ pub.capsule.resourceType or "Capsule" }}</span></dt>
+      <dt>Reproducible capsule</dt>
       <dd>
         <a href="{{ pub.capsule.url }}" target="_blank" rel="noopener noreferrer">Code Ocean capsule</a>
         <span class="paper-availability__meta">Code Ocean · v{{ pub.capsule.version or "—" }} · {{ pub.capsule.license or "" }} · DOI {{ pub.capsule.doi }}</span>

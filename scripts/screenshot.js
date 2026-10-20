@@ -13,16 +13,28 @@
 
 const puppeteer = require('puppeteer-core');
 const path = require('path');
+const { assertPagesOk } = require('./lib/page-check.cjs');
+const { TOOL_BASE, TOOL_PAGES, toolUrl } = require('./lib/site-routes.cjs');
 
 const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
-const OUT    = '/Volumes/Kingston/Mac/MeteoHub/docs/screenshots';
-const BASE   = 'http://127.0.0.1:8766';
+const OUT    = path.resolve(__dirname, '../docs/screenshots');
 
-const pages = [
-  { name: 'home',          url: BASE + '/',                          viewport: { width: 1280, height: 900 } },
-  { name: 'papers',        url: BASE + '/papers/',                   viewport: { width: 1280, height: 900 } },
-  { name: 'paper-detail',  url: BASE + '/papers/trmm-lyu-2026/',     viewport: { width: 1280, height: 1400 } },
-];
+/* 路由来自共享真源 scripts/lib/site-routes.cjs（从 src/_data/site.js 派生），
+ * 这里**不再手写任何路由**。
+ *
+ * 为什么必须这样（一次具体的实测，不是假想）：
+ *   这里原先写的是 /papers/trmm-lyu-2026/ —— 该路由早已改名成
+ *   /papers/trmm-thunderstorm-stages/，而本脚本**不检查 HTTP 状态码**，
+ *   于是 16 张 "paper-detail" 截图存下来的全是**本站 404 页**，
+ *   输出格式（✓ 文件名）却与真实截到的东西完全同形。
+ *   现在路由从数据源派生 + 开浏览器前先做可达性自检（page-check.cjs），
+ *   路由改名会**立刻**在这里炸出来，而不是留到看截图时才发现。
+ *   门禁 scripts/check-tool-routes.cjs 持续盯着"工具不得自己写路由"。 */
+const pages = TOOL_PAGES.map((p) => ({
+  name: p.name,
+  url: toolUrl(p.route),
+  viewport: p.viewport,
+}));
 
 const schemes = ['light', 'dark'];
 
@@ -49,6 +61,10 @@ async function applyMedia(page, baseFeatures, extraFeatures, useCdp) {
 }
 
 (async () => {
+  /* 开浏览器**之前**先确认每个 URL 是它自己。
+   * 失败就抛错退出——绝不"对着 404 页截一组图还打印 ✓"。 */
+  await assertPagesOk(pages.map((p) => ({ label: p.name, url: p.url })));
+
   const browser = await puppeteer.launch({
     executablePath: CHROME,
     headless: 'new',

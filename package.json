@@ -11,7 +11,7 @@
     "check:gates": "node scripts/check-gates-wired.cjs",
     "check:log-sections": "node scripts/check-log-sections.cjs",
     "check:tracked-refs": "node scripts/check-tracked-refs.cjs",
-    "build": "npm run check:gates && npm run check:tracked-refs && npm run check:log-sections && npm run check:css && npm run check:wrap && eleventy && npm run check:site && npm run check:image && npm run check:lang && npm run check:a11y && npm run check:copy && npm run check:overflow && npm run check:artifact && npm run check:jsonld && npm run check:identity && npm run check:identity-derivation && npm run check:citation-meta",
+    "build": "npm run check:gates && npm run check:tracked-refs && npm run check:log-sections && npm run check:css && npm run check:wrap && eleventy && npm run check:tool-routes && npm run check:site && npm run check:image && npm run check:lang && npm run check:a11y && npm run check:print-theme && npm run check:copy && npm run check:overflow && npm run check:artifact && npm run check:jsonld && npm run check:identity && npm run check:identity-derivation && npm run check:citation-meta",
     "serve": "eleventy --serve --quiet --port=8080",
     "check:a11y": "node scripts/check-a11y.cjs",
     "check:copy": "node scripts/check-copy-export.cjs",
@@ -20,8 +20,10 @@
     "check:jsonld": "node scripts/check-jsonld.cjs",
     "check:identity": "node scripts/check-identity-handles.cjs",
     "check:identity-derivation": "node scripts/check-identity-derivation.cjs",
-    "check:citation-meta": "node scripts/check-citation-meta.cjs",
-    "check:image": "node scripts/check-image-assets.cjs"
+    "check:image": "node scripts/check-image-assets.cjs",
+    "check:tool-routes": "node scripts/check-tool-routes.cjs",
+    "check:print-theme": "node scripts/check-print-theme.cjs",
+    "check:citation-meta": "node scripts/check-citation-meta.cjs"
   },
   "engines": {
     "node": ">=22"

@@ -2,10 +2,12 @@
 const puppeteer = require('puppeteer-core');
 const fs = require('fs');
 const path = require('path');
+const { assertPagesOk } = require('./lib/page-check.cjs');
+const { TOOL_PAGES, toolUrl } = require('./lib/site-routes.cjs');
 
-const BASE = process.env.SITE_URL || 'http://127.0.0.1:8766';
-const PREFIX = '';
-const PAPER_PATH = '/papers/trmm-thunderstorm-stages/';
+/* 路由来自共享真源 scripts/lib/site-routes.cjs（从 src/_data/site.js 派生）。
+ * 原先这里写死了 PAPER_PATH 与 PREFIX 两个变量——正是"工具自己写路由"的老毛病。 */
+const PAPER_PATH = (TOOL_PAGES.find((p) => p.name === 'paper-detail') || {}).route;
 const OUT_DIR = path.resolve(__dirname, '../docs/screenshots');
 
 const variants = [
@@ -25,6 +27,11 @@ async function setup(page, scheme, cond) {
 (async () => {
   if (!fs.existsSync(OUT_DIR)) fs.mkdirSync(OUT_DIR, { recursive: true });
 
+  const url = toolUrl(PAPER_PATH);
+
+  /* 开浏览器**之前**先确认这个 URL 是它自己（不是本站 404 页）。 */
+  await assertPagesOk([{ label: 'paper-detail', url }]);
+
   const browser = await puppeteer.launch({
     executablePath: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
     headless: 'new',
@@ -35,7 +42,6 @@ async function setup(page, scheme, cond) {
     const page = await browser.newPage();
     await setup(page, v.scheme, v.cond);
 
-    const url = `${BASE}${PREFIX}${PAPER_PATH}`;
     await page.goto(url, { waitUntil: 'networkidle2' });
     await new Promise((r) => setTimeout(r, 1500)); // let modules init
 

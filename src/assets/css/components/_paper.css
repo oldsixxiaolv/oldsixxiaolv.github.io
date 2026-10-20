@@ -693,16 +693,11 @@ strong[data-annotation-ids] {
   align-items: center;
   gap: var(--space-2);
 }
-.paper-availability__badge {
-  font-family: var(--font-code);
-  font-size: 10.5px;
-  font-weight: 500;
-  color: var(--text-secondary);
-  background: var(--color-neutral-100);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-sm);
-  padding: 1px 6px;
-}
+/* ⚠️ 这里原来有一条 .paper-availability__badge（类型徽标），已随
+   "Dataset Dataset" 那处重复标签一起删除：徽标印的 resourceType
+   与术语说的是同一句话，术语已经够了。样式不留死规则
+   （与 scripts/check-dead-css.cjs 的同一原则：CSS 里定义了、
+   页面上永远不会出现的类，要么删掉，要么把元素真的加回模板）。 */
 .paper-availability__list dd {
   margin: 2px 0 0;
   padding-left: 0;
