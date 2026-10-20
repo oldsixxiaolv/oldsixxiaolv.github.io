@@ -35,7 +35,11 @@
  *   修法（就在本文件里）：**期望集必须是本判据自己的、独立于数据源的写死清单**
  *   （ORACLE_SAMEAS）；数据源那份只用来做**漂移核对**（I2d）。
  *
- * 五条判据：
+ * 判据清单（I0 是"判据本身还能不能触发"的自证，不是内容检查）：
+ *   I0 形态规则自证 —— "什么算身份链接"这一步结构上还能不能触发：
+ *              夹具用 example.invalid（RFC 2606 保留域），**不取自被测数据**；
+ *              规则一旦退回"从 oracle 派主机"，本条立刻判红
+ *              （否则新平台的身份链接会在"被要求登记"之前被静默放过）。
  *   I1 产物侧全集 —— 全站 @id == site.url + "/#person" 的 Person 节点，
  *                    sameAs 归一化集合必须**等于**本文件内置的独立期望集
  *                    ORACLE_SAMEAS：缺项红（丢信息才是坏事）。
@@ -61,6 +65,21 @@
  *              这条守的是"人读的那条边"：I1–I4 全都只看**机读**路径
  *              （JSON-LD 的 sameAs），而页面上给人看的链接此前是**另一份
  *              字面量**，改它不会有任何门禁叫（实测见下）。
+ *              "什么算身份链接"的识别规则**只看 URL 自己的形态**，
+ *              不看"哪台主机是身份平台"（见下「I5 的识别规则不依赖 oracle」段）。
+ *   I6 ORCID 值域 —— 全站（产物 + 数据源两侧）出现的每一个 ORCID 都必须
+ *              登记在 ORCID_ALLOWLIST 里；白名单自带条数锚 + 哈希锚。
+ *              这条守的是"这个 ORCID 值对不对"：门禁 23 查的是"节点之间
+ *              一致"，把作者列表里的 ORCID **一致地**换成别的 ID 仍然自洽
+ *              → 绿（实测：整链 build exit 0，产物照常渲染错 id）。
+ *   I7 产品侧可见身份链接 —— 扫产物里人看得见的 <a href>，挑出"身份主页
+ *              形态"的候选（规则与 I5 共用同一份），必须逐字落在登记清单里：
+ *              **多出 = 判红**。这条守的是"人读路径"里**数据源之外**的那一半：
+ *              正文里写死的字面量（如 src/content/about.md:38 的 CSDN 链接）。
+ *              实测（peer 的 W3）：把那条换成冒名账号 → 整链 build exit 0、
+ *              门禁全绿，页面公然指向非本人账号，而 JSON-LD 仍是本人。
+ *              **只判"多出"不判"缺"**（"缺"归 I5）；**ORCID 不由本条判**
+ *              （那是 I6 的值域白名单该管的事）。
  *
  * ⚠️ I5 要守的洞（一次具体的实测漏洞，不是假想）：
  *   I1–I4 查的全是 JSON-LD 里的 sameAs；**页面上可见**的 author.github /
@@ -97,6 +116,35 @@
  *   门禁叫 → 与 I1 守的"整片削掉"是同族问题的另一半（丢信息 / 挂假信息）。
  *   现在多出即判红；红因**不预设责任方**，用 I2d 的红/绿分辨根因
  *   （I2d 红 → 期望集没同步；I2d 绿 → 产物侧多挂了句柄）。
+ * ⚠️ I5 的"身份主页形态"识别**不依赖 oracle 的主机集**（一次实测漏洞，不是假想）：
+ *   早先 I5 用"oracle 里出现过的**主机**"来判什么算身份主页（hostShape），
+ *   `isIdentityProfile()` 对**未知主机**直接 `return false`。后果：
+ *   **期望集之外的主机，在"被要求登记"之前就不算身份链接** → 压根进不了比较
+ *   → 静默漏网。实测（隔离克隆，源码级注入 + 全量重建，基准 8a7a953）：
+ *     ① 在 src/_data/site.js 的 site.author 里加一项
+ *        gitlab: "https://gitlab.com/lvyihang"；
+ *     ② 并在 about.njk 的联系方式里把它渲染出来 →
+ *     产物出现 **6 处可见的未登记账号**，**整条 build 链 exit 0**，
+ *     两道身份门禁都打印"通过"——其中一道的通过文案还是**假的**
+ *     （它说"页面上可见的身份链接 5 条，与登记清单一致"，实际可见 6 条）。
+ *   根因（形态上是"尺子量不到自己的盲区"）：**期望集同时充当了
+ *     "判定什么算违规对象"的尺子**——期望集之外的对象在进入比较**之前**
+ *     就被挡掉了。修法不是"再加一份主机清单"（那只是把盲区搬个家），
+ *     而是让**识别规则不依赖 oracle**：只看 URL 自己的形态。
+ *   现在的规则（形态规则，与主机无关）：
+ *     · 一段式路径（主机/账号）：github.com/<user>、orcid.org/<id>、
+ *       openalex.org/<id>、blog.csdn.net/<user>、gitlab.com/<user>……
+ *     · 两段式且首段是角色词（profile / user / u / in / author / handle……）：
+ *       researchgate.net/profile/<Name>、linkedin.com/in/<name>……
+ *     · 更深的路径（仓库页、记录页、论文页）= **内容链接**，
+ *       不是"本人是哪个账号"，不参与身份判定。
+ *   为什么不用"从 oracle 派主机"：那正是这个洞的根因——oracle 一改，
+ *     判据的视野跟着变，新平台在登记之前就不可见。
+ *   为什么不用"所有新主机一律判红"：那会把内容链接（仓库页、记录页）
+ *     也抓进来，与既有设计（内容链接不算身份）冲突。
+ *   改这条规则时注意：它与 oracle **解耦**（oracle 增删句柄不必改它），
+ *     但它决定"哪些链接算身份"——放宽形态会新增假红，收紧会新增漏网，
+ *     改完必须重跑全链。
  * ⚠️ 为什么要留两份清单（共享模块 + 本文件的独立期望集）：
  *   仓库的规矩是"判据两处各抄一份 → 改一处忘另一处"，但那条规矩治的是
  *   **静默漂移**，靠**逐字核对**兜底；这里两处恰恰就是"逐字核对"的关系（I2d），
@@ -170,6 +218,21 @@ const notes = [];
 const fail = (msg) => problems.push(msg);
 const note = (msg) => notes.push(msg);
 
+/* ---------- I0（形态规则自证）的**锚**：条数 + 哈希，写死在本文件里 ----------
+   ⚠️ 为什么锚不能从夹具表自己取：夹具表若被删掉一条，"实际条数"和"期望条数"
+   会一起变小 → 永远相等 → 锚形同虚设（这正是文件头说的"拿自己和自己比"）。
+   所以条数与哈希都是**手写的独立期望**，夹具表被删 / 被改 / 被换顺序 → 判红。
+   规范形式：夹具表按 [[url, want], ...] 的 JSON 序列化（顺序即数组顺序）。 */
+const SHAPE_SELF_CHECK_EXPECTED_COUNT = 5;
+const SHAPE_SELF_CHECK_SHA256 =
+  "3c188b5fc5a98a91d1b5b6720396484ae92c294307f838d7b9147b27b85ac08f";
+/* 自证是否真的跑过、跑的结果怎么描述。默认值是"没跑起来"——
+   整段自证代码若被删掉，通过文案会照实说"没跑起来"，而不是继续自称"核过"。 */
+let shapeSelfCheckPassed = false;
+let shapeSelfCheckSummary =
+  "形态规则自证**本轮没有跑起来**（自证代码或锚不在本文件里）——" +
+  "这一条缺失时，I5/I7 就算打印「通过」，也只是「没看见」，不是「核过」。";
+
 /* ---------- 数据源清单：只用于漂移核对（I2d），**不**作为期望集 ---------- */
 let IDENTITY_SAMEAS = null;
 try {
@@ -210,6 +273,141 @@ const normSameAs = (value) => {
 };
 const setDiff = (a, b) => [...a].filter((x) => !b.has(x));
 const fmt = (arr) => (arr.length ? arr.join(" / ") : "（无）");
+
+/* ---------- 身份"主页形态"规则：I5 与 I7 共用**一份** ----------
+   为什么必须共用一份（而不是两处各写一份）：这条规则回答的是
+   "什么样的链接算'指向一个账号主页'"。判据的规则若有两份拷贝，
+   改一处忘一处 → 两道判据对同一条链接给出不同结论，
+   而且**没人会发现它们打架**（各自都"看起来对"）。
+
+   ⚠️ 规则本身**不依赖 oracle 的主机集**（一次实测漏洞的根因，见文件头）：
+     早先这里从 ORACLE_SAMEAS 派主机（hostShape），`isIdentityProfile()` 对
+     **未知主机**直接 return false → 期望集之外的主机（gitlab.com 这种新平台）
+     在"被要求登记"之前就**不算身份链接** → 压根进不了比较 → 静默漏网
+     （实测：site.author.gitlab + 模板渲染 → 产物 6 处可见未登记账号，
+     整链 exit 0，两道身份门禁都"通过"，其中一道的通过文案还是假的）。
+     现在改成**只看 URL 自己的形态**（主机无关）：
+     · 一段式路径（主机/账号）：github.com/<user>、orcid.org/<id>、
+       openalex.org/<id>、blog.csdn.net/<user>、gitlab.com/<user>……；
+     · 两段式且首段是角色词：researchgate.net/profile/<Name>、
+       linkedin.com/in/<name>……；
+     · 更深的路径（仓库页、记录页、论文页）= **内容链接**，
+       不是"本人是哪个账号"，不参与身份判定。
+     改这条规则时注意：它与 oracle **解耦**（oracle 增删句柄不必改它），
+     但它决定"哪些链接算身份"——放宽形态会新增假红，收紧会新增漏网，
+     改完必须重跑全链。 */
+const IDENTITY_ROLE_SEGMENTS = new Set([
+  "profile", "user", "users", "u", "author", "authors",
+  "account", "member", "people", "person", "handle", "in",
+]);
+const urlShape = (raw) => {
+  try {
+    const u = new URL(String(raw).trim());
+    return {
+      scheme: u.protocol.replace(/:$/, ""),
+      host: u.host,
+      segs: u.pathname.split("/").filter(Boolean),
+    };
+  } catch {
+    return null;
+  }
+};
+const isIdentityProfile = (raw) => {
+  const s = urlShape(raw);
+  if (!s) return false;
+  if (s.scheme !== "http" && s.scheme !== "https") return false;
+  if (s.segs.length === 1) return true;
+  if (s.segs.length === 2 && IDENTITY_ROLE_SEGMENTS.has(s.segs[0].toLowerCase())) {
+    return true;
+  }
+  return false;
+};
+
+/* ---------- I0：形态规则自证 —— "什么算身份链接"这一步结构上还能不能触发 ----------
+   为什么要有这条（一次实测出来的漏洞，不是假想）：
+     早先 I5 用"oracle 里出现过的**主机**"来判什么算身份主页（hostShape），
+     isIdentityProfile() 对**未知主机**直接 return false。后果：
+     **期望集之外的主机，在"被要求登记"之前就不算身份链接** → 压根进不了比较
+     → 静默漏网。实测（隔离克隆，源码级注入 + 全量重建）：
+       ① src/_data/site.js 的 site.author 里加一项
+          gitlab: "https://gitlab.com/lvyihang"；
+       ② 并在页脚把它渲染出来；
+     产物出现 **6 处可见的未登记账号**，**整条 build 链 exit 0**，
+     两道身份门禁都打印"通过"——其中一道的通过文案还是**假的**
+     （它说"页面上可见的身份链接 5 条，与登记清单一致"，实际可见 6 条）。
+   根因是"尺子量不到自己的盲区"：**期望集同时充当了"判定什么算违规对象"的尺子**，
+   期望集之外的对象在进入比较**之前**就被挡掉了。
+   本条把"这条规则本身还认不认得出它该认的形态"变成判据的一部分：
+     夹具用的是 **example.invalid**（RFC 2606 保留域，永不指向真实主机），
+     **不取自被测数据**，所以它验的是**规则**，不是站点的数据。
+   任何一条断言不成立 → 判红："本条已经降级，继续跑只会给出假保证"。
+   ⚠️ 与 I5/I7 里那两条"自证存活"不是一回事：
+     那两条验的是"**这个站点**上有没有认出东西"（数量 > 0）；
+     本条验的是"**这条规则**还认不认得出它该认的形态"（拿合成夹具逐条对答案）。
+     少了本条，规则被改回 oracle 派主机时，两条"自证存活"照样绿 —— 洞会重新打开。 */
+/* 夹具表：**内容**写死在这里，但"有几条、内容是什么"由文件顶部的锚独立把关
+   （SHAPE_SELF_CHECK_EXPECTED_COUNT + SHAPE_SELF_CHECK_SHA256），
+   所以删一条、改一条、调顺序都会判红——锚不是从这张表自己取的。 */
+const SHAPE_SELF_CHECK_CASES = [
+  { url: "https://example.invalid/someone", want: true,
+    why: "一段式路径（任何主机）必须认成账号主页形态——这是规则与 oracle 解耦的根据" },
+  { url: "https://example.invalid/profile/someone", want: true,
+    why: "两段式且首段是角色词必须认成账号主页形态" },
+  { url: "https://example.invalid/someone/project", want: false,
+    why: "两段式但首段不是角色词 → 内容链接，不该算身份" },
+  { url: "https://example.invalid/someone/project/extra", want: false,
+    why: "更深的路径 → 内容链接，不该算身份" },
+  { url: "https://example.invalid/", want: false,
+    why: "零段式（裸主机）→ 不是账号主页" },
+];
+{
+  /* I0 锚：条数 + 哈希（期望值写死在文件顶部，不从这张表取） */
+  if (SHAPE_SELF_CHECK_CASES.length !== SHAPE_SELF_CHECK_EXPECTED_COUNT) {
+    fail(
+      `形态规则自证的夹具条数对不上：实际 ${SHAPE_SELF_CHECK_CASES.length} 条，` +
+        `锚写的是 ${SHAPE_SELF_CHECK_EXPECTED_COUNT} 条。` +
+        `夹具被删过或被加过 → 自证就只剩"自己证明自己"，判红。`
+    );
+  }
+  const shapeDigest = crypto
+    .createHash("sha256")
+    .update(JSON.stringify(SHAPE_SELF_CHECK_CASES.map((c) => [c.url, c.want])))
+    .digest("hex");
+  if (shapeDigest !== SHAPE_SELF_CHECK_SHA256) {
+    fail(
+      `形态规则自证的夹具内容哈希对不上：实际 ${shapeDigest}，` +
+        `锚写的是 ${SHAPE_SELF_CHECK_SHA256}。` +
+        `夹具被改过（包括等长替换）→ 自证可能已经名不副实，判红。`
+    );
+  }
+  /* 逐条对答案：规则还认不认得出它该认的形态 */
+  for (const c of SHAPE_SELF_CHECK_CASES) {
+    const got = isIdentityProfile(c.url);
+    if (got !== c.want) {
+      fail(
+        `形态规则自证失败：${c.url} —— 期望${c.want ? "认成" : "不认成"}「账号主页形态」，` +
+          `实际${got ? "认成" : "不认成"}。${c.why}。` +
+          `本条一旦降级（例如又把"什么算身份"改回从 oracle 派主机），` +
+          `新平台的身份链接就会在"被要求登记"之前被静默放过。`
+      );
+    }
+  }
+  shapeSelfCheckPassed = true;
+  shapeSelfCheckSummary =
+    `形态规则自证 ${SHAPE_SELF_CHECK_CASES.length}/${SHAPE_SELF_CHECK_EXPECTED_COUNT} 条合成夹具逐条对答案通过` +
+    `（"什么算身份链接"这一步本身还认得出该认的形态；夹具用 example.invalid，不取自被测数据；` +
+    `夹具条数与内容由独立锚校验）。`;
+}
+
+/* 同一身份主页的**归一化键**：主机 + 路径段（主机由 URL 解析器天然小写）。
+   I7 用它判断"是不是登记在册的那一个账号"——比的是**账号**而不是**字符串**：
+   末尾多一个斜杠这类写法差异，不该被判成"多出一个身份"。
+   （I5 比的是 site.author 里的原始字符串，两处口径不同是有意的：
+     I5 的对象是数据字段，I7 的对象是产物里渲染出去的链接。） */
+const profileKey = (raw) => {
+  const s = urlShape(raw);
+  return s ? `${s.host}/${s.segs.join("/")}` : null;
+};
 
 /* ---------- I2：锚与独立期望集（四条互不依赖的检查） ---------- */
 /* 锚是否可信：I2a / I2b / I2c 任一判红 → 期望集**自身**失守，
@@ -419,42 +617,14 @@ if (anchorTrustworthy) {
      反而看不出有人把判据整段删了。） */
 let visibleIdentityCount = 0;
 let visibleIdentityChecked = false;
+let visibleUrlFieldCount = 0;
 
 /* ---------- I5：人读路径（页面上看得见的身份链接）必须与登记清单一致 ---------- */
 if (anchorTrustworthy) {
-  /* 身份"主页形态"：某主机上**指向一个账号主页**的 URL 形态。
-     同一主机上的深层链接（github.com/<user>/<repo>、researchgate.net/publication/...）
-     是**内容链接**，不是"本人是哪个账号"，不该被这条判红。
-     · 一段式主机（github.com/<user>、orcid.org/<id>、blog.csdn.net/<user>、
-       openalex.org/<id>）：任何一段式路径都算主页形态；
-     · 两段式且首段是角色词的主机（researchgate.net/profile/<Name>）：
-       只有首段相同才算（/publication/... 是内容链接）。 */
-  const urlShape = (raw) => {
-    try {
-      const u = new URL(String(raw).trim());
-      return { host: u.host, segs: u.pathname.split("/").filter(Boolean) };
-    } catch {
-      return null;
-    }
-  };
-  const hostShape = new Map();
-  for (const u of ORACLE_SAMEAS) {
-    const s = urlShape(u);
-    if (!s) continue;
-    hostShape.set(s.host, {
-      segs: s.segs.length,
-      roleFirst: s.segs.length >= 2 ? s.segs[0] : null,
-    });
-  }
-  const isIdentityProfile = (raw) => {
-    const s = urlShape(raw);
-    if (!s) return false;
-    const shape = hostShape.get(s.host);
-    if (!shape) return false;
-    if (s.segs.length !== shape.segs) return false;
-    if (shape.roleFirst && s.segs[0] !== shape.roleFirst) return false;
-    return true;
-  };
+  /* 身份"主页形态"的判定规则（urlShape / isIdentityProfile）已提到文件前部
+     ——I5 与 I7 要用**同一份**，两处各抄一份就会漂。
+     规则只讲 URL 自己的形态、**不看主机清单**（主机无关）：
+     见文件头「I5 的识别规则不依赖 oracle」段。 */
 
   /* 只看 site.author —— 那是"本人"这一个实体的数据源。
      sameAs 跳过：机读路径由 I1 / I2 管，这里专管人读路径。 */
@@ -478,15 +648,21 @@ if (anchorTrustworthy) {
   const extraVisible = setDiff(visible, expectedSet);
   if (missingVisible.length) {
     fail(
-      `site.author 里**页面上可见**的身份链接缺 ${fmt(missingVisible)}——` +
-        `登记清单里有、页面上没有（或指向别的账号）：人读路径与机读路径对不上，` +
-        `读者看到的身份和结构化数据里声明的身份不是一回事。`
+      `site.author 里**数据源侧**的身份主页形态链接缺 ${fmt(missingVisible)}——` +
+        `登记清单里有、site.author 里没有（或指向别的账号）：人读路径与机读路径对不上，` +
+        `读者看到的身份和结构化数据里声明的身份不是一回事。` +
+        `（本条扫的是**数据源字段**；产物里真正渲染出去的链接由 I7 单独扫。）`
     );
   }
   if (extraVisible.length) {
     fail(
-      `site.author 里**页面上可见**的身份链接多出 ${fmt(extraVisible)}——` +
-        `它们不在本判据的登记清单里：页面上露出来的身份没有登记，等于少一个锚。`
+      `site.author 里**数据源侧**的身份主页形态链接多出 ${fmt(extraVisible)}——` +
+        `它们不在本判据的登记清单里：页面上露出来的身份没有登记，等于少一个锚。` +
+        `两种情形都长这样：① 真要新增一个身份平台（换个主机的账号）→ 先登记进 ` +
+        `scripts/lib/identity.cjs 的 IDENTITY_SAMEAS **和**本文件的 ORACLE_SAMEAS` +
+        `（并同步 EXPECTED_COUNT / ORACLE_SET_SHA256）；` +
+        `② 这个链接其实不是账号主页（仓库页、记录页之类）→ 它的 URL 形态不该是` +
+        `"一段式账号"，请改成内容形态的 URL（更深的路径），或把它从 site.author 移出。`
     );
   }
   /* I5 自证存活：一个都没识别出来 = 判据失效（URL 形态规则坏了 / 数据源
@@ -498,6 +674,7 @@ if (anchorTrustworthy) {
     );
   }
   visibleIdentityCount = visible.size;
+  visibleUrlFieldCount = urlFields;
   visibleIdentityChecked = true;
 } else {
   note(
@@ -565,15 +742,20 @@ let orcidFoundInSource = 0;
         `此刻的白名单不可信，拿它去比产物，报出来的"这个 ORCID 没登记"是**假阳性**。`
     );
   } else {
-    /* ① 产物侧：HTML 里的 orcid.org/<id> */
+    /* ① 产物侧：ORCID **字面量**（不只 orcid.org/<id> 形态）
+       为什么扫字面量而不是只扫链接：同一个 ORCID 在 **HTML 产物**里有好几种写法——
+       链接（orcid.org/<id>）、页面上的纯文本。只认链接那一种形态，纯文本就漏了
+       （"换一种写法就不受管"本身就是个洞）。
+       ⚠️ 覆盖范围要说清（本条扫的是**产物里的 .html**，**不含**
+       publications.bib / publications.ris）：那两份产物里的 orcid={…} / UR
+       形态**不在本条视野内** —— 要管它们是另一条判据的事，这里不声称覆盖。 */
+    const ORCID_LITERAL_RE = /\b[0-9]{4}-[0-9]{4}-[0-9]{4}-[0-9]{3}[0-9Xx]\b/g;
     const inSite = new Map(); // id → Set(相对路径)
     for (const file of htmlFiles) {
       const rel = path.relative(SITE, file);
       const html = fs.readFileSync(file, "utf8");
-      for (const m of html.matchAll(
-        /orcid\.org\/([0-9]{4}-[0-9]{4}-[0-9]{4}-[0-9]{3}[0-9Xx])/g
-      )) {
-        const id = m[1].toLowerCase();
+      for (const m of html.matchAll(ORCID_LITERAL_RE)) {
+        const id = m[0].toLowerCase();
         if (!inSite.has(id)) inSite.set(id, new Set());
         inSite.get(id).add(rel);
       }
@@ -640,6 +822,94 @@ let orcidFoundInSource = 0;
   }
 }
 
+/* ---------- I7：产品侧可见身份链接（人读路径）必须逐字在登记清单里 ----------
+   为什么要有这条（一次具体的实测漏洞，不是假想）：
+     I1 管的是**机读路径**（产物 JSON-LD 里的 sameAs ↔ 独立期望集）；
+     I5 管的是**数据源**（site.author 里那些会被渲染出去的链接字段）。
+     两者都**不扫产物里人看得见的 <a href>**。而产物里的可见链接有两类来源：
+       ① 模板从 site.author 派生的（I5 间接管住）；
+       ② **正文里写死的字面量**——典型是 src/content/about.md:38 的 CSDN 链接
+          （身份派生门禁的 D4 只扫 .njk、不扫 .md，理由见该文件注释）。
+     实测（peer 的 W3，整链 build）：把 about.md 那条 CSDN 链接换成
+       https://blog.csdn.net/impersonator →
+       **整链 build exit 0、门禁全绿**，产物里"真句柄 3 处 + 冒名 1 处"，
+       页面公然指向非本人账号，而 JSON-LD 里的 sameAs 仍是本人 →
+       人读路径与机读路径指向了**两个不同的人**，而没有任何一道门禁叫。
+     本条把**产物侧的可见身份链接**纳入判据：
+       · 候选识别用与 I5 **同一套**"身份主页形态"规则（同一主机 + 同一段数 +
+         同一角色词）——两处抄同一套规则就会漂，所以抽成一份共用；
+       · 候选必须逐字落在登记清单里 → **多出 = 判红**；
+       · **只判"多出"，不判"缺"**：本站不必把 5 条句柄全都显示出来
+         （OpenAlex 放不放页脚是本人的待决策项，见日志「待决策」段），
+         "缺"的方向归 I5（它看的是 site.author 那一份数据源）。
+       · **ORCID 不由本条判**：orcid.org 上每一个 id 都是"某个人"的身份主页形态，
+         论文页会合法地链到**同行**的 ORCID（形态与本人的完全一样）——
+         那是 **I6 的值域白名单**该管的事，两条判据不重复管同一件事。
+         （I5 当年刻意不扫产物，也是因为这个；I6 落地后才把这条路让出来。）
+
+   ⚠️ 已知边界（写明覆盖范围，不夸大）：
+     · 期望集里**没有的主机**不会被认成"身份主页形态" → 新平台形态进不了比较；
+     · 产物里若合法地链到**他人的**非 ORCID 主页（如合作者的 GitHub），
+       本条会把它当成"多出"判红——目前站内没有这种链接；
+       真要出现时需要一条独立的"他人主页"白名单（尚未建立，见日志待办）。 */
+let productVisibleCount = 0;
+let productVisibleChecked = false;
+if (anchorTrustworthy) {
+  const registeredKeys = new Set(
+    [...expectedSet].map((u) => profileKey(u)).filter(Boolean)
+  );
+  const extra = new Map(); // 原始 URL → Set(产物相对路径)
+  const seenKeys = new Set();
+  for (const file of htmlFiles) {
+    const rel = path.relative(SITE, file);
+    const html = fs.readFileSync(file, "utf8");
+    for (const m of html.matchAll(/<a\b[^>]*\bhref\s*=\s*["']([^"']+)["']/gi)) {
+      const href = String(m[1] || "").trim();
+      if (!href) continue;
+      const s = urlShape(href);
+      if (!s) continue; // 相对链接 / 非 URL：本条不判
+      if (s.host === "orcid.org") continue; // ORCID 的值域由 I6 管
+      if (!isIdentityProfile(href)) continue; // 内容链接（深层路径）不算身份
+      const key = profileKey(href);
+      if (!key) continue;
+      seenKeys.add(key);
+      if (registeredKeys.has(key)) continue;
+      if (!extra.has(href)) extra.set(href, new Set());
+      extra.get(href).add(rel);
+    }
+  }
+  for (const [href, rels] of extra) {
+    const shown =
+      [...rels].slice(0, 3).join("、") + (rels.size > 3 ? ` 等 ${rels.size} 个产物` : "");
+    fail(
+      `产物里出现**未登记**的身份主页形态链接 ${href}（${shown}）——` +
+        `它是**账号主页形态**的链接（形态规则与主机无关：见文件头），但不是登记在册的那一条：` +
+        `页面上人读到的身份，与结构化数据里声明的身份不是同一个人。` +
+        `三条正当出路：① 改回登记在册的那一条（${[...expectedSet].join(" / ")}）；` +
+        `② 改成一个"内容链接"形态（深层路径，如 github.com/<user>/<repo>）；` +
+        `③ 若它确属**本人**的另一个账号，先登记进 ORACLE_SAMEAS` +
+        `（并同步 EXPECTED_COUNT 与 ORACLE_SET_SHA256）。` +
+        `若它属**他人**（如合作者主页），本条不适用——那需要一条独立的` +
+        `"他人主页"白名单，本仓目前没有。`
+    );
+  }
+  /* 自证存活：一个候选都没识别出来 = 判据失效（规则坏了 / 产物形态变了），
+     必须自己叫出来——"没报错"和"没问题"长得一模一样。 */
+  if (!seenKeys.size) {
+    fail(
+      `产物里一处"身份主页形态"的可见链接都没识别出来` +
+        `（扫了 ${htmlFiles.length} 个 HTML）——本条没有生效。`
+    );
+  }
+  productVisibleCount = seenKeys.size;
+  productVisibleChecked = true;
+} else {
+  note(
+    `期望集自身失守（锚判据已判红）→ 本轮**跳过**产品侧可见身份链接判定（I7）：` +
+      `理由同 I1——此刻的期望集不可信，"页面上多出了谁"会是假阳性。`
+  );
+}
+
 /* ---------- I4：自证存活 ---------- */
 if (group.length < 2) {
   fail(
@@ -654,6 +924,16 @@ if (!compared) {
   );
 }
 
+/* I0 的**结构性兜底**：自证代码整段被删 / 被注释掉 → 上面那条锚校验也不会跑，
+   这里再兜一层（锚在文件顶部、这段在文件底部，两处不同位置）。
+   少这一层的话，"自证代码被删"这种改法会安静地留下一个绿。 */
+if (!shapeSelfCheckPassed) {
+  fail(
+    "形态规则自证没有跑起来（自证代码被删、被注释，或整段没执行）——" +
+      "这一条缺失时，I5/I7 就算照常打印「通过」，也只是「没看见」，不是「核过」。"
+  );
+}
+
 if (problems.length) {
   console.error("身份句柄完整性门禁未通过：\n");
   problems.forEach((p) => console.error(`  ✗ ${p}`));
@@ -665,9 +945,17 @@ console.log(
   `身份句柄完整性门禁通过：本人（${OWNER_ID}）在 ${group.length} 个节点上被描述，` +
     `比过 ${compared} 处 sameAs，每处都等于本判据的独立期望集（${expectedSet.size} 条：` +
     `${[...expectedSet].join(" / ")}）；数据源清单与期望集逐项一致；` +
+    `${shapeSelfCheckSummary}` +
     (visibleIdentityChecked
-      ? `页面上可见的身份链接 ${visibleIdentityCount} 条，与登记清单一致。`
-      : `页面上可见的身份链接本轮未判定（期望集自身失守，或 I5 判据不在本文件里）`)
+      ? `site.author 里**被识别为**「账号主页形态」的链接 ${visibleIdentityCount} 条` +
+        `（扫过 ${visibleUrlFieldCount} 个链接字段；这个数是"被识别出来的"条数，` +
+        `不是"页面上全部链接"的条数），与登记清单逐项一致（少一条、多一条都判红）。`
+      : `site.author 侧的身份链接本轮未判定（期望集自身失守，或 I5 判据不在本文件里）`) +
+    (productVisibleChecked
+      ? `产物里**被识别为**「账号主页形态」的可见链接 ${productVisibleCount} 个` +
+        `（按主机+路径去重，扫过 ${htmlFiles.length} 个 HTML；同样是"被识别出来的"个数），` +
+        `全部在登记清单内。`
+      : `产物侧可见身份链接本轮未判定（期望集自身失守）。`)
 );
 if (notes.length) {
   console.log("—");
