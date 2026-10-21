@@ -327,9 +327,12 @@ const htmlFiles = allFiles.filter(
     }
   }
 
-  // 徽标 .badge--accent 浅色下是「accent-600 文字 + accent-50 底」。
+  // accent-600 文字压在 accent-50 底上（accent 族的底色）。
   // 这一条是给"有人去改 --color-accent-600 本体"设的护栏：
-  // 改它能一次修好所有 accent-600 文字，但会把徽标弄坏（实测 5.07:1 → 掉到 2.x:1）。
+  // 改它能一次改好所有 accent-600 文字，但会把这一对组合弄坏
+  // （实测 5.07:1 → 掉到 2.x:1）。
+  // （原先这里举例的徽标 .badge--accent 已在 D52 作为死类删除；
+  //   这条护栏守的是 token 对本身，继续保留。）
   {
     const light = themes[0].tokens;
     const f = resolveColor("color-accent-600", light);
@@ -338,12 +341,12 @@ const htmlFiles = allFiles.filter(
       const r = contrast(f, b);
       if (r < MIN) {
         fail(
-          `门禁 A1：徽标 .badge--accent 的 accent-600/accent-50 组合只有 ${r.toFixed(2)}:1（AA 要求 ≥${MIN}:1）—— ` +
+          `门禁 A1：accent-600 文字 + accent-50 底 这一组合只有 ${r.toFixed(2)}:1（AA 要求 ≥${MIN}:1）—— ` +
             `不要去改 --color-accent-600 本体，要改请用 --text-accent`
         );
       }
     } else {
-      fail("门禁 A1：解析不出徽标用的 color-accent-600 / color-accent-50");
+      fail("门禁 A1：解析不出 accent-600 / accent-50 这对 token");
     }
   }
 
@@ -577,8 +580,9 @@ const htmlFiles = allFiles.filter(
   // 是我自己按计算样式逐个元素量出来的。教训是：**只查 token 不查用法，
   // 漏网的是用法**。
   //
-  // 唯一的例外是徽标 .badge--accent：accent-600 文字 + accent-50 底 = 5.07:1，
-  // 合格，而且是刻意选的（见 _badge.css 的注释）。所以白名单按选择器判定。
+  // 白名单按选择器判定：含 "badge" 的选择器一律放行 —— 徽标族的底色也是
+  // accent 族（accent-600 文字 + accent-50 底 = 5.07:1，合格），
+  // 刻意选的，不是绕过语义 token。
   const srcDir = path.join(ROOT, "src");
   const srcFiles = [];
   (function walk(dir) {

@@ -142,8 +142,7 @@
   .theme-toggle,
   .paper-toc,
   .paper-footer,
-  .annot-pane__filter,
-  .annot-pane__foot {
+  .annot-pane__filter {
     display: none !important;
   }
 

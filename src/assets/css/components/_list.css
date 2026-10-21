@@ -1,7 +1,7 @@
 /* ===========================================================================
    MeteoHub · _list.css (Phase 2B.5)
-   Listing & detail chrome: tag-cloud + page-header + breadcrumb
-   + index page + list page + list core + detail page (+ mobile)
+   Listing & detail chrome: tag-cloud + index page + list page
+   + list core + detail page (+ mobile)
    拆分自 components.css（原行号区间: 665-705, 706-865, 959-1158）
    ========================================================================= */
 
@@ -12,44 +12,6 @@
   flex-wrap: wrap;
   gap: 6px;
 }
-
-
-/* ---------- Project / Blog / Paper list page header ---------- */
-/* ---------- Project / Blog / Paper list page header ---------- */
-.page-header {
-  padding-block: var(--space-7) var(--space-5);
-  border-bottom: 1px solid var(--border-subtle);
-  margin-bottom: var(--space-6);
-}
-
-.page-header h1 {
-  font-size: var(--fs-h1);
-  margin: var(--space-1) 0 var(--space-3);
-}
-
-.page-header p {
-  font-size: var(--fs-body-lg);
-  color: var(--text-secondary);
-  max-width: var(--measure);
-  margin: 0;
-}
-
-
-/* ---------- Breadcrumb ---------- */
-/* ---------- Breadcrumb ---------- */
-.crumbs {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: var(--fs-small);
-  color: var(--text-muted);
-  margin-bottom: var(--space-3);
-}
-
-.crumbs a { color: var(--text-secondary); }
-.crumbs a:hover { color: var(--text-primary); text-decoration: none; }
-.crumbs .sep { opacity: 0.5; }
-.crumbs .current { color: var(--text-primary); font-weight: 600; }
 
 
 /* ---------- Detail page (portfolio / blog) ---------- */
@@ -76,36 +38,6 @@
 /* ---------- 4. 索引页（首页 / 列表） ---------- */
 .index {
   padding: 64px 0 32px;
-}
-.index__head {
-  margin-bottom: var(--space-7);
-}
-.index__title {
-  font-family: var(--font-serif);
-  font-size: 32px;
-  font-weight: 700;
-  line-height: 1.15;
-  letter-spacing: -0.02em;
-  color: var(--text-primary);
-  margin: 0 0 var(--space-2);
-}
-.index__lede {
-  font-family: var(--font-sans-cn);
-  font-size: 15px;
-  color: var(--text-muted);
-  margin: 0;
-}
-.index__section {
-  margin-bottom: var(--space-7);
-}
-.index__section h2 {
-  font-family: var(--font-sans-en);
-  font-size: 13px;
-  font-weight: 500;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--text-muted);
-  margin: 0 0 var(--space-3);
 }
 
 

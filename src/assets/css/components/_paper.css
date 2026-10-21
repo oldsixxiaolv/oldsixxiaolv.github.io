@@ -225,18 +225,6 @@
   color: var(--color-brand-500);
 }
 
-.annot-pane__foot {
-  margin-top: var(--space-3);
-  padding-top: var(--space-3);
-  border-top: 1px solid var(--border-subtle);
-  font-size: var(--fs-caption);
-  text-align: center;
-}
-
-.annot-pane__foot a {
-  color: var(--text-muted);
-}
-
 
 /* ---------- Annotation marks in body text ---------- */
 /* ---------- Annotation marks in body text ---------- */
@@ -278,6 +266,9 @@ strong[data-annotation-ids] {
   outline: none;
 }
 
+/* ⚠️ D12 / 待拍板 43：批注层整体不可达（paper.njk 的 hasAnnotations 恒假），
+   下面这条 .annotating 是批注层的"正在标注"态，清不清属本人拍板，故保留，
+   不由死 CSS 门禁处置。 */
 [data-annotation-ids].annotating {
   background: linear-gradient(transparent 0%, var(--color-brand-100) 0);
   outline: 2px dashed var(--color-brand-400);
@@ -298,6 +289,8 @@ strong[data-annotation-ids] {
 
 /* ---------- Inline annotation (mobile / details) ---------- */
 /* ---------- Inline annotation (mobile / details) ---------- */
+/* ⚠️ D12 / 待拍板 43：同上（移动端内联批注）。下面这条 .annot-inline 属于
+   批注层，去留属本人拍板，故保留，不由死 CSS 门禁处置。 */
 .annot-inline {
   margin: var(--space-2) 0 var(--space-4);
   background: var(--bg-muted);
@@ -334,76 +327,15 @@ strong[data-annotation-ids] {
 .annot-inline li + li { margin-top: var(--space-2); }
 
 
-/* ---------- Paper header (paper detail page) ---------- */
-/* ---------- Paper header (paper detail page) ---------- */
-.paper-header {
-  padding-block: var(--space-6) var(--space-4);
-  border-bottom: 1px solid var(--border-subtle);
-  margin-bottom: var(--space-5);
-}
-
-.paper-header h1 {
-  font-size: var(--fs-h1);
-  margin: var(--space-2) 0;
-}
-
-.paper-header .meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-3);
-  align-items: center;
-  color: var(--text-muted);
-  font-size: var(--fs-small);
-  margin-top: var(--space-2);
-}
-
-.paper-header .meta .dot {
-  display: inline-block;
-  width: 4px;
-  height: 4px;
-  border-radius: 50%;
-  background: currentColor;
-  margin: 0 6px;
-}
-
-
 /* ---------- Paper tabs (mobile) ---------- */
-/* ---------- Paper tabs (mobile) ---------- */
-.paper-tabs {
-  display: none;
-  gap: 4px;
-  background: var(--bg-muted);
-  padding: 4px;
-  border-radius: var(--radius-md);
-  margin-bottom: var(--space-4);
-}
-
-.paper-tabs .tab {
-  flex: 1;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  height: 36px;
-  border-radius: var(--radius-sm);
-  font-size: var(--fs-small);
-  font-weight: 600;
-  color: var(--text-secondary);
-  cursor: pointer;
-  background: transparent;
-}
-
-.paper-tabs .tab[aria-selected="true"] {
-  background: var(--bg-surface);
-  color: var(--text-primary);
-  box-shadow: var(--shadow-1);
-}
-
+/* ⚠️ 原来的 .paper-tabs / .tab / .tab-panel 三件套（移动端正文与目录的切换条）
+   在站点第一次 Eleventy 接入时就只进了 CSS，模板从未引用过，D52 已删。
+   论文页现在的移动端版式走的是 .split 纵向排列，不是 tab 切换。 */
 @media (max-width: 768px) {
-  .paper-tabs { display: flex; }
-  .tab-panel { display: none; }
-  .tab-panel.is-active { display: block; }
   .annot-pane { position: static; max-height: none; }
   .split { grid-template-columns: 1fr; }
+  /* ⚠️ D12 / 待拍板 43：同上（批注面板容器）。下面这条 .annot-pane-wrap 属
+     批注层，去留属本人拍板，故保留。 */
   .split > .annot-pane-wrap { order: 2; }
   .split > .paper-body { order: 1; }
 }
@@ -490,10 +422,10 @@ strong[data-annotation-ids] {
   font-weight: 500;
   background: transparent;
 }
-/* h3 子条目：toc.js 打在 li 上的是 paper-toc__item--h3，
-   原来的 `.level-3` 是手写模板的老 class，两边都对不上。 */
-.paper-toc__item--h3 .paper-toc__link,
-.paper-toc .level-3 {
+/* h3 子条目：toc.js 打在 li 上的是 paper-toc__item--h3，链接上是
+   paper-toc__link。原来的 `.level-3` 是手写模板的老 class，两边都对不上，
+   且没有任何模板用过它，D52 已删。 */
+.paper-toc__item--h3 .paper-toc__link {
   padding-inline-start: var(--space-4);
   font-size: 12px;
   color: var(--text-muted);
@@ -570,26 +502,11 @@ strong[data-annotation-ids] {
   user-select: none;
 }
 .paper-head__venue { color: var(--text-secondary); }
-/* 状态：文字保持中性，只用一个 6px 圆点带语义色。
-   原来整个 status 文字染色，warning 在亮色纸白底上只有 2.30:1（AA 不过）。 */
-.paper-head__status {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  color: var(--text-muted);
-}
-.paper-head__status::before {
-  content: "";
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--status-dot, var(--text-muted));
-}
-.status--finished { --status-dot: var(--color-sage-700); }
-/* 警示琥珀复用 kind-typo-edge：那个值已经是在纸白底上验过 3:1 的"文字级琥珀"，
-   直接用裸 --color-warning 只有 2.30:1，6px 圆点会糊在背景里。 */
-.status--reading  { --status-dot: var(--kind-typo-edge, var(--color-warning)); }
-.status--queued   { --status-dot: var(--border-strong); }
+/* 状态圆点（.paper-head__status + .status--finished / --reading / --queued）
+   整套东西从来没接上：内容里没有 status 字段，模板也没输出过它，只有 CSS
+   在这里 —— D52 已删。若要恢复"论文阅读状态"这个功能，按原样重建即可，但要
+   记住原来的设计：状态文字保持中性，只用一个 6px 圆点带语义色（整段文字染色
+   时 warning 在亮色纸白底上只有 2.30:1，AA 不过）。 */
 .paper-head__links {
   display: inline-flex;
   gap: var(--space-3);

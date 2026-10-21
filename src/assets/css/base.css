@@ -49,8 +49,9 @@ body {
   transition: background-color var(--dur-base) var(--ease-out),
               color var(--dur-base) var(--ease-out);
   font-feature-settings: "kern" 1, "liga" 1;
-  /* 默认 proportional-nums（优雅数字风格）；表格、年份、日期场景通过
-     `.tabular` 工具类或具体选择器显式 opt-in 到 `tabular-nums`。 */
+  /* 默认 proportional-nums（优雅数字风格）；需要等宽数字的地方（年份 / 卷期 /
+     DOI 尾数等）由具体选择器显式 opt-in 到 tabular-nums，见 components/_paper.css
+     与 _list.css。本站没有表格统计场景，故不提供 .tabular 工具类。 */
   font-variant-numeric: proportional-nums;
   /* Chrome 122+ / Safari 18+ / Firefox 待落地；现代浏览器其实已默认处理
      CJK ↔ Latin 之间的间距，这里显式声明以便未来行为变化时保持一致。 */
@@ -296,21 +297,6 @@ th {
   transform: none;
 }
 
-@supports (animation-timeline: view()) {
-  @media (prefers-reduced-motion: no-preference) {
-    .motion-ready .reveal--view {
-      animation: reveal-view linear both;
-      animation-timeline: view();
-      animation-range: entry 0% cover 28%;
-    }
-  }
-}
-
-@keyframes reveal-view {
-  from { opacity: 0; transform: translateY(24px); }
-  to { opacity: 1; transform: none; }
-}
-
 .skip-link {
   position: absolute;
   left: -9999px;
@@ -405,21 +391,8 @@ th {
   margin-top: var(--space-1);
 }
 
-/* —— measure for long text —— */
-.measure {
-  max-width: var(--measure);
-}
-
-/* —— tabular numerals utility ——
-   body 默认 proportional-nums（优雅）。需要在表格、年份列表、统计数字等
-   场景让数字等宽对齐时，给容器或文本加 class="tabular"。 */
-.tabular {
-  font-variant-numeric: tabular-nums;
-}
-
 /* —— prose for long-form article body (about / 404) ——
-   .prose 与 .measure 同义但语义更明确，给 <article class="prose"> 用；
-   不引入 typography 全套（已由 base 的 h1-h6/p 继承），仅控制 max-width。 */
+   只控制 max-width，不引入 typography 全套（已由 base 的 h1-h6/p 继承）。 */
 .prose {
   max-width: var(--measure);
   margin-inline: auto;

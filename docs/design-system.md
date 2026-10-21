@@ -301,7 +301,7 @@ h2 { font-size: var(--fs-h2); font-weight: 700; line-height: 1.25; }
 }
 
 p, li { line-height: var(--lh-base); }
-.measure { max-width: var(--measure); margin-inline: auto; }
+.prose { max-width: var(--measure); margin-inline: auto; }
 .lede { font-size: var(--fs-body-lg); color: var(--text-secondary); }
 ```
 
@@ -321,9 +321,8 @@ p, li, blockquote {
 }
 
 /* body 默认 proportional-nums（优雅数字），日期/年份/表格场景
-   用 `.tabular` 工具类 opt-in 等宽数字对齐 */
+   由具体选择器 opt-in 等宽数字对齐（font-variant-numeric: tabular-nums） */
 body { font-variant-numeric: proportional-nums; }
-.tabular { font-variant-numeric: tabular-nums; }
 
 /* 现代浏览器默认会在 CJK ↔ Latin 之间留小间距；显式声明以便行为变化时一致 */
 body { text-autospace: normal; }
@@ -436,10 +435,10 @@ body { text-autospace: normal; }
 |---|---|---|
 | `_nav.css` | brand + nav + theme-toggle + topbar + footer | `.brand`、`.nav`、`.topbar*`、`.foot`、`.theme-toggle` |
 | `_button.css` | 按钮 + 表单 | `.btn`、`form` 相关 |
-| `_badge.css` | 徽标 / 标签 / pill | `.badge`、`.badge--brand`、`.badge--accent`、`.badge--sage`、`.badge--warning`、`.badge--danger`、`.badge--filled-brand`、`.badge--quiet` |
+| `_badge.css` | 徽标 / 标签 / pill | `.badge`、`.badge--brand`、`.badge--sage`、`.badge--warning`、`.badge--quiet` |
 | `_card.css` | **占位**（未来扩展） | — |
-| `_list.css` | 列表 + 详情页 + tag-cloud + breadcrumb | `.list` / `.list__*`、`.detail`、`.index`、`.list-page`、`.crumbs`、`.tag-cloud`、`.page-header` |
-| `_paper.css` | 论文精读：annotation + paper 容器 | `.annot-*`、`.paper`、`.paper-head`、`.paper-tabs`、`.paper-toc`、`.paper-body` |
+| `_list.css` | 列表 + 详情页 + tag-cloud | `.list` / `.list__*`、`.detail`、`.index`、`.list-page`、`.tag-cloud` |
+| `_paper.css` | 论文精读：annotation + paper 容器 | `.annot-*`、`.paper`、`.paper-head`、`.paper-toc`、`.paper-body` |
 | `_misc.css` | 容器 + 全局响应式覆盖 | `.wrap` |
 
 **dev / prod 双模生成**（`eleventy.config.js` 的 `eleventy.after` 钩子）：
@@ -515,11 +514,8 @@ CS8：门禁**从产物自身判模式** —— `components.css` 含 `@import ur
 | 类名 | 用途 |
 |---|---|
 | `.badge--brand` | 主色强调 |
-| `.badge--accent` | 辅色强调 |
 | `.badge--sage` | 中性 / 次级信息 |
 | `.badge--warning` | 警示 |
-| `.badge--danger` | 危险 / 错误 |
-| `.badge--filled-brand` | 实心主色，谨慎使用，按钮级别高亮 |
 | `.badge--quiet` | 次级标签（阅读时长、角色标签等） |
 
 ### 6.5 引用块（Blockquote）
@@ -716,7 +712,7 @@ CS8：门禁**从产物自身判模式** —— `components.css` 含 `@import ur
 - [ ] 全站所有色值通过 CSS 变量引用，**禁止出现裸 HEX**（除 SVG fill 内联）
 - [ ] `prefers-color-scheme` + 手动 `data-theme` 双轨支持
 - [ ] 所有交互元素 `:focus-visible` 焦点环可见
-- [ ] 标题 / 正文最大宽度遵循 `--measure`；长文容器用 `.prose` 或 `.measure`
+- [ ] 标题 / 正文最大宽度遵循 `--measure`；长文容器用 `.prose`
 - [ ] 标题 `text-wrap: balance`，正文 `text-wrap: pretty` + `orphans/widows: 2`
 - [ ] 日期 / 年份 / 论文元信息用 `font-variant-numeric: tabular-nums`
 - [ ] 不使用 emoji 作图标

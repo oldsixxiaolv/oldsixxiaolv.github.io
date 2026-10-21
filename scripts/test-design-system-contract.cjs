@@ -14,7 +14,7 @@
  *   把门禁指向副本，断言门禁**确实**报出了对应的那条红因。
  *   ⚠️ 全程**不动仓库里的任何文件** —— 注入必须在副本上做。
  *
- * 十档：
+ * 十一档：
  *   DT0 基线（原样）                        → 必须**全绿**（证明这套判据不是空跑）
  *   DT1 §6.0 徽标行删掉 `.badge--quiet`     → DC1（类名族漏项）
  *   DT2 文档里塞一个 CSS 里没有的 `--token`  → DC2（虚构 CSS 变量）
@@ -25,6 +25,7 @@
  *   DT7 tokens.css 多一个 §10 没列的变量     → DC7（§10 与 tokens.css 集合不等）
  *   DT8 §2.3 暗色块删掉一个覆写             → DC8（暗色块与 tokens.css 集合不等）
  *   DT9 §2.2 改掉一个变量的取值             → DC8（同一份调色板两处写了两个值）
+ *   DT10 §6.0 徽标行多列一个 CSS 里没有的类  → DC6（规格里有个幽灵变体）
  *
  * ⚠️ 每档都断言**只触发它自己那一条判据**（判据编号只从红因行的开头取，
  *   免得正文里提到别的编号被算进来）。一档同时炸出两条 ⇒ 两条判据的覆盖面
@@ -213,8 +214,8 @@ expectRed(
       docPath,
       replaceOnce(
         read(docPath),
-        "`.badge--filled-brand`、`.badge--quiet` |",
-        "`.badge--filled-brand` |"
+        "`.badge--warning`、`.badge--quiet` |",
+        "`.badge--warning` |"
       )
     );
   },
@@ -291,8 +292,8 @@ expectRed(
   ({ compDir, read, write }) => {
     const p = path.join(compDir, "_badge.css");
     const lines = read(p).split("\n");
-    const cut = lines.findIndex((l) => l.startsWith(".badge--accent"));
-    if (cut < 0) throw new Error("注入锚点不存在：找不到 `.badge--accent` 规则行");
+    const cut = lines.findIndex((l) => l.startsWith(".badge--sage"));
+    if (cut < 0) throw new Error("注入锚点不存在：找不到 `.badge--sage` 规则行");
     write(p, lines.slice(0, cut).join("\n") + "\n/* ---- 自测裁剪：模拟扫描面被收窄 ---- */\n");
   },
   "DC6",
@@ -357,8 +358,27 @@ expectRed(
   ["DC8"]
 );
 
+// DT10：§6.0 徽标行多列一个 CSS 里根本不存在的类 ⇒ DC6（规格里有个幽灵变体）
+// ⚠️ 与 DT1 严格分开：DT1 是**文档少列**（DC1 管），DT10 是**文档多列**（DC6 管）。
+//    两条判据的参照系不同，注入形态必须错开，否则会同时炸两条、红因归属就不纯了。
+expectRed(
+  "DT10 §6.0 徽标行多列一个 CSS 里没有的类",
+  ({ docPath, read, write }) => {
+    write(
+      docPath,
+      replaceOnce(
+        read(docPath),
+        "`.badge--warning`、`.badge--quiet` |",
+        "`.badge--warning`、`.badge--quiet`、`.badge--ghost` |"
+      )
+    );
+  },
+  "DC6",
+  ["DC6"]
+);
+
 if (failed) {
   console.error(`\n设计系统契约自测：${failed} 档未通过。`);
   process.exit(1);
 }
-console.log("\n设计系统契约自测：10 档全部符合预期（DC1–DC8 都能变红，每档只触发自己那一条；基线是绿的）。");
+console.log("\n设计系统契约自测：11 档全部符合预期（DC1–DC8 都能变红，每档只触发自己那一条；基线是绿的）。");

@@ -17,7 +17,6 @@
 /* ---------- 9. 移动端 ---------- */
 @media (max-width: 640px) {
   .wrap { padding: 0 24px; }
-  .index__title,
   .list-page__head h1,
   .detail__head h1,
   .paper-head h1 {

@@ -36,32 +36,6 @@
   border-color: var(--color-brand-300);
 }
 
-.badge--accent {
-  /* 原来用 accent-500 (#e85f15) 配 accent-50 底，只有 3.17:1 ——
-     12px 的徽标文字要 4.5:1。降到 accent-600 (#b14810) 后是 5.07:1。 */
-  color: var(--color-accent-600);
-  border-color: var(--color-accent-300);
-  background: var(--color-accent-50);
-}
-/* 暗色：accent-50 现在已被 tokens.css 压成深暖褐 #2a1408（底色必须跨主题压暗，
-   门禁 check-a11y 的 A8 守这一条）。深底上 accent-600（#b14810 深赭）只有 3.22:1，
-   所以这里用 accent-900（#260e02 更深的暖褐）当底去镜像亮色的暖色淡底，
-   文字走 accent-400（#ff8e4d），8.14:1。
-   ⚠️ 两条路径都要写：「跟随系统」与「手动切深色」必须是同一套徽标 ——
-      只写 [data-theme="dark"] 的话，「跟随系统」会拿到另一套颜色。 */
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) .badge--accent {
-    background: var(--color-accent-900);
-    color: var(--color-accent-400);
-    border-color: var(--color-accent-600);
-  }
-}
-[data-theme="dark"] .badge--accent {
-  background: var(--color-accent-900);
-  color: var(--color-accent-400);
-  border-color: var(--color-accent-600);
-}
-
 .badge--sage {
   color: var(--color-sage-700);
   border-color: var(--color-sage-300);
@@ -81,23 +55,6 @@
   color: var(--color-warning);
   border-color: var(--color-warning);
   background: #2a2010;
-}
-
-.badge--danger {
-  color: #8a2e22;
-  border-color: #e0a99f;
-  background: #fbe6e3;
-}
-[data-theme="dark"] .badge--danger {
-  color: var(--color-danger);
-  border-color: var(--color-danger);
-  background: #2a1614;
-}
-
-.badge--filled-brand {
-  background: var(--color-brand-400);
-  color: var(--text-on-brand);
-  border-color: var(--color-brand-400);
 }
 
 /* ---------- badge--quiet · 列表页的次级标签 ----------

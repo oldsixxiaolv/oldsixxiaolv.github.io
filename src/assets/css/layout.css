@@ -3,29 +3,16 @@
    ========================================================================= */
 
 /* —— 容器族 ——
-   全站只保留三档内容宽度，语义固定，不要随手加第四档：
+   layout.css 里只保留两档内容宽度，语义固定，不要随手加第三档：
      wide  1200  画布：topbar / footer / 首页 / 论文精读三栏
      base   960  阅读列：列表页 + 详情页正文（中文一行 50 字上下，行长可读）
-     narrow  720  窄栏：备用长文栏
-   三档统一 padding-inline: var(--gutter)，保证任何一档在 390px 窄屏下
+   （第三档 narrow 720 在 components/_list.css 的列表块里直接用 --container-narrow；
+     曾经的两个包装类 .wrap-narrow / .wrap-prose 全站无人使用，D52 已删。）
+   两档统一 padding-inline: var(--gutter)，保证任何一档在 390px 窄屏下
    都留得出边距——之前 .detail 完全没写水平内边距，移动端正文直接贴屏幕边。 */
 .wrap {
   width: 100%;
   max-width: var(--container-wide);
-  margin-inline: auto;
-  padding-inline: var(--gutter);
-}
-
-.wrap-narrow {
-  width: 100%;
-  max-width: var(--container-base);
-  margin-inline: auto;
-  padding-inline: var(--gutter);
-}
-
-.wrap-prose {
-  width: 100%;
-  max-width: var(--container-narrow);
   margin-inline: auto;
   padding-inline: var(--gutter);
 }
@@ -102,21 +89,3 @@
 
 /* —— Utilities —— */
 .row { display: flex; align-items: center; gap: var(--space-3); }
-.spacer { flex: 1; }
-.divider { height: 1px; background: var(--border-subtle); margin-block: var(--space-5); border: 0; }
-.text-mut { color: var(--text-muted); }
-.text-sec { color: var(--text-secondary); }
-.text-ctr  { text-align: center; }
-
-.mt-0 { margin-top: 0; }
-.mt-3 { margin-top: var(--space-3); }
-.mt-4 { margin-top: var(--space-4); }
-.mt-5 { margin-top: var(--space-5); }
-.mt-6 { margin-top: var(--space-6); }
-.mb-3 { margin-bottom: var(--space-3); }
-.mb-4 { margin-bottom: var(--space-4); }
-.mb-5 { margin-bottom: var(--space-5); }
-.hide-mobile { display: initial; }
-@media (max-width: 768px) { .hide-mobile { display: none; } }
-.show-mobile { display: none; }
-@media (max-width: 768px) { .show-mobile { display: initial; } }

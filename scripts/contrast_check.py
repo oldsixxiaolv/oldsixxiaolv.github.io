@@ -72,7 +72,7 @@ PAIRS = [
     ("link / hover",                     "LIGHT", "brand-700",   "neutral-50", 16, False),
     # Accent usages on the actual site (post-P1.4)
     ("home-intro__label (11px accent)",  "LIGHT", "accent-600",  "neutral-50",  11, True),  # P1.4
-    ("badge--accent (accent on accent-50)","LIGHT", "accent-600","accent-50",   12, True),  # P1.4
+    ("accent-600 on accent-50",            "LIGHT", "accent-600","accent-50",   12, True),  # P1.4 · token pair guardrail (A1)
     ("annot-kind--insight (chip v1.1)",  "LIGHT", "accent-600",  "neutral-100", 11, True),  # P1.4 · bg-muted
     ("annot-filter--insight.is-active",  "LIGHT", "accent-600",  "neutral-100", 12, True),  # P1.4
     ("paper-anchor__count (insight)",    "LIGHT", "accent-600",  "neutral-50",  11, True),  # P1.4
@@ -82,7 +82,7 @@ PAIRS = [
     ("body / muted text (dark)",         "DARK",  "neutral-500", "neutral-50", 14, False),
     ("link / default (dark)",            "DARK",  "brand-400",   "neutral-50", 16, False),
     ("accent on page (dark)",            "DARK",  "accent-500",  "neutral-50", 11, True),
-    ("badge--accent (dark)",             "DARK",  "accent-500",  "accent-50",  12, True),
+    ("accent-500 on accent-50 (dark)",   "DARK",  "accent-500",  "accent-50",  12, True),
     # Surface (cards) on page
     ("text on surface card (light)",     "LIGHT", "neutral-900", "neutral-0",  16, False),
     ("text on surface card (dark)",      "DARK",  "neutral-900", "neutral-0",  16, False),

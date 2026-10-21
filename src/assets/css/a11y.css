@@ -51,9 +51,7 @@
 
   /* badge / chip：去色场景下靠 border 区分，不靠颜色 */
   .badge,
-  .badge--accent,
   .badge--brand,
-  .badge--muted,
   .annot-kind,
   .annot-filter,
   .paper-anchor {
@@ -148,12 +146,8 @@
     -webkit-backdrop-filter: none !important;
   }
 
-  /* paper-textured / noise / 半透明渐变 在 forced-colors 下退化为纯色 */
-  .site-header,
+  /* 纹理 / 半透明渐变 在 forced-colors 下退化为纯色 */
   .topbar,
-  .glass,
-  .paper-textured,
-  [data-paper-textured],
   .home-signal,
   .home-hero,
   .annot-card {
@@ -163,11 +157,7 @@
 
   /* 任何 linear-gradient 都被压成 solid */
   [style*="linear-gradient"],
-  [style*="radial-gradient"],
-  .accent-highlight,
-  .underline-highlight,
-  .under-mark,
-  .under-warn {
+  [style*="radial-gradient"] {
     background-image: none !important;
     background: Canvas !important;
     color: CanvasText !important;
@@ -201,9 +191,7 @@
 
   /* badge / chip 必须有可见边框 */
   .badge,
-  .badge--accent,
   .badge--brand,
-  .badge--muted,
   .annot-kind,
   .annot-filter,
   .annot-item,
@@ -217,8 +205,7 @@
   /* 输入框 / textarea / select */
   input,
   textarea,
-  select,
-  .form-control {
+  select {
     border: 1px solid CanvasText !important;
     background: Field !important;
     color: FieldText !important;
@@ -226,8 +213,7 @@
   }
 
   /* hr / 分割线 用 CanvasText 才看得见 */
-  hr,
-  .divider {
+  hr {
     border-color: CanvasText !important;
     background: CanvasText !important;
     forced-color-adjust: none;
@@ -247,7 +233,7 @@
   }
 
   /* ——— 3e. 关键 paper-reader / 信号面板 兜底 —— */
-  /* 这些组件在常规模式下用了 backdrop-filter / paper-textured，forced-colors 下
+  /* 这些组件在常规模式下用了 backdrop-filter / 纹理底，forced-colors 下
      退化为 Canvas 纯色 + CanvasText 文字，所有边框/角标保留 */
   .home-signal,
   .annot-card {

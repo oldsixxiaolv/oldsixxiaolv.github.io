@@ -100,9 +100,9 @@
      （about 页的分区 eyebrow、技能组标题、产出列表的 DOI 链接），
      小字要 4.5:1 —— 直接用 accent-600 在暗色下是不合格的。
      暗色下改走 accent-500 (#ffa874)：9.99:1。
-     ⚠️ 不要去改 accent-600 本身：徽标 .badge--accent 在浅色下是
-     「accent-600 文字 + accent-50 底」（5.07:1），改那个 token 会连带把徽标弄坏。
-     门禁 check-a11y A1 会同时核对这两组对比度。 */
+     ⚠️ 不要去改 accent-600 本身：它是 --text-accent 的值，改浅了上面这些
+     小字就全部不合格。门禁 check-a11y A1 会核对这组对比度（accent-600 对浅色
+     底 5.21:1、对 accent-50 底 5.07:1，后者更严）。 */
   --text-accent:    var(--color-accent-600);
   --text-on-brand:  #ffffff;
   --link-color:     var(--color-brand-500);

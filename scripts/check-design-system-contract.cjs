@@ -31,6 +31,11 @@
  *      被 `var()` 真正引用（否则规格写的是另一个组件的量）。
  *   DC6 覆盖度自证 —— 扫到的徽标类数 / CSS 变量数 / partial 数 / 主题 token 数都要有下限，
  *      防「改空了就通过」。
+ *      ⚠️ 徽标这一维的**参照系是规格真源**（§6.0 `_badge.css` 行登记了几个类），
+ *      不是硬编码的绝对基线：绝对基线会随「合法删掉一个死类」而失效，逼着人改门禁。
+ *      判据是「CSS 侧认出的类数 ≥ 文档侧登记的类数，且 ≥ 1」——
+ *      文档多列（规格里有个幽灵变体）会判红，CSS 被裁剪也会判红，两边都空也判红；
+ *      而文档**少**列一个只由 DC1 负责，两条判据不耦合，红因归属仍然唯一。
  *   DC7 §10 == tokens.css —— §10 标题写的是「CSS **完整**自定义属性（可直接复制到 global.css）」，
  *      那它就必须与 `src/assets/css/tokens.css` 里定义的变量集合**完全相等**：
  *      tokens.css 定义了而 §10 没列 ⇒ 规格漏了它（照抄的人拿不到这个量）；
@@ -85,8 +90,8 @@ const CONFIG = process.env.DCC_CONFIG
   ? path.resolve(process.env.DCC_CONFIG)
   : path.join(ROOT, "eleventy.config.js");
 
-/** DC6 的覆盖度下限。 */
-const MIN_BADGE_CLASSES = 6;
+/** DC6 的覆盖度下限。
+ *  徽标类数没有这里的绝对下限 —— 它的参照系是文档 §6.0 登记的类数（见下方 docBadgeClasses）。 */
 const MIN_CSS_VARS = 50;
 const MIN_PARTIALS = 7;
 /** DC7 的覆盖度下限（§10 与 tokens.css 的主题 token 规模）。 */
@@ -268,6 +273,16 @@ if (!s60) {
   }
 }
 
+/* DC6 用：文档 §6.0 的 `_badge.css` 行登记了几个徽标类 —— 这是徽标覆盖度的**规格真源**。
+   只扫「类名族」那几列（第 3 列起），别把第 1 列 `_badge.css` 里的 `.css` 当成类名。 */
+const docBadgeClasses = (() => {
+  if (!s60) return new Set();
+  const row = tableRows(s60).find((r) => r[0].replace(/`/g, "") === "_badge.css");
+  if (!row) return new Set();
+  const cell = row.slice(2).join(" ");
+  return new Set([...cell.matchAll(/\.([A-Za-z][A-Za-z0-9_-]*)/g)].map((m) => `.${m[1]}`));
+})();
+
 /* ---------------- DC2：不得虚构 CSS 变量 ---------------- */
 
 const cssVars = new Set();
@@ -395,10 +410,11 @@ if (!s64) {
 
 /* ---------------- DC6：覆盖度自证（防空跑） ---------------- */
 
-if (badgeClasses.size < MIN_BADGE_CLASSES) {
+if (badgeClasses.size < Math.max(docBadgeClasses.size, 1)) {
   fail(
-    `DC6 只在 _badge.css 里认出 ${badgeClasses.size} 个顶层类（要求至少 ${MIN_BADGE_CLASSES} 个）—— ` +
-      `扫描面被收窄了，DC1 已经看不到大部分变体，等于没在检查。`
+    `DC6 _badge.css 只认出 ${badgeClasses.size} 个顶层类，但 §6.0 的 \`_badge.css\` 行登记了 ${docBadgeClasses.size} 个 —— ` +
+      `扫描面比规格窄了：要么文档登记的类在 CSS 里根本不存在（规格里有个幽灵变体），` +
+      `要么 CSS 被裁剪了（改空了就通过）。`
   );
 }
 if (cssVars.size < MIN_CSS_VARS) {
@@ -549,7 +565,7 @@ if (problems.length) {
 }
 
 console.log(
-  `设计系统文档契约门禁通过：${badgeClasses.size} 个徽标类全部在 §6.0 列出，` +
+  `设计系统文档契约门禁通过：${badgeClasses.size} 个徽标类全部在 §6.0 列出（§6.0 登记 ${docBadgeClasses.size} 个），` +
     `文档的 ${docTokens(docText).size} 个 token 全部在 CSS 里真实定义。`
 );
 console.log(`  · ${actualPartials.length} 个 partial 的清单三处一致；dev/prod 判定与 eleventy.config.js 一致。`);
