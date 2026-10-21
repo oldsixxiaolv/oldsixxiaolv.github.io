@@ -17998,3 +17998,179 @@ D29 起真源类型一变，**首页那句也要跟着变** ⇒ 否则 AT10 会�
       「范围之外的地方门禁管不到」**（G 段第 3 条），否则下一轮会误以为"全站都守着"。
 ③ 下一轮找新缺陷，仍按 D19–D28 反复验证过的顺序问三件事 ——
    ① 真源是哪一个（唯一吗）② 能不能判取值（两边写法同形吗）③ 缺了会怎样（读的人会做什么）。
+
+## 2026-10-20 · 20:20–20:40 场次（**不占轮次号**，避免与并发场次撞号）：D29 —— 论文成果图的 src / 宽 / 高有两份真源，四个出口各取各的：收成一处真源，并给它配门禁
+
+### 本轮定位
+
+按 D19–D28 反复验证过的三问筛候选：① **真源是哪一个**（唯一吗）② **能不能判取值**（两边写法同形吗）③ **缺了会怎样**（读的人会做什么）。
+
+本轮起手照旧先清点 DEFECT-BACKLOG 里的可动手条目 ⇒ **一条也没有**：D2 / D3 / D5 / D6 / D9 / D10 / D12 / D26 全部绑在本人拍板项上
+⇒ 按 §3 规则 3 **新开 D30**，不代拍任何一条。
+
+候选落在**同一族病**上：D27 / D28 处理的是「同一事实两份副本」，
+本轮换到**同一张图的多处声明**上 —— 页面照常渲染、build 全绿，**没有任何门禁看得见**。
+
+### A. 缺陷事实
+
+论文成果图的 `src` / 宽 / 高**有两份真源**，而**四个出口各取各的**：
+
+| | 真源 | 读它的出口 |
+|---|---|---|
+| 前者 | `src/_data/site.js` 的 `publications[0].figure`（`src` / `width` / `height` / `alt` / `caption`） | 正文 `<img class="paper-figure__img">`（`paper.njk`） |
+| 后者 | 论文页 front matter 的 `cover` / `coverWidth` / `coverHeight` | `og:image` / `og:image:secure_url` / `og:image:width` / `og:image:height` / `twitter:image` / JSON-LD 的 `ScholarlyArticle.image`（`base.njk` + `paper.njk` 的 `coverUrl`） |
+
+四个同源症状：
+
+① **正文图与分享卡可以不是同一张**
+　改 `site.js` 的 `figure.src` 而忘了 front matter ⇒ 正文显示新图、分享卡还是旧图；
+　反之亦然。**两处都在屏幕上，谁都看不出来** —— 分享卡只在外部平台（微信 / X / Slack）里出现。
+
+② **旧图一旦被删，`og:image` 立刻变死链**
+　线上每张分享卡片拿到的都是 404，而 build 通过、门禁全绿、页面照常渲染。
+
+③ **最矛盾的一处：注释描述的意图与代码实际状态相反**
+　论文页 front matter **自己的注释**写着「封面图与它的 alt 都在 site.js 的 `publications[].figure` 里」
+　⇒ 那份副本是**历史遗留**（注释按意图写的，代码没跟上）。
+
+④ **盲区有据可查**
+　`check-image-assets.cjs` 的 **IA1–IA7** 逐条验「**声明的那张图**自身对不对」
+　（文件在不在、声明尺寸等不等于真实像素、alt 有没有），
+　**从不验「同一张图的多个声明是不是同一张」**
+　⇒ 这是**判据形状不同**的盲区，不是「漏写一条判据」。
+
+### B. 本轮排除的候选方向（这段最省事，避免下轮重查）
+
+① **论文标题大小写** —— 站内 `publications[0].title` 写「New Insights **From** TRMM Legacy: …」（大写 F），
+　而 Zenodo v2.0（`10.5281/zenodo.18041880`）与 Code Ocean v1.0（`10.24433/CO.6720035.v1`）
+　两条**自建**记录都是小写「from」⇒ 曾疑为缺陷，**实测证伪**：**出版商侧登记原题就是大写「From」** ——
+　OpenAlex `https://api.openalex.org/works/doi:10.1029/2026JD046836` 与
+　Semantic Scholar `https://api.semanticscholar.org/graph/v1/paper/DOI:10.1029/2026JD046836`
+　**两路独立镜像一致**返回大写「From」⇒ 站内写法与出版商登记**一致**，**不用改**；
+　小写「from」只是**本人自建记录**里的写法，而 `software.registeredTitle` 正是**照抄 Zenodo 那条记录**
+　（D27 已核过），**不是**第二份漂移的副本。
+　⚠️ `api.crossref.org` 在本机 curl（exit 35）与 node fetch（ECONNRESET）下都连不通
+　⇒ OpenAlex + Semantic Scholar 是本轮可用的替代取证途径。
+② **Code Ocean 胶囊的描述指向 GitHub** —— 与记录实况相符（数据在 Zenodo、代码在 GitHub），**不是**缺陷。
+③ **站内全部 DOI 清点** —— 与登记记录逐条一致，**不是**缺陷。
+④ **og 图片声明尺寸 vs 实际像素** —— 全部相等，**不是**缺陷。
+⑤ **JSON-LD 是 `@graph` 结构** —— 早先误判成「空」，实为多节点图结构，**不是**缺陷。
+⑥ **`citation_issn` 只输出一条** —— 有据取舍，**不是**缺陷。
+⑦ **无障碍 9 类探针全站 0 命中**；**内部链接完整性 0 破口**；`publications.bib` / `.ris` 各含论文 + 数据集 + 胶囊三条 ⇒ 均**不是**缺陷。
+
+### C. 改了什么（10 个文件）
+
+1. **`src/content/papers/trmm-thunderstorm-stages/paper.md`** —— 删掉 front matter 的 `cover` / `coverWidth` / `coverHeight` 三行副本；
+   注释改写为「封面图的 src / 宽 / 高 / alt 都不在这里写，唯一真源是 site.js 的 `publications[].figure`；D30 起副本删除」。
+2. **`src/_includes/layouts/base.njk`** —— 在 `coverAltText` 之后新增 `figureCover` / `coverSrc` / `coverW` / `coverH` 四个 set
+   （front-matter `cover` 优先，否则回落到 `pubMeta.figure`）；`og:image` 段条件 `{% if cover %}` → `{% if coverSrc %}`、
+   取值改走 `coverSrc | coverImageUrl`、og 宽高改用 `coverW` / `coverH`；`twitter:image` 段条件同样改为 `coverSrc`。
+3. **`src/_includes/layouts/paper.njk`** —— 新增 `figureSrc` / `coverSrc` 两个 set，
+   JSON-LD 的 `coverUrl` 改为 `coverSrc | coverImageUrl(site.url, page.url, site.ogImage)`。
+4. **`scripts/check-figure-cover.cjs`**（新增）—— 门禁，判据 **CV1–CV4**（见 D 段）。
+5. **`scripts/test-figure-cover.cjs`**（新增）—— 自测，**12 档**注入矩阵 CV0–CV11（见 D 段）。
+6. **`package.json`** —— 新增 `check:figure-cover` / `check:figure-cover-selftest`；
+   build 链把新门禁插在 `npm run check:image` 与 `npm run check:lang` 之间。
+7. **`README.md`** —— 命令表新增 2 行（RD3）。
+8. **`docs/DEFECT-BACKLOG.md`** —— 新开 **D30** 行（状态「已修」+ 验证方式）；§2 增「论文题名大小写」**证伪**行。
+9. **`docs/ROADMAP.md`** —— 进度行改「缺陷清单已到 **D30**」+ 新增 `- **D29**（本轮修的是缺陷 **D30**）` 叙述段。
+10. **`docs/IMPROVEMENT-LOG.md`** —— 本节。
+
+**顺带修一处现状陈述与事实不符**：README 命令表里 `check:about-dataset-selftest` 那行仍写着「11 档注入矩阵」，
+D28 已把它扩到 **15 档**（脚本自身的结尾行也是 15 档）⇒ 订正为 15 档。
+
+### D. 门禁 CV1–CV4 怎么写的（以及为什么这么写）
+
+- **新开一个文件，不并进 IA** —— IA 管「每条声明自身对不对」（逐条自证），本门禁管「同一张图的多个声明之间对不对得上」；
+  判据形状不同，混在一起会让 IA 的逐条自证计数含义变含混。
+- **CV1（四个出口同图）** —— 正文 `<img class="paper-figure__img">` / `og:image` / `twitter:image` /
+  JSON-LD `ScholarlyArticle.image` 归一化成**站内路径**后必须**逐字相同**，且等于 `figure.src`。
+- **CV2（尺寸同源）** —— `og:image:width` / `og:image:height` 与正文 `<img>` 的 `width` / `height` 属性
+  必须等于 `figure.width` / `figure.height`。
+- **CV3（真源唯一）** —— 论文页 front matter **不得**再出现 `cover` / `coverWidth` / `coverHeight`。
+- **CV4（覆盖度自证 + 接线自证）** —— 应验处数 == 实测处数且 ≥ 1；且本门禁**必须接在 build 链**。
+- ⚠️ **归一化必须同时吃绝对 URL 与页内相对路径** —— 本仓 `| relUrl` 产出的是**相对路径**
+  （首页 `assets/img/…`、论文页 `../../assets/…`）⇒ 归一化要用 `new URL(rel, "https://x" + pageUrl).pathname`。
+  这是「整个文件夹扔到哪都能跑」的**搬迁契约**，门禁不能按挂载点写死。
+- ⚠️ **接线自证用精确正则** —— `/npm run check:figure-cover(?![\w-])/`：
+  否则 `check:figure-cover-selftest` 的**前缀**会把「门禁根本没接进 build 链」这条伪装成已接。
+- **自测 12 档 CV0–CV11**：CV0 基线绿；CV1（og 换图）/ CV2（twitter 换图）/ CV3（正文换图）/ CV4（JSON-LD 换图）
+  ⇒ 判红且红因点名 CV1；CV5（og 宽写错）/ CV6（正文图高写错）⇒ 判红且红因点名 CV2；
+  CV7（front matter 加回副本）⇒ 判红且红因点名 CV3；
+  CV8（真源 `figure.src` 漂移而产物没重建）/ CV9（真源 `figure.width` 漂移）⇒ 判红且点名 CV1 / CV2；
+  CV10（门禁被从 build 链里摘掉）⇒ 判红且红因点名「门禁自己被卸掉了」；
+  **CV11 是边界负对照**（真源与产物**一起**改错 ⇒ **判绿**）—— 把「门禁守不了什么」做成一条**会跑**的自测。
+- ⚠️ **注入必须按 `@type` 定位 JSON-LD 节点** —— 产物里第一个 `"image"` 是**作者头像**的 `Person` 节点，
+  不是文章图；用正则替第一个 `"image"` 会把负对照做坏（首跑 CV4 / CV11 就是这么失败的）
+  ⇒ 改用 `editJsonLd(html, type, fn)` 按 `@type` 找 `ScholarlyArticle` 节点。**判据一个字没动。**
+
+### E. 验证
+
+① `node scripts/check-figure-cover.cjs` **exit 0** —— 四个出口归一化后**同一张图**
+　（`/assets/img/publications/trmm-fig10.jpg`），`og:image:width/height` = `1400×745` =
+　真源 `figure.width/height` = 正文 `<img>` 的 `width/height` 属性；论文页 front matter 不再留封面副本；
+　**共比对 11 处**。
+
+② `node scripts/test-figure-cover.cjs` **exit 0** —— **12 档**全部符合预期
+　（CV0 绿 · CV1–CV10 红 · CV11 绿 = 已知边界）。
+
+③ **浏览器实测**（真实 Chrome + CDP + 静态服务器 8899）：四个出口归一化后**同一张图**；
+　`og:image:width/height` = `1400×745` = 正文 `<img>` 属性 = **实际像素** `1400×745`；
+　正文图**确实加载成功**（`complete` 且 `naturalWidth>0`）；h1 = 1、`#main` = 1；
+　**console 错误 0、未捕获异常 0、加载失败请求 0**。
+　⚠️ 探针要点：成果图是 `loading="lazy"` ⇒ 必须 `scrollIntoView` 之后**再问**加载状态，
+　否则读到的是「还没加载」而不是「加载失败」；Chrome profile 删除要等 1.2s 后重试（否则 ENOTEMPTY）。
+
+④ `npm run build` **exit 0** —— GW1 报门禁脚本全部从 build 可达、GW4 报自测脚本接线状态；
+　新门禁与自测在链内均通过。
+
+### F. 负对照（这一段最关键）
+
+把新门禁跑在**修前产物 + 修前真源**上（真实坏态级，不是拿旧版本凑数）：
+`git worktree add --detach /tmp/mh_d30_pre 2db68f0` + `node_modules` 软链 + 单独 eleventy 构建
+⇒ 新门禁 **exit 1**、**3 条**红因**全部只落在这份副本**上
+（`cover` / `coverWidth` / `coverHeight` 三条 CV3），**零假红** ⇒ CV1 / CV2 没有误伤 IA 族判据。
+
+⚠️ **如实记**：CV1 / CV2 在修前产物上是**绿的** —— 因为两份副本**当前取值恰好相同**，**漂移尚未发生**。
+门禁抓的是「副本存在」这个形态；漂移一旦发生（CV8 / CV9 两档就是那个形态）即判红。
+这不是漏网，是**如实记录当前状态**。
+
+### G. 边界与已知不足（如实记，不藏）
+
+1. **守不了「封面图选得对不对」** —— CV1–CV4 守的是「一处真源」+「四个出口同图同尺寸」；
+   真源与产物**一起**改成另一张图 ⇒ 仍自洽（CV11 就是这条边界的可执行版本）⇒ **选图仍靠人工核**。
+2. **不并入 IA** —— 覆盖度自证是**两套**：IA 那边逐条自证、本门禁这边整体自证；
+   两者的计数**不可互相引用**。
+3. **CV1 / CV2 目前在修前产物上是绿的**（见 F 段）⇒ 负对照能证明的是「副本形态被抓住」，
+   不是「漂移形态被抓住」；后者靠 CV8 / CV9 两档自测覆盖。
+4. **本轮没跑 Lighthouse**（工具链仍缺失）—— 本轮改的是**真源归属**，不是样式 ⇒ 不适用。
+5. **线上仍是旧部署** ⇒ **D6** ⇒ 待拍板 7（push 时机）+ 待拍板 49（发布到哪个仓）**本轮不代拍**。
+
+### H. 本轮纪律
+
+- **不 push**：本地 `main` 领先源码远端 `oldsixxiaolv/main` **180** 个提交
+  （提交本轮后为 **181**）；部署远端 `origin`（`oldsixxiaolv.github.io`）本轮**未碰**。
+- **只提交自己那几条路径**：不用 `git add -A`；共享工作树上
+  `scripts/check-identity-handles.cjs`、`scripts/test-gates-selfcheck.cjs`
+  属**并发场次**，本轮**未碰、未覆写、未提交**。
+- **临时产物只落在 `/tmp`**（build 日志、浏览器探针脚本与 Chrome profile，跑完即删）；conda 一律 `xiaolv`。
+- **没有新增待拍板项**（本轮是结构缺陷，修法无歧义 ⇒ 不需要本人拍板）。
+- **没有新增依赖**、没有新增外部服务 / 密钥 / 账号；零第三方前端运行时依赖保持。
+- 门禁红了先定位红因，不放宽判据 —— 首跑 CV4 / CV11 的红**出在注入本身**（作者头像那个 `"image"`），
+  ⇒ 改注入、**不动判据**。
+- **每轮都会变的数字不写进文档**：本轮文档里没写门禁脚本数 / 提交数这类每轮 +1 的快照。
+
+### 下一轮入口
+
+① **D2 / D3** 待待拍板 40 拍板；**D9** 待 41；**D10** 待 42；**D12** 待 43；
+   **D5** 等本人定选题主线；**D6** 等 push（待拍板 7），且「照 `DEPLOY.md` push 不更新线上」
+   这件事仍挂着**待拍板 49**；**M3** 等本人自建 OAuth App；
+   **待拍板 47** 等本人定 `portfolio` 的去留；**待拍板 48** 等本人定 404 页的根绝对前缀要不要跟着挂载点走；
+   **D26** 等本人定装饰分隔点的取舍。
+⇒ 在这些拍板项落地之前，后端那条线**没有可动手的条目**，继续走 ROADMAP M0 §3 找新缺陷。
+② **本轮留了一条可复用的做法** —— **「同一张图的多处声明」是判据形状的新变体**：
+   IA 族问的是「这条声明对不对」，本轮问的是「这几条声明**彼此**对不对得上」
+   ⇒ 后者**不能靠给 IA 再加一条判据**解决（会让 IA 的逐条自证计数变含混），
+   **要新开一个门禁文件**，并让它的覆盖度自证**独立**于 IA。
+③ 下一轮找新缺陷，仍按 D19–D29 反复验证过的顺序问三件事 ——
+   ① 真源是哪一个（唯一吗）② 能不能判取值（两边写法同形吗）③ 缺了会怎样（读的人会做什么）。

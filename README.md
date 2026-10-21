@@ -94,6 +94,8 @@ Cloudflare Pages、Nginx 等任意静态服务。详细运行 / 调试见 `HOW_T
 | `npm run check:doc-snapshot` | 现状陈述里不许写死每轮都会变的数量（如 build 链的段数）：含缺陷编号的历史块按原样保留，现状块里出现「数字 + 步」就判红 |
 | `npm run check:doc-snapshot-selftest` | 上面那道门禁的本地夹具自测（注入矩阵，证明它能变红，且每档只触发自己那一条判据） |
 | `npm run check:image` | 页面里声明的图与产物里真实存在的图是同一张 |
+| `npm run check:figure-cover` | 论文封面图只有一处真源（site.js 的 `publications[].figure`），且正文 `<img>`、og:image、twitter:image、JSON-LD image 四个出口是**同一张图、同一组尺寸**；论文页 front matter 不得留封面副本 |
+| `npm run check:figure-cover-selftest` | 上面那道门禁的本地夹具自测（12 档注入矩阵，证明它能变红；含一档**故意判绿**的边界负对照） |
 | `npm run check:lang` | 语言标记统一 + 编码损坏 |
 | `npm run check:a11y` | WCAG AA 实测缺陷固化成可重复检查 |
 | `npm run check:a11y-contrast-selftest` | 上面那道门禁里**底色 token 跨主题压暗**判据的本地夹具自测（6 档注入矩阵，证明它能变红：亮底 token 在暗色没重映射、压暗后仍偏亮都判红） |
@@ -108,7 +110,7 @@ Cloudflare Pages、Nginx 等任意静态服务。详细运行 / 调试见 `HOW_T
 | `npm run check:home-chart` | 首页降水图的交互层：钩子齐全、**读数与数据同源**、键盘可达、模块与样式在位 |
 | `npm run check:home-chart-selftest` | 上面那道门禁的本地夹具自测（6 档注入矩阵，证明它能变红） |
 | `npm run check:about-dataset` | about 页对同一条 Zenodo 记录的描述必须与 DataCite 登记事实一致：类型、登记标题、可见 DOI、散文措辞四处同源，散文里不许写死地址 |
-| `npm run check:about-dataset-selftest` | 上面那道门禁的本地夹具自测（11 档注入矩阵，证明它能变红；含一档**故意判绿**的边界负对照） |
+| `npm run check:about-dataset-selftest` | 上面那道门禁的本地夹具自测（15 档注入矩阵，证明它能变红；含一档**故意判绿**的边界负对照） |
 | `npm run check:identity` | 身份句柄（ORCID / GitHub / CSDN / ResearchGate）登记一致 |
 | `npm run check:identity-derivation` | 身份 URL 必须**派生**出来，不许抄成字面量 |
 | `npm run check:citation-meta` | 论文页 `citation_*` 标签与 `site.js` 逐字一致 |

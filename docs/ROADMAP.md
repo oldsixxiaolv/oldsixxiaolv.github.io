@@ -88,8 +88,8 @@
 - `docs/DEFECT-BACKLOG.md` 存在，每条都有编号与可判定判据；
 - 后续每轮都从这份清单里取一条来修（不是随手挑）。
 
-**进度（2026-10-20 20:20 实测）**
-- 缺陷清单已到 **D29**（D1 / D4 / D11 / D13 / D14 / D15 / D16 / D17 / D18 / D19 / D20 / D21 / D22 / D23 / D24 / D25 / D27 / D28 / D29 已修；D2 / D3 / D5 / D6 / D9 / D10 / D12 / D26 待修；D7 / D8 不修）。
+**进度（2026-10-20 20:40 实测）**
+- 缺陷清单已到 **D30**（D1 / D4 / D11 / D13 / D14 / D15 / D16 / D17 / D18 / D19 / D20 / D21 / D22 / D23 / D24 / D25 / D27 / D28 / D29 / D30 已修；D2 / D3 / D5 / D6 / D9 / D10 / D12 / D26 待修；D7 / D8 不修）。
 - 「构建链与门禁本身的失效点」这一支已补**四条**：
   ① **D13**：窄屏溢出门禁只查「横向溢出」，查不出「正文被挤成窄带」（D11 那一族坏版式当时
   build 与全部门禁都绿）—— 2026-10-20 11:00–11:30 场次给该门禁补了「正文列宽」判据
@@ -469,6 +469,62 @@
   ⚠️ 本轮**没有新增待拍板项**：剩下能动手的后端缺陷仍全绑在既有待拍板项上
   （D2 / D3 ↔ 40、D9 ↔ 41、D10 ↔ 42、D12 ↔ 43、D5 ↔ 选题主线、D6 ↔ push 时机 = 7），
   所以本轮按 §3 规则 3 **新开 D29** 而不是重开旧号。
+- **D29**（本轮修的是缺陷 **D30**）：这一轮**不是**内容事实缺陷那一支，换成**同一张图的多处声明对不对得上**——
+  **论文成果图的 src / 宽 / 高有两份真源，而四个出口各取各的**：
+  真源之一是 `site.js` 的 `publications[0].figure`（`src` / `width` / `height` / `alt` / `caption`），
+  真源之二是论文页 front matter 的 `cover` / `coverWidth` / `coverHeight`；
+  正文 `<img class="paper-figure__img">` 读**前者**，而 `og:image` / `og:image:secure_url` /
+  `og:image:width` / `og:image:height` / `twitter:image` / JSON-LD 的 `ScholarlyArticle.image`
+  读**后者** ⇒ 改一处忘另一处，**正文图与分享卡就不是同一张**；旧图一旦被删，`og:image` 立刻变死链
+  （线上每张分享卡片拿到的都是 404，而 build 通过、门禁全绿、页面照常渲染）。
+  最矛盾的一处：论文页 front matter **自己的注释**写着「封面图与它的 alt 都在 site.js 的
+  `publications[].figure` 里」⇒ **注释描述的意图与代码实际状态相反**，那份副本是历史遗留
+  （注释按意图写的，代码没跟上）。
+  盲区有据可查：`check-image-assets.cjs` 的 **IA1–IA7** 逐条验「**声明的那张图**自身对不对」
+  （文件在不在、声明尺寸等不等于真实像素、alt 有没有），**从不验「同一张图的多个声明是不是同一张」**
+  ⇒ 与 D27 / D28 处理过的「同一事实两份副本」是同一族病。
+  2026-10-20 20:20–20:40 场次按此修，分两层：
+  ① **数据层**：论文页 front matter **删掉** `cover` / `coverWidth` / `coverHeight` 三行副本，
+     注释改写为「封面图的 src / 宽 / 高 / alt 都不在这里写，唯一真源是 site.js 的 `publications[].figure`」。
+  ② **模板层**：`base.njk` 新增 `figureCover` / `coverSrc` / `coverW` / `coverH` 四个 set ——
+     front matter 的 `cover` **优先**，没有则回落到 `pubMeta.figure`；`og:image` 段与 `twitter:image` 段的
+     条件与取值全部改走 `coverSrc`，og 宽高改走 `coverW` / `coverH`；
+     `paper.njk` 的 JSON-LD `coverUrl` 也改走同一个 `coverSrc`。
+     ⚠️ front matter 的 `cover` 机制**保留**给**没有 pubKey 的内容页**（博客等）做页面级覆盖，
+     论文页走回落路径 ⇒ 两条路互不干扰，通用机制没被拆掉。
+  门禁**新开一个文件** `scripts/check-figure-cover.cjs`（判据 **CV1–CV4**），**不并进 IA**：
+  IA 管「每条声明自身对不对」，本门禁管「同一张图的多个声明之间对不对得上」，
+  判据形状不同，混在一起会让 IA 的逐条自证计数含义变含混。
+  CV1 四个出口（正文 `<img>` / og:image / twitter:image / JSON-LD `ScholarlyArticle.image`）
+  归一化成站内路径后**逐字相同**且等于 `figure.src`；CV2 `og:image:width/height` 与正文 `<img>`
+  的 width / height 属性等于 `figure.width/height`；CV3 论文页 front matter **不得**再出现
+  `cover` / `coverWidth` / `coverHeight`；CV4 覆盖度自证 + 本门禁必须接在 build 链
+  （用 `/npm run check:figure-cover(?![\w-])/` 精确匹配，避免 `check:figure-cover-selftest`
+  的前缀把它蒙混过去）。
+  自测 `scripts/test-figure-cover.cjs`：**12 档**注入矩阵 CV0–CV11，**接在 build 链**；
+  **CV11 是边界负对照**（真源与产物**一起**改错 ⇒ 判绿）—— 把「门禁守不了什么」做成一条**会跑**的自测。
+  ⚠️ 归一化要同时吃**绝对 URL** 与**页内相对路径**（本仓 `| relUrl` 产出的是相对路径 ——
+  论文页上是 `../../assets/…`）⇒ 这是「整个文件夹扔到哪都能跑」的搬迁契约（404 页除外，普通页面不受影响），门禁不能按挂载点写死。
+  负对照（真实坏态级）：把新门禁跑在**修前产物 + 修前真源**上
+  （`git worktree add --detach` 取 HEAD `2db68f0` + `node_modules` 软链 + eleventy 单独构建）
+  ⇒ exit 1、**3 条**红因**全部只落在真源副本上**（`cover` / `coverWidth` / `coverHeight` 三条 CV3，无假红）。
+  ⚠️ **如实记**：CV1 / CV2 在修前产物上是**绿的** —— 因为两份副本**当前取值恰好相同**，漂移**尚未发生**；
+  门禁抓的是「副本存在」这个形态，漂移一旦发生（CV8 / CV9 两档就是那个形态）即判红。
+  浏览器实测（真实 Chrome + CDP）：四个出口归一化后**同一张图**；`og:image:width/height` =
+  正文 `<img>` 属性 = **实际像素**，三者相等；正文图**确实加载成功**（`complete` 且 `naturalWidth>0`）；
+  console 错误 0、未捕获异常 0、加载失败请求 0。
+  D30 **不是新增需求** —— 「封面图的真源在 site.js」这条意图本仓自己早就写在 front matter 的
+  注释里了，只是代码没跟上 ⇒ 本轮是把它**真的对齐**并给它配上门禁。
+  ⚠️ **边界**：CV1–CV4 守的是「一处真源」+「四个出口同图同尺寸」；它**守不了**「封面图选得对不对」
+  （真源与产物一起改成另一张图 ⇒ 仍自洽，CV11 就是这条边界的可执行版本）⇒ 选图仍靠人工核。
+  ⚠️ 本轮**顺带修**一处**现状陈述与事实不符**：README 命令表里 `check:about-dataset-selftest`
+  那行仍写着「11 档注入矩阵」，D28 已把它扩到 **15 档**（脚本自身结尾行也是 15 档）⇒ 订正为 15 档。
+  ⚠️ 本轮**排除了一个候选方向**：论文标题大小写（站内写大写「From」，Zenodo / Code Ocean 两条
+  自建记录写小写「from」）—— **已证伪**：出版商侧登记原题就是大写「From」
+  （OpenAlex 与 Semantic Scholar 两路独立镜像一致）⇒ 站内正确，不用改。
+  ⚠️ 本轮**没有新增待拍板项**：剩下能动手的后端缺陷仍全绑在既有待拍板项上
+  （D2 / D3 ↔ 40、D9 ↔ 41、D10 ↔ 42、D12 ↔ 43、D5 ↔ 选题主线、D6 ↔ push 时机 = 7），
+  所以本轮按 §3 规则 3 **新开 D30** 而不是重开旧号。
 
 
 ---

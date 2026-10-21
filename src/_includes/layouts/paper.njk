@@ -61,10 +61,16 @@ layout: layouts/base.njk
 {# —— 分享图与"内容最后一次真的变过"的时间（2026-10-20 补；缺陷清单 D1）——
    coverUrl：与 base.njk 的 og:image 走**同一个** coverImageUrl filter
              ⇒ JSON-LD 的 image 与页面上那张分享图逐字相同（构造出来的，不是对上的）。
+             取值顺序：front-matter `cover` 优先（页面级覆盖），否则用 site.js 的
+             pub.figure.src —— 与正文 <img> 读的是同一处数据（缺陷清单 D30：
+             此前 front-matter 里另存了一份 cover/coverWidth/coverHeight 副本，
+             于是正文 <img> 读 site.js、分享图读 front-matter，两边各说各的）。
    modified：该页源文件最后一次 git 提交时间（lastCommitTime filter，
              与 sitemap 的 lastmod 同一数据源）。取不到就不给——
              dateModified 宁可没有，也不要一个假时间戳。 #}
-{%- set coverUrl = cover | coverImageUrl(site.url, page.url, site.ogImage) -%}
+{%- set figureSrc = pub.figure.src if (pub and pub.figure and pub.figure.src) else null -%}
+{%- set coverSrc = cover or figureSrc -%}
+{%- set coverUrl = coverSrc | coverImageUrl(site.url, page.url, site.ogImage) -%}
 {%- set modified = page.inputPath | lastCommitTime -%}
 {%- set ldOpts = { coverUrl: coverUrl, modified: modified } -%}
 {%- set ldGraph = pub | jsonLdPaper(site, page.url, ldOpts) -%}

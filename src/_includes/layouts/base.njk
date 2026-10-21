@@ -162,6 +162,22 @@
      "一张图、三套文案"。 #}
   {%- set coverAltText = coverAlt or (pubMeta.figure.alt if pubMeta and pubMeta.figure else null) -%}
 
+  {# —— 封面图的**唯一真源**：front-matter `cover` 优先，否则回落到 site.js 的
+       publications[].figure（论文页的默认）。
+       为什么要有这一层回落：此前论文页的封面图有**两份真源**——
+         · 正文 <img>（paper.njk）读 site.js 的 pub.figure.src / width / height；
+         · 分享图（og:image / twitter:image / JSON-LD image）读 front-matter 的
+           cover / coverWidth / coverHeight。
+       两份可以各说各的：改了真源，正文图变了而分享卡还是旧图（反之亦然）；
+       旧图一旦被删，og:image 立刻变死链——线上分享出去的是 404 图。
+       （缺陷清单 D30）
+       现在 front-matter 里的副本已删，两边同源；front-matter 的 `cover` 保留
+       给**没有 pubKey 的内容页**（博客等）做页面级覆盖，两条路互不干扰。 #}
+  {%- set figureCover = pubMeta.figure if (pubMeta and pubMeta.figure and pubMeta.figure.src) else null -%}
+  {%- set coverSrc = cover or (figureCover.src if figureCover else null) -%}
+  {%- set coverW = coverWidth or (figureCover.width if figureCover else null) -%}
+  {%- set coverH = coverHeight or (figureCover.height if figureCover else null) -%}
+
   {# og:type 按**页面性质**判定。此前写的是"除首页外一律 article"，于是
      /about/ 、/blog/ 、/papers/ 这三个档案页与列表页、以及 /404.html
      统统自称 article —— 它们都不是文章，分享卡片与聚合器会按文章语义
@@ -210,7 +226,7 @@
          · 覆盖 → 当 front-matter `cover` 存在时，单图替换三尺寸
                   （论文页用 paper-specific 封面；保持社交平台覆盖简单可预测）
        --------------------------------------------------------------------- #}
-  {% if cover %}
+  {% if coverSrc %}
     {# ---------------------------------------------------------------------
          cover 解析（og:image 与 twitter:image 共用同一个 coverUrl）
          解析顺序：
@@ -227,7 +243,7 @@
        论文页 JSON-LD 的 image 也调它，两边**逐字相同**是构造出来的。
        此前这里内联三段 if/elif/else，论文页那边若另抄一份，
        迟早走样成"分享图与结构化数据里的图不是同一张"，而那种错无人看守。 #}
-    {% set coverUrl = cover | coverImageUrl(site.url, page.url) %}
+    {% set coverUrl = coverSrc | coverImageUrl(site.url, page.url) %}
     {# og:image:type 必须与实际文件格式一致：cover 可能是 jpg/png/svg/webp，
        写死 image/png 会让部分抓取器按错误的 MIME 解析图片（论文页用的是
        JPEG 成果图，之前被标成 png）。这里按扩展名推导。 #}
@@ -248,11 +264,11 @@
     <meta property="og:image" content="{{ coverUrl }}" />
     <meta property="og:image:secure_url" content="{{ coverUrl }}" />
     <meta property="og:image:type" content="{{ coverMime }}" />
-    {%- if coverWidth %}
-    <meta property="og:image:width" content="{{ coverWidth }}" />
+    {%- if coverW %}
+    <meta property="og:image:width" content="{{ coverW }}" />
     {%- endif %}
-    {%- if coverHeight %}
-    <meta property="og:image:height" content="{{ coverHeight }}" />
+    {%- if coverH %}
+    <meta property="og:image:height" content="{{ coverH }}" />
     {%- endif %}
     {# alt 描述的是**这张图**。默认 alt 描述的是作者身份，论文页的 cover 是
        论文成果图，用作者身份当 alt 属于图文不符 —— 论文页的 alt 走
@@ -308,7 +324,7 @@
      正是上方第 152–154 行注释点名要避免的那一串。
      → 现在 twitter 侧直接复用 og 侧那个句子（封面图则复用 coverAltText），
      顺带把"alt 描述图本身、页面标题交给 og:title 承担"这条意图落到实现上。 #}
-  {% if cover %}
+  {% if coverSrc %}
     <meta name="twitter:image" content="{{ coverUrl }}" />
     <meta name="twitter:image:alt" content="{{ coverAltText or ogCardAlt }}" />
   {% else %}

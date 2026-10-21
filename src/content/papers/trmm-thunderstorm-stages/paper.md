@@ -11,13 +11,16 @@ description: "Stage-dependent relationships between lightning and radar echo str
 # 两节，不是从别处借的。摘要放在论文页的 front matter 而不是 site.js，是因为它
 # 描述的是**这篇论文**、跟着正文一起改才不会走样；列表页靠 pubKey 关联取它。
 summary: "A K-means classifier on radar echo structure splits 16 years of TRMM storms into Pre-Mature, Mature and Post-Mature; the lightning-intensity relation turns out to be stage-specific rather than one pooled trend."
-cover: "/assets/img/publications/trmm-fig10.jpg"
-coverWidth: 1400
-coverHeight: 745
-# 分享图的 alt **不在这里写**。
-# 封面图与它的 alt 都在 site.js 的 publications[].figure 里（figure.src /
-# figure.alt），base.njk 从那里取，页面上 <img alt> / og:image:alt /
-# twitter:image:alt 三处同源，不会各说各话。
+# 封面图的 **src / 宽 / 高 / alt 都不在这里写**。
+# 唯一真源是 site.js 的 publications[].figure（figure.src / figure.width /
+# figure.height / figure.alt）；base.njk 与 paper.njk 都从那里取，
+# 页面上的 <img> / og:image / twitter:image / JSON-LD image 四个出口同源。
+#
+# 此前这里另存过一份 cover / coverWidth / coverHeight：正文 <img> 读
+# site.js、分享图（og / twitter / JSON-LD）读 front-matter，
+# 两边可以各说各的 —— 改了真源则正文图变了而分享卡还是旧图（反之亦然）。
+# D30 起这份副本删除：一张图只留一处真源。
+#
 # 此前这里另写了一份 coverAlt，写的是"复合雷达回波剖面 / echo coverage
 # percentage"——与图不符：图里是各阶段的结构分布小提琴图（按 20/30/40 dBZ
 # 分层）与闪电率、40 dBZ 闪密度的累积分布曲线。图只有一张，alt 却有两套。
