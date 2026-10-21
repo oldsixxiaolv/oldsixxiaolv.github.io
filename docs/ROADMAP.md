@@ -88,8 +88,8 @@
 - `docs/DEFECT-BACKLOG.md` 存在，每条都有编号与可判定判据；
 - 后续每轮都从这份清单里取一条来修（不是随手挑）。
 
-**进度（2026-10-20 19:40 实测）**
-- 缺陷清单已到 **D28**（D1 / D4 / D11 / D13 / D14 / D15 / D16 / D17 / D18 / D19 / D20 / D21 / D22 / D23 / D24 / D25 / D27 / D28 已修；D2 / D3 / D5 / D6 / D9 / D10 / D12 / D26 待修；D7 / D8 不修）。
+**进度（2026-10-20 20:20 实测）**
+- 缺陷清单已到 **D29**（D1 / D4 / D11 / D13 / D14 / D15 / D16 / D17 / D18 / D19 / D20 / D21 / D22 / D23 / D24 / D25 / D27 / D28 / D29 已修；D2 / D3 / D5 / D6 / D9 / D10 / D12 / D26 待修；D7 / D8 不修）。
 - 「构建链与门禁本身的失效点」这一支已补**四条**：
   ① **D13**：窄屏溢出门禁只查「横向溢出」，查不出「正文被挤成窄带」（D11 那一族坏版式当时
   build 与全部门禁都绿）—— 2026-10-20 11:00–11:30 场次给该门禁补了「正文列宽」判据
@@ -424,10 +424,52 @@
   （本轮起 about 页开始渲染它了）；`software.author` 缺一条「页面上刻意不渲染它」的解释。
 - 剩下的后端缺陷都绑在本人拍板项上（D2 / D3 ↔ 待拍板 40、D9 ↔ 41、D10 ↔ 42、D12 ↔ 43、
   D5 ↔ M1-3 选题主线、D6 ↔ push 时机 = 待拍板 7）⇒ 那几个方向本轮没有可动手项。
-  ⚠️ 本轮顺带查明 **D6 之所以能积到 173 个提交**：线上站点来自**公开发布仓**
+  ⚠️ 本轮顺带查明 **D6 之所以能积到上百个提交**：线上站点来自**公开发布仓**
   `oldsixxiaolv/oldsixxiaolv.github.io`，而 `docs/DEPLOY.md` §二 的发布命令推的是**私有源码仓**
   `oldsixxiaolv/MeteoHub` ⇒ 照文档 push **不更新线上**，且**看不出来**（push 成功、CI 不跑）。
   「发布到哪个仓」已登记为**待拍板 49**，本轮不代拍。
+- **D28**（本轮修的是缺陷 **D29**）：这一轮还是**内容事实缺陷**那一支，但换成**首页那句自我介绍**——
+  **首页简介段把同一条 Zenodo 数据集记录（`10.5281/zenodo.18041880`）说成「code / tool」**，
+  与登记事实不符，也与**上一轮刚修好的 about 页自相矛盾**（about 页已改口「dataset + code on GitHub」，
+  首页仍在说「code / tool」⇒ 同一份记录，站内两页给了两种说法）。
+  原文：「Storm identification **code** and **figure data** are released openly — the stage-identification
+  **tool** is archived on [Zenodo], and the TRMM analysis pipeline lives in [Manuscript_Lvyh].」
+  三个同源症状：① 把一条登记为 `Dataset` 的记录说成「**tool**」；
+  ② 把登记在 Zenodo 上的**数据**说成「**code** / figure data」（记录里装的是
+  `TRMM_tropical_convection_dataset.zip` 等数据文件）；
+  ③ 把「代码在 GitHub」与「数据在 Zenodo」混进同一句 ⇒ 读者只会以为 Zenodo 上那条是代码。
+  登记事实（DataCite `types.resourceTypeGeneral` = **`Dataset`**）与记录 description 原文
+  （「This **database** is for the article … You can come to my GitHub to download the **codes**」）
+  指向同一件事：**数据在 Zenodo、代码在 GitHub**。
+  2026-10-20 19:45–20:20 场次按此修，分两层：
+  ① **措辞层**：那段改成「The TRMM tropical convection 〈类型〉 behind this work is released openly —
+     the 〈类型〉 is archived on [Zenodo] so it gets a DOI and stays citable, and the analysis code
+     lives in [Manuscript_Lvyh].」—— 类型词从**真源** `site.author.zenodoType` 取（与 about 页、
+     论文页同一口径，不另写字面量）；「TRMM tropical convection」逐字取自记录内的文件名
+     （记录没写「tropical Africa」，不编）。
+  ② **结构层**（这一条是门禁的一部分）：段落次序固定为「这条记录是什么 → 它的链接 → 代码在 GitHub」，
+     门禁只看**链接之前**那段文字（那正是「这条记录是什么」那一句）⇒ 链接之后的
+     「the analysis code lives in …」说的是 GitHub 仓库，不该被类型词约束。
+  门禁 `scripts/check-about-dataset.cjs` 增判据 **AP6**（**仍不改名**：文件头已如实写清真实覆盖面 ——
+  about 页 3 处 + 论文页 1 处 + **首页简介段 1 处 = 5 处**；改名要牵动 package.json / README / 自测三处，
+  且 `AP*` 编号已入日志）+ 自测 `scripts/test-about-dataset.cjs` 增 **4 档**（AT11–AT14，
+  合计 **15 档**注入矩阵，**接在 build 链**）：AT11（说成 tool）/ AT12（不按登记类型称呼它 —— **两处**
+  类型词都要换，只换一处会假绿）/ AT13（定位标记被删）/ AT14（说成 code）⇒ 逐档判红且红因点名。
+  负对照（真实坏态级）：把新门禁跑在**修前产物**上 ⇒ exit 1、**4 条**红因**全部只落在首页**
+  （about 页与论文页无假红 ⇒ AP1–AP5 没被误伤）。
+  D29 **不是新增需求** —— 「同一事实只存一处、描述按登记事实写」这条意图本仓自己早就写下了
+  （`site.js` 文件头写着「数值只存在一处」），只是首页那处**从未按登记事实核过**；
+  本轮是把它**真的对齐**并给它配上门禁。
+  ⚠️ **边界**：AP6 守的是「首页简介段与真源不漂移」+「按登记类型称呼这条记录」；
+  它**守不了**「真源自己写错」（真源与页面一起改成 Software 并重建 ⇒ 仍自洽，AT10 就是这条边界的
+  可执行版本）⇒ 真源正确性仍靠**人工核 + 外部登记核对**（DataCite）。
+  ⚠️ 本轮顺带清掉一处**每轮都会变的数字**：上一条里「D6 之所以能积到 173 个提交」的提交数是
+  **每轮 +1 的快照**，与 D18 / D19 / D22 订正过的是同一族问题 ⇒ 改成不含数字的写法（「上百个提交」），
+  事实不变、也不会再随轮次漂移。
+  ⚠️ 本轮**没有新增待拍板项**：剩下能动手的后端缺陷仍全绑在既有待拍板项上
+  （D2 / D3 ↔ 40、D9 ↔ 41、D10 ↔ 42、D12 ↔ 43、D5 ↔ 选题主线、D6 ↔ push 时机 = 7），
+  所以本轮按 §3 规则 3 **新开 D29** 而不是重开旧号。
+
 
 ---
 

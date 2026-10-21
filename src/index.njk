@@ -64,11 +64,22 @@ editPaths:
         working on {{ site.author.researchEn | lower }}. Currently focused on
         {{ site.author.currentFocusEn }}.
       </p>
+      {# 这一段原来写的是「Storm identification code and figure data are released openly —
+         the stage-identification **tool** is archived on Zenodo」：把一条**登记为 Dataset**
+         的记录说成「code / tool」（D29）。登记事实（DataCite resourceTypeGeneral = Dataset）
+         与记录 description 原文都写着「This **database** is for the article … You can come
+         to my GitHub to download the codes」⇒ **数据在 Zenodo、代码在 GitHub**，两件事各归各处。
+         类型词从真源取（site.author.zenodoType），与 about 页、论文页同一口径。
+         ⚠️ 段的**结构**是门禁的一部分（scripts/check-about-dataset.cjs 的 AP6）：
+         先说"这条记录是什么"（类型词）→ 再说它的链接 → 最后才说代码在 GitHub。
+         门禁只看**链接之前**那段文字（那正是"这条记录是什么"那一句），
+         所以别把"code lives in GitHub"那句挪到 Zenodo 链接**前面**去。
+         data-dataset-home 是给门禁定位用的标记。 #}
       <p>
-        Storm identification code and figure data are released openly —
-        the stage-identification tool is archived on
-        <a href="{{ site.author.zenodo }}" target="_blank" rel="noopener noreferrer">Zenodo</a>,
-        and the TRMM analysis pipeline lives in
+        The TRMM tropical convection {{ site.author.zenodoType | lower }} behind this work is released
+        openly — the {{ site.author.zenodoType | lower }} is archived on
+        <a href="{{ site.author.zenodo }}" data-dataset-home target="_blank" rel="noopener noreferrer">Zenodo</a>
+        so it gets a DOI and stays citable, and the analysis code lives in
         <a href="{{ site.author.paperCodeRepo }}" data-code-repo target="_blank" rel="noopener noreferrer">Manuscript_Lvyh</a>.
       </p>
     </div>

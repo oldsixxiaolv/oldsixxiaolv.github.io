@@ -48,6 +48,19 @@
  *       「tool / code / software」。
  *   AP5 **覆盖度自证 + 门禁自己没被卸掉** —— 一处都没比过就判红；
  *       package.json 的 build 链里必须真的有本门禁。
+ *   AP6 **首页简介段也必须说同一件事** —— 首页那句介绍这条记录的话（D29）：
+ *       链接**之前**的文字必须按登记类型称呼它，且不得出现与之矛盾的
+ *       「tool / code / software」；定位标记 `data-dataset-home` 必须唯一。
+ *
+ * ⚠️ 门禁的**名字与判据前缀仍是首版的样子**（about 页 / AP = About Page），
+ *   但覆盖面已经不止 about 页：D29 起**首页简介段**也归它管 —— 首页上那处描述
+ *   同属这条记录，且必须与 about 页说的是**同一件事**（D28 修完 about 页后，
+ *   首页那句仍写着「code / tool」，两页当场自相矛盾）。
+ *   改名要牵动 package.json / README / 自测三处，且 AP* 编号已出现在日志里 ⇒
+ *   与其改名制造一次性噪音，不如把**真实覆盖面写清楚**。
+ *   首页那处的定位范围必须**圈定**在 `.home-intro__body` 块内：首页上另有
+ *   一条指向同一条记录的链接（论文卡片的 "Data" 出口，`<p class="home-pub__links">`），
+ *   不圈定范围会数出两个候选 ⇒ 定位歧义。
  *
  * ⚠️ 本门禁**守不了什么**（写清楚，不藏）：
  *   它守的是「页面与真源不漂移」+「页面三处说的是同一件事」+「散文不写死地址」。
@@ -62,7 +75,7 @@
  *   一条正确链接，改坏了的那条就没人管。标记漏了或重复了 ⇒ 判红
  *   （定位不到就是"没在看"，比看着绿更坏）。
  *
- * 编号：AP1–AP5（About Page）。不与 verify-site.cjs 的数字编号、
+ * 编号：AP1–AP6（About Page）。不与 verify-site.cjs 的数字编号、
  * check-artifact-metadata.cjs 的 M*、check-identity-derivation.cjs 的 ID*、
  * check-home-chart.cjs 的 HC* 等既有前缀冲突。
  *
@@ -352,6 +365,62 @@ if (aboutHtml) {
   }
 }
 
+/* ---------- AP6：首页简介段对这条记录的描述（D29） ---------- */
+const homeFile = path.join(SITE, "index.html");
+const homeHtml = readIf(homeFile);
+if (!homeHtml) {
+  note("首页产物不存在（_site/index.html）——无法核对首页简介段上的数据集描述。");
+} else {
+  /* 范围必须**圈定**在简介块里：首页上另有一条指向同一条记录的链接
+     （论文卡片的 "Data" 出口，落在 <p class="home-pub__links"> 里），
+     不圈定范围会数出两个候选 ⇒ 定位歧义。 */
+  const bodyMatch = homeHtml.match(/<div class="home-intro__body">([\s\S]*?)<\/div>/);
+  if (!bodyMatch) {
+    note("index.html：找不到 .home-intro__body 简介块 —— 首页上的数据集描述没有判断对象。");
+  } else {
+    const homeParas = [...bodyMatch[1].matchAll(/<p[^>]*>([\s\S]*?)<\/p>/g)].map((m) => m[1]);
+    const home = locate(
+      homeParas,
+      "data-dataset-home",
+      (b) => b.includes(`href="${url}"`)
+    );
+    if (home.error) {
+      note(`index.html：首页简介段（数据集那一句）${home.error}`);
+    } else {
+      if (!home.markerOk) {
+        note(
+          "index.html：首页简介段那条链接上没有 data-dataset-home 标记 —— " +
+            "定位契约不成立（门禁现在靠内容回退才找到它，标记漏了要有人看见）。"
+        );
+      }
+      const para = home.block;
+      const linkAt = para.indexOf(`href="${url}"`);
+      const aStart = para.lastIndexOf("<a", linkAt);
+      /* 只看链接**之前**那段 —— 那正是"这条记录是什么"那一句。
+         链接**之后**那句 "the analysis code lives in …" 说的是 GitHub 仓库，
+         不是这条记录，那里的 "code" 不该被判红。 */
+      const before = stripTags(para.slice(0, aStart >= 0 ? aStart : linkAt));
+      compared++;
+      if (!typeWord || !before.toLowerCase().includes(typeWord.toLowerCase())) {
+        note(
+          `index.html：首页简介段介绍这条记录的句子是「${before}」，` +
+            `没有按登记类型（${typeWord}）称呼它 —— 读者会以为 Zenodo 上那条是别的东西。`
+        );
+      }
+      for (const bad of ["tool", "code", "software"]) {
+        if (bad === typeWord.toLowerCase()) continue;
+        compared++;
+        if (new RegExp(`\\b${bad}\\b`, "i").test(before)) {
+          note(
+            `index.html：首页简介段把这条记录说成「${bad}」（原文：${before}），` +
+              `而登记事实是「${typeWord}」—— 与登记事实不符的称呼。`
+          );
+        }
+      }
+    }
+  }
+}
+
 /* ---------- AP1-c：论文页的术语也要一致（跨页同一件事） ---------- */
 if (paperHtml && url) {
   const dtRe = /<dt[^>]*>([\s\S]*?)<\/dt>\s*<dd[^>]*>([\s\S]*?)<\/dd>/g;
@@ -448,6 +517,6 @@ if (problems.length) {
 console.log(
   `about 页产出物描述门禁通过：Zenodo 记录（${doi}）的类型「${typeWord}」、` +
     `登记标题、可见 DOI 与地址在 about 页 Contact 行、Selected output 段、` +
-    `散文列表项、论文页术语四处**一致**，且散文里没有写死地址；` +
+    `散文列表项、论文页术语与**首页简介段**五处**一致**，且散文里没有写死地址；` +
     `共比对 ${compared} 处。`
 );

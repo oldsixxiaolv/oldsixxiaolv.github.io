@@ -17805,3 +17805,196 @@ https://doi.org/10.5281/zenodo.18041880」—— 那是**论文原文的引用�
       把「真源一起改错抓不到」从注释里的承诺变成**可执行的边界**。
 ③ 下一轮找新缺陷，仍按 D19–D27 反复验证过的顺序问三件事 ——
    ① 真源是哪一个（唯一吗）② 能不能判取值（两边写法同形吗）③ 缺了会怎样（读的人会做什么）。
+
+## 2026-10-20 · 19:45–20:20 场次（**不占轮次号**，避免与并发场次撞号）：D28 —— 首页简介段把同一条 Zenodo 数据集记录说成「code / tool」：按登记事实改写，并把它纳入门禁
+
+### 本轮定位
+
+按 D19–D27 反复验证过的三问筛候选：① **真源是哪一个**（唯一吗）② **能不能判取值**（两边写法同形吗）③ **缺了会怎样**（读的人会做什么）。
+
+本轮起手照旧先清点 DEFECT-BACKLOG 里的可动手条目 ⇒ **一条也没有**：D2 / D3 / D5 / D6 / D9 / D10 / D12 / D26 全部绑在本人拍板项上
+⇒ 按 §3 规则 3 **新开 D29**，不代拍任何一条。
+
+候选仍然落在**内容事实缺陷**那一族（D26 / D27 连续两轮都是它）：**页面上的措辞没按登记事实写**。
+但这一轮的关键不是「又多一处写错了」，而是 **D27 刚把 about 页改对之后，首页那句仍在说另一种说法** ——
+**上一轮的修复只覆盖了一个面 ⇒ 修完反而把矛盾暴露得更明显了**（同一份记录，站内两页给了两种说法）。
+
+### A. 缺陷事实
+
+`src/index.njk` 首页简介段（`.home-intro__body` 第 2 段）原文：
+
+> Storm identification **code** and **figure data** are released openly — the stage-identification **tool** is archived on [Zenodo], and the TRMM analysis pipeline lives in [Manuscript_Lvyh].
+
+三个同源症状，指的都是**同一条** Zenodo 数据集记录（`10.5281/zenodo.18041880`）：
+
+① **把一条登记为 Dataset 的记录说成「tool」**
+　DataCite 登记事实 `types.resourceTypeGeneral` = **`Dataset`**（v1.0 / v2.0 / 概念 DOI 三条**一律** Dataset），
+　首页却写「the stage-identification **tool** is archived on Zenodo」。
+
+② **把登记在 Zenodo 上的「数据」说成「code / figure data」**
+　记录里装的是三个**数据/文献文件**：`TRMM_tropical_convection_dataset.zip` +
+　`TRMM_tropical_convection_dataset_202512.hdf.zip` + `Thunderstorm_life_stages_refences_Byers(1949).pdf`
+　⇒ 没有一个是代码；而记录 description 原文写着
+　「This **database** is for the article … You can come to my GitHub to download the **codes**」
+　⇒ **数据在 Zenodo、代码在 GitHub**，首页把两者混进同一句 ⇒ 读者只会以为 Zenodo 上那条是代码。
+
+③ **与 D27 刚修好的 about 页自相矛盾**
+　about 页现在说的是「Data — the stage-identification **dataset** … is archived on Zenodo …; the analysis
+　**code** for the TRMM work is on GitHub.」，首页仍在说「code / tool」
+　⇒ **同一份记录，站内两页给了两种说法**，而 D27 的门禁只看着 about 页那三处。
+
+**判定依据取的是登记事实，不是「看着像」**：DataCite API 逐字核了
+`https://api.datacite.org/dois/10.5281/zenodo.18041880` ⇒ `types.resourceTypeGeneral` **"Dataset"**、
+`version` "2.0"、`publicationYear` 2026、creators `Lyu, yihang`、rights CC BY 4.0、
+`relatedIdentifiers` 含 `IsVersionOf → 10.5281/zenodo.16662143`；记录内 3 个文件与 description 原文如上。
+
+⚠️ **明确不误伤的两处**：
+① **链接之后**那句「the analysis **code** lives in [Manuscript_Lvyh]」说的是 **GitHub 仓库**，不是这条 Zenodo 记录
+　⇒ 那里的 "code" **是对的**，不能因为「代码在 GitHub」这句话里有 code 就把整段判死。
+② 论文参考文献表里那条的 `[Software]` 与 v1.0 标题**照旧**（那是论文原文的引用写法，D27 已说明，本轮仍不动）。
+
+### B. 本轮排除的候选方向（这段最省事，避免下轮重查）
+
+① **引用导出**（`publications.bib` / `publications.ris`）—— 类型**正确**：Zenodo 那条导出成 `@dataset` / `TY DATA`，
+　Code Ocean 那条才是 `@software` / `TY COMP` ⇒ **不是**缺陷。
+② **论文页 JSON-LD** —— 完整且类型正确：`Dataset` 节点含 `registeredTitle`、version 2.0、CC BY 4.0、
+　3 个 `DataDownload`（带 md5）、`isVersionOf` 指向概念 DOI；另有 Code Ocean 与 GitHub 两个
+　`SoftwareSourceCode` 节点 ⇒ **不是**缺陷。
+③ **`software.files` 清单与 md5** —— 逐条自洽 ⇒ **不是**缺陷。
+④ **首页论文卡片上的 "Data ↗" 出口**（`<a class="home-pub__link" href="…/zenodo.18041880">`）——
+　它指向的**就是同一条记录**，标签 "Data" 也与登记类型一致 ⇒ **不是**缺陷；
+　但它**同 URL** ⇒ 门禁的定位范围**必须圈定**（见 D 段）。
+
+### C. 改了什么（6 个文件）
+
+1. **`src/index.njk`** —— 简介段改写为
+   「The TRMM tropical convection `{{ site.author.zenodoType | lower }}` behind this work is released openly —
+   the `{{ … | lower }}` is archived on [Zenodo](data-dataset-home) so it gets a DOI and stays citable,
+   and the analysis code lives in [Manuscript_Lvyh].」
+   - 类型词**从真源取**（`site.author.zenodoType` ⇒ `dataset`），与 about 页、论文页**同一口径**，不另写字面量；
+   - 「TRMM tropical convection」**逐字取自记录内的文件名**（记录没写「tropical Africa」⇒ 不编）；
+   - 段落的**结构**被显式写进模板注释（类型词在链接前、GitHub 的 "code" 在链接后）—— 那是门禁的一部分；
+   - 加 `data-dataset-home` 标记，给门禁定位用。
+2. **`scripts/check-about-dataset.cjs`** —— 增判据 **AP6**（见 D 段）；文件头补一段**诚实的覆盖面说明**：
+   名字与 `AP*` 前缀仍是首版的样子（about 页 / AP = About Page），但覆盖面已是
+   **about 页 3 处 + 论文页 1 处 + 首页简介段 1 处 = 5 处** ⇒ 与其改名制造一次性噪音
+   （改名要牵动 package.json / README / 自测三处，且 `AP*` 编号已入日志），不如把真实覆盖面写清楚。
+3. **`scripts/test-about-dataset.cjs`** —— 自测从 **11 档**扩到 **15 档**（新增 **AT11–AT14**）；
+   **AT10 的注入扩到首页**（见 D 段末尾）。
+4. **`docs/DEFECT-BACKLOG.md`** —— 新开 **D29** 行（状态「已修」+ 验证方式）。
+5. **`docs/ROADMAP.md`** —— 进度行改「缺陷清单已到 **D29**」+ 新增 `- **D28**（本轮修的是缺陷 **D29**）` 叙述段。
+6. **`docs/IMPROVEMENT-LOG.md`** —— 本节。
+
+**顺带清掉一处每轮都会变的数字**（同一族问题，D18 / D19 / D22 订正过）：上一节末尾
+「D6 之所以能积到 **173** 个提交」里的提交数是**每轮 +1 的快照** ⇒ 改成不含数字的写法（「上百个提交」），
+事实不变、也不会再随轮次漂移。
+
+### D. 门禁 AP6 怎么写的（以及为什么这么写）
+
+- **AP6（首页简介段也必须说同一件事）**：首页简介段那条链接**之前**的文字必须含登记类型词
+  （大小写不敏感，因为正文里它是普通名词），且**不得**出现与之矛盾的「tool / code / software」；
+  定位标记 `data-dataset-home` 必须唯一，缺失单独判红。
+- **定位范围必须圈定在 `.home-intro__body` 内**：首页上另有一条指向**同一条记录**的链接
+  —— 论文卡片的 "Data ↗" 出口，落在 `<p class="home-pub__links">` 里，**href 与简介段那一个完全相同**
+  ⇒ 不圈定范围会数出**两个候选** ⇒ 定位歧义（门禁的 `locate()` 要求候选**恰好 1 个**，
+  0 个或多个都判红 ⇒ 宁可判红也不猜）。
+- **只看链接之前那段**：那正是「这条记录是什么」那一句；链接**之后**「the analysis code lives in …」
+  说的是 GitHub 仓库，**不受**类型词约束。
+  ⚠️ 副作用是**有意的**：若有人把「the analysis code lives in …」挪到 Zenodo 链接**前面**，
+  会被「出现 code」那条判红 —— 那句话说的是 GitHub 仓库，不该挂在 Zenodo 这条记录名下。
+- **覆盖度自证**：门禁实际比对处数有下限（`compared < 8` 判红）；本轮比对处数从 D28 的 **14 处**涨到 **18 处**。
+
+**AT10 为什么必须跟着改**：AT10 是**边界负对照**（真源与产物**一起**改错 ⇒ 必须判绿）。
+D29 起真源类型一变，**首页那句也要跟着变** ⇒ 否则 AT10 会因为「首页没跟着真源变」而判红
+—— 那就变成在测「首页有没有跟着真源变」，不是在本档要测的「两边一起改错时门禁判绿」。
+⇒ AT10 的注入现在**连首页一起改**（首页那句里的**两处**类型词都换掉：只换一处的话，
+`before` 里还留着 `dataset`，类型词那条判据照样通过 ⇒ 这一档就测不到「两边一起改错」了）。
+
+### E. 验证
+
+① `node scripts/check-about-dataset.cjs` **exit 0** —— 类型词在 about 页 Contact 行、Selected output 段、
+　散文列表项、论文页术语、**首页简介段**五处一致且等于登记事实 `Dataset`；可见 DOI 与真源逐字相同；
+　散文里没有写死地址；**共比对 18 处**。
+
+② `node scripts/test-about-dataset.cjs` **exit 0** —— **15 档** AT0–AT14：
+　AT0 基线绿；AT1–AT9 九种错法各自判红且红因点名（沿用 D27）；
+　**AT10 边界负对照**（真源与产物**一起**改错 ⇒ **判绿**，本轮起连首页一起改）；
+　**AT11**（首页说成 tool）⇒ 点名「tool」；**AT12**（首页不按登记类型称呼它，**两处**类型词都换掉）
+　⇒ 点名「没有按登记类型」；**AT13**（首页定位标记被删）⇒ 点名「标记」；
+　**AT14**（首页说成 code）⇒ 点名「code」。
+
+③ **浏览器实测**（真实 Chrome + CDP，静态服务器 8899）：首页简介段渲染为
+　「The TRMM tropical convection dataset behind this work is released openly — the dataset is archived on
+　Zenodo so it gets a DOI and stays citable, and the analysis code lives in Manuscript_Lvyh.」
+　链接**之前**那段含 `dataset`、**不含** tool / code / software；
+　Zenodo href = `https://doi.org/10.5281/zenodo.18041880`、GitHub href = `https://github.com/oldsixxiaolv/Manuscript_Lvyh`；
+　`data-dataset-home` 标记在位；h1 = 1、#main = 1；
+　**console 错误 0、未捕获异常 0、加载失败请求 0**；产物里占位符计数 **0**（无泄漏）。
+
+④ `npm run build` **exit 0**；本轮**不新增** npm script ⇒ README 命令表不需改（RD3 天然通过）；
+　门禁接线门禁随之通过（GW1 / GW4）。
+
+### F. 负对照（这一段最关键）
+
+把**新门禁**跑在**修前产物 + 修前真源**上
+（`git worktree add --detach /tmp/mh_d29_pre e772dc2` + `node_modules` 软链 + 单独 eleventy 构建）⇒
+**exit 1、4 条**红因，**全部只落在首页**：
+
+- 首页简介段那条链接上没有 `data-dataset-home` 标记
+- **「首页简介段介绍这条记录的句子是「Storm identification code and figure data are released openly — the
+  stage-identification tool is archived on」，没有按登记类型（Dataset）称呼它」**
+- **「首页简介段把这条记录说成「tool」」**
+- **「首页简介段把这条记录说成「code」」**
+
+⇒ **about 页与论文页一条假红都没有** ⇒ 说明 D27 的 AP1–AP5 没被本轮的新判据误伤，
+也说明这次红的是**真缺陷**、不是「结构变了就报」。
+（负对照的临时 worktree 建完即删，`git worktree list` 已复原。）
+
+### G. 边界与已知不足（如实记，不藏）
+
+1. **AP6 守不了「真源自己写错」** —— 它守的是「首页简介段与真源不漂移」+「按登记类型称呼这条记录」。
+   若有人把 `DATASET_TYPE` 改成 `Software` **并重建**，产物与真源仍自洽 ⇒ 门禁**抓不到**
+   ⇒ 真源正确性仍靠**人工核 + 外部登记核对**（DataCite）。这条边界**没有**停在注释里：
+   **AT10 档**就是它的可执行版本。
+2. **AP6 只看链接之前那段** —— 它的直接后果写在 D 段里（把「code lives in GitHub」挪到前面会被判红）。
+   这是**有意的**结构约束，不是漏判；但它是**约定**，所以模板里写了注释提醒。
+3. **AP6 的定位范围圈死在 `.home-intro__body`** —— 首页上那第二个指向同一条记录的链接
+   （论文卡片的 "Data ↗"）**不在**本判据范围内（它的标签 "Data" 与登记类型一致，本来就没问题）。
+   哪天首页再加第三处描述这条记录的地方，**要手动把范围扩过去** ⇒ 门禁不会自己发现。
+4. **不核外链可达性** —— 本机 `zenodo.org` 的 TLS 直连失败（`doi.org` 与 DataCite API 可用）
+   ⇒ 判据只取**登记事实**，**不做可达性判据**（环境不可靠会产假红）。
+5. **没有给 Zenodo 记录补 ORCID / 挂 DataCite 引用** —— 那是锦上添花，不是本条缺陷的修法范围 ⇒ 不做。
+6. **本轮没跑 Lighthouse**（工具链仍缺失）—— 本轮改的是**措辞事实**，不是样式 ⇒ 不适用。
+7. **线上仍是旧部署** —— `/papers/`、`/publications.bib`、`/feed.xml` 仍 404，属 **D6**
+   ⇒ 待拍板 7（push 时机）+ 待拍板 49（发布到哪个仓）**本轮不代拍**。
+
+### H. 本轮纪律
+
+- **不 push**：本地 `main` 领先源码远端 `oldsixxiaolv/main` **179** 个提交
+  （提交本轮后为 **180**）；部署远端 `origin`（`oldsixxiaolv.github.io`）本轮**未碰**。
+- **只提交自己那几条路径**：不用 `git add -A`；共享工作树上
+  `scripts/check-identity-handles.cjs`、`scripts/test-gates-selfcheck.cjs`
+  属**并发场次**，本轮**未碰、未覆写、未提交**。
+- **临时产物只落在 `/tmp`**（浏览器探针脚本与 Chrome profile 跑完即删）；conda 一律 `xiaolv`。
+- **没有新增待拍板项**（本轮是事实性缺陷，修法无歧义 ⇒ 不需要本人拍板）。
+- **没有新增依赖**、没有新增外部服务 / 密钥 / 账号；零第三方前端运行时依赖保持。
+- 门禁红了先定位红因，不放宽判据。
+- **每轮都会变的数字不写进文档**：本轮顺带清掉了上一节里那个每轮 +1 的提交数快照。
+
+### 下一轮入口
+
+① **D2 / D3** 待待拍板 40 拍板；**D9** 待 41；**D10** 待 42；**D12** 待 43；
+   **D5** 等本人定选题主线；**D6** 等 push（待拍板 7），且「照 `DEPLOY.md` push 不更新线上」
+   这件事仍挂着**待拍板 49**；**M3** 等本人自建 OAuth App；
+   **待拍板 47** 等本人定 `portfolio` 的去留；**待拍板 48** 等本人定 404 页的根绝对前缀要不要跟着挂载点走；
+   **D26** 等本人定装饰分隔点的取舍。
+⇒ 在这些拍板项落地之前，后端那条线**没有可动手的条目**，继续走 ROADMAP M0 §3 找新缺陷。
+② **本轮留了两条可复用的做法**：
+   ① **「修一个面」会暴露另一个面** —— D27 把 about 页改对之后，首页那句的「code / tool」才**显出来**
+      （改之前两页本来就互相矛盾，只是没人同时读过两页）⇒ 修完一个面**要回头把兄弟面扫一遍**，
+      哪怕那个面属于同一条记录、看着已经"差不多"。
+   ② **门禁的定位范围要圈死，但范围之外要有交代** —— 本轮首页有**两个** href 相同的链接
+      （简介段 + 论文卡片的 "Data ↗"）⇒ 范围不圈死就是定位歧义，圈死了就**必须在注释与日志里写明
+      「范围之外的地方门禁管不到」**（G 段第 3 条），否则下一轮会误以为"全站都守着"。
+③ 下一轮找新缺陷，仍按 D19–D28 反复验证过的顺序问三件事 ——
+   ① 真源是哪一个（唯一吗）② 能不能判取值（两边写法同形吗）③ 缺了会怎样（读的人会做什么）。
