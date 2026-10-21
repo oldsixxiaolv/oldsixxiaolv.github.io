@@ -91,7 +91,7 @@ function jsOf(dir) {
 
 /** 副本里的产物 CSS 路径。 */
 function cssOf(dir) {
-  return path.join(dir, "_site", "assets", "css", "base.css");
+  return path.join(dir, "_site", "assets", "css", "pages.css");
 }
 
 /** 跑副本里的门禁，返回 { code, out }。 */

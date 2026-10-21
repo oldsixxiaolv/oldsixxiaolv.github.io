@@ -1,13 +1,22 @@
 /* ===========================================================================
    MeteoHub · Components · index.css (Phase 2B.5)
    ---------------------------------------------------------------------------
-   总入口（dev mode）：浏览器看到本文件中的 @import 后，会按顺序拉取 7 个
-   分片 partial 文件。每个 partial 独立可缓存，独立可读，IDE/编辑器跳
-   转定位精准；修改某个组件不会让整个 components.css 重载。
+   **partial 顺序的书面声明** —— 浏览器从不加载本文件；它只进仓库、不进产物。
 
-   prod build 后：eleventy.config.js 的 eleventy.after 钩子会把 7 个 partial
-   按本文件声明的顺序拼接成单文件 _site/assets/css/components.css，
-   让浏览器一次下载 1 个请求，命中 HTTP/2 头部压缩、减少 RTT。
+   dev build 后：eleventy.config.js 的 eleventy.after 钩子生成
+   _site/assets/css/components.css（@import hub），它按相对路径
+   ./components/_xxx.css 拉 7 个 partial —— **不是**指向本文件。
+
+   prod build 后：同一个钩子把 7 个 partial 按 order 数组的顺序拼接成
+   单文件 _site/assets/css/components.css，让浏览器一次下载 1 个请求，
+   命中 HTTP/2 头部压缩、减少 RTT。
+
+   每个 partial 独立可缓存，独立可读，IDE/编辑器跳转定位精准；
+   修改某个组件不会让整个 components.css 重载。
+
+   改顺序时三处必须同改：本文件的 @import 清单 + eleventy.config.js 的
+   order 数组 + 磁盘上的 partial 清单 —— scripts/check-css-publish.cjs 的
+   CS5 会盯着这三处是否分叉（集合相同但不同序，同样判红）。
 
    修改顺序时务必遵循"由外壳到内容"的渲染层级：先 nav（chrome），再到
    交互组件（btn / badge），再到内容列表（list），最后是 paper 这种专用

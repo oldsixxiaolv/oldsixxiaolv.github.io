@@ -55,8 +55,10 @@ const path = require("path");
 const ROOT = path.join(__dirname, "..");
 const SITE = path.join(ROOT, "_site");
 
-/* CW4 的覆盖度下限（现值：16 个外链 CSS / 14 个内联块 / 每个页面 2–3 个内联块）。
-   低于这些数说明枚举逻辑坏了，不是"没问题"。 */
+/* CW4 的覆盖度下限（枚举逻辑坏了的兜底）。
+   ⚠️ 这里只写下限，不写实测规模：实测规模（外链 CSS 个数 / 内联块个数 / 每页块数）
+   会随发布清单变化 —— D50 起外链 CSS 从 16 个降到 12 个（4 个只供内联的源样式
+   不再出独立副本）。低于下限说明枚举逻辑坏了，不是「没问题」。 */
 const MIN_CSS_FILES = 5;
 const MIN_INLINE_BLOCKS = 3;
 const MIN_PAGES = 1;
@@ -334,9 +336,13 @@ for (const rel of pagesWithoutInline) {
  *   CQ2 拼接产物 components.css：index.css 声明的每个 partial，
  *      其剥注释后的内容必须**逐字出现**在产物里，且出现顺序与声明一致；
  *      剥掉这些内容后剩余部分**不得含左花括号** —— 不得有源里没有的规则块。
- *   CQ3 覆盖度自证：产物 CSS 与源 CSS 的文件集必须一一对应（components.css
- *      除外）；components.css 必须存在；磁盘上的 partial 与 index.css 声明的
- *      必须一致 —— 否则新增 partial 时门禁会静默放过它。
+ *   CQ3 覆盖度自证：产物里不许有源目录已经没有的 CSS；components.css 必须存在；
+ *      **源里有、产物里没有的 CSS，必须是「本来就不发布」的那几个**
+ *      （被 {% inlineCss %} 内联的源样式 + components/index.css 这个顺序声明）
+ *      —— 其余的源样式都得在产物里，否则就是「新增的源样式没被复制进产物」
+ *      （页面会拿它当 <link href>，直接断样式）；
+ *      磁盘上的 partial 与 index.css 声明的必须一致 —— 否则新增 partial 时
+ *      门禁会静默放过它。
  *
  * 为什么自己算、不 import 构建期的剥除器：
  *   与 CW1–CW4 同一纪律 —— 用被检查方自己的函数判自己，判据就没有独立性。
@@ -392,6 +398,60 @@ const prodRels = cssRels(PROD_CSS_ROOT);
 const partials = declaredPartials(path.join(SRC_CSS_ROOT, "components", "index.css"));
 const srcSet = new Set(srcRels);
 const prodSet = new Set(prodRels);
+
+/* ---- 被 {% inlineCss %} 内联的源样式（它们在源里有、在产物里没有是对的） ----
+ *
+ * D50 起（见 docs/DEFECT-BACKLOG.md）：tokens / base / paper-reader 三个源样式
+ * 走 {% inlineCss %} 内联进 HTML —— **内联才是它们的唯一消费路径**，
+ * 产物里不该再有它们的独立副本。所以 CQ3 的「源有产物没有」这条判据，
+ * 必须先知道「哪些源样式本来就不发布」。
+ *
+ * 判定依据 = 模板里 {% inlineCss "src/assets/css/X.css" %} 的**字面量**。
+ * ⚠️ 匹配前先剥 Nunjucks / HTML 注释：注释里的一句不算引用。
+ * ⚠️ 本门禁**不 import** 任何被检查方的模块 —— 判定依据是自己扫模板得来的。
+ */
+function inlinedCssRels() {
+  const out = new Set();
+  const srcDir = path.join(ROOT, "src");
+  const prefix = "src/assets/css/";
+  const files = [];
+  (function scan(d) {
+    let entries;
+    try {
+      entries = fs.readdirSync(d, { withFileTypes: true });
+    } catch (_) {
+      return;
+    }
+    for (const e of entries) {
+      if (e.name.startsWith("._")) continue;
+      const p = path.join(d, e.name);
+      if (e.isDirectory()) scan(p);
+      else if (e.name.toLowerCase().endsWith(".njk")) files.push(p);
+    }
+  })(srcDir);
+  const re = /\{%\s*inlineCss\s+"([^"]+)"\s*%\}/g;
+  for (const f of files) {
+    let text;
+    try {
+      text = fs.readFileSync(f, "utf8");
+    } catch (_) {
+      continue;
+    }
+    const code = text.replace(/\{#[\s\S]*?#\}/g, " ").replace(/<!--[\s\S]*?-->/g, " ");
+    re.lastIndex = 0;
+    let m;
+    while ((m = re.exec(code)) !== null) {
+      const p = m[1].split(path.sep).join("/");
+      if (!p.startsWith(prefix)) continue;
+      out.add(p.slice(prefix.length));
+    }
+  }
+  return out;
+}
+
+/* 「本来就不发布」的源样式：被内联的 + components/index.css（顺序声明）。
+   ⚠️ index.css 只被构建与门禁当**声明**读，浏览器从不加载它（D50）。 */
+const NOT_PUBLISHED = new Set([...inlinedCssRels(), "components/index.css"]);
 
 if (!fs.existsSync(SRC_CSS_ROOT)) {
   problems.push(
@@ -512,12 +572,16 @@ if (CQ3_ON && fs.existsSync(SRC_CSS_ROOT)) {
     }
   }
   for (const rel of srcRels) {
-    if (!prodSet.has(rel)) {
-      problems.push(
-        `CQ3 源里有 src/assets/css/${rel}，但产物 _site/assets/css/${rel} 不存在 —— ` +
-          `新增的源样式没被复制进产物。`
-      );
-    }
+    if (prodSet.has(rel)) continue;
+    /* 「本来就不发布」的源样式在源里有、产物里没有是**对的**（D50）：
+       被 {% inlineCss %} 内联的三个（内联才是它们的消费路径）+
+       components/index.css（partial 顺序的书面声明，浏览器从不加载）。
+       其余的源样式都必须在产物里 —— 少了就是「新增的源样式没被复制进产物」。 */
+    if (NOT_PUBLISHED.has(rel)) continue;
+    problems.push(
+      `CQ3 源里有 src/assets/css/${rel}，但产物 _site/assets/css/${rel} 不存在 —— ` +
+        `新增的源样式没被复制进产物。`
+    );
   }
   // (d) partial 名单：磁盘上的 vs index.css 声明的
   const compDir = path.join(SRC_CSS_ROOT, "components");
@@ -559,7 +623,7 @@ console.log(
 );
 notes.forEach((n) => console.log(`  · ${n}`));
 console.log(
-  `  · 内容一致性：${cq1Checked} 个一对一文件与源逐字相等；` +
+  `  · 内容一致性：${cq1Checked} 个产物 CSS 文件与源逐字相等；` +
     `components.css 逐字包含 ${cq2Checked} 个 partial。`
 );
 console.log("  · 源码里的 CSS 注释一个字没动：那是维护者的笔记，不是访客的带宽。");

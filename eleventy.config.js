@@ -99,12 +99,28 @@ module.exports = function (eleventyConfig) {
   // macOS 上 cp -R 会附带 ._<name> 资源叉备份（每个文件多出 256KB xattr），
   // 通过显式列 glob 跳过 ._* 副本，保证 _site/ 里干净。
   const assetGlobs = [
-    "src/assets/css/*.css",
+    // —— CSS：**发布清单逐个列出**，不用通配（D50）——
+    //   通配（src/assets/css/*.css + components/*.css）会把「只供内联」与
+    //   「只供构建」的源样式也原样拷进产物：tokens / base / paper-reader
+    //   三个文件走 {% inlineCss %} 内联进 HTML（内联才是它们的唯一消费路径），
+    //   components/index.css 是 partial 顺序的书面声明（浏览器从不加载它）——
+    //   这 4 个文件的产物副本**没有任何页面引用**，合计 28,847 B 白占部署体积。
+    //   ⇒ 下面 4 条顶层样式 + 1 条 partial 通配就是**全部**应当发布的 CSS。
+    //   ⚠️ 增删顶层 CSS 或 partial 时，**这几处都要一起改**：
+    //   eleventy.config.js 的 order 数组、components/index.css 的 @import 清单、
+    //   以及这里的清单；漏改会被 scripts/check-css-publish.cjs（CS1–CS7）当场判红。
+    "src/assets/css/layout.css",
+    "src/assets/css/pages.css",
+    "src/assets/css/a11y.css",
+    "src/assets/css/print.css",
     // Phase 2B.5：components 拆分后，partial 文件需要单独直拷到 _site，
-    // 让 dev mode 下 index.css 的 @import 能命中。components.css 本身
+    // dev mode 下 components.css（钩子生成的 @import hub）按相对路径
+    // './components/_xxx.css' 去命中它们。components.css 本身
     // 由下方 eleventy.after 钩子按 dev/prod 双模生成（dev: @import hub,
     // prod: concat），不通过 passthroughCopy。
-    "src/assets/css/components/*.css",
+    // ⚠️ 通配用 `_*` 而不是 `*`：components/ 下唯一不是 partial 的
+    // index.css 是构建期声明，不该进产物（D50）。
+    "src/assets/css/components/_*.css",
     "src/assets/js/*.js",
     // Phase 2B.6: paper-reader.js 拆为 6 个 ESM 子模块（main/toc/annotations/
     // reading-progress/highlight/theme），在 paper 页动态 import。

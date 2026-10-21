@@ -38,7 +38,7 @@
  *
  * CQ* 档（D38 新增，判内容一致性）：
  *   CQ1a 往产物 pages.css 末尾塞一段源里没有的规则 ⇒ CQ1 判红
- *   CQ1b 改坏产物 base.css 里的**中间**某条声明 ⇒ CQ1 判红
+ *   CQ1b 改坏产物 pages.css 里的**中间**某条声明 ⇒ CQ1 判红
  *        （CQ1a/CW1a 是两种不同的形状：追加 vs 就地改）
  *   CQ2a 把产物 components.css 里 _misc 这个 partial 的内容整段删掉 ⇒ CQ2 判红
  *   CQ2b 往产物 components.css 末尾塞一段源里没有的规则 ⇒ CQ2 判红
@@ -74,7 +74,8 @@ const GATE_SHA_AT_START = sha256(GATE);
 const LIB_SHA_AT_START = sha256(LIB);
 
 /**
- * 造一个临时副本区：<tmp>/_site、<tmp>/src/assets/css、<tmp>/scripts/<门禁>。
+ * 造一个临时副本区：<tmp>/_site、<tmp>/src/assets/css、<tmp>/src 下的 .njk 模板、
+ * <tmp>/scripts/<门禁>。
  */
 function makeSandbox() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mh-css-comment-"));
@@ -88,8 +89,37 @@ function makeSandbox() {
     path.join(dir, "src", "assets", "css"),
     { recursive: true }
   );
+  // D50 起，CQ3 的「源有产物没有」判据要先认出「被 {% inlineCss %} 内联」的
+  // 源样式（那三个本来就不发布）⇒ 沙箱里必须带上有 inlineCss 的模板。
+  // 只拷 .njk（src/ 整棵树有 22 MB，没必要搬）。
+  copyTemplates(path.join(ROOT, "src"), path.join(dir, "src"));
   fs.copyFileSync(GATE, path.join(dir, "scripts", "check-css-comment-weight.cjs"));
   return dir;
+}
+
+/** 把 from 下所有 .njk 按相对路径拷到 to（只拷模板，不搬整棵 src）。 */
+function copyTemplates(from, to) {
+  const stack = [from];
+  while (stack.length) {
+    const d = stack.pop();
+    let entries;
+    try {
+      entries = fs.readdirSync(d, { withFileTypes: true });
+    } catch (_) {
+      continue;
+    }
+    for (const e of entries) {
+      if (e.name.startsWith("._")) continue;
+      const p = path.join(d, e.name);
+      if (e.isDirectory()) {
+        stack.push(p);
+      } else if (e.name.toLowerCase().endsWith(".njk")) {
+        const dest = path.join(to, path.relative(from, p));
+        fs.mkdirSync(path.dirname(dest), { recursive: true });
+        fs.copyFileSync(p, dest);
+      }
+    }
+  }
 }
 
 /** 副本里的产物 CSS 路径（相对 assets/css）。 */
@@ -211,7 +241,7 @@ function record(id, ok, detail) {
 /* ---------------- CW2：外链 CSS 塞注释 ⇒ 判红 ---------------- */
 {
   const dir = makeSandbox();
-  const f = path.join(dir, "_site", "assets", "css", "base.css");
+  const f = path.join(dir, "_site", "assets", "css", "pages.css");
   fs.writeFileSync(f, "/* injected note */\n" + fs.readFileSync(f, "utf8"));
   const r = runGate(dir);
   const hit = r.code === 1 && /CW2/.test(r.out);
@@ -241,7 +271,7 @@ function record(id, ok, detail) {
 /* ---------------- CW3b：外链 CSS 清空 ⇒ 判红 ---------------- */
 {
   const dir = makeSandbox();
-  const f = path.join(dir, "_site", "assets", "css", "base.css");
+  const f = path.join(dir, "_site", "assets", "css", "pages.css");
   fs.writeFileSync(f, "");
   const r = runGate(dir);
   const hit = r.code === 1 && /CW3/.test(r.out);
@@ -473,18 +503,18 @@ function record(id, ok, detail) {
   fs.rmSync(dir, { recursive: true, force: true });
 }
 
-/* ---------------- CQ1b：就地改坏产物 base.css 的中间某条声明 ⇒ 判红 ---------------- */
+/* ---------------- CQ1b：就地改坏产物 pages.css 的中间某条声明 ⇒ 判红 ---------------- */
 {
   const dir = makeSandbox();
-  const f = prodCssOf(dir, "base.css");
+  const f = prodCssOf(dir, "pages.css");
   const txt = fs.readFileSync(f, "utf8");
   const at = txt.indexOf("{");
-  if (at < 0) throw new Error("注入点不存在：base.css 里没有规则块");
+  if (at < 0) throw new Error("注入点不存在：pages.css 里没有规则块");
   fs.writeFileSync(f, txt.slice(0, at + 1) + "outline:0;" + txt.slice(at + 1));
   const r = runGate(dir);
   const hit = r.code === 1 && /CQ1/.test(r.out);
   record(
-    "CQ1b 就地改坏产物 base.css 里的一条声明 ⇒ 判红",
+    "CQ1b 就地改坏产物 pages.css 里的一条声明 ⇒ 判红",
     hit,
     hit ? "红了，红因点名 CQ1（就地改与追加两种形状都拦得住）" : `code=${r.code}\n${r.out}`
   );
