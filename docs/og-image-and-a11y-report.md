@@ -76,6 +76,12 @@ python3 scripts/contrast_check.py
 
 > 路径更正：原文写的是 `src/assets/img/og/_contrast_check.py`，该路径不存在；脚本实际在 `scripts/contrast_check.py`。
 
+> **2026-10-21 更新（D53）**：本脚本已改为**运行时直接解析** `src/assets/css/tokens.css`
+> （原实现是一份手工维护的色值快照，暗色 `accent-50` / `accent-600` 两项与真值对不上 ——
+> 已登记为缺陷 D55 并修掉）。⚠️ **下面 §2.2 与 §7 的表格是 P1.3 / P1.4 当时的快照数字**，
+> 其中暗色 `accent-50` 用的值已知与现状不符，**不要按它判读**；**现状以脚本的实时输出为准**。
+> 当前实时输出里有 **1 条真实的 AA 失败**：暗色链接 hover 2.46:1（缺陷 D57，修法待拍板 55）。
+
 ### 2.2 结果
 
 | 配对 | 模式 | fg | bg | ratio | AA | 影响范围 |
