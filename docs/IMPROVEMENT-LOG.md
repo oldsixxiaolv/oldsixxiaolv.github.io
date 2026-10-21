@@ -18174,3 +18174,193 @@ D28 已把它扩到 **15 档**（脚本自身的结尾行也是 15 档）⇒ 订
    **要新开一个门禁文件**，并让它的覆盖度自证**独立**于 IA。
 ③ 下一轮找新缺陷，仍按 D19–D29 反复验证过的顺序问三件事 ——
    ① 真源是哪一个（唯一吗）② 能不能判取值（两边写法同形吗）③ 缺了会怎样（读的人会做什么）。
+
+## 2026-10-20 · 20:45–21:25 场次（**不占轮次号**，避免与并发场次撞号）：D30 —— 首页降水图的图注里写着「the box」，但全站从没说过这个 box 在哪：把区域定义渲出来，并给它配上门禁
+
+### 本轮定位
+
+本轮照例先读三份文档、跑线上巡检 7 条 URL、跑 build（基线 exit 0），再回缺陷清单取条目。
+
+**线上巡检（2026-10-20 20:45 实测）**：
+
+| URL | 线上 | 判定 |
+|---|---|---|
+| `/` | 200 | — |
+| `/papers/` | **404** | D6（旧部署） |
+| `/blog/` | 200 | — |
+| `/about/` | 200 | — |
+| `/publications.bib` | **404** | D6 |
+| `/feed.xml` | **404** | D6 |
+| `/sitemap.xml` | 200 | 线上仅 3 条 loc（仍带 `/MeteoHub/` 前缀） |
+
+与上轮**逐条一致** ⇒ 仍是 2026-10-16 旧部署（**D6**），属部署滞后、不是代码缺陷 ⇒ **不 push**。
+
+**为什么没从「待修」里取**：清单里剩下的待修条目**全部绑在既有拍板项上** ——
+D2 / D3 ↔ 待拍板 40（og 图口径与体积）、D9 ↔ 41、D10 ↔ 42、D12 ↔ 43、
+D5 ↔ 本人选题主线、D26 ↔ 视觉取舍（需本人看）、D6 ↔ push 时机（待拍板 7）。
+⇒ 按 M0 §3 规则 3「发现清单漏了的缺陷 ⇒ **新开编号**」处理。
+
+**本轮选定**：**D31** —— 首页华北降水图的图注里，那个「区域」**从来没有被定义过**。
+
+### A. 缺陷事实
+
+- 产物实测（`_site/index.html` 的图注「Data.」段，逐字）：
+  「… Earth System Science Data, 17(8), 3987-4004, 2025.
+  **land gridpoints inside the box only**; the dataset covers the Chinese mainland,
+  so Mongolia and the sea are excluded by its own mask. **area-weighted by cos(latitude).**」
+- 「**the box**」是个**指代**，而**全站从头到尾没说过这个 box 在哪**：
+  - `src/_data/extremePrecip.json` 的 `region` 字段写着 "North China, 32-50 N, 110-120 E"，
+    **却从未被任何模板渲染过** —— 在 `src/` 下按 `region` 检索，命中 2 处，
+    **两处都是散文里「the region」这个词**，没有一处是 `extremePrecip.region`；
+  - `source.landGridpoints`（13,896）同样**无人渲染**（检索命中 0）。
+- ⇒ 读者被告知了「**排除**了蒙古和海」，却没被告知「**包含**的是哪一块」——
+  图注指向的那块地，在整站任何一页上都没有出现过。
+- 附带两处：图注里 `method.area` 与 `method.weighting` 那两句**是小写开头**
+  （上一句的续句被当成了独立句）。
+- ⚠️ **为什么 build 与既有门禁全绿**：这条缺陷**不产生任何错误值** —— 页面照常渲染、
+  链接照常可点、数字照常自洽（`extremePrecip.json` 的全部派生值上一轮已实测自洽），
+  **缺的只是一个从没写出来的定义** ⇒ 任何「值对不对」型判据都抓不到它。
+- 盲区有据可查：`check-home-chart.cjs` 的 **HC1–HC7** 覆盖钩子齐全 / 读数与数据同源 /
+  键盘可达 / 模块与语法 / 样式不踩 `[hidden]` / 动态 import 的 specifier /
+  出处按登记事实记录 —— **没有一条问「图注说的那个区域到底是什么」**。
+
+### B. 本轮排除的候选方向（这段最省事，避免下轮重查）
+
+- **页脚「Edit on GitHub」与 about 页的「源码在哪」都指向停更副本** ⇒ **查清了，但不作为本轮缺陷**。
+  实测：公开仓 `oldsixxiaolv/oldsixxiaolv.github.io` 是**公开仓**、默认分支 `main`、
+  最后 push 2026-10-16T09:51:01Z ⇒ 比本地 main **落后 181 个提交**（全部 D 系列修复都不在里面）；
+  它的 `src/_data/site.js` 只有 13808 B（本地 44426 B），
+  且 `DATASET_TYPE` / `TRMM_CODE_REPO` / `registeredTitle` / `zenodoType` / `pubByKey` **一处都没有**；
+  `src/papers.njk` 在它里面**根本不存在**（文件树 MISS、`contents` API 404）
+  ⇒ `/papers/` 页的「Edit this page」链接落到一个**不存在的文件**；
+  更严重的是：公开仓里有 `.github/workflows/deploy.yml`（真正托管 Pages 的就是它），
+  所以**从页脚改一行提交上去，线上会退回 2026-10-16 的版本**（那版连 `/papers/` 都没有）。
+  ⚠️ 但**修不动**：`site.author.repo` 指向哪个仓 = **待拍板 49**（发布到哪个仓），
+  而公开仓要追平就得 push（时机属**待拍板 7**）⇒ **不代拍**，
+  本轮**只查清并登记**（缺陷清单新开 **D32**，状态「待修（由待拍板 49 触发）」），**一行都不动**。
+- **`extremePrecip.json` 里其余无人渲染的字段**（`summary.meanRx1dayMm` / `shareRecordYear` /
+  `shareRecordValue` / `recentSharePct` / `r95pAmount1960sMm` / `r95pAmountRecentMm` /
+  `source.datasetTitle` / `method.trend`）⇒ **不是缺陷**：它们是**可选的补充信息**
+  （整体均值、记录年的具体值、极端日降水的绝对量、趋势估计方法），图上或正文里已有对应说法。
+  与 D31 的形态**不同**：D31 是**指代读不成句**。其中 `method.trend`（斜率用最小二乘、
+  显著性用 Mann-Kendall）确实还没写进图注（图注只给了 p 值那一半），
+  属**可选补充** ⇒ 留作后续轮次候选，**不占本轮**（已登记进缺陷清单 §2，下轮不必重查）。
+- **论文标题大小写**（站内大写 "From" vs 自建登记记录的小写 "from"）⇒ 上轮已**证伪**
+  （出版商侧登记原题就是大写，OpenAlex 与 Semantic Scholar 两路独立镜像一致）⇒ 不重查。
+- **线上 7 条 URL** ⇒ 与上轮逐条一致 ⇒ 旧部署（D6），不是本轮可动缺陷。
+
+### C. 改了什么（7 个文件）
+
+1. **`src/_data/extremePrecip.json`**
+   - `region` 从字符串 `"North China, 32-50 N, 110-120 E"` 改成**结构化对象**
+     `{ "bbox": "32-50 N, 110-120 E", "landGridpoints": "13,896" }`
+     —— 坐标与格点数各自可渲染、可比对，不能塞在一个**没人渲染**的字符串里。
+   - `source.landGridpoints`（13896）**挪进 `region`**：它是「**这个框里**有多少个陆地格点」，
+     不是数据集的属性（数据集本身覆盖整个中国大陆）。
+   - `method.area` 去掉「land gridpoints inside the box only」这半句
+     （那半句现在由模板 + 格点数一起承担，避免同一件事两处说）；
+     `method.area` / `method.weighting` **句首大写**。
+2. **`src/_includes/partials/extreme-precip.njk`**
+   - 图注「Data.」段在出处句之后加一句：
+     `The region is {{ extremePrecip.region.bbox }} ({{ extremePrecip.region.landGridpoints }} land gridpoints inside the box).`
+     —— 坐标**排在「the box」之前**，指代才有先行词。
+   - 文件头注释补 ⑤ 条，把「① 里的『框』必须把坐标写出来」这条要求写死，
+     并记下原缺陷形态（悬空指代）与门禁归属。
+3. **`scripts/check-home-chart.cjs`** —— 新增判据 **HC8**（见下节）。
+4. **`scripts/test-home-chart.cjs`** —— 注入矩阵从 14 档扩到 **19 档**（M14–M18）。
+5. **`docs/DEFECT-BACKLOG.md`** —— 新开 **D31**（已修）行、**D32**（待修，由待拍板 49 触发）行；
+   §2 增一条「图注里其余未渲染的字段」的判定行。
+6. **`docs/ROADMAP.md`** —— 进度行改「缺陷清单已到 **D32**」+ 追加 `- **D30**` 叙述段。
+7. **`docs/IMPROVEMENT-LOG.md`** —— 本小节。
+
+⚠️ **本轮没有新增 npm script**（HC8 挂在既有 `check:home-chart`、自测挂在既有
+`check:home-chart-selftest`）⇒ README 命令表**不需要改**（RD3 不触发），
+门禁接线门禁随之通过（GW1 / GW4）。
+
+### D. 门禁 HC8 怎么写的（以及为什么这么写）
+
+- **HC8-1 真源侧**：`region` 必须是**结构化对象**（不是字符串、不是数组），
+  且 `bbox` / `landGridpoints` **都非空**。
+  为什么连「结构」也要判：旧形态是一个字符串，它让「坐标」与「格点数」既不可分别渲染，
+  也不可分别比对 —— 门禁连「该断言什么」都说不出来。
+- **HC8-2 产物侧**：图注里必须**逐字**出现 `region.bbox` 与 `region.landGridpoints`。
+- **HC8-3 顺序**：图注里出现「the box」时，区域范围必须排在它**之前**。
+  为什么顺序也要守：光「有坐标」不够 —— 坐标写在「the box」**后面**时，
+  读者读到「the box」那一刻仍然不知道它指哪一块 ⇒ 指代照样悬空。
+  （自测 M17 就是这一档。）
+- 扫描范围取**整段图注**（`<figcaption>` 到 `</figcaption>`），不是只取「Data.」段 ——
+  区域说明放在图注的哪一段是**排版决定**，不该让门禁反过来绑死排版；
+  但**先后关系**仍然在同一段内判定。
+
+### E. 验证
+
+- `node scripts/check-home-chart.cjs` → **exit 0**，HC8 打印：
+  「区域已写明（图注里逐字出现 32-50 N, 110-120 E 与 13,896 个陆地格点数；范围排在「the box」之前，指代有先行词）」
+- `node scripts/test-home-chart.cjs` → **exit 0**，**19 档** M0–M18 全部符合预期：
+  M0 基线绿；M1–M12 十二类交互 / 出处缺陷各自判红且红因点名；
+  **M13 边界负对照**（真源与产物**一起**少一位创作者 ⇒ 判绿）；
+  **M14**（产物里没有区域范围）/ **M15**（没有陆地格点数）/ **M16**（真源坐标改了产物没跟着改）/
+  **M17**（范围被挪到「the box」之后 ⇒ 悬空指代）/ **M18**（真源 `region` 退回字符串 ⇒ 结构丢了）
+  ⇒ 各自判红且红因点名。
+- `npm run build` → **exit 0**，0 个 ✗。
+- **浏览器实测**（真实 Chrome + CDP + 静态服务器 8899，真实 DOM 文本）：
+  图注「Data.」段 =
+  「… Earth System Science Data, 17(8), 3987-4004, 2025. **The region is 32-50 N, 110-120 E
+  (13,896 land gridpoints inside the box).** The dataset covers the Chinese mainland,
+  so Mongolia and the sea are excluded by its own mask. Area-weighted by cos(latitude).」
+  - 坐标 ✓、格点数 ✓、坐标排在「the box」之前 ✓、无悬空指代 ✓
+  - h1 = 1、#main = 1、`lang` = `en`
+  - 页面两张图（作者头像、论文成果图）**都加载成功**（`complete` 且 `naturalWidth>0`）
+  - **console 错误 0、未捕获异常 0、加载失败请求 0**
+  - （脚本退出码 0：Chrome profile 删除撞上已知的 ENOTEMPTY，补了重试后重跑拿到干净退出码。）
+
+### F. 负对照（这一段最关键）
+
+新门禁跑在**修前产物 + 修前真源**上（`git worktree add --detach` 取 HEAD `113bffa`
++ `node_modules` 软链 + 单独跑 eleventy）：
+
+| 组合 | 结果 | 红因 |
+|---|---|---|
+| 修前产物 + 修前真源 | exit 1 | 真源里的 region 不是结构化对象（应为 `{ bbox, landGridpoints }`） |
+| 修前产物 + 修后真源 | exit 1 | 图注里没有区域范围「32-50 N, 110-120 E」—— 读者无从知道这个框在哪 |
+| 修后产物 + 修前真源 | exit 1 | 真源里的 region 不是结构化对象（同上） |
+
+⇒ 三种错法都堵得住，**且没有假红**（HC1–HC7 在修前产物上全绿，红因只落在 HC8 上）。
+
+### G. 边界与已知不足（如实记，不藏）
+
+- **HC8 守不了「这个框选得对不对」**：坐标或格点数**真源自己写错**（框选偏了、格点数算错）时，
+  门禁照样绿 ⇒ 框的选取与格点计数仍靠人工核 + 原始数据核对。
+  （与 M13 同族：门禁守的是「产物与真源不漂移」，不是「真源本身正确」。）
+- **HC8 守不了「说明写得好不好」**：措辞、段落位置、是否用表格呈现，都不判。
+- `method.trend`（斜率用最小二乘、显著性用 Mann-Kendall）**仍未写进图注** ——
+  属可选补充（见 B 节），**留给后续轮次**，本轮没混进来。
+- **D32 未修**：见 B 节第一条 —— 属待拍板 49 的领地，本轮不代拍、一行未动。
+
+### H. 本轮纪律
+
+- **只改本轮自己那几条路径**，并发场次在途的两个文件
+  （`scripts/check-identity-handles.cjs`、`scripts/test-gates-selfcheck.cjs`）**全程未碰、未提交**；
+  提交用**私有索引**（`GIT_INDEX_FILE`）逐路径 `hash-object` + `update-index --cacheinfo`，
+  **不 push**。
+- 门禁红了先**定位红因**，不放宽判据：本轮唯一一次红是自测首跑前的锚点核对，
+  锚点取自产物**原文**（含换行与缩进），不是猜的。
+- 门禁与自测**全程在副本上注入**（`SITE_DIR` / `CHART_DATA_PATH` / `CHART_JS_PATH` / `CHART_CSS_PATH`
+  四个开关），**没有动过仓库里的任何一个文件**。
+- 本轮**没有新增待拍板项**：能动手的后端缺陷仍全绑在既有拍板项上
+  （D2 / D3 ↔ 40、D9 ↔ 41、D10 ↔ 42、D12 ↔ 43、D5 ↔ 选题主线、D26 视觉取舍、
+  D6 ↔ push 时机 = 7 + 发布仓 = 49、D32 ↔ 49）。
+
+### 下一轮入口
+
+- 清单里剩下的「待修」仍全绑在拍板项上 ⇒ **下一轮大概率还是要新开编号**。
+  已知可查的候选（本轮已查证、**下轮不必重查**）：
+  ① `method.trend` 没写进图注（可选补充，不是读不成句）；
+  ② `extremePrecip.json` 里其余未渲染的 `summary.*` 字段（同类，可选补充）；
+  ③ D32 的两个侧面（编辑链接指向不存在的文件 / 改一行会把线上退回旧版）—— **等 49**。
+- 待拍板仍挂着：**40**（og 图口径与体积 → D2 / D3）、**41**（同 `@id` 的字段口径 → D9）、
+  **42**（交互类要不要配常驻浏览器门禁 → D10）、**43**（批注层 → D12）、
+  **46**（`excerpt` 缺失判红还是 note）、**47**（`portfolio` 去留）、
+  **48**（404 页根绝对前缀）、**49**（发布到哪个仓 → D32 / D6）；
+  **D5** 等本人定选题主线；**D26** 等本人看视觉取舍；**M3** 等本人自建 OAuth App。
+- 线上仍是旧部署 ⇒ **D6** ⇒ 待拍板 7（push 时机）+ 49（发布到哪个仓）**本轮不代拍**。

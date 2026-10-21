@@ -19,6 +19,14 @@
    （MK p = 0.04），但只取 1960-2019 就不显著了（p = 0.61），
    升高的部分几乎全在 2020-2025。不写这一句，读者会读出一个站不住的结论。
 
+   ⑤（2026-10-21 D30 场次补）**① 里的「框」必须把坐标写出来**：
+   原文只写了「land gridpoints inside the box only」——「the box」是**悬空指代**，
+   页面从头到尾没说过这个框在哪（数据文件里明明有 `region`，却从未被渲染）。
+   读者被告知了「排除了蒙古和海」，却没被告知「包含的是哪一块」。
+   ⇒ 区域范围与陆地格点数现在由 `extremePrecip.region.bbox` /
+     `extremePrecip.region.landGridpoints` 渲染（**唯一真源在数据文件**），
+   并且**排在「the box」之前**——门禁 HC8 守的就是这个先后关系。
+
    ④（2026-10-20 D26 场次补）**出处必须按登记事实写**：数据集记在 Zenodo
    （DataCite 记录 10.5281/zenodo.14632156，创作者 3 位），论文记在 ESSD
    （10.5194/essd-17-3987-2025）。两个坑都踩过：
@@ -78,6 +86,8 @@
         {{ extremePrecip.source.paper.volume }}({{ extremePrecip.source.paper.issue }}),
         {{ extremePrecip.source.paper.pages }},
         {{ extremePrecip.source.paper.year }}.
+        The region is {{ extremePrecip.region.bbox }}
+        ({{ extremePrecip.region.landGridpoints }} land gridpoints inside the box).
         {{ extremePrecip.method.area }}. {{ extremePrecip.method.weighting }}.
       </p>
       <p>

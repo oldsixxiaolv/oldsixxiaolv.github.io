@@ -89,7 +89,7 @@
 - 后续每轮都从这份清单里取一条来修（不是随手挑）。
 
 **进度（2026-10-20 20:40 实测）**
-- 缺陷清单已到 **D30**（D1 / D4 / D11 / D13 / D14 / D15 / D16 / D17 / D18 / D19 / D20 / D21 / D22 / D23 / D24 / D25 / D27 / D28 / D29 / D30 已修；D2 / D3 / D5 / D6 / D9 / D10 / D12 / D26 待修；D7 / D8 不修）。
+- 缺陷清单已到 **D32**（D1 / D4 / D11 / D13 / D14 / D15 / D16 / D17 / D18 / D19 / D20 / D21 / D22 / D23 / D24 / D25 / D27 / D28 / D29 / D30 / D31 已修；D2 / D3 / D5 / D6 / D9 / D10 / D12 / D26 / D32 待修；D7 / D8 不修）。
 - 「构建链与门禁本身的失效点」这一支已补**四条**：
   ① **D13**：窄屏溢出门禁只查「横向溢出」，查不出「正文被挤成窄带」（D11 那一族坏版式当时
   build 与全部门禁都绿）—— 2026-10-20 11:00–11:30 场次给该门禁补了「正文列宽」判据
@@ -526,6 +526,63 @@
   （D2 / D3 ↔ 40、D9 ↔ 41、D10 ↔ 42、D12 ↔ 43、D5 ↔ 选题主线、D6 ↔ push 时机 = 7），
   所以本轮按 §3 规则 3 **新开 D30** 而不是重开旧号。
 
+- **D30**（本轮修的是缺陷 **D31**）：这一轮还是**内容事实缺陷**那一支，换成**图注里那个「区域」本身**——
+  首页华北降水图的图注里写着「land gridpoints **inside the box** only」，但**全站从头到尾没说过这个 box 在哪**：
+  数据文件的 `region` 字段里明明写着 "North China, 32-50 N, 110-120 E"，
+  **却从来没有被任何模板渲染过**（`region` 在 `src/` 下的引用数 = 0，只剩数据文件里那一行）；
+  `source.landGridpoints`（13,896）同样无人渲染。
+  ⇒ 读者被告知了「**排除**了蒙古和海」，却没被告知「**包含**的是哪一块」——
+  图注里出现了一个**没有先行词的指代**（"the box"）。
+  ⚠️ **为什么 build 与既有门禁全绿**：这条缺陷**不产生任何错误值** —— 页面照常渲染、链接照常可点、
+  数字照常自洽（`extremePrecip.json` 的全部派生值已在上一轮实测自洽），
+  缺的只是一个**从没写出来**的定义 ⇒ 任何「值对不对」型判据都抓不到它。
+  盲区有据可查：`check-home-chart.cjs` 的 **HC1–HC7** 覆盖钩子 / 读数同源 / 键盘 / 模块 / 样式 /
+  import specifier / 出处登记事实，**没有一条问「图注说的那个区域到底是什么」**。
+  2026-10-20 20:45–21:25 场次按此修，分两层：
+  ① **数据层**：`region` 从字符串改成**结构化**对象 `{ bbox, landGridpoints }`
+     （坐标与格点数各自可渲染、可比对，不能塞在一个没人渲染的字符串里）；
+     `source.landGridpoints` 挪进 `region`（它是「**这个框里**有多少个陆地格点」，不是数据集的属性）；
+     `method.area` 去掉「inside the box only」这半句（改由模板 + 格点数一起承担），
+     顺带把 `method.area` / `method.weighting` 的**句首大写**补上（原来两句话都是小写开头 ——
+     上一句的续句被当成了独立句）。
+  ② **模板层**：`extreme-precip.njk` 的「Data.」段在出处句之后加一句
+     「The region is {{ bbox }} ({{ 格点数 }} land gridpoints inside the box).」——
+     坐标**排在「the box」之前**，指代才有先行词。
+  门禁：**HC8**（挂在既有 `check:home-chart`，**不新开 npm script** ⇒ README 命令表不用改）——
+     HC8-1 真源 `region` 必须是结构化对象且 `bbox` / `landGridpoints` 都非空；
+     HC8-2 产物图注里必须逐字出现 `region.bbox` 与 `region.landGridpoints`；
+     HC8-3 **顺序**：图注里出现「the box」时，区域范围必须排在它**之前**。
+  自测 `scripts/test-home-chart.cjs`：**19 档** M0–M18（**接在 build 链**），新增 M14–M18 五档：
+     M14 产物里没有区域范围 / M15 没有陆地格点数 / M16 真源坐标改了产物没跟着改 /
+     M17 范围被挪到「the box」之后（悬空指代）/ M18 真源 `region` 退回字符串 ⇒ 各自判红且红因点名。
+  负对照（真实坏态级）：新门禁跑在**修前产物 + 修前真源**上
+  （`git worktree add --detach` 取 HEAD `113bffa` + `node_modules` 软链 + eleventy 单独构建）
+  ⇒ exit 1、红因点名「真源里的 region 不是结构化对象」；
+  再交叉两组（**修前产物 + 修后真源** ⇒ 「图注里没有区域范围」；**修后产物 + 修前真源** ⇒ 同前）
+  ⇒ 三种错法都堵得住。
+  浏览器实测（真实 Chrome + CDP）：图注「Data.」段的**真实 DOM 文本** =
+  「… 2025. The region is 32-50 N, 110-120 E (13,896 land gridpoints inside the box).
+  The dataset covers the Chinese mainland, so Mongolia and the sea are excluded by its own mask.
+  Area-weighted by cos(latitude).」；坐标与格点数都在、坐标排在「the box」之前；
+  h1 = 1、#main = 1、两张图都加载成功；console 错误 0、未捕获异常 0、加载失败请求 0。
+  ⚠️ **边界**：HC8 守的是「区域被写出来」+「指代有先行词」；它**守不了**「这个框选得对不对」——
+  坐标或格点数真源自己写错（框选偏了、格点数算错）时门禁照样绿 ⇒ 仍靠人工核 + 原始数据核对。
+  ⚠️ 本轮**查清但没有修**的一条（登记为缺陷 **D32**，本轮**不代拍**）：
+  页脚「Edit on GitHub」与 about 页「源码在哪」都指向**公开发布仓** `oldsixxiaolv/oldsixxiaolv.github.io`，
+  而那个仓**停更 4 天、比本地 main 落后 181 个提交**（最后 push 2026-10-16T09:51:01Z），
+  **全部 D 系列修复都不在里面** ⇒ ① 从页脚点「Edit this page」打开的是**旧副本**的编辑界面，
+  改完提交、CI 重新部署 ⇒ **线上会退回 2026-10-16 的版本**（那版连 `/papers/` 都没有）；
+  ② `/papers/` 页的编辑链接指向 `…/edit/main/src/papers.njk`，而**那个文件在公开仓的 main 分支里根本不存在**
+  （GitHub API 文件树 MISS、`contents` API 404）⇒ 编辑器只会给出「该分支没有这个文件」的死路。
+  修法（改 `site.author.repo` 指向哪个仓）**属待拍板 49**（发布到哪个仓），
+  公开仓要追平则要 push（时机属**待拍板 7**）⇒ 本轮**只登记、不动手**。
+  ⚠️ 本轮**排除了一个候选方向**：`extremePrecip.json` 里其余无人渲染的字段
+  （`summary.meanRx1dayMm` / `shareRecordYear` / `shareRecordValue` / `recentSharePct` /
+  `r95pAmount1960sMm` / `r95pAmountRecentMm` / `source.datasetTitle` / `method.trend`）
+  ⇒ **不是缺陷**：它们是**可选的补充信息**，而 D31 那条是**指代读不成句**，形态不同。
+  ⚠️ 本轮**没有新增待拍板项**：清单里剩下的「待修」仍全绑在既有拍板项上
+  （D2 / D3 ↔ 40、D9 ↔ 41、D10 ↔ 42、D12 ↔ 43、D5 ↔ 选题主线、D26 视觉取舍、
+  D6 ↔ push 时机 = 7 + 发布仓 = 49），D32 ↔ 49。
 
 ---
 

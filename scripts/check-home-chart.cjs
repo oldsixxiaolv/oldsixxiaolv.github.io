@@ -15,7 +15,7 @@
  *   · 模块文件语法坏了 —— 浏览器里静默失败，build 照样绿。
  * 上面四条都不会让构建变红，所以要有这道门禁。
  *
- * 七条判据：
+ * 八条判据：
  *   HC1 每个面板的交互钩子齐全（canvas / cursor / dot / readout-main / readout-mean）。
  *   HC2 **读数与数据同源**：SVG 上的 data-chart JSON（years / values / decades）
  *       必须与 src/_data/extremePrecip.json 逐字一致 —— 读数条和画出来的线
@@ -37,6 +37,15 @@
  *         落点是同行评审往返记录页，不是论文页。
  *       · HC7-2 产物首页图注的「Data.」段必须与真源**逐字一致**：完整论文标题、
  *         每一位创作者、机构、期刊卷期页年都要在，且**不许出现第三个 DOI**。
+ *   HC8 区域必须被**定义**，不许悬空指代（2026-10-21 D30 场次新增）：
+ *       · HC8-1 真源里的 `region` 必须是结构化对象 `{ bbox, landGridpoints }`
+ *         —— 坐标与格点数要各自可渲染、可比对，不能塞在一个没人渲染的字符串里；
+ *       · HC8-2 产物图注里必须逐字出现 `region.bbox` 与 `region.landGridpoints`；
+ *       · HC8-3 **顺序**：图注里出现「the box」时，区域范围必须排在它**之前** ——
+ *         指代要有先行词；范围写在后面，指代照样悬空。
+ *       原始缺陷形态：图注写「land gridpoints inside the box only」，而**全站
+ *       从未说过这个 box 在哪**（数据文件里有坐标，却从未被渲染）⇒ 读者被告知
+ *       「排除了蒙古和海」，却没被告知「包含的是哪一块」。
  *
  * ⚠️ HC7 的边界（写清楚，别把它的保证当无限）：
  *   它守的是「产物与真源不漂移」+「DOI 形态与卷/页/年自洽」。
@@ -445,10 +454,76 @@ const chartBlobs = [];
   }
 }
 
+/* ---------- HC8 区域必须被定义（不许悬空指代） ---------- */
+{
+  const region = data.region;
+  const diffs = [];
+
+  // --- 真源侧：region 必须是结构化对象 ---
+  // 旧形态是一个字符串（"North China, 32-50 N, 110-120 E"），而**全仓无人渲染它**。
+  // 坐标与格点数要能各自独立渲染、也各自能被门禁比对，所以不能塞在一个字符串里。
+  if (!region || typeof region !== "object" || Array.isArray(region)) {
+    diffs.push(
+      "真源里的 region 不是结构化对象（应为 { bbox, landGridpoints }）—— " +
+        "区域范围与陆地格点数必须各自可渲染、可比对，不能塞在一个字符串里"
+    );
+  } else {
+    if (!region.bbox) diffs.push("真源里的 region.bbox 是空的 —— 区域范围没写");
+    if (!region.landGridpoints) {
+      diffs.push("真源里的 region.landGridpoints 是空的 —— 陆地格点数没写");
+    }
+  }
+
+  // --- 产物侧：图注里必须出现坐标与格点数，且坐标必须排在「the box」之前 ---
+  // 「the box」是个**指代**：读者要能知道它指哪一块，就必须在同一段图注里
+  // 先看到那个框的范围。顺序也守 —— 范围写在「the box」后面，指代照样悬空。
+  const capIdx = html.indexOf('class="chart__caption"');
+  const capEnd = capIdx >= 0 ? html.indexOf("</figcaption>", capIdx) : -1;
+  if (capIdx < 0 || capEnd < 0) {
+    diffs.push("产物首页图注里找不到 <figcaption> 段");
+  } else {
+    // 与 Nunjucks 的自动转义对齐（& 先转，再 < > "）
+    const AMP = String.fromCharCode(38);
+    const ENT = { "&": AMP + "amp;", "<": AMP + "lt;", ">": AMP + "gt;", '"': AMP + "quot;" };
+    const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ENT[c]);
+    // 模板里换行排版 ⇒ HTML 源码里是换行+缩进，比对前先把空白压成单空格
+    const flat = html.slice(capIdx, capEnd).replace(/\s+/g, " ");
+
+    if (region && typeof region === "object" && region.bbox) {
+      const bbox = esc(region.bbox);
+      const bboxIdx = flat.indexOf(bbox);
+      if (bboxIdx < 0) {
+        diffs.push(
+          `图注里没有区域范围「${region.bbox}」—— 读者无从知道这个框在哪（真源里有，产物里没渲染）`
+        );
+      } else if (region.landGridpoints && !flat.includes(esc(region.landGridpoints))) {
+        diffs.push(`图注里没有陆地格点数「${region.landGridpoints}」`);
+      }
+
+      // 悬空指代检查：「the box」出现时，范围必须排在它前面
+      const boxIdx = flat.toLowerCase().indexOf("the box");
+      if (boxIdx >= 0 && bboxIdx >= 0 && bboxIdx > boxIdx) {
+        diffs.push(
+          `图注里出现「the box」，但区域范围排在它**后面** —— 这个指代没有先行词，读者还是不知道指的是哪一块`
+        );
+      }
+    }
+  }
+
+  if (diffs.length) {
+    diffs.forEach((d) => bad(`HC8 ${d}`));
+  } else {
+    ok(
+      `HC8 区域已写明（图注里逐字出现 ${data.region.bbox} 与 ${data.region.landGridpoints} 个陆地格点数；` +
+        "范围排在「the box」之前，指代有先行词）"
+    );
+  }
+}
+
 if (problems) {
   console.error(`\n首页降水图门禁未通过：${problems} 项不符预期。`);
   process.exit(1);
 }
 console.log(
-  "首页降水图门禁通过：钩子齐全、读数与数据同源、键盘可达、模块与样式都在位、动态 import 全部可解析、出处与登记事实一致。"
+  "首页降水图门禁通过：钩子齐全、读数与数据同源、键盘可达、模块与样式都在位、动态 import 全部可解析、出处与登记事实一致、区域范围已写明。"
 );

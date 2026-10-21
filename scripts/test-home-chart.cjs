@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * 首页降水图门禁的**自测**（注入矩阵）—— 证明 HC1–HC7 每一条都**能变红**。
+ * 首页降水图门禁的**自测**（注入矩阵）—— 证明 HC1–HC8 每一条都**能变红**。
  *
  * 为什么要有这个自测：
  *   一条**永远不会红**的判据，给出的是"看起来很确定的绿"——它比没有判据更坏，
@@ -15,7 +15,7 @@
  *   （这正是门禁里留 SITE_DIR / CHART_DATA_PATH / CHART_JS_PATH / CHART_CSS_PATH
  *     这四个开关的原因：没有它们，自测就只能去改仓库文件，改坏了就是事故。）
  *
- * 十四档：
+ * 十九档：
  *   M0 基线（原样）                  → 必须**全绿**（证明这套判据不是空跑）
  *   M1 读数里的数与数据文件对不上     → HC2
  *   M2 画布不可聚焦（删掉 tabindex）  → HC3
@@ -30,6 +30,11 @@
  *   M11 产物里的论文标题被截断        → HC7-2（产物与真源不一致）
  *   M12 产物里少一位创作者           → HC7-2（产物与真源不一致）
  *   M13 **边界负对照**：真源与产物**一起**少一位创作者 → **必须判绿**
+ *   M14 产物里没有区域范围（框在哪读者无从知道）→ HC8
+ *   M15 产物里没有陆地格点数                  → HC8
+ *   M16 真源里的坐标改了，产物没跟着改        → HC8
+ *   M17 区域范围被挪到「the box」之后（指代没有先行词）→ HC8
+ *   M18 真源里的 region 退回成一个字符串（结构丢了）→ HC8
  *
  * ⚠️ M13 这一档是**故意判绿**的，理由写在这里，别当成漏网：
  *   HC7 守的是「产物与真源不漂移」。如果有人把**两边一起**改错
@@ -313,12 +318,68 @@ expectGreen(
   }
 );
 
+expectRed(
+  "M14 产物里没有区域范围（框在哪读者无从知道）",
+  (parts) => {
+    // D31 的原始症状：坐标在真源里有，产物里却一个都没有 ⇒
+    // 读者被告知「排除了蒙古和海」，却没被告知「包含的是哪一块」。
+    const after = replaceOnce(parts.html, "The region is 32-50 N, 110-120 E", "The region is");
+    return { html: after };
+  },
+  "没有区域范围"
+);
+
+expectRed(
+  "M15 产物里没有陆地格点数",
+  (parts) => {
+    const after = replaceOnce(parts.html, "13,896 land gridpoints", "land gridpoints");
+    return { html: after };
+  },
+  "没有陆地格点数"
+);
+
+expectRed(
+  "M16 真源里的坐标改了，产物没跟着改（区域与产物漂移）",
+  (parts) => {
+    const after = replaceOnce(parts.data, '"bbox": "32-50 N, 110-120 E"', '"bbox": "30-50 N, 110-122 E"');
+    return { data: after };
+  },
+  "没有区域范围"
+);
+
+expectRed(
+  "M17 区域范围被挪到「the box」之后（指代没有先行词）",
+  (parts) => {
+    // 光有坐标还不够：坐标排在「the box」**后面**时，指代照样悬空。
+    const after = replaceOnce(
+      parts.html,
+      "The region is 32-50 N, 110-120 E\n        (13,896 land gridpoints inside the box).",
+      "The land gridpoints inside the box (13,896) are sampled in the region\n        32-50 N, 110-120 E."
+    );
+    return { html: after };
+  },
+  "没有先行词"
+);
+
+expectRed(
+  "M18 真源里的 region 退回成一个字符串（结构丢了）",
+  (parts) => {
+    const after = replaceOnce(
+      parts.data,
+      '"region": {\n    "bbox": "32-50 N, 110-120 E",\n    "landGridpoints": "13,896"\n  },',
+      '"region": "North China, 32-50 N, 110-120 E",'
+    );
+    return { data: after };
+  },
+  "不是结构化对象"
+);
+
 /* ---------- 收尾 ---------- */
 if (failed) {
   console.error(`\n首页降水图门禁自测**未通过**：${failed} 项不符预期。`);
   process.exit(1);
 }
 console.log(
-  "\n注入矩阵通过：14 档全部符合预期（基线绿；六类交互缺陷 + 六类出处缺陷各自判红；" +
-    "末档是**边界负对照**——真源与产物一起改错时门禁**判绿**，这是已知边界、不是漏网）。"
+  "\n注入矩阵通过：19 档全部符合预期（基线绿；六类交互缺陷 + 六类出处缺陷 + 五类区域定义缺陷各自判红；" +
+    "M13 是**边界负对照**——真源与产物一起改错时门禁**判绿**，这是已知边界、不是漏网）。"
 );

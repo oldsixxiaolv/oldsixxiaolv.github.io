@@ -1,7 +1,10 @@
 {
   "heading": "North China precipitation, 1960-2025",
   "lead": "The region this work is about, measured rather than described.",
-  "region": "North China, 32-50 N, 110-120 E",
+  "region": {
+    "bbox": "32-50 N, 110-120 E",
+    "landGridpoints": "13,896"
+  },
   "panels": [
     {
       "key": "r95pShare",
@@ -357,12 +360,11 @@
       "pages": "3987-4004",
       "year": "2025"
     },
-    "dataDoi": "10.5281/zenodo.14632156",
-    "landGridpoints": 13896
+    "dataDoi": "10.5281/zenodo.14632156"
   },
   "method": {
-    "area": "land gridpoints inside the box only; the dataset covers the Chinese mainland, so Mongolia and the sea are excluded by its own mask",
-    "weighting": "area-weighted by cos(latitude)",
+    "area": "The dataset covers the Chinese mainland, so Mongolia and the sea are excluded by its own mask",
+    "weighting": "Area-weighted by cos(latitude)",
     "wetDay": "a day with at least 1 mm of precipitation",
     "threshold": "each gridpoint's own 95th percentile of its wet-day amounts over 1960-2025",
     "r95p": "annual precipitation on the days above that gridpoint threshold, averaged over the region; the panel shows it as a share of the annual total",
