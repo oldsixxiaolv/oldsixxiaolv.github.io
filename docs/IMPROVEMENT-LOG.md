@@ -22827,6 +22827,12 @@ JT7「没找到 main.js 的 nav.js 导入行」、JT16 期望绿却红）。
 其余**逐字节相同**（仅 `feed.xml` 的 `lastBuildDate` 与 `robots.txt` 生成时刻差）；
 站点总字节 **2,182,709 → 2,179,214（−3,495 B）**；`_site` 侧车 count = 0；
 **全部 HTML 文件逐字节相同**（本轮只动脚本与样式，不碰任何 HTML）。
+⚠️ **提交后再重建**另有 2 处差异（如实记，免得下轮当成回归去追）：论文页与 sitemap 里该页的
+`dateModified` / `<lastmod>` 从「未提交时的旧提交时间」变成 **012bec5** 的提交时间
+（2026-10-21T20:16:21Z）—— 那是 **D34** 的「**依赖闭包里最晚的 git 提交时间**」口径
+（论文页闭包含本轮改动的 `src/_includes/layouts/paper.njk`）；而**另 4 页的 lastmod
+保持不变**（它们的闭包里没有本轮改的文件）⇒ 闭包口径**按页面粒度生效**，
+论文页的 `dateModified` 与 sitemap 的 `<lastmod>` 由同一个 filter 产出、两处必然一致。
 ⑤ **负对照**：把修前形态的 `src/assets/js`（`git archive deca9a9`）放进 `/tmp` 副本
 + 当前 `_site` + 当前 `package.json` ⇒ 门禁 **exit 1、恰好 7 条 JA1、且只有 JA1**
 （无 JA2 / JA3 / JA4，红因归属纯净）⇒ 7 条逐条点名 D53 的三处空转：
