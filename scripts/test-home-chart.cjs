@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * 首页降水图交互层门禁的**自测**（注入矩阵）—— 证明 HC1–HC6 每一条都**能变红**。
+ * 首页降水图门禁的**自测**（注入矩阵）—— 证明 HC1–HC7 每一条都**能变红**。
  *
  * 为什么要有这个自测：
  *   一条**永远不会红**的判据，给出的是"看起来很确定的绿"——它比没有判据更坏，
@@ -15,7 +15,7 @@
  *   （这正是门禁里留 SITE_DIR / CHART_DATA_PATH / CHART_JS_PATH / CHART_CSS_PATH
  *     这四个开关的原因：没有它们，自测就只能去改仓库文件，改坏了就是事故。）
  *
- * 七档：
+ * 十四档：
  *   M0 基线（原样）                  → 必须**全绿**（证明这套判据不是空跑）
  *   M1 读数里的数与数据文件对不上     → HC2
  *   M2 画布不可聚焦（删掉 tabindex）  → HC3
@@ -24,6 +24,19 @@
  *   M5 交互模块语法坏了              → HC4
  *   M6 读数里少了十年均值             → HC2
  *   M7 动态 import 的 specifier 写成 bare → HC6（真实踩过的坑）
+ *   M8 论文 DOI 写成预印本/讨论页形态   → HC7-1（DOI 形态读不出卷/首页/年）
+ *   M9 数据里的卷号与 DOI 对不上      → HC7-1（DOI 与真源不自洽）
+ *   M10 数据里的论文标题被截断        → HC7-1（不是数据集登记标题的后缀）
+ *   M11 产物里的论文标题被截断        → HC7-2（产物与真源不一致）
+ *   M12 产物里少一位创作者           → HC7-2（产物与真源不一致）
+ *   M13 **边界负对照**：真源与产物**一起**少一位创作者 → **必须判绿**
+ *
+ * ⚠️ M13 这一档是**故意判绿**的，理由写在这里，别当成漏网：
+ *   HC7 守的是「产物与真源不漂移」。如果有人把**两边一起**改错
+ *   （比如从 creators 里删掉一位注册创作者，然后重新构建），
+ *   产物与真源仍然自洽 ⇒ 门禁**抓不到**。这是**已知边界**，不是缺陷；
+ *   把它写成一条会跑的自测，是为了让这个边界**可证**，而不是只在注释里说说。
+ *   真源正确性靠人工核 + 外部登记核对（DataCite / 出版商页面）。
  *
  * 用法：node scripts/test-home-chart.cjs
  */
@@ -134,7 +147,7 @@ function expectGreen(label, mutate) {
 }
 
 /* ---------- 矩阵 ---------- */
-console.log("首页降水图交互层门禁 · 本地注入矩阵：\n");
+console.log("首页降水图门禁 · 本地注入矩阵：\n");
 
 expectGreen("M0 基线（原样）", null);
 
@@ -218,9 +231,94 @@ expectRed(
   "HC6"
 );
 
+expectRed(
+  "M8 论文 DOI 写成预印本 / 讨论页形态",
+  (parts) => {
+    // 这就是 D27 的原始症状：10.5194/essd-2025-20 落点是同行评审往返记录页
+    // （...-discussion.html），不是论文页 —— 链接照样打得开，没人会发现。
+    const after = replaceOnce(
+      parts.data,
+      '"doi": "10.5194/essd-17-3987-2025"',
+      '"doi": "10.5194/essd-2025-20"'
+    );
+    return { data: after };
+  },
+  "预印本"
+);
+
+expectRed(
+  "M9 数据里的卷号与 DOI 对不上",
+  (parts) => {
+    const after = replaceOnce(parts.data, '"volume": "17"', '"volume": "18"');
+    return { data: after };
+  },
+  "DOI 里读出的卷是 17"
+);
+
+expectRed(
+  "M10 数据里的论文标题被截断",
+  (parts) => {
+    const after = replaceOnce(
+      parts.data,
+      '      "title": "An upgraded high-precision gridded precipitation dataset for the Chinese mainland considering spatial autocorrelation and covariates",',
+      '      "title": "An upgraded high-precision gridded precipitation dataset for the Chinese mainland",'
+    );
+    return { data: after };
+  },
+  "不是 source.datasetTitle"
+);
+
+expectRed(
+  "M11 产物里的论文标题被截断",
+  (parts) => {
+    const after = replaceOnce(
+      parts.html,
+      "An upgraded high-precision gridded precipitation dataset for the Chinese mainland considering spatial autocorrelation and covariates</a>",
+      "An upgraded high-precision gridded precipitation dataset for the Chinese mainland</a>"
+    );
+    return { html: after };
+  },
+  "没有完整的论文标题"
+);
+
+expectRed(
+  "M12 产物里少一位创作者",
+  (parts) => {
+    const after = replaceOnce(
+      parts.html,
+      "Jinlong Hu, Chiyuan Miao, Qi Zhang",
+      "Jinlong Hu, Chiyuan Miao"
+    );
+    return { html: after };
+  },
+  "没有创作者 Qi Zhang"
+);
+
+expectGreen(
+  "M13 边界负对照：真源与产物**一起**少一位创作者（已知边界，必须判绿）",
+  (parts) => {
+    // 产物与真源一起改错 ⇒ 两者仍然自洽 ⇒ HC7 抓不到。
+    // 这一档刻意判绿：把「门禁守不了什么」变成**可证**的事实，而不是注释里的一句话。
+    const data = replaceOnce(
+      parts.data,
+      '"creators": ["Jinlong Hu", "Chiyuan Miao", "Qi Zhang"]',
+      '"creators": ["Jinlong Hu", "Chiyuan Miao"]'
+    );
+    const html = replaceOnce(
+      parts.html,
+      "Jinlong Hu, Chiyuan Miao, Qi Zhang",
+      "Jinlong Hu, Chiyuan Miao"
+    );
+    return { data, html };
+  }
+);
+
 /* ---------- 收尾 ---------- */
 if (failed) {
-  console.error(`\n首页降水图交互层门禁自测**未通过**：${failed} 项不符预期。`);
+  console.error(`\n首页降水图门禁自测**未通过**：${failed} 项不符预期。`);
   process.exit(1);
 }
-console.log("\n注入矩阵通过：7 档全部符合预期（基线绿、六类缺陷各自判红）。");
+console.log(
+  "\n注入矩阵通过：14 档全部符合预期（基线绿；六类交互缺陷 + 六类出处缺陷各自判红；" +
+    "末档是**边界负对照**——真源与产物一起改错时门禁**判绿**，这是已知边界、不是漏网）。"
+);

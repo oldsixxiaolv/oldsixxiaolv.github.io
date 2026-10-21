@@ -344,11 +344,20 @@
   },
   "source": {
     "name": "CHM_PRE V2.1.1",
-    "authors": "Jinlong Hu and Chiyuan Miao, Beijing Normal University",
+    "creators": ["Jinlong Hu", "Chiyuan Miao", "Qi Zhang"],
+    "affiliation": "Beijing Normal University",
     "grid": "0.1 degree, daily, mm/day, 1960-2025",
-    "paperTitle": "CHM_PRE V2: an upgraded high-precision gridded precipitation dataset for the Chinese mainland",
-    "paperUrl": "https://doi.org/10.5194/essd-2025-20",
-    "dataUrl": "https://doi.org/10.5281/zenodo.14632156",
+    "datasetTitle": "CHM_PRE V2: An upgraded high-precision gridded precipitation dataset for the Chinese mainland considering spatial autocorrelation and covariates",
+    "paper": {
+      "doi": "10.5194/essd-17-3987-2025",
+      "title": "An upgraded high-precision gridded precipitation dataset for the Chinese mainland considering spatial autocorrelation and covariates",
+      "journal": "Earth System Science Data",
+      "volume": "17",
+      "issue": "8",
+      "pages": "3987-4004",
+      "year": "2025"
+    },
+    "dataDoi": "10.5281/zenodo.14632156",
     "landGridpoints": 13896
   },
   "method": {

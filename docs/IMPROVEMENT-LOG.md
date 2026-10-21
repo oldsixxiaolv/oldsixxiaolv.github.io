@@ -17378,3 +17378,218 @@ AA 要 4.5:1 ⇒ 修前那三条要点等于没有。
       否则报错时得先猜前缀。
 ③ 下一轮找新缺陷，仍按 D19–D25 反复验证过的顺序问三件事 ——
    ① 真源是哪一个（唯一吗）② 能不能判取值（两边写法同形吗）③ 缺了会怎样（读的人会做什么）。
+
+---
+
+## 2026-10-20 · 18:00–18:30 场次（**不占轮次号**，避免与并发场次撞号）：D26 —— 首页降水图图注的「Data.」段出处与登记事实不符：按登记事实重写，并给它配上门禁
+
+### 本轮定位
+
+按 D19–D25 反复验证过的三问筛候选：① **真源是哪一个**（唯一吗）② **能不能判取值**（两边写法同形吗）③ **缺了会怎样**（读的人会做什么）。
+本轮**不是**前端视觉缺陷那一支（上一轮刚做完 D25），也**不是**文档漂移那一支；
+候选筛到最后，落在一条**内容事实缺陷**上 —— 图注里的**出处**没按登记事实记。
+这类缺陷的特征值得记一笔：它**不改变任何像素、任何字节的结构** ——
+build 全绿、门禁全绿、页面看着完全正常，只是**读者按图注去找那篇论文时会走错门**。
+
+### A. 缺陷事实
+
+三个同源症状，落在同一段落（首页图注的「Data.」段）、同一数据源块（`src/_data/extremePrecip.json` 的 `source` 段）：
+
+① **论文链接指向同行评审讨论页，不是论文页**
+`source.paperUrl` = `https://doi.org/10.5194/essd-2025-20`。
+实测（node `fetch` 跟重定向）落点是
+`https://essd.copernicus.org/articles/17/3987/2025/essd-17-3987-2025-**discussion**.html`
+⇒ 那是 **Copernicus 的同行评审往返记录页**。正式发表版是 `10.5194/essd-17-3987-2025`，
+落点 `https://essd.copernicus.org/articles/17/3987/2025/`（文章页），其 `citation_*` meta 逐字为
+title「An upgraded high-precision gridded precipitation dataset for the Chinese mainland considering spatial autocorrelation and covariates」/
+journal「Earth System Science Data」/ volume 17 / issue 8 / firstpage 3987 / lastpage 4004 / date 2025/08/19。
+
+② **署名漏一位注册创作者**
+Zenodo 记录 `10.5281/zenodo.14632156` 的 DataCite creator 是 **3 位**：
+`Hu, Jinlong` / `Miao, Chiyuan` / **`Zhang, Qi`**，机构均 Beijing Normal University。
+站点只写了 2 位（`"Jinlong Hu and Chiyuan Miao, Beijing Normal University"`）
+⇒ 读的人会以为这份数据是两个人做的。
+
+③ **`source.paperTitle` 记的是「数据集标题的截断混写」，而且没人渲染**
+它写的是「CHM_PRE V2: an upgraded high-precision gridded precipitation dataset for the Chinese mainland」——
+既不是论文标题（真论文标题**没有** `CHM_PRE V2:` 前缀），
+也不是完整的数据集标题（漏了 `considering spatial autocorrelation and covariates`）；
+而且这个字段**全仓无人渲染**（只在 JSON 里出现过一次）⇒ 一条既写错、又没人看的字段。
+
+⚠️ **取证口径（这条容易再踩）**：ESSD/Copernicus 的 DOI 由 **Crossref** 登记、**不在** DataCite
+⇒ `api.datacite.org/dois/10.5194/...` 一律 **404**。**不能**拿 DataCite 的 404 判「DOI 不存在」，
+要判必须看**真实落点**。反过来，DataCite 那边又能给出**交叉印证**：
+`10.5281/zenodo.14632156` 的 `relatedIdentifiers` 里明确有
+`IsDescribedBy → 10.5194/essd-17-3987-2025` ⇒ **数据自己声明的正式论文 DOI** 就是它 —— 两个独立权威互证。
+
+⚠️ **不要误伤**：站点其余与该数据集有关的声明核对**无误** ——
+`name`「CHM_PRE V2.1.1」= DataCite `version`「V2.1.1」；
+`grid` 的 0.1°/daily/mm/day/1960-2025 与 Zenodo 描述一致；
+`method` 的湿日阈值 / 每格点 95 百分位 / cos(lat) 加权口径一致；
+`landGridpoints` 13896 是站内自算值
+⇒ **不是数据算错，是出处记错**。修法只碰出处，不碰任何一个数。
+
+### B. 本轮先证伪了八条（这段最省事，避免下轮重查）
+
+① **暗色 selector 写法** —— `tokens.css` 用 `:root:not([data-theme="light"])` + `[data-theme="dark"]`，
+`theme.js` 是三态主题 ⇒ 两条路径都对，**不是**漏了一条。
+② **图版白纸衬底** —— `div.home-pub__figure-plate`（1104×588）、`div.paper-figure__plate`（890×475）、
+`img.*__figure-img` 在暗色下 own=rgb(255,255,255)、L=1，但 CSS 注释**明确记录了**写死 `#ffffff` 的理由
+（避免与图本身的白底之间裂出发灰接缝）⇒ 改它等于翻转**已记录的设计决策** ⇒ 排除。
+③ **外链可达性门禁** —— 环境实测不可靠（CodeOcean 403、Zenodo/DOI TLS 失败）⇒ 会产出假红 ⇒ 排除。
+④ **引用元数据** —— `check-citation-meta.cjs` 的 C1–C8 已覆盖得够全 ⇒ 排除。
+⑤ **`extremePrecip.json` 的 `summary` 派生量** —— ⚠️ **上一轮摘要里那两条「严重不符」是自造探针的口径错误**，
+本轮重新逐条精确核算后**全部通过**：`shareYearsAbovePre2020Max`=[2021,2024] 是对的（用的是**严格 `>`**；
+若用 `>=` 才会误得 [2018,2021,2024]）；`earlierRx1dayRange`=[52.4,55.8] 是**各年代均值**的极差（52.42–55.81），
+不是逐年值的极差（42.672–67.773）；`sharePre2020MaxValue` 32.5 是 32.529 的正常舍入；
+两个面板 7 个 `decadal` 均值与 `trend.perDecade`（OLS×10 ⇒ 0.5555→0.556、0.7677→0.768）逐条对上
+⇒ **该数据文件完全自洽**，候选作废。
+⑥ **ARIA 引用完整性** —— 自写静态探针扫全部产物页的 `aria-labelledby/describedby/controls/owns/flowto/errormessage`、
+`label[for]`、重复 id、`href="#…"` 锚点、标题层级、链接/按钮可访问名、img alt ⇒ **0 问题**；
+且 `check-a11y.cjs` 的 A5/A6/A7 已全覆盖 ⇒ 排除。
+⑦ **运行时控制台报错** —— 自写 CDP 探针逐页抓 6 个页面（`Page/Runtime/Network/Log` 全开）
+⇒ console 零报错、零未捕获异常、零 ≥400 响应、零 loadingFailed ⇒ 排除。
+⑧ **论文引用元数据 vs 外部登记** —— `mcp__agu-papers__get_metadata` 与 OpenAlex 交叉核，
+站内 volume 131 / issue 11 / articleNumber e2026JD046836 / 作者顺序 7 人 / ISSN 2169-897X /
+期刊 JGR: Atmospheres / 出版日 2026-06-01 **逐条吻合**，产物 `.bib`/`.ris` 也一致 ⇒ 排除。
+
+### C. 改了什么（4 个文件）
+
+1. **`src/_data/extremePrecip.json`**（`source` 段）—— 改成**结构化**：
+   - 删 `authors`（字符串）、`paperUrl`、`paperTitle`（本就无人渲染）；
+   - 加 `creators: ["Jinlong Hu", "Chiyuan Miao", "Qi Zhang"]`（3 位注册创作者）
+     + `affiliation: "Beijing Normal University"`；
+   - 加 `paper{doi,title,journal,volume,issue,pages,year}`（正式发表版 DOI + 完整标题 + 期刊卷期页年）；
+   - 加 `datasetTitle`（Zenodo 数据集记录的登记标题，用作校验锚点）；
+   - `dataUrl` → `dataDoi`（只留 DOI，URL 由模板按 `https://doi.org/{{ … }}` 拼 —— 与站内其它出口同一写法）。
+2. **`src/_includes/partials/extreme-precip.njk`**（图注「Data.」段）—— 按结构化字段渲染：
+   署名由 `creators` 渲染成「Jinlong Hu, Chiyuan Miao, Qi Zhang (Beijing Normal University)」，
+   论文链接指向正式发表版，并把**完整标题**与期刊 / 卷 / 期 / 页 / 年一起印出来。
+   文件头补一条 ④「出处必须按登记事实写」，把两个坑（预印本 DOI 形态、漏署名）写下来。
+3. **`scripts/check-home-chart.cjs`** —— 增判据 **HC7**（见 D 段）；文件头由「交互层门禁」改述为
+   「首页降水图门禁」，并顺手订正「五条判据」（实列六条）这个旧笔误。
+4. **`scripts/test-home-chart.cjs`** —— 注入矩阵从 7 档扩到 **14 档**（M8–M13）。
+
+⚠️ **本轮没动 `package.json`、没动 README** —— HC7 挂在既有 `check:home-chart`、自测挂在既有
+`check:home-chart-selftest` ⇒ 不新增 npm script ⇒ RD3（README 命令表必须提到每个 npm script）不触发，
+门禁接线门禁 GW1/GW4 也自动满足。
+
+### D. 门禁 HC7 怎么写的（以及为什么这么写）
+
+**HC7-1 论文 DOI 必须能读出卷 / 首页 / 年，且与真源对得上。**
+Copernicus 有两种 DOI 形态，长得几乎一样：
+正式发表版 `10.5194/<刊>-<卷>-<首页>-<年>`、预印本/讨论页 `10.5194/<刊>-<年>-<编号>`。
+后者的落点是**同行评审往返记录页** —— 引用它等于把「这篇论文在哪」指错了，而链接**照样打得开**。
+所以判据不只查「DOI 是不是合法」，而是查「**DOI 形态能不能读出卷/首页/年**」，
+再把这三个数与 `source.paper.volume` / `pages` / `year` **对账**。
+这一条是**两条独立写法的同形比对** ⇒ 真源里卷号打错一位也会被抓住。
+（只对 `10.5194/` 前缀施加；别的出版商形态不同，不猜它的结构，跳过数在通过文案里如实报出。）
+
+**论文标题必须是「另一份登记记录」的标题的后缀。**
+`source.datasetTitle` 是 **Zenodo 数据集记录**的登记标题，
+`source.paper.title` 是 **ESSD 文章页**的 `citation_title`，
+两者的关系是「数据集短名 + `：` + 论文标题」⇒ 论文标题必须是数据集标题的**后缀**。
+这一条是**第二份登记记录**给的第一道交叉校验：论文标题一旦被**单独截断**（原始症状之一），
+后缀关系立刻不成立 ⇒ 能抓住。
+⚠️ 它**抓不到**「把两个标题**一起**改成同一个错值」—— 见 G 段。
+
+**HC7-2 产物首页的「Data.」段必须与真源逐字一致。**
+取图注的**第一段**（`chart__caption` 里 `Data.` 那一段），**不是**整页 —— 整页查会到处误命中。
+比对前先把 HTML 源码里的换行 + 缩进压成单空格（模板是换行排版，源码里不是单空格），
+再逐项查：完整论文标题、**每一位**创作者、机构、期刊卷期页年（拼成一串再比，
+免得「17」「8」这种短数字各自撞上别处）、以及**段内出现的 DOI 集合**
+（必须**恰好**是数据 DOI 与论文 DOI 两个 —— 多一个就是「不该有的 DOI 链接」，
+这正是原始症状①的形状）。
+
+### E. 验证
+
+① `node scripts/check-home-chart.cjs` exit 0 —— HC7 打印
+「论文 DOI 10.5194/essd-17-3987-2025：卷 17 / 首页 3987 / 年 2025 自洽；
+标题与数据集登记标题成后缀关系；产物「Data.」段与真源逐字一致，含 3 位创作者」。
+② `node scripts/test-home-chart.cjs` exit 0 —— **14 档** M0–M13 全符合预期：
+M0 基线绿；**M8** 数据里 DOI 换成预印本形态 ⇒ 判红并点名「预印本」；
+**M9** 卷号与 DOI 对不上 ⇒ 判红并给出「DOI 里读出的卷是 17」；
+**M10** 数据里论文标题被截断 ⇒ 判红并点名「不是 source.datasetTitle … 的后缀」；
+**M11** 产物里标题被截断 ⇒ 判红「没有完整的论文标题」；
+**M12** 产物里少一位创作者 ⇒ 判红「没有创作者 Qi Zhang」；
+**M13 边界负对照** ⇒ 判绿（见 G 段）。
+③ **浏览器实测**（真实 Chrome + CDP，静态服务器映射 `_site`）：首页「Data.」段的**真实 DOM 文本** =
+「Data. Daily precipitation from CHM_PRE V2.1.1 (0.1 degree, daily, mm/day, 1960-2025)
+by Jinlong Hu, Chiyuan Miao, Qi Zhang (Beijing Normal University); dataset paper:
+An upgraded high-precision gridded precipitation dataset for the Chinese mainland considering
+spatial autocorrelation and covariates, Earth System Science Data, 17(8), 3987-4004, 2025. …」，
+段内两个链接分别指向 `https://doi.org/10.5281/zenodo.14632156` 与
+`https://doi.org/10.5194/essd-17-3987-2025`；图注仍是 3 段；console 错误 **0**、未捕获异常 **0**。
+④ `npm run build` exit 0（build 日志里 `✗` **0** 处）；门禁接线门禁随之通过（GW1 / GW4）。
+⑤ 外部事实的取证方式（可复核）：DataCite `https://api.datacite.org/dois/10.5281/zenodo.14632156`
+⇒ `version`「V2.1.1」、creator 3 位（机构均 Beijing Normal University）、
+`title`「CHM_PRE V2: An upgraded … considering spatial autocorrelation and covariates」、
+`relatedIdentifiers` 含 `IsDescribedBy → 10.5194/essd-17-3987-2025`；
+ESSD 文章页 `https://essd.copernicus.org/articles/17/3987/2025/` 的 `citation_*` meta 逐字如 A 段所列。
+
+### F. 负对照（这一段最关键）
+
+**真实坏态级**：新门禁跑在**修前**产物 + **修前**数据上
+（`git worktree add --detach` 取 HEAD `2c921d2` + `node_modules` 软链 + eleventy 单独构建）
+⇒ **exit 1**、**6 条**红因，其中一条**直接点名**
+`https://doi.org/10.5194/essd-2025-20` 是「**不该有的 DOI 链接**」
+⇒ 门禁不是靠「字段结构变了」才发现问题，是**认得出那个错 DOI 本身**。
+另两组交叉组合同样判红：
+**修前产物 + 修后数据**（改了数据忘了重建）⇒ 5 条红因，含「没有创作者 Qi Zhang」；
+**修后产物 + 修前数据**（改了产物忘了改真源）⇒ 6 条红因。
+⇒ 三种错法都堵得住。
+（负对照的临时 worktree 建完即删，`git worktree list` 已复原。）
+
+### G. 边界与已知不足（如实记，不藏）
+
+1. **HC7 守不了「真源自己写错」** —— 它守的是「产物与真源不漂移」+「DOI 形态与卷/页/年自洽」
+   +「论文标题与数据集登记标题成后缀关系」。
+   如果有人把**两边一起**改错（creators 少一位、或两个标题改成同一个错值），门禁**抓不到**
+   ⇒ 真源正确性仍靠**人工核 + 外部登记核对**（DataCite / 出版商页面）。
+   这个边界**没有**停在注释里：自测的 **M13 档**就是它的可执行版本
+   （真源与产物一起少一位创作者 ⇒ **判绿**）
+   ⇒ 「门禁能覆盖什么」与「门禁覆盖不到什么」现在**都是会跑的**。
+2. **没有给创作者挂 ORCID** —— DataCite 里前两位有 ORCID
+   （`0000-0002-8123-7282` / `0000-0001-6413-7020`），第三位没有。
+   挂 ORCID 链接属于**锦上添花**、不是本条缺陷的修法范围 ⇒ 本轮**不做**
+   （按「清单外不擅自新增需求」的规矩）。若要做，是另一件事。
+3. **数据集标题只做校验锚点、不进正文** —— 图注里印的是数据集短名 + 版本（「CHM_PRE V2.1.1」）
+   与完整论文标题；数据集记录自己的完整标题（`CHM_PRE V2: An upgraded …`）只作为**校验锚点**存在
+   （`source.datasetTitle`，被 HC7-1 用）。理由：两段标题几乎全同，正文里印两遍是噪音。
+4. **本轮没跑 Lighthouse**（工具链仍缺失）—— 本轮改的是**出处事实**，不是样式 ⇒ 不适用。
+5. **线上仍是旧部署** —— `/papers/`、`/publications.bib`、`/feed.xml` 仍 404，属 **D6**
+   ⇒ 待拍板 7（push 时机）+ 待拍板 49（发布到哪个仓）**本轮不代拍**。
+6. **DataCite 对 Crossref 管的 DOI 一律 404** —— 这条口径本轮又踩了一次（先怀疑 DOI 不存在），
+   已写进 A 段与门禁注释。
+
+### H. 本轮纪律
+
+- **不 push**：本地 `main` 领先源码远端 `oldsixxiaolv/main` **177** 个提交
+  （提交本轮后为 **178**）；部署远端 `origin`（`oldsixxiaolv.github.io`）本轮**未碰**。
+- **只提交自己那几条路径**：不用 `git add -A`；共享工作树上
+  `scripts/check-identity-handles.cjs`、`scripts/test-gates-selfcheck.cjs`
+  属**并发场次**，本轮**未碰、未覆写、未提交**。
+- **临时产物只落在 `/tmp`**；清文件走可恢复删除工具；conda 一律 `xiaolv`。
+- **没有新增待拍板项**（本轮是事实性缺陷，修法无歧义 ⇒ 不需要本人拍板）。
+- **没有新增依赖**、没有新增外部服务 / 密钥 / 账号；零第三方前端运行时依赖保持。
+- 门禁红了先定位红因，不放宽判据。
+
+### 下一轮入口
+
+① **D2 / D3** 待待拍板 40 拍板；**D9** 待 41；**D10** 待 42；**D12** 待 43；
+   **D5** 等本人定选题主线；**D6** 等 push（待拍板 7），且「照 `DEPLOY.md` push 不更新线上」
+   这件事仍挂着**待拍板 49**；**M3** 等本人自建 OAuth App；
+   **待拍板 47** 等本人定 `portfolio` 的去留；**待拍板 48** 等本人定 404 页的根绝对前缀要不要跟着挂载点走；
+   **D26** 等本人定装饰分隔点的取舍。
+⇒ 在这些拍板项落地之前，后端那条线**没有可动手的条目**，继续走 ROADMAP M0 §3 找新缺陷。
+② **本轮留了两条可复用的做法**：
+   ① **「外部登记」类事实要两处互证** —— 一处是出版商页面（`citation_*` meta），
+      一处是数据仓库记录（DataCite 的 `relatedIdentifiers` 里 `IsDescribedBy` 直接指向正式 DOI）。
+      两处独立来源对上，才敢把它写进正文。
+      ⚠️ 配套的坑：**DOI 的登记机构不同，查错的库只会得到假 404** ——
+      Crossref 管的 DOI 在 DataCite 一律 404 ⇒ **404 ≠ 不存在**，要判得看真实落点。
+   ② **门禁的「守不住什么」也要写成会跑的测试** —— M13 那一档判绿，
+      把「真源一起改错抓不到」从注释里的承诺变成**可执行的边界**。
+      边界一旦只是注释，就会随时间悄悄失效；写成测试，它就一直在。
+③ 下一轮找新缺陷，仍按 D19–D26 反复验证过的顺序问三件事 ——
+   ① 真源是哪一个（唯一吗）② 能不能判取值（两边写法同形吗）③ 缺了会怎样（读的人会做什么）。

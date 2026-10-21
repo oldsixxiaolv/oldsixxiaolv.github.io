@@ -18,6 +18,18 @@
    ——③ 是这张图最容易骗人的地方：全期 1960-2025 看 R95p 占比是升的
    （MK p = 0.04），但只取 1960-2019 就不显著了（p = 0.61），
    升高的部分几乎全在 2020-2025。不写这一句，读者会读出一个站不住的结论。
+
+   ④（2026-10-20 D26 场次补）**出处必须按登记事实写**：数据集记在 Zenodo
+   （DataCite 记录 10.5281/zenodo.14632156，创作者 3 位），论文记在 ESSD
+   （10.5194/essd-17-3987-2025）。两个坑都踩过：
+     · Copernicus 的**预印本/讨论页 DOI**（10.5194/<刊>-<年>-<编号>）落到的是
+       同行评审往返记录页，不是论文页 ⇒ 引用要认准**正式发表版**形态
+       10.5194/<刊>-<卷>-<首页>-<年>；
+     · 署名漏一位注册创作者，读的人就会以为只有两个人做了这份数据。
+   ⇒ 署名改成**结构化** creators 数组（模板 join 渲染），论文改成结构化
+     paper 段（标题 / 期刊 / 卷 / 期 / 页 / 年 / DOI），出处信息在仓内
+     **只有一份真源**（src/_data/extremePrecip.json 的 source 段）。
+     门禁 HC7 守着它（见 scripts/check-home-chart.cjs）。
    ========================================================================== #}
 
 <section class="home-chart" id="north-china-precip" aria-labelledby="home-chart-title">
@@ -56,9 +68,16 @@
     <figcaption class="chart__caption">
       <p>
         <strong>Data.</strong> Daily precipitation from
-        <a href="{{ extremePrecip.source.dataUrl }}" target="_blank" rel="noopener noreferrer">{{ extremePrecip.source.name }}</a>
-        ({{ extremePrecip.source.grid }}) by {{ extremePrecip.source.authors }};
-        <a href="{{ extremePrecip.source.paperUrl }}" target="_blank" rel="noopener noreferrer">dataset paper</a>.
+        <a href="https://doi.org/{{ extremePrecip.source.dataDoi }}" target="_blank" rel="noopener noreferrer">{{ extremePrecip.source.name }}</a>
+        ({{ extremePrecip.source.grid }}) by
+        {{ extremePrecip.source.creators | join(", ") }}
+        ({{ extremePrecip.source.affiliation }});
+        dataset paper:
+        <a href="https://doi.org/{{ extremePrecip.source.paper.doi }}" target="_blank" rel="noopener noreferrer">{{ extremePrecip.source.paper.title }}</a>,
+        {{ extremePrecip.source.paper.journal }},
+        {{ extremePrecip.source.paper.volume }}({{ extremePrecip.source.paper.issue }}),
+        {{ extremePrecip.source.paper.pages }},
+        {{ extremePrecip.source.paper.year }}.
         {{ extremePrecip.method.area }}. {{ extremePrecip.method.weighting }}.
       </p>
       <p>
