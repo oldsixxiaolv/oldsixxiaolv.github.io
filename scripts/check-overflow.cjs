@@ -76,6 +76,37 @@
  *     TS4 **豁免如实报数**（被行内例外放过的目标有几个，必须在通过文案里说出来 ——
  *        默默放过就等于判据自己把范围缩掉了）。
  *
+ * ⚠️ 为什么还要量「滚动定位让位」（2026-10-20 修缺陷清单 D24）：
+ *   前三条判据盯的都是**版面**（撑破 / 挤窄 / 点不点得中），都没管
+ *   **「跳过去了却看不见」** —— 这一族在窄屏与宽屏**都**坏，而且完全看不出来：
+ *   站内所有「滚动定位」都是把目标滚到视口**顶**：跳转链接 `#main`、
+ *   论文页目录条目（toc.js 的 `scrollIntoView({block:"start"})`）。
+ *   顶栏 `header.topbar` 是 `position:sticky; top:0`、高 56px ⇒ 目标必须让开它，
+ *   否则滚完目标被顶栏整条盖住。D24 实测（修前，6 页 × 2 档）：
+ *     · 跳转链接 `#main` —— 被盖 **56px**（整整一条顶栏）；
+ *     · 论文页目录 6 个标题 —— 标题行高只有 15px，被盖 **15px** = **整条标题**
+ *       （"点目录后标题不被顶栏压住"这条意图写在 paper-reader.css 里很久了，
+ *        但那条 `scroll-margin-top` 挂在 `.paper-body h2[id]` 上，
+ *        而目录标题都在 `.paper-body` **外面**的 `<section>` 里 ⇒ **一条都没匹配上**）。
+ *   量法：把目标**瞬时**滚到视口顶（`behavior:"instant"`，不等动画 ——
+ *   否则读到的是滚动途中的中间位置），再看它的顶边落在吸顶顶栏底边的哪一侧。
+ *   吸顶顶栏按**计算样式**找（position:sticky/fixed 且当前矩形贴着视口顶），
+ *   **不写死 class 名** —— 判的是「顶上有没有东西挡着」这件事本身。
+ *   判据编号 AN1–AN3：
+ *     AN1 滚动定位目标**不得被吸顶顶栏遮住**（主判据）；
+ *     AN2 判据**自证存活**（每页每档都要量到目标、全站至少量到一个；
+ *        并且当站内确实存在「钉在文档顶的吸顶元素」时，必须至少识别到一次
+ *        顶栏遮挡线 —— 少任何一条都说明这条判据在空跑，
+ *        空跑的门禁等于没有门禁，所以判红）；
+ *     AN3 **目录覆盖自证**（论文页量到的目录目标数必须等于该页带 id 的标题数 ——
+ *        少了就说明「目录指不到的那些标题」根本没被这条判据量过）。
+ *   修法只有一种：给**根滚动容器**（html）加 scroll-padding-top。
+ *   不要逐个目标挂 scroll-margin-top —— 那要靠选择器逐条匹配，漏一条就白写
+ *   （本仓已经因此白写过一次：那条规则挂在 .paper-body h2[id] 上，
+ *   而目录标题都在 .paper-body 外面 ⇒ 一条都没匹配上）。
+ *   另外注意：容器的 scroll-padding 与目标的 scroll-margin 是**相加**的，
+ *   两者同时存在会让目标被推得更远。
+ *
  * 用法：
  *   node scripts/check-overflow.cjs                # 全部默认档位
  *   node scripts/check-overflow.cjs --width 320    # 只测某一档（调试用）
@@ -488,10 +519,25 @@ const measureScript = (contentSelector) => `(() => {
     return false;
   };
   const overflow = [], scrollers = [], offcanvas = [];
+  /* 吸顶元素候选：顺手在这次全树扫描里挑出来，给下面「滚动定位让位」用 ——
+     **不另扫一遍全树**（全树 getComputedStyle 是这个门禁最贵的一步，
+     扫两遍等于白花一倍时间）。 */
+  const stickyCandidates = [];
+  /* 「钉在文档顶的吸顶元素」计数 —— 给 AN2 ③ 当**独立信号**用：
+     如果这一页确实有个 sticky/fixed 元素是从文档最顶端开始的（顶栏长这样），
+     那 AN1 就必须能认出遮挡线；认不出 ⇒ 判据在这页空跑 ⇒ 判红。
+     ⚠️ 判据故意用**文档流位置**（offsetTop）而不是「滚动后的矩形」——
+        后者正是 findOccluder 用的那个信号，拿它自证就是自己证明自己，
+        检测一坏就一起坏 ⇒ 永远发现不了。用 offsetTop 才能是**独立**信号。 */
+  let topAnchoredSticky = 0;
   for (const el of document.querySelectorAll('body *')) {
     const r = el.getBoundingClientRect();
     if (r.width === 0 && r.height === 0) continue;
     const cs = getComputedStyle(el);
+    if (cs.position === 'sticky' || cs.position === 'fixed') {
+      stickyCandidates.push({ el, sel: sel(el) });
+      if (el.offsetTop <= 1) topAnchoredSticky++;
+    }
     if (cs.position === 'fixed') continue;
     if (r.right <= vw + 1 && r.left < -1) {
       // 被故意挪到屏幕左侧之外（如 skip-link、隐藏的抽屉）——不撑宽页面
@@ -559,6 +605,85 @@ const measureScript = (contentSelector) => `(() => {
       inSentence,
     });
   }
+  /* ---------- 滚动定位让位（吸顶顶栏）----------
+     站内所有「滚动定位」都是把目标滚到视口**顶**：跳转链接 #main、
+     论文页目录条目（toc.js 的 scrollIntoView({block:"start"})）。
+     顶栏是 position:sticky; top:0、高 56px ⇒ 目标必须让开它，
+     否则滚完目标被顶栏整条盖住（实测：跳转链接被盖 56px、
+     目录标题被盖 15px = 整条标题）。
+
+     遮挡线 = **钉在视口顶**的元素里最靠下的那条边：
+       · 只认当前矩形贴着视口顶（r.top <= 1）的；
+       · sticky 且 top 不是 0px 的不算（本站 .paper-toc / .annot-pane
+         是 top:88px，是侧栏不是顶栏）；底部抽屉那种 fixed 也不算。
+     按**计算样式**找、不写死 class 名 —— 判的是「顶上有没有东西挡着」
+     这件事本身，换一套顶栏实现也不会漏判。 */
+  const findOccluder = () => {
+    let best = null;
+    for (const c of stickyCandidates) {
+      const r = c.el.getBoundingClientRect();
+      if (r.height === 0 || r.width === 0) continue;
+      if (r.top > 1) continue;
+      if (!best || r.bottom > best.bottom) best = { sel: c.sel, top: r.top, bottom: r.bottom };
+    }
+    return best;
+  };
+  /* 滚动定位目标：① 站内锚点链接指到的元素；② 论文页的**目录目标**。
+     ② 直接按 toc.js 的同一条规则取（article.paper 内的 h2[id]/h3[id]），
+     **不等 toc.js 跑起来** —— 那是个动态 import，等它就等于让门禁
+     「有时量到、有时量不到」（薛定谔的门禁比没有门禁更糟）。
+     两个集合取并集：#main 这类静态锚点 + 目录标题。 */
+  const anchorMap = new Map();
+  for (const a of document.querySelectorAll('a[href^="#"]')) {
+    const id = (a.getAttribute('href') || '').slice(1);
+    if (!id || anchorMap.has(id)) continue;
+    const t = document.getElementById(id);
+    if (!t) continue;
+    anchorMap.set(id, {
+      id,
+      kind: 'anchor',
+      label: (a.textContent || '').replace(/\\s+/g, ' ').trim().slice(0, 30),
+    });
+  }
+  const paperRoot = document.querySelector('article.paper');
+  const tocHeadingCount = paperRoot ? paperRoot.querySelectorAll('h2[id], h3[id]').length : 0;
+  if (paperRoot) {
+    for (const h of paperRoot.querySelectorAll('h2[id], h3[id]')) {
+      const prev = anchorMap.get(h.id);
+      if (prev) {
+        /* 这个 id 同时也是站内锚点（罕见）⇒ 标成目录目标，
+           否则 AN3 的「量到的目录目标数」会少算一个 ⇒ 假红。 */
+        prev.kind = 'toc';
+        continue;
+      }
+      anchorMap.set(h.id, {
+        id: h.id,
+        kind: 'toc',
+        label: (h.textContent || '').replace(/\\s+/g, ' ').trim().slice(0, 30),
+      });
+    }
+  }
+  const anchorTargets = [];
+  for (const t of anchorMap.values()) {
+    const el = document.getElementById(t.id);
+    if (!el) continue;
+    /* 瞬时滚动，不等动画 —— 否则读到的是滚动途中的中间位置。 */
+    el.scrollIntoView({ block: 'start', behavior: 'instant' });
+    const r = el.getBoundingClientRect();
+    const occ = findOccluder();
+    const overlap = occ
+      ? Math.max(0, Math.min(occ.bottom, r.bottom) - Math.max(occ.top, r.top))
+      : 0;
+    anchorTargets.push({
+      id: t.id,
+      kind: t.kind,
+      label: t.label,
+      top: Math.round(r.top * 10) / 10,
+      height: Math.round(r.height * 10) / 10,
+      occluded: Math.round(overlap * 10) / 10,
+    });
+  }
+  window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
   return {
     vw,
     pageScrollWidth: document.documentElement.scrollWidth,
@@ -568,6 +693,13 @@ const measureScript = (contentSelector) => `(() => {
     offcanvas: offcanvas.slice(0, 3),
     content,
     targets,
+    anchors: {
+      occluder: (() => { const o = findOccluder(); return o ? { sel: o.sel, bottom: Math.round(o.bottom * 10) / 10 } : null; })(),
+      targets: anchorTargets,
+      tocHeadingCount,
+      tocMeasured: anchorTargets.filter((a) => a.kind === 'toc').length,
+      topAnchoredSticky,
+    },
   };
 })()`;
 
@@ -652,6 +784,14 @@ const measureScript = (contentSelector) => `(() => {
   let targetMeasured = 0; // 量到过触点的（页 × 档）次数（自证用）
   let targetCount = 0; // 一共量到多少个触点（自证用）
   let inlineExempt = 0; // 走行内例外被豁免的目标总数（TS4 如实报数）
+  const anchorViolations = []; // { width, route, id, kind, label, occluded } —— 滚动定位目标被吸顶顶栏遮住
+  let anchorMeasured = 0;    // 量到滚动定位目标的（页 × 档）次数（自证用）
+  let anchorCount = 0;       // 一共量到多少个滚动定位目标（自证用）
+  let anchorEmpty = 0;       // 一个目标都没量到的（页 × 档）次数（自证用）
+  let tocExpected = 0;       // 论文页带 id 的标题总数（AN3 覆盖度自证用）
+  let tocMeasured = 0;       // 其中被量到的目录目标数
+  let occluderSeen = 0;      // 量到过吸顶顶栏的（页 × 档）次数（自证用）
+  let topAnchoredSeen = 0;   // 存在「钉在文档顶的吸顶元素」的（页 × 档）次数（AN2 ③ 的独立信号）
 
   for (const width of WIDTHS) {
     /* ⚠️ 每一档都要**重新设置**设备尺寸 —— 只设一次的话，
@@ -736,17 +876,44 @@ const measureScript = (contentSelector) => `(() => {
         });
       });
 
+      /* ---------- 滚动定位让位（吸顶顶栏，AN1–AN3） ---------- */
+      const anchors = (m.anchors && m.anchors.targets) || [];
+      anchorMeasured++;
+      anchorCount += anchors.length;
+      if (anchors.length === 0) anchorEmpty++;
+      tocExpected += (m.anchors && m.anchors.tocHeadingCount) || 0;
+      tocMeasured += (m.anchors && m.anchors.tocMeasured) || 0;
+      const occluder = (m.anchors && m.anchors.occluder) || null;
+      if (occluder) occluderSeen++;
+      const topAnchored = (m.anchors && m.anchors.topAnchoredSticky) || 0;
+      if (topAnchored > 0) topAnchoredSeen++;
+      const anchorOccluded = anchors.filter((a) => a.occluded > 0);
+      anchorOccluded.forEach((a) => {
+        anchorViolations.push({ width, route, id: a.id, kind: a.kind, label: a.label, occluded: a.occluded });
+      });
+      const anchorLine =
+        `      滚动定位 ${anchors.length} 个目标` +
+        (occluder ? `，吸顶顶栏 ${occluder.sel} 底边 ${occluder.bottom}px` : "，本页没有吸顶顶栏") +
+        (anchorOccluded.length ? ` ✗ ${anchorOccluded.length} 个被遮住` : " ✓");
+
       /* ⚠️ 行首的 ✓/✗ 现在代表**本页本档的全部判据**（横向溢出 + 正文列宽 + 触点尺寸）；
          退出码与它同源 —— 下面几处计数加起来就是最终退出码的依据。 */
       const status = m.hasHScroll
         ? "✗ 横向可拖"
-        : columnOk && tEval.violations.length === 0
+        : columnOk && tEval.violations.length === 0 && anchorOccluded.length === 0
         ? "✓"
         : "✗";
       console.log(`  ${status} ${route}  (scrollWidth ${m.pageScrollWidth} / 视口 ${m.vw})`);
       console.log(columnLine);
       console.log(targetLine);
+      console.log(anchorLine);
       if (columnNote) console.log(`      ${columnNote}`);
+      anchorOccluded.forEach((a) => {
+        console.log(
+          `      滚动定位被顶栏遮住：#${a.id}「${a.label}」被遮 ${a.occluded}px` +
+            `（${a.kind === "toc" ? "论文页目录条目" : "站内锚点"}）`
+        );
+      });
       tEval.violations.forEach((v) => {
         console.log(
           `      触点过小：${v.target.sel}「${v.target.text}」${Math.round(v.target.w)}×${Math.round(v.target.h)}px` +
@@ -816,6 +983,52 @@ const measureScript = (contentSelector) => `(() => {
     );
   }
 
+  /* AN2：滚动定位判据**自证存活** —— 空跑的门禁等于没有门禁。
+     ① 每页每档都要量过一次（量到 = 该页确实有可解析的滚动定位目标）；
+     ② 全站至少量到一个目标（选择器写错 / 页面结构变了 ⇒ 全军覆没）；
+     ③ 全站至少识别到过一次吸顶顶栏 —— 一个顶栏都没认出来的话，
+        AN1 的「没被遮住」是因为**没有东西可比**，等于空跑；
+     ④ 每一页每一档都不许「一个目标都量不到」。 */
+  if (anchorMeasured !== expected) {
+    problems.push(
+      `滚动定位测量次数对不上：期望 ${expected} 次（每页每档一次），实际 ${anchorMeasured} 次 —— ` +
+        `有一页没被量到。`
+    );
+  }
+  if (anchorCount === 0) {
+    problems.push(
+      `AN2 一个滚动定位目标都没量到 —— 滚动定位判据此刻等于**空跑**，空跑的门禁等于没有门禁，所以判红。`
+    );
+  }
+  if (anchorEmpty > 0) {
+    problems.push(
+      `AN2 有 ${anchorEmpty} 个（页 × 档）**一个滚动定位目标都量不到** —— ` +
+        `这些页面要么没有可解析的锚点，要么目标收集规则失效了。`
+    );
+  }
+  /* AN2 ③：顶栏识别的自证 —— 但**必须有条件**。
+     「全站一次顶栏都没认出来」本身不一定是缺陷（这个站本来就可以没有吸顶顶栏，
+     比如纯文库夹具站）⇒ 无条件判红会误伤。
+     条件用**独立信号**：这一页确实存在「从文档最顶端开始的吸顶元素」
+     （offsetTop ≤ 1 —— 顶栏就长这样；侧栏 sticky top:88px 的 offsetTop 很大，
+     底部抽屉的 fixed offsetTop 也不小 ⇒ 都不会被算进来）。
+     只有当这种元素存在、却一个遮挡线都没认出来时，
+     才能下结论说「检测坏了」⇒ AN1 在这些页上空跑 ⇒ 判红。 */
+  if (topAnchoredSeen > 0 && occluderSeen === 0) {
+    problems.push(
+      `AN2 有 ${topAnchoredSeen} 个（页 × 档）存在钉在文档顶的吸顶元素，却一次顶栏遮挡线都没识别到 —— ` +
+        `AN1 的「没被遮住」是因为**没有东西可比**，判据等于空跑，所以判红。`
+    );
+  }
+  /* AN3：目录覆盖自证 —— 论文页「带 id 的标题数」必须与「被量到的目录目标数」相等。
+     不等 = 有标题没被这条判据量过（收集规则漏了、或标题中途丢了 id）。 */
+  if (tocMeasured !== tocExpected) {
+    problems.push(
+      `AN3 目录目标覆盖对不上：论文页共 ${tocExpected} 个带 id 的标题，只量到 ${tocMeasured} 个 —— ` +
+        `有标题没被这条判据量过，目录指过去的目标是**判据盲区**。`
+    );
+  }
+
   ws.close();
   chrome.proc.kill();
   server.close();
@@ -878,11 +1091,31 @@ const measureScript = (contentSelector) => `(() => {
     console.error("");
     process.exit(1);
   }
+  if (anchorViolations.length) {
+    console.error(
+      `\n✗ ${anchorViolations.length} 处滚动定位目标被吸顶顶栏遮住` +
+        `（滚到了，但落点被顶住 ⇒ 目标看不见）:`
+    );
+    anchorViolations.forEach((v) => {
+      console.error(
+        `  · ${v.width}px  ${v.route}  #${v.id}「${v.label}」被遮 ${v.occluded}px` +
+          `（${v.kind === "toc" ? "论文页目录条目" : "站内锚点"}）`
+      );
+    });
+    console.error(
+      `  ⇒ 修法：给**根滚动容器**加 scroll-padding-top（让位吸顶顶栏），` +
+        `不要逐个目标挂 scroll-margin-top（漏一条就白写）。`
+    );
+    console.error("");
+    process.exit(1);
+  }
   console.log(
     `✓ 所有页面在 ${WIDTHS.length} 档宽度（${widthList}）下均无横向溢出，` +
-      `且正文列都不窄、触点都达到 WCAG 2.5.8 的要求` +
+      `且正文列都不窄、触点都达到 WCAG 2.5.8 的要求、滚动定位目标都没被吸顶顶栏遮住` +
       `（共 ${measured} 次测量，${routes.length} 个页面；` +
-      `量到触点 ${targetCount} 个，其中 ${inlineExempt} 个按**行内例外**豁免）`
+      `量到触点 ${targetCount} 个，其中 ${inlineExempt} 个按**行内例外**豁免；` +
+      `量到滚动定位目标 ${anchorCount} 个（其中目录目标 ${tocMeasured} 个），` +
+      `识别到吸顶顶栏 ${occluderSeen} 次）`
   );
   process.exit(0);
 })().catch((e) => {

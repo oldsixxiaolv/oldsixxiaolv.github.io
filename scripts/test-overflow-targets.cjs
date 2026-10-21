@@ -65,6 +65,13 @@ const VIEWPORT_META = '<meta name="viewport" content="width=device-width, initia
 /**
  * ⚠️ 必须带 viewport meta —— mobile 模拟下没有它，布局视口会退回 980px，
  *    那么"请求 360px、量到 980px"就是**量错了宽度**（门禁会判红，那是对的）。
+ *
+ * ⚠️ `<main id="main">` + 一条指向它的**行内**跳转链接是**必需的**，不是装饰：
+ *    窄屏溢出门禁的 AN2 要求「每一页每一档都至少量到一个滚动定位目标」，
+ *    而滚动定位目标 = 站内锚点链接指到的元素。没有这条链接 ⇒ 量到 0 个目标
+ *    ⇒ AN2 自证判红 ⇒ 这份自测会因**与它本该测的东西无关**的原因而红。
+ *    （与 M5 档当年踩的 TS1 空跑坑同族：**夹具不像真页面**。）
+ *    这条链接放在**句子里** ⇒ 走行内例外，不会给触点判据 TS1 添乱。
  */
 function page(title, body, css) {
   return `<!doctype html>
@@ -76,8 +83,9 @@ ${VIEWPORT_META}
 <style>${css}</style>
 </head>
 <body>
-<main>
+<main id="main">
 <h1>${title}</h1>
+<p>Skip to <a href="#main">the main content</a> of this fixture page.</p>
 ${body}
 </main>
 </body>

@@ -92,7 +92,16 @@
   font-weight: 700;
   letter-spacing: -0.01em;
   color: var(--text-primary);
-  scroll-margin-top: 88px;   /* topbar 56px + 32px，点目录后标题不被顶栏压住 */
+  /* ⚠️ 这里原来挂着 `scroll-margin-top: 88px`（注释写的是「点目录后标题不被顶栏
+     压住」），但它**一条都没匹配上**：论文页真正被目录指向的 6 个标题
+     （Key Points / Plain Language / Abstract / Data and code availability /
+     Meta notes / Cite this paper）都在 .paper-body **外面**的 <section> 里
+     —— .paper-body 里那 4 个标题是 markdown 的 ##，没有 id。
+     ⇒ 实测点目录后标题落在视口顶（top≈0），被 56px 的吸顶顶栏**整条盖住**。
+     现在这件事由**根滚动容器**统一管：base.css 的 html { scroll-padding-top: 88px }
+     对所有滚动定位一视同仁，不依赖选择器逐条匹配。
+     ⚠️ 目标元素上的 scroll-margin-top 与容器的 scroll-padding-top 是**相加**的
+     ⇒ 这里绝不能再挂 scroll-margin-top，否则会叠成 176px。 */
   /* paper h2/h3 多为学术小节标题，长度跨 2 行常见；balance 避免单字末尾。 */
   text-wrap: balance;
 }

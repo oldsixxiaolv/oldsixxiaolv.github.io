@@ -19,6 +19,24 @@ html {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   scroll-behavior: smooth;
+  /* —— 滚动定位要让开吸顶顶栏 ——
+     站内所有「滚动定位」都是把目标滚到视口**顶**：跳转链接 #main、
+     论文页目录条目（toc.js 的 scrollIntoView({block:"start"})）。
+     顶栏（header.topbar）是 position:sticky; top:0; 高 56px ⇒ 目标
+     必须让开它，否则滚完目标被顶栏整条盖住：
+       · 跳转链接 #main —— 实测被盖 56px（整整一条顶栏）
+       · 目录标题       —— 实测被盖 15px（整条标题，看不见字）
+     为什么加在**根滚动容器**上、而不是逐个目标加 scroll-margin-top：
+       scroll-margin-top 挂在目标元素上，要靠选择器一条条匹配上，
+       **漏一条就白写**。本仓已经吃过这个亏 —— paper-reader.css 里那条
+       `.paper-body h2[id]` 的 scroll-margin-top 匹配 0 个元素
+       （论文页的目录标题都在 .paper-body **外面**的 <section> 里），
+       于是「点目录后标题不被顶栏压住」这条写了很久的意图从未生效。
+       加在根上则是**一视同仁**：任何滚动定位都自动让位，不依赖选择器。
+     88 = topbar 56px + 32px 呼吸空间（与 .paper-toc / .annot-pane 的
+     top: 88px 同一口径）。⚠️ 与目标自身的 scroll-margin-top 是
+     **相加**的 —— 目标上不要再挂 scroll-margin-top，否则会叠成 176px。 */
+  scroll-padding-top: 88px;
 }
 
 body {

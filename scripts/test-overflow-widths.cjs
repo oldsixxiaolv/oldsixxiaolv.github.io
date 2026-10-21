@@ -61,6 +61,10 @@ const VIEWPORT_META = '<meta name="viewport" content="width=device-width, initia
  *   门禁没错，是**夹具不像真页面**（真页面总有链接）。
  *   加一个**句子里**的链接正好顺带把「行内例外」那条路也走了一遍。
  *   删掉它 ⇒ 这份自测会红，且红因是 TS1 而不是它本该测的东西。
+ *
+ * ⚠️ 同族坑（AN2）：<main id="main"> + 指向它的行内跳转链接也是**必需的** ——
+ *    窄屏溢出门禁的 AN2 要求「每一页每一档都至少量到一个滚动定位目标」，
+ *    没有这条链接 ⇒ 量到 0 个 ⇒ AN2 自证判红 ⇒ 这份自测会因与本意无关的原因而红。
  */
 function page(title, body) {
   return `<!doctype html>
@@ -71,11 +75,12 @@ ${VIEWPORT_META}
 <title>${title}</title>
 </head>
 <body>
-<main>
+<main id="main">
 <h1>${title}</h1>
 <p>This fixture page belongs to the overflow gate selftest and carries an
-<a href="/">ordinary inline link</a> so that the touch-target judgement has
-something to measure at all.</p>
+<a href="/">ordinary inline link</a> and a
+<a href="#main">jump to the main content</a> so that the touch-target judgement
+has something to measure at all.</p>
 ${body}
 </main>
 </body>
