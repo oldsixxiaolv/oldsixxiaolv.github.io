@@ -20524,3 +20524,217 @@ papers 页 `../assets/js/main.js`、论文页 `../../assets/js/main.js`、
   **D5** 等本人定选题主线；**D26** 等本人看视觉取舍；**M3** 等本人自建 OAuth App。
 - 线上仍是旧部署 ⇒ **D6** ⇒ 待拍板 7（push 时机）+ 49（发布到哪个仓）**本轮不代拍**。
 - **本轮不新增待拍板**：D42 是**纯补看护**（改门禁、不改构造层、不动需要拍板的取舍）⇒ 不占新号。
+
+## 2026-10-21 · 04:50–05:20 场次（**不占轮次号**，避免与并发场次撞号）：D41 —— 响应式图片声明（`srcset`）里的**候选资源零看守**：给候选图配上门禁
+
+### 本轮定位
+
+接 D40 场次（D42）之后继续。缺陷清单里剩下的「待修」仍**全绑在既有拍板项上**
+（D2 / D3 ↔ 40、D9 ↔ 41、D10 ↔ 42、D12 ↔ 43、D5 ↔ 选题主线、D26 视觉取舍、
+D6 ↔ push 时机 = 7 + 发布仓 = 49、D32 ↔ 49）⇒ **本轮按惯例新开编号 D43**。
+
+线上巡检：7 条 URL 仍是**旧部署**（`/` 200、`/papers/` **404**、`/blog/` 200、
+`/about/` 200、`/publications.bib` **404**、`/feed.xml` **404**、`/sitemap.xml` 200）
+⇒ 那是 **D6**（待拍板 7 + 49），**不是新缺陷**，本轮不碰、不代拍。
+
+### A. 缺陷事实
+
+**响应式图片声明（`srcset`）里的候选资源，从来没被任何一道门禁核过。**
+
+**实测一：产物里有 2 处 `<img srcset>`、共 4 个候选 URL**
+
+| 页面 | 标签 | 候选 |
+|---|---|---|
+| `_site/index.html` | `<img class="home-portrait__img" src="assets/img/author/portrait.jpg" srcset="…">` | `assets/img/author/portrait-sm.jpg 300w`、`assets/img/author/portrait.jpg 600w` |
+| `_site/about/index.html` | `<img class="about-hero__photo" src="../assets/img/author/portrait.jpg" srcset="…">` | `../assets/img/author/portrait-sm.jpg 300w`、`../assets/img/author/portrait.jpg 600w` |
+
+浏览器**按视口宽 / 设备像素比**从候选里挑一张去请求 ⇒ **候选断链 = 那个宽度下直接断图**。
+而这两张肖像带 `loading="eager"` + `fetchpriority="high"` ⇒ 它们就是 **LCP 元素**
+⇒ 候选断链 = **LCP 直接失败**。
+
+**实测二：零门禁看守（四个门禁都碰到了 `srcset`，但都不管这件事）**
+
+- `scripts/verify-site.cjs` 的通用引用正则 `/(?:href|src)\s*=\s*"([^"]*)"/gi`
+  —— **匹配不到 `srcset`**：`src` 后面跟的是 `set=` 而不是 `=`，正则要求属性名后紧跟 `=`
+  ⇒ 整条声明在它眼里**根本不存在**；
+- `scripts/check-404-depth.cjs` 确实读了 `href|src|srcset` 三个属性，
+  但它**只判路径形态**（404 页必须根绝对 / 其余页面必须相对），**不判存在性**；
+- `scripts/check-third-party.cjs` 确实扫 `img[src|srcset]`，但它**只判外域**（TD1）
+  ⇒ 站内断链不归它管；
+- `scripts/check-image-assets.cjs` 只管 og:image / twitter:image 装在 `content` 属性里的
+  **分享图**（IA1–IA7），**不看 `<img>` 的 srcset**。
+
+⇒ **响应式图片的候选存在性至今零覆盖。**
+
+**实测三（决定性）：14 道产物侧门禁，14 道全绿**
+
+把首页肖像的 600w 候选改成 `assets/img/author/mh-d43-missing.jpg`（副本里确实不存在），
+对副本跑 **14 道**产物侧门禁：
+`verify-site` / `check-image-assets` / `check-404-depth` / `check-a11y` /
+`check-third-party` / `check-site-js` / `check-block-language` / `check-site-language` /
+`check-lang` / `check-jsonld` / `check-home-chart` / `check-figure-cover` /
+`check-tool-routes` / `check-copy-export`
+⇒ **全部 exit 0**，没有任何一道报告这件事。
+
+**后果**：换肖像图时改了 `src` 忘了改 `srcset`（或反之）、或候选仍写着旧文件名
+⇒ **访客在那个宽度下看到的是断图**，而 **build 全绿**。
+
+⚠️ **不要误伤**：这不是「产物现在有违规」。实测**产物现状全部健康**
+（4 个候选全部存在、描述符合法且未混用 `w`/`x`、两处 `<img>` 都带 `src` 兜底）；
+缺的只是**看守** ⇒ 本轮改的是**门禁**，**不改构造层**。
+
+### B. 本轮排除的候选方向（这段最省事，避免下轮重查）
+
+- **CSS 里的 `url()` 引用**：产物 CSS 里**一条 `url()` 都没有** ⇒ 没有缺口，不必开编号。
+- **`<link href>` 目标存在性**：`verify-site.cjs` 的通用正则虽只写 `href|src`，
+  但它是**属性名正则**（`(?:href|src)\s*=\s*"([^"]*)"`），**不限定标签**
+  ⇒ `<link rel="stylesheet" href="…">` 的目标**已经被它管着** ⇒ 不是缺口。
+- **`aria-labelledby` / `aria-describedby` / `aria-controls` / `label for` /
+  页内锚点 `href="#…"` 的悬空引用**：`check-a11y.cjs` 的 **A5 / A7** 已经在判
+  （逐个 id 是否在同页存在、`id` 是否唯一）⇒ 不是缺口。
+- **`og:image` / `twitter:image` 的目标存在性**：`check-image-assets.cjs` 的
+  **IA1** 已经在判 ⇒ 不是缺口。
+- **站内 `<a href>` 的闭合性**：`verify-site.cjs` 已经在判（本地 href/src 逐条解析到磁盘）⇒ 不是缺口。
+- **站内 JS 的运行时取数目标**（`fetch()` / XHR / Worker 指向的相对路径）：
+  全仓只有 `src/assets/js/paper-reader/annotations.js` 一处 `fetch(annotationsUrl)`，
+  而 `annotationsUrl` 是**变量**不是字面量，且整条批注线属 **D12**（待拍板 43）
+  ⇒ 不是本轮缺口。
+- **其它带 URL 的属性**：把产物 6 个页面里**所有**可能带 URL 的属性
+  （`href` / `src` / `srcset` / `imagesrcset` / `poster` / `action` / `content` …）
+  全量清点了一遍 ⇒ 实际出现的只有 `a[href]` / `link[href]` / `img[src]` /
+  `img[srcset]` / `script[src]` / `meta[content]` 六类，其中**只有 `img[srcset]`
+  的目标存在性没人管** ⇒ 本轮落点由此确定。
+
+### C. 改了什么（1 个新门禁 + 1 个新自测 + 4 个接线/文档路径）
+
+- `scripts/check-img-srcset.cjs` —— **本轮新增的门禁**，判据 **SX1–SX6**（见 D 节）。
+- `scripts/test-img-srcset.cjs` —— **本轮新增的自测**，**ST0–ST16** 十七档，接在 build 链。
+- `package.json` —— 新增 2 个 npm script（`check:img-srcset` / `check:img-srcset-selftest`），
+  并把两者接进 `build` 链（接在 `check:image` 之后 —— 这道门禁要看**产物**，
+  必须排在 `eleventy` 之后）。
+- `README.md` —— 命令表补 2 行（RD3：每个 npm script 都要在 README 命令表里被提到）。
+- `docs/DEFECT-BACKLOG.md` —— 加 **D43** 行（已修 + 验证方式）。
+- `docs/ROADMAP.md` —— 进度行（缺陷清单已到 D43）+ M0 叙述段补本轮这一条。
+
+### D. 判据怎么写（SX1–SX6）
+
+- **SX1** `srcset` / `imagesrcset` 的**每个候选 URL** 必须按**页面 URL 口径**
+  落到真实存在的产物文件（`srcset` 的 URL 相对**文档**解析，与 `src` 同口径）。
+  外域候选**不判**（归 `check-third-party` 的 TD1，不重复判红）；
+  含 `data:` URI 的声明**整条跳过**并计数提示 —— 它自身含逗号，
+  按逗号切分候选会把它切碎 ⇒ 切出来的「候选」根本不是浏览器会请求的 URL
+  ⇒ 判存在性必然误报。
+- **SX2** 带 `srcset` 的 `<img>` 必须同时有**非空的 `src`** —— `src` 是 `<img>` 的
+  规范兜底属性（HTML 校验器报 `missing required attribute src`）；
+  `srcset` 是在它之上的**增强**，不能替代它。
+- **SX3** `srcset` 声明**不得为空** —— 空的候选列表会被浏览器整条忽略，等于没写。
+- **SX4** **描述符**必须合法（只允许 `<宽度>w` / `<密度>x` / 不写），
+  且同一候选列表里**不得混用 `w` 与 `x`** —— 按 HTML 规范，混用会让
+  **整条声明被浏览器忽略**（不是只忽略那一个候选）。
+- **SX5** **覆盖度自证** —— 产物里一处 `srcset` 声明都没有 ⇒ 是枚举器坏了，
+  不是「没问题」；同时报出 img / source / link 三类来源各多少处。
+- **SX6** **门禁自己没被卸掉** —— package.json 的 build 链里必须真的有本门禁。
+
+门禁**自带** HTML 标签扫描器（**不 import 被检查方的任何代码**，D35 纪律）：
+顺序扫标签并**跨过整个标签区域**（含引号内的内容）⇒ 属性值里出现的
+`<img srcset=…>` 不会被误当成真标签；扫之前先按**等长**方式抹掉 HTML 注释与
+`<script>` / `<style>` 的原始文本内容（**长度与行号都不变**）⇒ 红因能报到准确的行号。
+
+### E. 验证
+
+- `node scripts/check-img-srcset.cjs` → **exit 0**，逐字文案：
+  「响应式图片门禁通过：产物 6 个页面里 2 处响应式图片声明（img 2 / source 0 / link 0）、
+  4 个候选 URL 全部落到真实存在的产物文件；描述符合法（未混用宽度与密度）；本门禁接在 build 链上。」
+- `node scripts/test-img-srcset.cjs` → **exit 0**，**17 档 ST0–ST16 全过**。
+- **原缺陷形态的复现**：同一份注入（首页肖像 600w 候选改成
+  `assets/img/author/mh-d43-missing.jpg`）现在被 **SX1** 抓住，红因点名到
+  `index.html:1066` 并给出「但产物里**没有这个文件**」；**修前是 14 道门禁全部 exit 0**。
+- `npm run build` → **exit 0**（0 个 ✗）。
+- **站点产物零变化**：同一 HEAD、同一工作树下双次 build 交叉证明 —— 除
+  `feed.xml` 的 `lastBuildDate` 与 `robots.txt` 的 `# generated-at:`（构建时刻）外
+  **逐字节相同**。
+- 提交后**再跑一次 build** 仍绿 ⇒ 「提交前绿」与「提交后的树绿」都成立（见 H 节）。
+
+### F. 负对照（这一段最关键）
+
+- **修前负对照（真实坏态级）**：在真产物形态上注入一个不存在的候选 ⇒
+  **14 道产物侧门禁全部 exit 0** ⇒ 证明这道门禁**抓得住本缺陷家族的实体**，
+  不是事后补的一句解释。
+- **ST1（候选断链）**：红因逐字点名 `mh-d43-missing.jpg` 与「没有这个文件」。
+- **ST5 / ST6（三类取值来源）**：`<picture>` 里的 `<source srcset>` 与
+  `<link imagesrcset>` 断链 ⇒ 同样判红 ⇒ 证明三个来源都在射程内，
+  将来有人改用 `<picture>` 不会被漏掉。
+- **ST15（故意判绿，最要紧的一档）**：把候选改成一个**真实存在的新文件** ⇒ 仍绿
+  ⇒ 证明它守的是「**候选存不存在**」而不是「固定文件清单」——
+  门禁若写死那 4 个候选，它就变成「锁死内容」的门禁。
+- **ST16（扫描器 tricky 档）**：在 **HTML 注释** / **`<script>` 原始文本** /
+  **别人的属性值**里各埋一个指向不存在文件的假 `srcset` ⇒ 必须判绿
+  ⇒ 证明扫描器只认真声明。
+- **ST7（覆盖度自证）**：把产物里全部 `srcset` 抽掉 ⇒ 门禁必须判红
+  （「一处都没比过就判红」）。
+- **ST8（门禁被摘掉）**：把本门禁从 build 链摘掉 ⇒ 门禁判红「门禁自己被卸掉了」
+  ⇒ 证明 SX6 那条真的在起作用。
+- **ST9–ST14（六档判据级负对照）**：在**副本**里把 `const SXn_ON = true;` 改成
+  `false;`（分别是 SX1–SX6 的判定开关），对应注入必须**转绿**
+  ⇒ 证明每条红因确实来自那一条判据，不是别的检查顺手撞上的。
+
+### G. 边界与已知不足（如实记，不藏）
+
+- **门禁只看产物、不看源**：源里写了但没进产物的响应式声明门禁管不着；
+  这是**有意的取舍**（产物侧 = 访客真正加载的东西）。
+- **只判存在性与声明合法性，不判渲染**：图片会不会被裁坏、宽高比对不对、
+  哪一档候选会被选中 —— 本门禁**一概不判**。这类视觉/交互类判定属
+  **待拍板 42** 的范围 ⇒ 本轮**不越界代拍**。
+- **含 `data:` URI 的声明整条跳过**：这是**有意**的取舍（见 D 节），
+  代价是这类声明的存在性**无人核** ⇒ 门禁的通过语里会**报出**被跳过的条数，
+  不让它悄悄消失。
+- **只看静态 HTML**：JS 运行时写出来的 `srcset` 判不了（本站没有这种用法）。
+- **描述符的合法性判得比浏览器「宽」**：本门禁只认 `w` / `x` / 无三种写法，
+  浏览器对畸形描述符是「忽略那一个候选」，而本门禁**整条判红**
+  ⇒ 宁可严，也不放过写错的声明。
+- **门禁自带 HTML 扫描器**（门禁不得 import 被检查方的 lib，D35 纪律）
+  ⇒ 代价是这个扫描器是**简化实现**：它按「够用且不误判」的精度做，
+  不追求完整 HTML 规范（真要完整，得引第三方依赖 ⇒ 违反「零第三方运行时依赖」）。
+
+### H. 本轮纪律
+
+- **只改本轮自己那几条路径**，并发场次在途的两个文件
+  （`scripts/check-identity-handles.cjs`、`scripts/test-gates-selfcheck.cjs`）**全程未碰、未提交**；
+  提交用**私有索引**（`GIT_INDEX_FILE`）逐路径 `hash-object` + `update-index --cacheinfo`，
+  **不 push**。
+- **门禁不得 import 被检查方的代码**（D35 纪律）⇒ 本门禁**零第三方依赖**，
+  只用 Node 内置能力（`fs` / `path`），HTML 标签扫描器与 srcset 解析器全部自写。
+- **判据编号别撞号** ⇒ 新开 **SX1–SX6**（Srcset）与 **ST0–ST16**（Srcset 自测）。
+  既有用到的前缀（CF / DC / DI / GW / HC / IA / ID / LS / MC / PT / RD / TR / DS / SP /
+  TS / AN / A / W / C / M / AP / CV / LM / TX / BL / E / F / T / J / FF / LT / DT / MT /
+  CW / CQ / TD / NA / NT / JS / JT）均已查过；**SX / ST 均未占用**。
+- **负对照必须断言红因文案命中**，不能只断言退出码 ⇒ 本轮六档判据级负对照
+  都是「转绿 + 红因点名」双断言。
+- **改门禁 ≠ 改构造层** ⇒ 本轮**一个构造层文件都没动**，产物应当零变化（E 节已证）。
+- **新增脚本必须「进索引后再 build」**（D40 场次沉淀）⇒ TR1 只扫**已跟踪**文件 ⇒
+  未跟踪时它不红、跟踪后它才红 ⇒ 「提交前绿」不代表「提交后的树绿」。
+  ⇒ 本轮因此在**提交前**先把两个新脚本放进索引再跑 build，
+  并在**提交后**又跑了一次 build ⇒ 两次都绿，不留 build 红的提交。
+- **不把会变的数字写进现状陈述** ⇒ 文档里写的是**机制**（几类判据、怎么解析），
+  不写「站内现在有几处 srcset」这类会漂的数字；**build 链的段数一个字都没写**
+  （那个数每轮都会变）。
+
+### 下一轮入口
+
+- 清单里剩下的「待修」仍全绑在拍板项上 ⇒ **下一轮大概率还是要新开编号**。
+- ⚠️ **本轮查过、下轮不必重查的候选**：
+  ① **D38 / D39 / D40 已查证的**（见那几节「下一轮入口」）；
+  ② **本轮查证的**：CSS 的 `url()`（产物里一条都没有）、`<link href>` 目标存在性
+     （`verify-site` 的通用属性正则已管）、`aria-*` / `label for` / 页内锚点的悬空引用
+     （`check-a11y` 的 A5 / A7 已管）、`og:image` / `twitter:image` 目标存在性
+     （`check-image-assets` 的 IA1 已管）、站内 `<a href>` 闭合性（`verify-site` 已管）、
+     站内 JS 的运行时取数目标（只有一处变量式 `fetch`，属 D12 那条线）、
+     产物里所有带 URL 的属性的全量清点（只有 `img[srcset]` 的存在性无人管）。
+- 待拍板仍挂着：**40**（og 图口径与体积 → D2 / D3）、**41**（同 `@id` 的字段口径 → D9）、
+  **42**（交互类要不要配常驻浏览器门禁 → D10）、**43**（批注层 → D12）、
+  **46**（`excerpt` 缺失判红还是 note）、**47**（`portfolio` 去留）、
+  **48**（404 页根绝对前缀）、**49**（发布到哪个仓 → D32 / D6）、
+  **50**（封面比例口径 → D40 的第 ④ 条）、**51**（顶层导航留几份真源 → D41）；
+  **D5** 等本人定选题主线；**D26** 等本人看视觉取舍；**M3** 等本人自建 OAuth App。
+- 线上仍是旧部署 ⇒ **D6** ⇒ 待拍板 7（push 时机）+ 49（发布到哪个仓）**本轮不代拍**。
+- **本轮不新增待拍板**：D43 是**纯补看护**（改门禁、不改构造层、不动需要拍板的取舍）⇒ 不占新号。

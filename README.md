@@ -100,6 +100,8 @@ Cloudflare Pages、Nginx 等任意静态服务。详细运行 / 调试见 `HOW_T
 | `npm run check:doc-snapshot` | 现状陈述里不许写死每轮都会变的数量（如 build 链的段数）：含缺陷编号的历史块按原样保留，现状块里出现「数字 + 步」就判红 |
 | `npm run check:doc-snapshot-selftest` | 上面那道门禁的本地夹具自测（注入矩阵，证明它能变红，且每档只触发自己那一条判据） |
 | `npm run check:image` | 页面里声明的图与产物里真实存在的图是同一张 |
+| `npm run check:img-srcset` | 响应式图片声明（`srcset` / `imagesrcset`）的**每个候选 URL** 必须落到真实存在的产物文件（按页面 URL 口径解析）；`<img>` 必须留 `src` 兜底；候选列表不得为空；描述符必须合法且**不得混用宽度与密度**（混用会让整条声明被浏览器忽略） |
+| `npm run check:img-srcset-selftest` | 上面那道门禁的本地夹具自测（17 档注入矩阵，证明它能变红；含 **6 档判据级负对照**（卸掉某条判据后对应注入必须转绿）、一档**故意判绿**（把候选改成一个真实存在的新文件必须判绿）、一档**覆盖度自证**（抽掉全部 srcset 必须判红）、一档扫描器 tricky 档） |
 | `npm run check:figure-cover` | 论文封面图只有一处真源（site.js 的 `publications[].figure`），且正文 `<img>`、og:image、twitter:image、JSON-LD image 四个出口是**同一张图、同一组尺寸**；论文页 front matter 不得留封面副本 |
 | `npm run check:figure-cover-selftest` | 上面那道门禁的本地夹具自测（12 档注入矩阵，证明它能变红；含一档**故意判绿**的边界负对照） |
 | `npm run check:lang` | 语言标记统一 + 编码损坏 |
