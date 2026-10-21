@@ -2347,6 +2347,26 @@ CSDN 521 并列）。那个归类对 ResearchGate / CSDN 成立，但对这一�
   ⚠️ **本轮不代拍**：三条备选各自牵动构造层、内容契约或门禁语义，**都属本人决定**。
   （本场次不代拍，登记为待拍板 50）
 
+- **待拍板 51（新增）｜顶层导航到底该留几份真源：保留 `site.nav` + 各模板 `eleventyNavigation` 两份并由门禁强制对齐（本轮做法），还是删掉 `eleventyNavigation` 收敛成单一真源（要牵动 package.json / README / 自测三处）**
+  事实（2026-10-21 02:30–03:00 场次实测）：本轮修 D41（顶层导航）时发现顶层导航有
+  **两份真源** —— `src/_data/site.js` 的 `nav` 数组（**真正驱动渲染**的那一份，
+  `header.njk` 就是从它取 `navItems`）与各页面模板 front matter 里的
+  `eleventyNavigation`（key / order，Eleventy 用它生成 `collections.navigation` 集合）。
+  两者**已经漂移**：`eleventyNavigation.order` 的实际序列是 1 / 2 / 3 / **5**
+  （About 停在 5，是首版站点还有 5 个顶层入口时的化石值，**order 4 空缺**），
+  而 nav 数组现在只有 4 项、About 在**第 4 位**；而 `site.js` 的注释却写着「About 4」。
+  本轮**没有删掉任何一份**：删 `eleventyNavigation` 是**构造层**改动
+  （要牵动 package.json / README / 自测三处），留两份又必须有人看着 ——
+  本轮选了「留两份 + 加门禁强制对齐」，把**取舍**登记在此，不代拍。
+  备选：① **保留两份，由新门禁 NA1 / NA2 强制逐位对齐**（本轮做法；
+  代价：将来若出现「只在页头出现的入口」或「只进导航集合的条目」，
+  NA1（key 必须与 nav 的 label 同名）/ NA2（order 必须等于 nav 里的位次）会误判 ——
+  入口集合一改，就得同步改门禁的耦合口径）；
+  ② **删掉 `eleventyNavigation`，收敛成单一真源**（代价：改 4 个模板 + package.json +
+  README + 自测；好处：结构上不可能再漂）。
+  ⚠️ **本轮不代拍**：删不删第二份真源是**构造层取舍**，属本人决定。
+  （本场次不代拍，登记为待拍板 51）
+
 
 ---
 ## 2026-10-19 · 第十一轮（12:22–12:47 场次）：订阅源时间戳说真话 + 404 身份开关落地
@@ -20025,3 +20045,206 @@ D40 = **「博客 / 列表卡封面」这条内容路径从未被任何门禁跑
   （**会裁切**），而 IA4 的判据是「声明比例 == 资产比例」
   ⇒ 作者的封面只要不是 16:9 就判红，**而作者没有任何办法自救**；
   本轮**没有动这条判据**（动了就是在替本人定视觉取舍），只把它登记为待拍板。
+
+## 2026-10-21 · 02:30–03:00 场次（**不占轮次号**，避免与并发场次撞号）：D39 —— 顶层导航有**两份真源**，已经漂移，而它们之间一条门禁都没有：给它们配上门禁
+
+### 本轮定位
+
+接 D38 场次（D40）之后继续。缺陷清单里剩下的「待修」仍**全绑在既有拍板项上**
+（D2 / D3 ↔ 40、D9 ↔ 41、D10 ↔ 42、D12 ↔ 43、D5 ↔ 选题主线、D26 视觉取舍、
+D6 ↔ push 时机 = 7 + 发布仓 = 49、D32 ↔ 49）⇒ **本轮按惯例新开编号 D41**。
+
+线上巡检：7 条 URL 仍是**旧部署**（`/` 200、`/papers/` **404**、`/blog/` 200、
+`/about/` 200、`/publications.bib` **404**、`/feed.xml` **404**、`/sitemap.xml` 200）
+⇒ 那是 **D6**（待拍板 7 + 49），**不是新缺陷**，本轮不碰、不代拍。
+
+### A. 缺陷事实
+
+顶层导航有**两份真源**：
+
+| | 位置 | 谁在读 | 现状 |
+|---|---|---|---|
+| **真源一** | `src/_data/site.js` 的 `nav` 数组 | `src/_includes/partials/header.njk:10` 就是 `{% set navItems = site.nav %}` ⇒ **真正驱动渲染** | 4 项：Home / Papers / Blog / About |
+| **真源二** | 各页面模板 front matter 的 `eleventyNavigation`（key / order） | Eleventy 用它生成 `collections.navigation` 集合 | 4 项：Home 1 / Papers 2 / Blog 3 / **About 5** |
+
+**实测三处**：
+
+1. **已经漂移（化石值）**：`eleventyNavigation.order` 的实际序列是 1 / 2 / 3 / **5** ——
+   About 停在 **5**，那是首版站点还有 5 个顶层入口（「作品集」「论文精读」尚未撤下）时的
+   **化石值**，**order 4 空缺**；而 nav 数组现在只有 4 项，About 在**第 4 位**。
+   `git log -S 'order: 5' -- src/about.njk` ⇒ 自首版 `b364fd2` 起就是 5，
+   首版的 nav 数组确实有 5 项（`{ label: "作品集", href: "/portfolio/" }` 等），
+   撤下两个入口后**模板的 order 没有重排**。
+2. **假事实（注释）**：`site.js:140-141` 的注释写着
+   「顺序与各模板的 eleventyNavigation.order 保持一致（Home 1 / Papers 2 /
+   Blog 3 / **About 4**）」—— 与模板现状**不符**：注释写的是它**期望**的一致状态，
+   不是现状。⇒ 注释描述的是契约，代码违反的正是它。
+3. **零看守**：`scripts/` 全目录搜 `eleventyNavigation` —— **零命中**；
+   `src/` 全目录搜 `collections.navigation` —— **零命中**（没人消费这个集合）
+   ⇒ 这第二份副本今天是**死数据**，漂了也不会有人看见。
+   ⇒ 与「同一事实两份副本、其中一份没人看守」是同一族病（同族案例见
+   `check-about-dataset.cjs` 文件头）。
+
+**后果**：`order` 唯一的作用就是表达「第几个」，而权威的「第几个」就是 nav 数组里的位置
+（header 读的就是它）⇒ 化石值 5 让两份真源说的**不是同一件事**；
+而且**谁改了 nav 数组、谁忘了改模板，都没有一道门禁会响**。
+
+### B. 本轮排除的候选方向（这段最省事，避免下轮重查）
+
+- **`site.author.publications` / `site.author.achievements`**：模板里的命中**全在注释里**，
+  字段早已删除 ⇒ 不是活代码，不是缺陷。
+- **`site.author.role` 被 `base.njk:374` 以 `jobTitle or role` 兜底消费**：
+  与 site.js「role 已弃用」的注释有轻微出入，**无可见后果**，价值不足，本轮不占编号。
+- **ROADMAP §1 声称的出口**（`publications.bib` / `publications.ris` / `feed.xml` /
+  `sitemap.xml`）：**四个都在产物里实测存在**，`paper.njk:411` 也明写 RIS 与
+  `/publications.ris` 同源 ⇒ 不是缺陷。
+- **`src/` 内的 `collections.navigation`**：零命中，已并入 A 节。
+
+### C. 改了什么（1 个新门禁 + 1 个新自测 + 8 个改动路径）
+
+- `src/about.njk` —— **化石值订正**：`eleventyNavigation.order` 由 `5` 改为 `4`，
+  并补上注释写清**为什么**是 4（首版 5 项时的化石、order 4 曾空缺、现在 nav 只有 4 项）。
+  ⚠️ 这是**订正**「已不存在的现状」，不是改设计意图：权威的「第几个」就是 nav 数组里的位置。
+- `src/_data/site.js` —— **注释订正**：nav 数组的注释改为写明「权威顺序就是这份数组、
+  `eleventyNavigation.order` 是第二份副本、必须逐位对齐」，并**指认新门禁**
+  （把「一句约定」变成「被守着的约定」）。**只改注释，产物零变化**。
+- `scripts/check-navigation-contract.cjs` —— **本轮新增的门禁**，判据 **NA1–NA5**（见 D 节）。
+- `scripts/test-navigation-contract.cjs` —— **本轮新增的自测**，**NT0–NT8** 九档，接在 build 链。
+- `package.json` —— 新增 2 个 npm script（`check:navigation` / `check:navigation-selftest`），
+  并把两者接进 `build` 链（接在 `check:tool-routes` 之后 —— 这道门禁要看**产物**，
+  必须排在 `eleventy` 之后）。
+- `README.md` —— 命令表补 2 行（RD3：每个 npm script 都要在 README 命令表里被提到）。
+- `scripts/test-blog-frontmatter.cjs` —— **顺带订正**头部「十五档（M0–M14）」为「二十档（M0–M19）」
+  （D38 加了 M15–M19 却漏改这一处）。
+- `README.md` —— **顺带订正**「`check:blog-frontmatter-selftest` … 15 档注入矩阵」为「20 档」
+  （同一处漏改的第二个副本）。
+- `docs/DEFECT-BACKLOG.md` / `docs/ROADMAP.md` / `docs/IMPROVEMENT-LOG.md` —— 文档同步。
+
+### D. 判据怎么写（以及为什么这么写）
+
+- **NA1 两份真源必须一一对应**：nav 数组的每个 `label` 在 `eleventyNavigation` 里
+  **恰有一个**同名 `key`，反之亦然；重复的 label / key 单独点名。
+  ⇒ 用「双向、各恰好一个」而不是「两边各有多少个」——
+  数量相等但名字对不上，同样是漂移。
+- **NA2 位次必须一致**：`eleventyNavigation.order` 必须**等于**该入口在 nav 数组里的
+  位次（1 起算）。
+  ⚠️ **为什么要求「等于」而不是「大小不乱」**：`order` 唯一的作用就是表达「第几个」，
+  权威的「第几个」就是 nav 数组里的位置；只要求「不乱序」的话，
+  化石值 5 照样算过 —— 而 5 正是本缺陷的实体。
+- **NA3 产物上渲染出来的导航必须与真源逐项一致**：**每一页**（不止首页）的页头导航，
+  条目数、顺序、可见文字、点开去哪，都必须等于 nav 数组。
+  顺带守住「header 还在从 `site.nav` 取导航」这件事 ——
+  哪天 header 改成手写一份列表，这里立刻对不上。
+  ⚠️ **产物里的链接是相对路径**：同一个 "/" 在首页产物里是 `href="./"`、
+  在论文详情页里是 `href="../../"`、在 404 页里是 `href="/"`（那一页不受相对路径影响）
+  ⇒ 直接拿字符串比会得到一堆**假红**。门禁把每个链接按「它所在页面的目录」
+  解析回站内绝对路径再比 —— 比的是**访客点它会去哪**，不是**它被写成了什么字符串**。
+- **NA4 导航入口指向的页面必须真实存在**：站内入口不许指向产物里没有的页面
+  （访客点开就是本站 404）。
+- **NA5 覆盖度自证 + 门禁自己没被卸掉**：一处都没比过就判红；
+  package.json 的 build 链里必须真的有本门禁（自测的 **NT8** 档专门证明这条活着）。
+
+### E. 验证
+
+- `node scripts/check-navigation-contract.cjs` **exit 0** —— nav 数组 4 项与
+  `eleventyNavigation` 4 项**逐位对齐**；产物 **6 页**的页头导航与真源一致；
+  **4 个**入口都指向真实存在的页面。
+- `node scripts/test-navigation-contract.cjs` **exit 0** —— **9 档** NT0–NT8 全过
+  （含两档负对照，见 F 节）。
+- 文档类门禁：`check-log-sections` / `check-decision-ids` / `check-doc-snapshot` /
+  `check-tracked-refs` / `check-block-language` / `check-gates-wired` / `check-readme`
+  全部 exit 0。
+- `npm run build` **exit 0**（0 个 ✗）；产物**零变化**经**双次 build 交叉证明**：
+  同一 HEAD、同一工作树下连跑两次 build，产物 **49 个文件**里**只有 2 个**变了
+  （`feed.xml` 的 `lastBuildDate` 与 `robots.txt` 的 `# generated-at:` 这两处
+  构建时刻），其余 **47 个**逐字节相同；且这 2 个的差异**已回推证明只有那一行**
+  —— 把那一行换回上一次的取值后，文件哈希**精确还原**成上一次的哈希。
+  ⚠️ **别拿「上一次 build 的产物」当零变化基准**：`sitemap.xml` 的 `<lastmod>`
+  取的是**依赖闭包里最晚的 git 提交时间**（`scripts/lib/page-deps.cjs`），不是构建
+  时刻 ⇒ **两次 build 之间只要落了一个提交，sitemap 就会变**，哪怕源码一个字没动。
+  本轮就撞上过一次：拿 D38 提交**落地前**的产物当基准去比，`sitemap.xml` 变了；
+  追下去发现是 D38 那次提交（`4c6ef5d`）改了 `src/blog.njk` ⇒ `/blog/` 的 lastmod
+  从旧提交时间跳到 `4c6ef5d` 的提交时间 —— **设计如此**，不是回归。
+  ⇒ 有效口径只能是**同一 HEAD、同一工作树**下的双次 build；本轮两次 build 的 HEAD
+  都是 `4c6ef5d`、工作树也未变 ⇒ `sitemap.xml` 稳定不动。
+  ⇒ 另：本次 D39 提交落地**之后**再 build，`sitemap.xml` 的 5 条 lastmod 会一起
+  跳到 D39 的提交时间 —— 这**正确**（D39 确实改了 `src/about.njk` 与
+  `src/_data/site.js`，而 `site.js` 经 `header.njk` 的 `site.nav` 落在**每页**闭包里）。
+
+### F. 负对照（这一段最关键）
+
+- **修前负对照（真实坏态级）**：在新门禁写成、而 `about.njk` 的 `order` **尚未订正**时
+  跑它 ⇒ **exit 1**，红因逐字点名：
+  「src/about.njk：About 的 eleventyNavigation.order 是 5，但它在 nav 数组里是第 4 位」。
+  ⇒ 证明这道门禁**抓得住本缺陷的实体**，不是事后补的一句解释。
+- **NT7（故意判绿，最要紧的一档）**：真源 / 模板 / 产物**三处一起**把 Blog 改成 Journal
+  ⇒ 门禁**判绿**。⇒ 证明它守的是「**对齐**」而不是「具体是哪几个入口」
+  —— 门禁若写死了四个入口，它就变成「锁死内容」的门禁，而内容该由本人定。
+- **NT8（负对照）**：把本门禁从 `package.json` 摘掉 ⇒ 门禁判红「门禁自己被卸掉了」
+  ⇒ 证明 NA5 那条判据真的在起作用，不是装饰。
+- 其余各档：位次改成 6（红「位次」）／key 改成 Journal（红「eleventyNavigation 里有」）／
+  label 改成 About Us（红「nav 数组里有」）／多一个 nav 入口（红「nav 数组里有」）／
+  入口指向 `/nowhere/`（红「没有对应页面」）／产物里少一个页头链接（红「页头导航有 3 项」）。
+
+### G. 边界与已知不足（如实记，不藏）
+
+- **门禁不锁死入口集合**：顶层导航该有哪几个入口、叫什么名字，是**内容判断**，
+  不在本门禁范围内（NT7 就是这一条边界的可执行版本）。
+- **`key` 必须与 `label` 同名，是本轮选定的耦合口径**：将来若出现
+  「只在页头出现的入口」或「只进导航集合的条目」，NA1 / NA2 会误判
+  ⇒ 这一点**已登记为待拍板 51**（保留两份还是删掉第二份）。
+- **`eleventyNavigation` 目前是死数据**（`collections.navigation` 零消费）——
+  本门禁让**漂移可见**，但它**不能**让这份死数据变活；
+  要不要留它，属构造层取舍 ⇒ 同上，登记为待拍板 51。
+- **NA3 只看 `<nav class="topbar__nav">` 里的 `<a class="topbar__link">`**：
+  将来若页头换成别的结构（不同的 class 名），门禁会**定位不到** ⇒
+  那时它会退化成「没比过」⇒ 由 **NA5 的覆盖度自证**兜住（判红，不是静默放行）。
+- **本门禁 require 真源 `site.js`**（与 `check-about-dataset.cjs` 同一做法）：
+  `site.js` 自己 `require("../../scripts/lib/identity.cjs")` ⇒ **沙箱/自测夹具里
+  必须复制 `scripts/lib/identity.cjs`**，否则 `require` 抛错、门禁直接判红。
+  ⚠️ 门禁**没有** import 被检查方的任何 lib（它只读**数据**，不比对**实现**）。
+
+### H. 本轮纪律
+
+- **只改本轮自己那几条路径**，并发场次在途的两个文件
+  （`scripts/check-identity-handles.cjs`、`scripts/test-gates-selfcheck.cjs`）**全程未碰、未提交**；
+  提交用**私有索引**（`GIT_INDEX_FILE`）逐路径 `hash-object` + `update-index --cacheinfo`，
+  **不 push**。
+- **门禁不得 import 被检查方的代码**（D35 纪律）—— 本门禁只 `require` **数据**
+  （`site.js`），不引用 `scripts/lib/` 里的任何实现。
+- **判据编号别撞号** ⇒ 新开 **NA1–NA5**（既有前缀逐个查过：IA / F / AP / T / TR / GW /
+  RD / LS / DI / DS / M / A / W / TS / AN / SP / PT / HC / ID / MC / CQ / CW / TD /
+  J / FF / LT / DT / MT / CV / LM / TX / BL / E / DC / CF / IA 均已占用；
+  **NA** 与自测用的 **NT** 均空闲）。
+- **改注释 ≠ 改构造层** —— `site.js` 与 `about.njk` 的改动都只碰注释与一个 front matter
+  数字，**不删任何一份真源**（删不删属拍板 ⇒ 待拍板 51）。
+- **不把会变的数字写进现状陈述** —— 门禁文件头、README、缺陷清单里写的都是
+  「机制」（几份真源、哪几条判据），不写「站内现在有几个入口」这类会漂的数字。
+
+### 下一轮入口
+
+- 清单里剩下的「待修」仍全绑在拍板项上 ⇒ **下一轮大概率还是要新开编号**。
+- ⚠️ **本轮查过、下轮不必重查的候选**：
+  ① **D38 已查证的**（见 D38 场次节「下一轮入口」）；
+  ② **本轮查证的**：`site.author.publications` / `site.author.achievements`
+     的模板命中**全在注释里**（字段早删）⇒ 不是活代码；
+     `site.author.role` 被 `base.njk:374` 以 `jobTitle or role` 兜底消费
+     —— 与「role 已弃用」的注释有轻微出入但**无可见后果**，价值不足；
+     ROADMAP §1 声称的四个出口（`.bib` / `.ris` / `feed.xml` / `sitemap.xml`）
+     **在产物里全部实测存在**；
+     `src/` 内的 `collections.navigation` **零命中**。
+- 待拍板仍挂着：**40**（og 图口径与体积 → D2 / D3）、**41**（同 `@id` 的字段口径 → D9）、
+  **42**（交互类要不要配常驻浏览器门禁 → D10）、**43**（批注层 → D12）、
+  **46**（`excerpt` 缺失判红还是 note）、**47**（`portfolio` 去留）、
+  **48**（404 页根绝对前缀）、**49**（发布到哪个仓 → D32 / D6）、
+  **50**（封面比例口径 → D40 的第 ④ 条）、**51**（顶层导航留几份真源 → 本轮 D41）；
+  **D5** 等本人定选题主线；**D26** 等本人看视觉取舍；**M3** 等本人自建 OAuth App。
+- 线上仍是旧部署 ⇒ **D6** ⇒ 待拍板 7（push 时机）+ 49（发布到哪个仓）**本轮不代拍**。
+
+- **待拍板 51（新增）｜顶层导航到底该留几份真源：保留 `site.nav` + 各模板 `eleventyNavigation` 两份并由门禁强制对齐（本轮做法），还是删掉 `eleventyNavigation` 收敛成单一真源（要牵动 package.json / README / 自测三处）**
+  事实与两个备选见中央台账同条：顶层导航的两份真源**已经漂移**
+  （`eleventyNavigation.order` 的实际序列 1 / 2 / 3 / **5**，About 停在首版 5 项时的
+  化石值，order 4 空缺；而 nav 数组现在只有 4 项、About 在第 4 位），
+  且两者之间**零门禁**（第二份副本目前是死数据，仓内零消费）。
+  本轮**没有删掉任何一份**（删是构造层改动），只把「留两份 + 加门禁强制对齐」落地，
+  把**取舍**登记在此，不代拍。

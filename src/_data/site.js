@@ -137,8 +137,14 @@ module.exports = {
   nav: [
     { label: "Home", href: "/" },
     // Papers 排在 Blog 前面：对学术访客来说，产出比笔记更先被找。
-    // 顺序与各模板的 eleventyNavigation.order 保持一致（Home 1 / Papers 2 /
-    // Blog 3 / About 4），两处不一致时以 nav 数组为准——header.njk 读的是它。
+    // —— 顶层导航的**权威顺序**就是这份数组（header.njk 读的是它）。
+    // 各模板 front matter 里的 eleventyNavigation.order 是它的**第二份副本**，
+    // 必须与本数组**逐位对齐**（Home 1 / Papers 2 / Blog 3 / About 4）；
+    // 两处不一致时以本数组为准。
+    // ⚠️ 这条约定以前只是一句注释（谁也没守着：About 的 order 曾停在 5，
+    // 是首版站点还有 5 个顶层入口时的化石值，order 4 空缺）。
+    // 现在 scripts/check-navigation-contract.cjs（判据 NA1–NA4）守着它：
+    // 两份真源对不上、位次对不上、产物上的页头导航对不上，都会判红。
     { label: "Papers", href: "/papers/" },
     { label: "Blog", href: "/blog/" },
     { label: "About", href: "/about/" },

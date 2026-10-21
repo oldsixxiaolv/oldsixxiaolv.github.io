@@ -16,7 +16,7 @@
  *   再用 BLOG_DIR / BLOG_DATA_FILE 环境变量把门禁指向夹具站。
  *   ⚠️ 全程不动仓库里的任何文件；跑完再自证真目录一个字节都没变。
  *
- * 十五档（M0–M14）：
+ * 二十档（M0–M19）：
  *   M0  基线：一篇完全合规的文章              → exit 0（证明这套判据不是空跑）
  *   M1  readingTime 写成 "3 min"             → 判红，点名 readingTime
  *   M2  目录名写成 Bad_Slug                  → 判红，点名 slug

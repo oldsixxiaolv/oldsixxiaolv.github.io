@@ -14,7 +14,11 @@ eleventyComputed:
   description: "{{ site.author.name }} — {{ site.author.jobTitle }} at {{ site.author.affiliationEn }}. Research on {{ site.author.researchEn | lower }}, currently focused on {{ site.author.currentFocusEn }}. Affiliations, technical skills, selected output, and contact."
 eleventyNavigation:
   key: About
-  order: 5
+  # 位次必须等于它在 site.js 的 nav 数组里的位置（1 起算）。
+  # 这里是 5 —— 首版站点还有 5 个顶层入口（「作品集」「论文精读」尚未撤下）时的化石值；
+  # nav 数组现在只有 4 项，About 在第 4 位 ⇒ order 4 才是对的（order 4 曾空缺）。
+  # scripts/check-navigation-contract.cjs（判据 NA2）现在守着这件事。
+  order: 4
 # 关于页有两个可编辑的源：版式在 about.njk，正文散文在 content/about.md。
 # 只给一个入口的话，想改文字的人得先自己猜目录结构。
 editPaths:

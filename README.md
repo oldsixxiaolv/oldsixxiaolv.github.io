@@ -78,12 +78,14 @@ Cloudflare Pages、Nginx 等任意静态服务。详细运行 / 调试见 `HOW_T
 | `npm run check:decision-ids` | 待拍板编号唯一性：一个编号只能指一件事（台账内外同号必须是同一件事） |
 | `npm run check:decision-ids-selftest` | 上面那道门禁的本地夹具自测（14 档注入矩阵，证明它能变红） |
 | `npm run check:blog-frontmatter` | 博客 front matter 契约（`docs/blog-writing-guide.md`）：形状 / slug 命名 / 字段类型 / 不得覆盖自动注入的字段 |
-| `npm run check:blog-frontmatter-selftest` | 上面那道门禁的本地夹具自测（15 档注入矩阵，证明它能变红） |
+| `npm run check:blog-frontmatter-selftest` | 上面那道门禁的本地夹具自测（20 档注入矩阵，证明它能变红） |
 | `npm run check:tag-leak` | 集合名标签不许漏到读者眼前：渲染详情页版式与列表页，确认集合名（`blog` / `portfolio`）没被当主题标签印出来 |
 | `npm run check:tag-leak-selftest` | 上面那道门禁的本地夹具自测（7 档注入矩阵，证明它能变红） |
 | `npm run check:css` | CSS 大括号平衡 + 死 CSS |
 | `npm run check:wrap` | 长 DOI / 长 URL 不能把窄屏页面撑破 |
 | `npm run check:tool-routes` | 浏览器工具量到的必须是真页面，不是本站 404 页 |
+| `npm run check:navigation` | **顶层导航只有一份真源**：`site.js` 的 nav 数组与各模板的 `eleventyNavigation` 必须逐位对齐（key 同名、order 等于位次），产物上每一页的页头导航必须与真源一致，导航入口必须指向真实存在的页面 |
+| `npm run check:navigation-selftest` | 上面那道门禁的本地夹具自测（9 档注入矩阵，证明它能变红；含两档**负对照**：三处一起改必须判绿、门禁被摘掉必须判红） |
 | `npm run check:site` | 结构化数据与元数据逐项核对（`scripts/verify-site.cjs`） |
 | `npm run check:page-deps` | **页面依赖闭包**：一页的 `lastmod` 必须等于它**依赖闭包**里最晚的 git 提交时间（内容由别的文件提供时也算数）；闭包不许退化成「只看自己」、不许引用不存在的文件，模板引用必须写字面量，sitemap 不许漏掉页面，全局数据必须登记 |
 | `npm run check:page-deps-selftest` | 上面那道门禁的本地夹具自测（8 档注入矩阵，证明它能变红；含一档**故意判绿**的负对照） |
