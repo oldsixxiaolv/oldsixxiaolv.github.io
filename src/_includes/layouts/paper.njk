@@ -440,7 +440,7 @@ layout: layouts/base.njk
 
 {# paper-reader/main.js 是拆分后的入口（Phase 2B.6）。
    · 动态 import：仅 paper 页加载，其他页面零开销
-   · 浏览器自动并行 fetch 子模块（toc / annotations / highlight / reading-progress / theme）
+   · 浏览器自动并行 fetch 子模块（toc / annotations / highlight / theme）
    · 解析完 annotations 再挂 highlight，二者通过返回值解耦
 
    annotationsUrl 只在**确实有批注**时才传：本页没有 annotations.json，

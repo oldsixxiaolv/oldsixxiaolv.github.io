@@ -1,14 +1,19 @@
 /* ===========================================================================
    MeteoHub · _nav.css (Phase 2B.5)
-   Navigation chrome: brand + nav + theme toggle + topbar + footer
+   Navigation chrome: brand + theme toggle + topbar + footer
    拆分自 components.css（原行号区间: 5-104, 873-958）
    ========================================================================= */
 
 /* ---------- Brand ---------- */
 /* 注：.brand / .brand__logo / .brand__name 目前没有模板输出，保留是因为
-   footer 级的品牌锁定块随时可能接回来；.nav / .nav__link / .theme-toggle
-   则是 nav.js 的结构契约（它 querySelector(".nav") 与
-   "[data-nav-toggle]"，并往 .nav 上加 .is-open），不能删。 */
+   footer 级的品牌锁定块随时可能接回来。
+   ⚠️ 原先这里还写着「.nav / .nav__link / .theme-toggle 是 nav.js 的结构契约，
+   不能删」—— 那句话**是假的**：nav.js 早已连同旧的移动端抽屉一起删除
+   （见 docs/DEFECT-BACKLOG.md D53：它操作的 DOM 在全部产物页面里 0 处，
+   每页下载一份 840 B 却什么都不做），`.nav` / `.nav__link` 一族因此是死样式，
+   已一并删除。现行导航是 .topbar__nav / .topbar__link（见下方 Topbar 段）。
+   .theme-toggle **要保留**：data-theme-toggle 按钮在全部产物页里都存在，
+   theme.js 的按钮联动是活的。 */
 .brand {
   display: inline-flex;
   align-items: center;
@@ -38,47 +43,6 @@
 
 .foot .brand__name {
   color: var(--text-primary);
-}
-
-
-/* ---------- Nav ---------- */
-.nav {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  margin-left: auto;
-}
-
-.nav__link {
-  display: inline-flex;
-  align-items: center;
-  height: 40px;
-  padding: 0 var(--space-3);
-  border-radius: var(--radius-md);
-  font-size: var(--fs-small);
-  font-weight: 500;
-  color: var(--text-secondary);
-  transition: background-color var(--dur-base) var(--ease-out),
-              color var(--dur-base) var(--ease-out);
-}
-
-.nav__link:hover {
-  background: var(--bg-muted);
-  color: var(--text-primary);
-  text-decoration: none;
-}
-
-.nav__link[aria-current="page"] {
-  color: var(--color-brand-500);
-  background: var(--bg-subtle);
-  font-weight: 600;
-}
-
-@media (max-width: 768px) {
-  .nav__link {
-    padding: 0 var(--space-2);
-    font-size: var(--fs-caption);
-  }
 }
 
 

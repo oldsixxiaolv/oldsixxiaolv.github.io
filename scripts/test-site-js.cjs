@@ -109,7 +109,7 @@ function copyRelevant(fromDir, toDir) {
  *   静态 require / import **字面量**，并要求目标在磁盘上存在。
  *   而这里造的是**夹具数据** —— 要被写进临时目录里那些**假 JS 文件**的
  *   「静态 import 一个同目录相对路径」这类语句；在 `scripts/` 下
- *   `nav.js` / `extra.js` **本来就不存在**
+ *   `fixture-missing.js` / `extra.js` **本来就不存在**
  *   ⇒ 直接写字面量，TR1 会把**夹具数据当成真引用** ⇒
  *   **提交后 build 直接红**（实测：文件**未跟踪**时 TR1 扫不到它、build 绿；
  *   一旦纳入跟踪，TR1 扫到了，build 就红 ⇒ 「提交前绿」不等于「提交后的树绿」）。
@@ -185,15 +185,15 @@ const INJECT = {
   },
   /* JS2：模块说明符指向不存在的文件 */
   missingSpec: (fx) => {
-    const file = path.join(fx.site, "assets", "js", "nav.js");
+    const file = path.join(fx.site, "assets", "js", "theme.js");
     const ok = mutate(file, (t) => importStmt("./nope-does-not-exist.js") + "\n" + t);
-    if (!ok) throw new Error("没找到 nav.js");
+    if (!ok) throw new Error("没找到 theme.js");
   },
   /* JS2：裸说明符 */
   bareSpec: (fx) => {
-    const file = path.join(fx.site, "assets", "js", "nav.js");
+    const file = path.join(fx.site, "assets", "js", "theme.js");
     const ok = mutate(file, (t) => `import "lodash";\n${t}`);
-    if (!ok) throw new Error("没找到 nav.js");
+    if (!ok) throw new Error("没找到 theme.js");
   },
   /* JS4：内联 module 的说明符指向不存在的文件 */
   inlineMissingSpec: (fx) => {
@@ -299,9 +299,9 @@ const CASES = [
       );
       const file = path.join(fx.site, "assets", "js", "main.js");
       const ok = mutate(file, (t) =>
-        t.replace(importStmt("./nav.js"), importStmt("./extra.js"))
+        t.replace(importStmt("./theme.js"), importStmt("./extra.js"))
       );
-      if (!ok) throw new Error("没找到 main.js 的 nav.js 导入行");
+      if (!ok) throw new Error("没找到 main.js 的 theme.js 导入行");
     },
   },
   {
@@ -411,7 +411,7 @@ const CASES = [
           "const t = `import(\"./missing-template.js\")`;",
           "const re = /import\\(\"\\.\\/missing-regex\\.js\"\\)/;",
           "const u = import.meta.url;",
-          importStmt("./nav.js"),
+          importStmt("./theme.js"),
           "",
         ].join("\n")
       );

@@ -89,7 +89,7 @@
 - 后续每轮都从这份清单里取一条来修（不是随手挑）。
 
 **进度（2026-10-21 11:05 实测）**
-- 缺陷清单已到 **D52**（D1 / D4 / D11 / D13 / D14 / D15 / D16 / D17 / D18 / D19 / D20 / D21 / D22 / D23 / D24 / D25 / D27 / D28 / D29 / D30 / D31 / D33 / D34 / D35 / D36 / D37 / D38 / D39 / D40 / D41 / D42 / D43 / D44 / D45 / D46 / D47 / D48 / D49 / D50 / D51 / D52 已修；D2 / D3 / D5 / D6 / D9 / D10 / D12 / D26 / D32 待修；D7 / D8 不修）。
+- 缺陷清单已到 **D53**（D1 / D4 / D11 / D13 / D14 / D15 / D16 / D17 / D18 / D19 / D20 / D21 / D22 / D23 / D24 / D25 / D27 / D28 / D29 / D30 / D31 / D33 / D34 / D35 / D36 / D37 / D38 / D39 / D40 / D41 / D42 / D43 / D44 / D45 / D46 / D47 / D48 / D49 / D50 / D51 / D52 / D53 已修；D2 / D3 / D5 / D6 / D9 / D10 / D12 / D26 / D32 待修；D7 / D8 不修）。
 - 「构建链与门禁本身的失效点」这一支已补**四条**：
   ① **D13**：窄屏溢出门禁只查「横向溢出」，查不出「正文被挤成窄带」（D11 那一族坏版式当时
   build 与全部门禁都绿）—— 2026-10-20 11:00–11:30 场次给该门禁补了「正文列宽」判据
@@ -1602,6 +1602,75 @@
   ⑩ ⚠️ **本轮不代拍、也不新增待拍板**：与待拍板 40（og 图口径与体积）**正交** ——
      无论 40 拍成「只留一张 og 图」还是「三张都留但换 JPEG / 压缩」，
      「SVG 设计母版不进产物」都成立 ⇒ 不因 40 阻塞本轮。
+
+- **D51**（本轮修的是缺陷 **D53**）：这一轮**不再看资源清单**，改看**「脚本查的东西在不在」** ——
+  前两轮（D49 / D50）都在清「产物里多出来的死副本」，本轮清的是**反过来那一类**：
+  **站内脚本查询的目标 DOM 在产物里根本不存在**。
+  ① **本轮路线**：缺陷清单里仍是「待修」的 9 条（D2 / D3 / D5 / D6 / D9 / D10 / D12 / D26 / D32）
+     **全部卡在拍板项上**（D2/D3→待拍板 40；D5→需本人定选题主线；D6→push 触发（待拍板 7 + 49）；
+     D9→待拍板 41；D10→待拍板 42；D12→待拍板 43；D26→视觉取舍；D32→待拍板 49）
+     ⇒ 按规矩**不代拍**，改走**新缺陷普查**路线。
+  ② **普查（每一族都要有真实命中才准立项）**：JS 死模块（源侧都有消费点）、
+     `site.js` 死键、`src/content/**` 与 `src/_data/**` 死条目、产物全清单引用审计（33 文件无孤儿）、
+     内部链接图、URL 四份构造一致性、语言族、feed.xml 规范、`print.css` 加载方式、
+     `copyCovers()` 空跑、`_archive/meteohub-legacy/`（刻意归档）、`deploy.yml` 无 `npm ci`
+     ⇒ **唯一有真实命中**的是「站内 JS 查询的目标 DOM 在产物里不存在」这一族。
+  ③ **实测（坐实缺陷）**：① `src/assets/js/nav.js`（840 B）唯二操作的 `[data-nav-toggle]` 与
+     `.nav` 在**全部 6 个产物页面里 0 处**（站点导航早已改成 `topbar`），却被 `main.js`
+     **无条件** `import`；② `src/assets/js/paper-reader/reading-progress.js`（1,225 B）的
+     `init()` 第一件事就是 `querySelector("[data-reading-progress]")`，找不到就 return
+     （`paper.njk` 没有该元素），却被 `paper-reader/main.js` 的 `Promise.all` **无条件**动态 import；
+     ③ `main.js` 里填年份的 `[data-year]` 是死代码（`footer.njk` 用构建期 `{{ buildYear }}`），
+     且其上方注释「Current year in footer」**说假话**；④ 连带死样式：`_nav.css` 里 `.nav` /
+     `.nav__link` 一族共 **5 条**规则，而文件头注释写着「`.nav`/`.nav__link`/`.theme-toggle` 是
+     nav.js 的结构契约……不能删」⇒ **注释说假话**（`.theme-toggle` 一族**必须保留**：
+     `data-theme-toggle` 在 6 个产物页里都存在）；⑤ **零门禁看守**（`check-site-js.cjs` 只判语法与
+     模块说明符闭合，`check-dead-css.cjs` 只扫 `pages.css`，IP1 抓不到 —— 它们**有**引用点，
+     只是引用点指向不存在的元素）。
+  ④ **修法（只删空转代码 + 清假注释，不改任何设计）**：`mavis-trash` 删掉 `nav.js` 与
+     `reading-progress.js`；`main.js` 去掉 `import "./nav.js"` 与 `[data-year]` 死代码块；
+     `paper-reader/main.js` 的 `Promise.all` 改成 `[tocMod, themeMod]`、去掉 `reading-progress`
+     的 import 与 `init` 调用；`paper.njk` 与 `eleventy.config.js` 里「6 个 ESM 子模块」
+     同步订正为 5 个；`_nav.css` 删掉那 5 条死规则并改写文件头注释（写明原注释是假的、
+     `.theme-toggle` 为何必须保留）；`print.css` 的隐藏清单去掉 `.reading-progress`
+     （该功能已整体移除）、说明文字同步。**不动 `.theme-toggle` 一族、不动任何样式设计。**
+  ⑤ **新门禁** `scripts/check-js-targets.cjs`（判据 **JA1–JA4**，零第三方依赖、**自带**
+     JS 注释遮罩器而不 import 被检查方代码）：
+     **JA1** 站内 JS 里选择器 API 的**字面量**参数，按 **CSS 语义逐层判定** ——
+     选择器列表按顶层逗号拆**分支**（分支间「或」）、分支内 token 间「与」、
+     伪类 / 伪元素 / 标签名**不产生约束**；token 若既不在产物 HTML 里（class 精确匹配 /
+     属性名小写匹配 / id 匹配），也不在站内脚本**运行时创建**清单里
+     （`classList.add|remove|toggle` / `.className=` / `setAttribute("class",…)` / `{ class: … }` /
+     HTML 字符串 `class="…"` / `.id=` / `setAttribute("id",…)` / `{ id: … }` / `dataset:{…}`）
+     ⇒ 判红；**JA2** 覆盖度自证（**下限取 1**，不与其它判据耦合）；
+     **JA3** 门禁自己没被卸掉；**JA4** 逐模块提取自证（有选择器 API 调用却提取不到目标 ⇒ 判红
+     ⇒ 要求把选择器显式化成字面量或 const 绑定的字面量；全仓唯一一处 const 绑定
+     `home-chart.js` 的 `PANEL_SELECTOR` 由门禁的 `stringBindings()` 解出）。
+     **不设豁免机制** —— `theme.js` 的 `[data-theme-toggle]` 真实存在，
+     `paper-toc` / `annot-*` 由站内脚本运行时创建 ⇒ 无需豁免。
+  ⑥ **自测** `scripts/test-js-targets.cjs`（**JB0–JB14** 共 18 档）：造**最小夹具站**
+     （夹具里所有 `data-*` 一律用**无值**写法、全部 `fixture-*` 命名 ⇒ 门禁与自测源码自己
+     不会成为消费点）；五档注入（缺类名 / 缺属性名 / 缺 id / const 绑定指向缺失 /
+     抽掉运行时创建）⇒ **JA1**；选择器列表任一分支可达 ⇒ 绿；门禁被卸掉 ⇒ **JA3**；
+     所有脚本都不查 DOM ⇒ **JA2**；只用动态选择器的模块 ⇒ **JA4**；
+     **四档判据级负对照**（分别卸掉 JA1–JA4 后对应注入必须**完全转绿**）；
+     **每档断言红因编号集合完全相等**；收尾校验门禁原件 SHA-256 未变。
+  ⑦ **既有自测的连带改造**：`scripts/test-site-js.cjs` 的夹具原本用 `nav.js`
+     ⇒ 删文件后 **6 档**失败（ENOENT / 「没找到 main.js 的 nav.js 导入行」）⇒ 改用
+     `theme.js` 与 `fixture-missing.js`，**判据一个字没动**。
+  ⑧ **实测坐实「没人看守」**：把修前形态的 `src/assets/js`（`git archive deca9a9`）放进
+     `/tmp` 副本 + 当前 `_site` ⇒ 门禁 **exit 1 且 JA1 精确判红 7 处、只有 JA1 一条**
+     （红因归属纯净；无 JA2 / JA3 / JA4）⇒ 7 条逐条点名 D53 的三处空转。
+  ⑨ **产物核对**：prod 产物 **33 → 31 个文件**，逐文件 SHA-256 比对 ⇒ **恰好只有 6 个文件变化**
+     （`nav.js` 消失 −840 / `reading-progress.js` 消失 −1,225 / `main.js` −502 /
+     `paper-reader/main.js` −129 / `components.css` −778 / `print.css` −21），
+     其余**逐字节相同**（仅 `feed.xml` 的 `lastBuildDate` 与 `robots.txt` 生成时刻差）；
+     站点总字节 **2,182,709 → 2,179,214（−3,495 B）**；`_site` 侧车 count = 0；
+     **全部 HTML 文件逐字节相同**（本轮只动脚本与样式，不碰任何 HTML）。
+  ⑩ ⚠️ **本轮新增待拍板 52**：论文阅读进度条这个功能**到底要不要**（要 ⇒ 补 `paper.njk` 的元素
+     + CSS + 恢复模块 + 补回 `print.css` 的隐藏规则；不要 ⇒ 到此为止）。
+     本轮按「删空转死代码」处理，因为**空转本身不需要任何人拍板**；
+     但「**要不要这个功能**」是设计取舍 ⇒ 登记为待拍板 52，**不代拍**。
 
 ---
 

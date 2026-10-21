@@ -1,6 +1,5 @@
-/* main.js · entry: theme + nav + reading progress + motion utils */
+/* main.js · entry: theme + reveal motion + copy buttons */
 import "./theme.js";
-import "./nav.js";
 
 // Reveal content as it enters the viewport without hiding it when JS is unavailable.
 (function initReveal() {
@@ -30,17 +29,6 @@ import "./nav.js";
 
   nodes.forEach((node) => observer.observe(node));
 })();
-
-/* main.js · entry: theme + nav + reveal motion
- *
- * 阅读进度条不在这里：paper-reader/reading-progress.js 是它的正式实现
- * （原 main.js §2 的 IIFE 已搬过去），paper 页由 paper.njk 动态 import 挂载。
- * 两份都留着会让 paper 页注册两个 scroll 监听、同一个 bar 被写两次宽度。 */
-
-// Current year in footer
-document.querySelectorAll("[data-year]").forEach((el) => {
-  el.textContent = new Date().getFullYear();
-});
 
 /* Copy-to-clipboard for [data-copy-target] blocks.
  *

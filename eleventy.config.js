@@ -136,8 +136,8 @@ module.exports = function (eleventyConfig) {
     //   ⚠️ 通配用 `_*` 而不是 `*`：components/ 下唯一不是 partial 的
     //   index.css 是构建期声明，任何模式都不该进产物（D50）。
     "src/assets/js/*.js",
-    // Phase 2B.6: paper-reader.js 拆为 6 个 ESM 子模块（main/toc/annotations/
-    // reading-progress/highlight/theme），在 paper 页动态 import。
+    // Phase 2B.6: paper-reader.js 拆为 5 个 ESM 子模块（main/toc/annotations/
+    // highlight/theme），在 paper 页动态 import。
     // 与 11 老的 src/assets/js/paper-reader.js 共存：老文件仅 5 行 re-export，
     // 兜底外部旧引用（如有）；后续可在 QA 验证稳定后删除。
     "src/assets/js/paper-reader/*.js",

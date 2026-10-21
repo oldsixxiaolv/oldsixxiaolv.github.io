@@ -5,7 +5,6 @@
  * browser fetches them in parallel and only the ones the paper actually uses.
  *
  * Modules (dependency order):
- *   reading-progress · independent (scroll)
  *   toc              · independent (headings → sticky)
  *   theme            · independent (annotation rerender on theme change)
  *   annotations      · async fetch (annotations.json → render right pane)
@@ -24,12 +23,10 @@ export async function initPaperReader(opts = {}) {
   if (!opts.paperRoot) return;
 
   // ---- 1. Fire independent modules in parallel ----
-  const [progressMod, tocMod, themeMod] = await Promise.all([
-    import("./reading-progress.js"),
+  const [tocMod, themeMod] = await Promise.all([
     import("./toc.js"),
     import("./theme.js"),
   ]);
-  progressMod.init(opts);
   tocMod.init(opts);
   themeMod.init(opts);
 
@@ -49,7 +46,7 @@ export async function initPaperReader(opts = {}) {
       const highlightMod = await import("./highlight.js");
       highlightMod.init({ ...opts, ...built });
     } catch (err) {
-      // Annotations missing or network error — keep TOC + progress alive.
+      // Annotations missing or network error — keep the TOC alive.
       // eslint-disable-next-line no-console
       console.warn("[paper-reader] annotations disabled:", err);
     }

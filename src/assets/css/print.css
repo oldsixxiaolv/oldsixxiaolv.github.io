@@ -129,7 +129,7 @@
   }
 
   /* ---------- 5. 隐藏屏幕专属的 chrome ----------
-     导航、页脚链接、跳转链接、主题切换、阅读进度条、目录树——这些在纸面上
+     导航、页脚链接、跳转链接、主题切换、目录树——这些在纸面上
      是噪音还会浪费一整页。
 
      ⚠️ 页脚**只藏链接行**（.foot__links：Sitemap / RSS / Edit this page），
@@ -140,7 +140,6 @@
   .foot__links,
   .skip-link,
   .theme-toggle,
-  .reading-progress,
   .paper-toc,
   .paper-footer,
   .annot-pane__filter,
