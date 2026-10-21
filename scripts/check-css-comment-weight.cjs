@@ -338,11 +338,17 @@ for (const rel of pagesWithoutInline) {
  *      剥掉这些内容后剩余部分**不得含左花括号** —— 不得有源里没有的规则块。
  *   CQ3 覆盖度自证：产物里不许有源目录已经没有的 CSS；components.css 必须存在；
  *      **源里有、产物里没有的 CSS，必须是「本来就不发布」的那几个**
- *      （被 {% inlineCss %} 内联的源样式 + components/index.css 这个顺序声明）
+ *      （被 {% inlineCss %} 内联的源样式 + components/index.css 这个顺序声明
+ *        + components/ 下的 7 个 partial —— partial 只在 dev 直拷，prod 的
+ *        components.css 是 concat 后的单文件，D51）
  *      —— 其余的源样式都得在产物里，否则就是「新增的源样式没被复制进产物」
  *      （页面会拿它当 <link href>，直接断样式）；
  *      磁盘上的 partial 与 index.css 声明的必须一致 —— 否则新增 partial 时
  *      门禁会静默放过它。
+ *
+ * ⚠️ 本门禁**只看 prod 产物** —— CQ2 要求 components.css 逐字包含每个 partial，
+ *   那是 concat 形态才成立的性质；dev 产物里 components.css 是 @import hub，
+ *   跑本门禁会当场判红（这不是 bug，是「这份门禁不支持 dev 产物」的事实）。
  *
  * 为什么自己算、不 import 构建期的剥除器：
  *   与 CW1–CW4 同一纪律 —— 用被检查方自己的函数判自己，判据就没有独立性。
@@ -449,9 +455,29 @@ function inlinedCssRels() {
   return out;
 }
 
-/* 「本来就不发布」的源样式：被内联的 + components/index.css（顺序声明）。
-   ⚠️ index.css 只被构建与门禁当**声明**读，浏览器从不加载它（D50）。 */
+/* 「本来就不发布」的源样式：被内联的 + components/index.css（顺序声明）
+   + components/ 下的 7 个 partial。
+   ⚠️ index.css 只被构建与门禁当**声明**读，浏览器从不加载它（D50）。
+   ⚠️ partial 只在 **dev** 直拷：prod 的 components.css 是 7 个分片顺序拼接
+     后的单文件，分片本身没有任何页面请求（D51）⇒ prod 产物里没有它们是对的。 */
 const NOT_PUBLISHED = new Set([...inlinedCssRels(), "components/index.css"]);
+{
+  // 扫磁盘上的 partial（**不是** index.css 声明的那份）——
+  // 声明漏了谁由 CQ3(d) 管，这里管「哪些文件天生不发布」。
+  const compDir = path.join(SRC_CSS_ROOT, "components");
+  let entries = [];
+  try {
+    entries = fs.readdirSync(compDir, { withFileTypes: true });
+  } catch (_) {
+    entries = [];
+  }
+  for (const e of entries) {
+    if (e.name.startsWith("._")) continue;
+    if (!e.isFile()) continue;
+    if (!e.name.startsWith("_") || !e.name.toLowerCase().endsWith(".css")) continue;
+    NOT_PUBLISHED.add(`components/${e.name}`);
+  }
+}
 
 if (!fs.existsSync(SRC_CSS_ROOT)) {
   problems.push(
@@ -573,9 +599,10 @@ if (CQ3_ON && fs.existsSync(SRC_CSS_ROOT)) {
   }
   for (const rel of srcRels) {
     if (prodSet.has(rel)) continue;
-    /* 「本来就不发布」的源样式在源里有、产物里没有是**对的**（D50）：
+    /* 「本来就不发布」的源样式在源里有、产物里没有是**对的**（D50/D51）：
        被 {% inlineCss %} 内联的三个（内联才是它们的消费路径）+
-       components/index.css（partial 顺序的书面声明，浏览器从不加载）。
+       components/index.css（partial 顺序的书面声明，浏览器从不加载）+
+       components/ 下的 7 个 partial（只在 dev 直拷，prod 是 concat 单文件）。
        其余的源样式都必须在产物里 —— 少了就是「新增的源样式没被复制进产物」。 */
     if (NOT_PUBLISHED.has(rel)) continue;
     problems.push(

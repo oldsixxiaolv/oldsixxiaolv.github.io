@@ -452,6 +452,11 @@ body { text-autospace: normal; }
 判定只看 `eleventy.config.js` 里那两行：`isDevServer` 要求进程带 `--serve`，
 所以 `NODE_ENV` 不等于 `production` **并不**等于 dev —— 裸跑构建走的是 prod 分支。
 
+7 个 partial 的**产物副本只在 dev 直拷**（`eleventy.config.js` 里 `if (isDevServer)` 那段）；
+**prod 产物里没有它们** —— prod 的 `components.css` 已经是拼好的单文件，分片副本无人引用
+（见 `docs/DEFECT-BACKLOG.md` D51）。判据见 `scripts/check-css-publish.cjs`（CS2 / CS3 /
+CS8：门禁**从产物自身判模式** —— `components.css` 含 `@import url(` 即为 dev）。
+
 切换 partial 顺序时同步修改 `src/assets/css/components/index.css` 的 `@import` 顺序 + `eleventy.config.js` 钩子中的 `order` 数组。
 
 ### 6.1 按钮（Button）

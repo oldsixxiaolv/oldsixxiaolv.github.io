@@ -22208,3 +22208,217 @@ DC8 / PT5）；删掉 `src/assets/css/components/index.css`（会连带 CQ2 / CQ
   本轮**未代拍**；**D5** 等本人定选题主线；**D26** 等本人看视觉取舍；**M3** 等本人自建 OAuth App。
 - 线上仍是旧部署 ⇒ **D6** ⇒ 待拍板 7 + 49 **本轮不代拍**。
 - **本轮不新增待拍板**：D50 的死副本是客观事实，不是取舍。
+
+## 2026-10-21 · 11:20–12:00 场次（**不占轮次号**，避免与并发场次撞号）：D49 —— prod 产物里躺着 7 份没人引用的 CSS partial 副本，而这是上一场次（D48）的门禁自己钉进来的：把「dev 才需要」写成「prod 必须有」
+
+### 本轮定位
+
+接 D48 场次（修的是 D50）之后继续。缺陷清单里仍是「待修」的 11 条
+（D2 / D3 / D5 / D6 / D9 / D10 / D12 / D15 / D26 / D32 等）**全部卡在既有拍板项上**
+（D2 / D3 ↔ 40、D5 ↔ 选题主线、D6 ↔ push 时机 = 7 + 49、D9 ↔ 41、D10 ↔ 42、
+D12 ↔ 43、D15 ↔ 46、D26 视觉取舍、D32 ↔ 49）⇒ **本轮按惯例新开编号 D51**，
+改走**新缺陷普查**路线。
+
+线上巡检：7 条 URL 仍是**旧部署**（`/` 200、`/papers/` **404**、`/blog/` 200、
+`/about/` 200、`/publications.bib` **404**、`/feed.xml` **404**、`/sitemap.xml` 200）
+⇒ 那是 **D6**（待拍板 7 + 49），**不是新缺陷**，本轮不碰、不代拍、不 push。
+首次 `npm run build` exit 0、**0 个 ✗**。
+
+### A. 普查（按资源族逐个过，零命中或全是误报）
+
+规矩不变：**每族都要有真实命中才准立项，空跑的判据禁做**。
+
+- **JS 家族**（`src/assets/js/**`）：逐模块查消费点 ⇒ **零死模块**。
+- **真源字段**（`src/_data/site.js`）：逐键查模板 / 脚本 / JSON-LD 消费点 ⇒ **零死键**。
+- **`src/content/**` 与 `src/_data/**`**：没有「在仓库里但没有任何页面用」的条目。
+- **sitemap `lastmod`**：全站同一天 ⇒ 属**闭包口径**（构建日即内容变更日），
+  **不是缺陷**，不改。
+- **og 图族**：`og-*.png` 已是 **8-bit colorType 2**（无位深可省的）⇒ 体积问题属**待拍板 40**，
+  不并进本轮；目录里另有 3 个 og 设计源 SVG（18,055 B）**本轮暂不动**
+  （它们的去留与 og 口径是同一件事 ⇒ 属待拍板 40 的范围）⇒ 留作下轮候选。
+- **`package-lock.json` 的 `engines.node`**：lock 根包是 `>=18`、`package.json` 是 `>=22`
+  ⇒ 两处口径漂移，但 `npm ci` **exit 0**（npm 默认 `engine-strict=false`）
+  ⇒ 是**卫生问题**不是缺陷，留作下轮候选。
+- **CSS 家族**：⇒ 真正坐实的是这一条（见 B）。
+
+⚠️ 本轮**没有**空跑的判据：普查脚本只在发现真实命中时才输出候选，
+本轮唯一候选就是 CSS 家族这一条。
+
+### B. 缺陷事实
+
+① **现象**：修前 prod 产物 `_site/assets/css/components/` 下有 **7 个 `_*.css` partial 副本**，
+合计 **40,881 B**（源文件合计 73,336 B —— 产物侧被 `stripProductCssComments` 剥过注释，
+所以更小）。全产物引用扫描显示：**零个页面引用它们**。
+
+② **根因有两层，第二层是自指的**：
+
+- **构造层**：`eleventy.config.js` 的 `assetGlobs` 里有 D48 留下的 partial 通配
+  `src/assets/css/components/_*.css` ⇒ 7 个分片照直拷进产物。
+- **判据层**：D48 新立的 **CS3（partial 必须进产物）写成了无条件义务** ——
+  而 partial **只有 dev 需要**：dev（`eleventy --serve`）生成的 `components.css` 是
+  `@import` hub，浏览器按相对路径 `./components/_xxx.css` 去拉分片；
+  **prod 的 `components.css` 是 7 个 partial 顺序拼接后的单文件**
+  （`eleventy.after` 钩子的 prod 分支），分片本身**没有任何页面会请求**。
+  ⇒ **CS3 把 dev 的需求当成了 prod 的义务。**
+
+③ **CS2（死副本）当时也没抓住**：它的判据是「产物里没被引用的 CSS」，
+而 partial 被排除在「不发布类」之外 ⇒ 7 份死副本从门禁缝里漏了过去。
+**两档判据同时漏 ⇒ 零门禁看守「prod 产物里到底该不该有 partial」这件事**，
+连「现在是 dev 还是 prod」这个模式本身都没人判。
+
+④ **契约判定**：`docs/design-system.md` §6.0 的 dev/prod 双模表由 **DC4** 强制
+（dev 行必须含 `--serve`、prod 行必须含 `npm run build`）⇒ **双模是契约**。
+「prod 不发布 partial、dev 仍发布」**不违契约**；反之「删掉 dev 的 hub」= 改契约 = 不代拍。
+本轮走的是**前者**。
+
+### C. 修法（只动构建清单与门禁；模板与样式一个字不动）
+
+`eleventy.config.js`：
+
+- `assetGlobs` 里**去掉** partial 通配，partial 改为**条件直拷**：
+  `if (isDevServer) { eleventyConfig.addPassthroughCopy("src/assets/css/components/_*.css"); }`
+- `isDevServer` / `isProductionBuild` 从钩子附近**上提到 `module.exports` 开头**
+  （早于任何发布清单求值）⇒ 条件直拷的判定不会读到未初始化的值。
+- `isDevServer` 的口径**一个字没改**（`process.argv.includes("--serve")` 且
+  `NODE_ENV !== "production"`）⇒ 裸跑 `npm run build` 仍然是 prod，不动既有行为。
+
+模板、CSS 内容、JSON-LD、`order` 数组、`components/index.css` 的 `@import` 清单
+**一个字不动** ⇒ **零连带**。
+
+### D. 门禁 `scripts/check-css-publish.cjs`（判据 CS1–CS8，模式感知）
+
+纯静态、零第三方依赖、**自带**注释遮罩器（不 import 被检查方的代码）。
+
+**新增的核心机制：模式从产物自身判。** 读 `_site/assets/css/components.css`：
+含 `@import url(` ⇒ **dev**，否则 ⇒ **prod**；文件不存在 ⇒ 模式判不出 ⇒ **CS8 判红**。
+**不引入 env var、不解析 `assetGlobs`、不读 `process.argv`** ——
+判据的取值范围与被检查方的实际行为**同源**（换一种构建方式也不会判错）。
+
+| 判据 | 守什么 | 本轮变化 |
+|---|---|---|
+| CS1 | 角色穷尽（源 `src/assets/css/**` 下每个 `.css` 必须归入内联 / 外链 / partial / 顺序声明四类之一） | 不变 |
+| CS2 | 死副本（不发布类不许出现在产物里） | **模式感知**：prod 时 partial 归「不发布类」⇒ CS2 拦；dev 时不拦 |
+| CS3 | 漏拷（发布类必须在产物里） | **模式感知**：dev 时 partial 归「发布类」⇒ CS3 拦；prod 时不拦 |
+| CS4 | 孤儿（产物里的 CSS 必须有源） | 不变 |
+| CS5 | 顺序真源不分叉（磁盘 partial 清单 ≡ `components/index.css` 的 `@import` 清单 ≡ `eleventy.config.js` 的 `order` 数组，三者集合相同且同序） | 不变 |
+| CS6 | 覆盖度自证（四类角色各至少认出一处；**下限取 1**） | 不变 |
+| CS7 | 门禁自己没被卸掉 | 不变 |
+| **CS8** | **产物形态判得出**（`components.css` 必须在产物里，否则模式判不出、CS2/CS3 失去依据） | **本轮新增** |
+
+CS2 / CS3 的方向保持**单一**：同一份 partial，在 prod 归不发布类、在 dev 归发布类 ——
+不是「两条判据各判一半」，所以红因归属永远可判定。
+
+### E. 自测 `scripts/test-css-publish.cjs`（CU0–CU21，廿三档，接在 build 链）
+
+夹具从**单模**改成**双模**：`makeSandbox("prod")`（产物无 partial、`components.css` 是 concat）
+与 `makeSandbox("dev")`（产物有两个 partial、`components.css` 是 `@import` hub）。
+夹具仍是**自造的最小站**（不依赖真 `_site`，免得自测跟着 build 抖）。
+
+- **CU0**（prod 基线）+ **CU0b**（dev 基线 + **模式自证断言**：红因里必须出现「判为 **dev**」）。
+- **CU9** 改用 dev 夹具（dev 缺 partial ⇒ CS3）。
+- **CU19**：prod 夹具塞 partial 副本 ⇒ **CS2**（用 `write()` 写文件，避免目录不存在）。
+- **CU20**：prod 夹具删 `components.css` ⇒ **CS8**。
+- **CU21**：副本里卸掉 `const CS8_ON = true;` ⇒ **CU20 必须转绿** ⇒ 证明 CS8 的红确实来自它自己。
+- **每档都断言红因编号集合完全相等**（多一条少一条都算失败）—— 一档里出现两条判据的红，
+  红因归属就不可判定了。
+
+### F. 既有门禁的连带改造
+
+- `scripts/check-css-comment-weight.cjs` 的 `NOT_PUBLISHED`（CQ3 用的「本来就不发布」集合）
+  **静态加入磁盘上的 `components/_*.css`** ⇒ CQ3(c) 不会把「源有、prod 产物没有」
+  误判成缺陷。
+- 该门禁**保持 prod-only**：`CQ2` 要求 `components.css` 逐字含每个 partial，
+  **只有 concat 形态成立**（dev 的 hub 是 `@import` 清单）⇒ 若改成模式感知要另立一档判据，
+  收益低于风险，本轮不动。
+- `scripts/test-css-comment-weight.cjs` **不需要改**：已逐档核查 CQ2a / CQ2b / CQ3a / CQ3b /
+  CQ3c 的语义均不受影响（CQ3c 由 CQ3(d) 抓住），CU0 基线在 prod 产物下仍绿。
+
+### G. 验证
+
+① `node scripts/test-css-publish.cjs` exit 0，**23 档 CU0–CU21 全过**（含 CU0b / CU19 / CU20 /
+CU21 四档新增），**每档红因编号集合完全相等**，**原件 SHA-256 未变**。
+
+② `npm run build` exit 0、**0 个 ✗**；CS 门禁输出「源样式 15 个（内联 3 / 外链 4 /
+partial 7 / 顺序声明 1）、产物 5 个」+「产物形态判为 **prod（concat 单文件）**」；
+CQ 门禁「6 个产物页面 / 14 个内联 `<style>` 块（107526 B）、**5 个外链 CSS 文件（65624 B）**」；
+门禁接线门禁报 **46 个门禁脚本全部从 build 可达**、**37 个自测中 33 个接在 build 链上**。
+
+③ **prod 产物核对**：43 → **36 个文件**；逐文件 SHA-256 比对（基线 vs 新）⇒
+**恰好只有 7 个 partial 消失**，其余**逐字节相同**（仅 `feed.xml` 的 `lastBuildDate` 与
+`robots.txt` 生成时刻差构建时间戳）；站点总字节 **2,241,645 → 2,200,764（−40,881 B）**
+（与 7 个副本的字节和分毫不差）；`_site` 侧车（AppleDouble `._*`）count = **0**。
+
+④ **dev 侧另行实测**（本轮才知道的事实）：dev 产物落在 **`_site_dev/`**（不是 `_site/`），
+由 `OUT_DIR = IS_SERVE_MODE ? "_site_dev" : "_site"` 决定；`.gitignore` 已含两个目录。
+`npx eleventy --serve` ⇒ `_site_dev/assets/css/components/` 下 **7 个分片齐全**、
+`_site_dev/assets/css/components.css` 是 `@import` hub；`_site_dev` 共 43 文件。
+`SITE_DIR=_site_dev node scripts/check-css-publish.cjs` exit 0，判为 **dev**，
+并要求 7 个 partial 存在 ⇒ **门禁在 dev 产物上同样有效**（不是只对 prod 绿）。
+
+⑤ **负对照（坐实「没人看守」）**：把修前形态（当前 `_site` + 7 个**源文件原样** partial，
+43 文件）放 `/tmp` 副本 ⇒ 门禁 **exit 1 且 CS2 精确判红 7 处**（逐个点名分片），
+**且只有 CS2 一条**（红因归属纯净）。
+（注入的是未经剥注释的源文件，73,336 B，与真实修前产物副本的 40,881 B 字节不同 ——
+**门禁的判定与内容无关**。）
+
+### H. 边界与已知不足（如实记，不藏）
+
+- **dev 产物没有门禁**（CI 只跑 prod）⇒ dev 分支的正确性靠 `eleventy.config.js` 的
+  **结构相邻**（条件直拷紧挨发布清单）+ 本轮**手工实测 `_site_dev/`** 坐实。
+  若将来要让 CI 也跑 dev 产物，需要单独立项。
+- **CS 门禁的默认对象是 prod 产物**（`_site`）；要核 dev 产物要显式给 `SITE_DIR=_site_dev`。
+  这条入口是**门禁自己提供的**（不读 `process.argv`、不读 env 决定模式 ——
+  env 只决定「看哪个目录」，**模式永远从产物自身判**）。
+- **模式判定只认 `components.css` 的形态**（`@import url(` ⇒ dev）：若将来 dev 的 hub 改成别的
+  形态（例如也 concat），模式判据要跟着改 ⇒ 由 CS8 兜底（判不出就判红，不会静默放过）。
+- **CQ 门禁仍是 prod-only**（见 F）—— 这是有意留下的口径，不是遗漏。
+- **CS5 判的是「三处同序」，不判这个顺序对不对** —— 层级口径属设计意图
+  （`docs/design-system.md` §6.0），顺序本身对不对仍靠人。
+- **CS1 只认「四类角色」，不判样式好不好看** —— 视觉质量不归本门禁。
+- **不判别的资源族**（JS / 图片 / 字体）—— 各有各的约定，混进来会误判。
+- **3 个 og 设计源 SVG（18,055 B）**本轮**未处理** —— 它们的去留与 og 口径（待拍板 40）
+  是同一件事 ⇒ 留作下轮候选。
+
+### I. 本轮纪律
+
+- **每轮只做 1 个改进点**（D51）。
+- **不代拍**：11 条待修缺陷全绑拍板项 ⇒ 走新缺陷普查路线；本轮**不新增待拍板**。
+- **不 push**：待拍板 7（时机）+ 49（发布到哪个仓）未拍 ⇒ 只提交到本地 `main`。
+- **零第三方前端运行时依赖**：门禁与自测只用 Node 内置能力
+  （`fs` / `path` / `crypto` / `child_process`）。
+- **模板与样式一个字不动**：改动只在构建清单、门禁、自测、注释、文档。
+- **契约不违**：`docs/design-system.md` §6.0 的双模表由 DC4 强制 ⇒ 只让 prod 那半边落地，
+  **没有改契约**；判据与被检查方冲突时**默认改门禁**（本轮是把 CS3 从「无条件」改成
+  「模式感知」，不是把契约降级成门禁现在能认的）。
+- **并发文件全程不碰**：`scripts/check-identity-handles.cjs` 与
+  `scripts/test-gates-selfcheck.cjs` 是并发场次的，未碰、未提交。
+- **exFAT 权限**：改动脚本与 `eleventy.config.js` 保持 `100644`；
+  `docs/ROADMAP.md` / `docs/IMPROVEMENT-LOG.md` / `docs/DEFECT-BACKLOG.md` 保持 `100755`。
+
+### 下一轮入口
+
+- **本轮修的是 D51**（prod 产物里 7 份没人引用的 CSS partial 副本）；
+  **D50**（4 份顶层死副本）已在上一场次修完。
+- 缺陷清单里仍**待修**的 11 条（D2 / D3 / D5 / D6 / D9 / D10 / D12 / D15 / D26 / D32 等）
+  **全绑拍板** ⇒ 下轮大概率仍要新开编号。
+- **本轮已排除的方向**（不必重查）：JS 家族死模块、`site.js` 死键、
+  `src/content/**` 与 `src/_data/**` 的死条目、sitemap `lastmod` 全同（闭包口径，非缺陷）、
+  og PNG 位深（已是 8-bit colorType 2）、og PNG 体积（待拍板 40）、
+  `package-lock.json` 的 `engines.node` 漂移（`npm ci` exit 0，卫生问题）。
+- **下轮的候选方向**（仍须**有真实命中**，不得空跑）：① **3 个 og 设计源 SVG**（18,055 B）
+  —— 它们的去留与 og 口径（待拍板 40）绑在一起，**要先看 40 拍不拍**；
+  ② `package-lock.json` 的 `engines` 口径漂移（`>=18` vs `>=22`）——
+  改成 `>=22` 只需重生成 lock，**零代码风险**，但价值也小；
+  ③ 继续按资源族普查，**每一族都必须有真实命中才准立项**。
+- ⚠️ **D48 场次的一处结论要在这里订正**：D48 写「那 7 个 `components/_*.css` 是 dev 模式
+  `@import` hub 的指向目标，**不能删**」—— 这话**对 dev 成立、对 prod 不成立**：
+  D50 之后它们被无条件直拷进 prod 产物，成了 40,881 B 的死副本。
+  **正确说法是「partial 只在 dev 产物里存在，prod 产物里没有」**（本轮修的就是这一点）。
+- 待拍板仍挂着：**40**（og 图口径与体积 → D2 / D3）、**41**（同 `@id` 的字段口径 → D9）、
+  **42**（交互类要不要配常驻浏览器门禁 → D10）、**43**（批注层 → D12）、
+  **46**（`excerpt` 缺失判红还是 note → D15）、**47**（`portfolio` 去留）、
+  **48**（404 页根绝对前缀）、**49**（发布到哪个仓 → D32 / D6）、**50**（封面比例口径）、
+  **51**（顶层导航留几份真源 → D41）；**待拍板 10**（about 页正文里的 CSDN 链接要不要保留）
+  本轮**未代拍**；**D5** 等本人定选题主线；**D26** 等本人看视觉取舍；**M3** 等本人自建 OAuth App。
+- 线上仍是旧部署 ⇒ **D6** ⇒ 待拍板 7 + 49 **本轮不代拍**。
+- **本轮不新增待拍板**：D51 的「prod 不发布 partial、dev 仍发布」是客观事实，不是取舍。

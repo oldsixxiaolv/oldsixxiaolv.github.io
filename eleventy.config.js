@@ -94,6 +94,20 @@ function cleanOutputDir(dirName) {
 cleanOutputDir(OUT_DIR);
 
 module.exports = function (eleventyConfig) {
+  /* ---------- 0. dev / prod 判定（必须早于任何发布清单） ----------
+     判定放在配置里而不是只认 NODE_ENV：package.json 的 build 脚本和
+     .github/workflows/deploy.yml 的 build 步骤都是裸 `eleventy`，没有任何人
+     设 NODE_ENV —— 之前线上因此一直拿到 dev 版 @import hub，每页多 7 个 CSS
+     请求，和这里注释写的意图正好相反。改成「只有 --serve 才是 dev」之后，
+     任何构建入口（npm run build / npx eleventy / CI）都默认出生产产物，
+     行为不再依赖调用方记得设环境变量。NODE_ENV=production 仍可用来让
+     --serve 也出生产产物，方便部署前在本地预览线上真实 CSS。
+     ⚠️ 这两行必须在 assetGlobs **之前** 求值：下面要按 dev/prod 决定
+     哪些文件进产物（partial 只在 dev 直拷）。 */
+  const isDevServer =
+    process.argv.includes("--serve") && process.env.NODE_ENV !== "production";
+  const isProductionBuild = !isDevServer;
+
   /* ---------- 1. passthrough copy ---------- */
   // 整个 assets/ 目录：CSS / JS / fonts / 项目封面图 全部直拷
   // macOS 上 cp -R 会附带 ._<name> 资源叉备份（每个文件多出 256KB xattr），
@@ -105,22 +119,22 @@ module.exports = function (eleventyConfig) {
     //   三个文件走 {% inlineCss %} 内联进 HTML（内联才是它们的唯一消费路径），
     //   components/index.css 是 partial 顺序的书面声明（浏览器从不加载它）——
     //   这 4 个文件的产物副本**没有任何页面引用**，合计 28,847 B 白占部署体积。
-    //   ⇒ 下面 4 条顶层样式 + 1 条 partial 通配就是**全部**应当发布的 CSS。
+    //   ⇒ 下面 4 条顶层样式就是**全部**在两种模式下都应当发布的 CSS。
     //   ⚠️ 增删顶层 CSS 或 partial 时，**这几处都要一起改**：
     //   eleventy.config.js 的 order 数组、components/index.css 的 @import 清单、
-    //   以及这里的清单；漏改会被 scripts/check-css-publish.cjs（CS1–CS7）当场判红。
+    //   以及这里的清单；漏改会被 scripts/check-css-publish.cjs（CS1–CS8）当场判红。
     "src/assets/css/layout.css",
     "src/assets/css/pages.css",
     "src/assets/css/a11y.css",
     "src/assets/css/print.css",
-    // Phase 2B.5：components 拆分后，partial 文件需要单独直拷到 _site，
-    // dev mode 下 components.css（钩子生成的 @import hub）按相对路径
-    // './components/_xxx.css' 去命中它们。components.css 本身
-    // 由下方 eleventy.after 钩子按 dev/prod 双模生成（dev: @import hub,
-    // prod: concat），不通过 passthroughCopy。
-    // ⚠️ 通配用 `_*` 而不是 `*`：components/ 下唯一不是 partial 的
-    // index.css 是构建期声明，不该进产物（D50）。
-    "src/assets/css/components/_*.css",
+    // ⚠️ components/ 下的 7 个 partial **不在这份清单里** —— 它们是 dev-only：
+    //   prod 的 components.css 是 7 个 partial 顺序拼接后的**单文件**，分片本身
+    //   没有任何页面会去请求（产物里留着 7 份没人引用的副本，合计 40,881 B
+    //   白占部署体积 —— 见 docs/DEFECT-BACKLOG.md D51）；
+    //   dev 的 components.css 是 @import hub，才需要分片在磁盘上（见下方
+    //   「dev-only 直拷」一段）。
+    //   ⚠️ 通配用 `_*` 而不是 `*`：components/ 下唯一不是 partial 的
+    //   index.css 是构建期声明，任何模式都不该进产物（D50）。
     "src/assets/js/*.js",
     // Phase 2B.6: paper-reader.js 拆为 6 个 ESM 子模块（main/toc/annotations/
     // reading-progress/highlight/theme），在 paper 页动态 import。
@@ -136,6 +150,17 @@ module.exports = function (eleventyConfig) {
   ];
   for (const glob of assetGlobs) {
     eleventyConfig.addPassthroughCopy(glob);
+  }
+
+  /* ---------- 1a. dev-only 直拷：components 的 7 个 partial ----------
+     dev（eleventy --serve）：components.css 是 @import hub，浏览器按相对路径
+     './components/_xxx.css' 去拉这 7 个分片 ⇒ 它们必须在 _site 里。
+     prod（任何非 serve 的构建，含裸跑 npm run build）：components.css 是
+     concat 后的单文件，分片的产物副本**没有任何页面引用** ⇒ 不发布。
+     判据方向见 scripts/check-css-publish.cjs（CS2/CS3：partial 的有无必须
+     与 components.css 的形态一致 —— prod 不许有、dev 必须有）。 */
+  if (isDevServer) {
+    eleventyConfig.addPassthroughCopy("src/assets/css/components/_*.css");
   }
 
   // 论文批注 / 论文正文里的附图（如 cover.svg / cover.png）原样拷贝到 _site/，
@@ -181,17 +206,9 @@ module.exports = function (eleventyConfig) {
        减少 HTTP 请求数（prod 单文件让浏览器一次请求拿全部内容）；
        线上 GitHub Pages 走的就是这条。
 
-     判定放在配置里而不是只认 NODE_ENV：package.json 的 build 脚本和
-     .github/workflows/deploy.yml 的 build 步骤都是裸 `eleventy`，没有任何人
-     设 NODE_ENV —— 之前线上因此一直拿到 dev 版 @import hub，每页多 7 个 CSS
-     请求，和这里注释写的意图正好相反。改成「只有 --serve 才是 dev」之后，
-     任何构建入口（npm run build / npx eleventy / CI）都默认出生产产物，
-     行为不再依赖调用方记得设环境变量。NODE_ENV=production 仍可用来让
-     --serve 也出生产产物，方便部署前在本地预览线上真实 CSS。
+     判定只看本函数开头那两行（isDevServer）：`isDevServer` 要求进程带 `--serve`，
+     所以 `NODE_ENV` 不等于 `production` **并不**等于 dev —— 裸跑构建走的是 prod 分支。
   */
-  const isDevServer =
-    process.argv.includes("--serve") && process.env.NODE_ENV !== "production";
-  const isProductionBuild = !isDevServer;
 
   eleventyConfig.on("eleventy.after", () => {
     const compDir = path.join(__dirname, "src/assets/css/components");

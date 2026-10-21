@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * 门禁 CS1–CS7：**CSS 发布清单**必须与「源样式各自的角色」严格对齐
+ * 门禁 CS1–CS8：**CSS 发布清单**必须与「源样式各自的角色」严格对齐
  *
  * 为什么要有这个门禁（一次实测坐实的看护缺口，不是假想）：
  *   `eleventy.config.js` 的 assetGlobs 曾经用两条通配把源目录里的 CSS
@@ -24,7 +24,14 @@
  *     每个源样式**必须**有角色（内联 / 外链 / partial / 顺序声明），
  *     每个角色的样式**必须**（或**不得**）出现在产物里。
  *
- * 七条判据（编号用独立字母体系 CS*，**不与既有前缀冲突**：
+ * D51 起（见 docs/DEFECT-BACKLOG.md）：门禁自己先犯过一次「把 dev 的需求
+ *   当成 prod 的需求」的错 —— CS3 当时无条件要求 partial 出现在产物里，
+ *   而 prod 的 components.css 是 concat 后的单文件，7 个分片（40,881 B）
+ *   没有任何页面引用。于是**判据本身在要求发布死副本**。
+ *   现在 partial 的发布规则**随产物形态走**：prod 不发布（CS2 拦），
+ *   dev 必须发布（CS3 拦），模式从产物自身判（见下）。
+ *
+ * 八条判据（编号用独立字母体系 CS*，**不与既有前缀冲突**：
  *   CF* / CQ* / CV* / CW* / C1–C8 / DC* / DI* / DS* / GA* / GB* / GW* /
  *   HC* / IA* / ID* / IL* / IS* / JS* / JT* / LM* / LS* / LT* / MC* /
  *   MT* / NA* / NT* / PT* / RD* / SP* / SR* / ST* / TD* / TR* / TS* /
@@ -36,10 +43,13 @@
  *        declared（components/index.css —— partial 顺序的书面声明）
  *      一个都归不进去 ⇒ 判红（它要么是没人用的死文件，要么是漏了引用）。
  *      ⚠️ 归类**先剥注释**再匹配：注释里的一句「见 xxx.css」不算引用。
- *   CS2 **死副本** —— 「不发布类」（只内联未外链的源样式 + 顺序声明）
- *      出现在产物里 ⇒ 判红（没人引用，却占着部署体积）。
- *   CS3 **漏拷** —— 「发布类」（被 <link> 引用的 + partial）没出现在产物里
- *      ⇒ 判红（页面会拿它当 <link href>，直接 404）。
+ *   CS2 **死副本** —— 「不发布类」出现在产物里 ⇒ 判红（没人引用，却占着部署体积）。
+ *      「不发布类」**随模式变**（见下）：
+ *        · inline-only（被内联没外链）+ declared（顺序声明）—— 两种模式都不发布；
+ *        · partial —— **只在 prod 不发布**（prod 的 components.css 是 concat
+ *          后的单文件，分片本身没人请求）；dev 要发布（hub 按相对路径指向它）。
+ *   CS3 **漏拷** —— 「发布类」没出现在产物里 ⇒ 判红（页面会拿它当 <link href>，
+ *      直接 404；dev 下的 partial 缺失则 hub 的 @import 直接断）。
  *   CS4 **孤儿** —— 产物里出现源目录已经没有了的 CSS ⇒ 判红。
  *   CS5 **顺序真源不分叉** —— 磁盘上的 partial 清单、components/index.css 的
  *      @import 清单、eleventy.config.js 的 order 数组，三者必须**集合相同且
@@ -47,15 +57,25 @@
  *   CS6 **覆盖度自证** —— 四类角色各至少比过一处；一处都没认到说明
  *      枚举器坏了，不是「没问题」。
  *   CS7 **门禁自己没被卸掉** —— package.json 的 build 链里必须真的有本门禁。
+ *   CS8 **模式判得出** —— 产物里必须有 components.css；没有它就判不出
+ *      dev/prod，partial 该不该发布无从核对（CS2/CS3 会失去依据）。
+ *
+ * ================= dev / prod 模式：**从产物自身判** =================
+ *   components.css 是双模合成产物：
+ *     · prod = 7 个 partial 顺序 concat 后的单文件（**0 条 @import**）；
+ *     · dev  = @import hub（浏览器按相对路径 ./components/ 去拉分片）。
+ *   所以「产物里有没有 @import」本身就是模式的唯一可靠证据。
+ *   ⚠️ 判据的取值范围必须与被检查方的实际行为**同源**：不读 process.argv
+ *     （门禁跑在 build 链里，那时没有 --serve），不读 env（谁跑都可能不一样），
+ *     更不去解析 eleventy.config.js 的清单 —— 只看产物自己的形态。
  *
  * ⚠️ 门禁**守不了什么**（写清楚，不藏）：
  *   · **不判 CSS 的内容对不对**（选择器是否有效、样式好不好看）——
  *     那是别的门禁与人的事；本门禁只管「谁该出现在产物里」。
- *   · **不判 dev 模式的产物** —— 本门禁只看 prod 产物（_site）；
- *     dev 下 components.css 是 @import hub，partial 的副本被它命中，
- *     所以 partial **必须**在产物里 —— 这条 CS3 已经覆盖。
- *   · **不判 components.css（合成产物）** —— 它由 eleventy.after 钩子
- *     拼接生成，源目录里没有对应文件；它的内容一致性由 CQ2 管。
+ *   · **不判 dev 模式之外的东西** —— dev 产物里 partial 必须存在（CS3 覆盖），
+ *     prod 产物里 partial 必须不存在（CS2 覆盖），两种形态都有判据。
+ *   · **不判 components.css（合成产物）的内容** —— 它由 eleventy.after 钩子
+ *     拼接/生成，源目录里没有对应文件；内容一致性由 CQ2 管。
  *   · **不判别的资源族**（JS / 图片 / 字体）—— 各有各的约定，混进来会误判。
  *
  * 环境变量（自测要在**副本**上注入缺陷，不能改仓库里的真文件）：
@@ -84,6 +104,7 @@ const CS4_ON = true;
 const CS5_ON = true;
 const CS6_ON = true;
 const CS7_ON = true;
+const CS8_ON = true;
 
 /* CS6 的覆盖度下限（只要本站还在，这四类角色每一类都得**比过至少一处**；
    一处都没有说明枚举器坏了，不是「没问题」）。
@@ -197,6 +218,21 @@ const srcSet = new Set(srcRels);
 const prodSet = new Set(prodRels);
 const code = templateCode();
 
+/* ---- dev / prod 模式：**从产物自身判** ----
+ * components.css 是双模合成产物：
+ *   prod = 7 个 partial 顺序 concat 后的单文件（0 条 @import）；
+ *   dev  = @import hub（浏览器按相对路径 ./components/ 去拉分片）。
+ * 「产物里有没有 @import」本身就是模式的唯一可靠证据 ⇒ 不读 process.argv
+ * （门禁跑在 build 链里，那时没有 --serve）、不读 env、不解析构建清单。
+ * 判不出模式时 siteMode = null ⇒ partial 的发布规则暂时无从核对（CS8 判红）。
+ */
+const bundleFile = path.join(PROD_CSS, BUNDLE_REL);
+let siteMode = null; // "dev" | "prod" | null（判不出）
+if (fs.existsSync(bundleFile)) {
+  const bundleText = fs.readFileSync(bundleFile, "utf8");
+  siteMode = /@import\s+url\(/.test(bundleText) ? "dev" : "prod";
+}
+
 /* ---- 角色 1：inline（被 {% inlineCss %} 内联） ---- */
 const inlineSet = new Set();
 {
@@ -274,13 +310,25 @@ const orderNames = [];
   }
 }
 
-/* ---- 派生集合 ---- */
-/** 发布类：被 <link> 引用的 + partial —— 必须出现在产物里。 */
-const publishSet = new Set([...linkSet, ...partialSet]);
-/** 不发布类：只内联没外链的源样式 + 顺序声明 —— 不得出现在产物里。 */
+/* ---- 派生集合（**随模式变化**） ---- */
+/**
+ * 发布类：必须出现在产物里。
+ *   · 外链类（被 <link> 指向）—— 两种模式都必须发布；
+ *   · partial —— **只在 dev 发布**：dev 的 components.css 是 @import hub，
+ *     按相对路径 ./components/ 指向分片，缺一个就断；prod 的 components.css
+ *     是 concat 后的单文件，分片本身没人请求（D51）。
+ */
+const publishSet = new Set([...linkSet]);
+if (siteMode === "dev") for (const rel of partialSet) publishSet.add(rel);
+/**
+ * 不发布类：不得出现在产物里。
+ *   · inline-only（被内联没外链）+ declared（顺序声明）—— 两种模式都不发布；
+ *   · partial —— **只在 prod 不发布**（见上）。
+ */
 const nonPublishSet = new Set();
 for (const rel of inlineSet) if (!linkSet.has(rel)) nonPublishSet.add(rel);
 for (const rel of declaredSet) nonPublishSet.add(rel);
+if (siteMode === "prod") for (const rel of partialSet) nonPublishSet.add(rel);
 
 /* ================= CS1：角色穷尽 ================= */
 
@@ -308,14 +356,20 @@ if (CS1_ON) {
 if (CS2_ON) {
   for (const rel of [...nonPublishSet].sort()) {
     if (!prodSet.has(rel)) continue;
-    const why =
-      rel === DECLARED_REL
+    const isPartial = partialSet.has(rel);
+    const why = isPartial
+      ? "prod 的 components.css 是 7 个 partial 顺序拼接后的**单文件**，" +
+        "没有任何页面会去请求分片本身（dev 的 @import hub 才需要它们）"
+      : rel === DECLARED_REL
         ? "它是 partial 顺序的书面声明，浏览器从不加载它"
         : "它被模板 {% inlineCss %} 内联进 HTML，内联才是它的唯一消费路径";
+    const how = isPartial
+      ? "请把它从 prod 的直拷清单里去掉 —— partial 只在 dev 直拷" +
+        "（eleventy.config.js 里 `if (isDevServer)` 那一段）"
+      : "请把它从构建的直拷清单里去掉（eleventy.config.js 的 assetGlobs）";
     fail("CS2",
       `产物 _site/assets/css/${rel} 是**没人引用的副本** —— ${why}。` +
-        `它占着部署体积，却没有任何页面会去请求它。` +
-        `请把它从构建的直拷清单里去掉（eleventy.config.js 的 assetGlobs）。`
+        `它占着部署体积，却没有任何页面会去请求它。${how}。`
     );
   }
 }
@@ -326,11 +380,13 @@ if (CS3_ON) {
   for (const rel of [...publishSet].sort()) {
     if (prodSet.has(rel)) continue;
     const why = partialSet.has(rel)
-      ? "dev 模式的 components.css 按相对路径 ./components/ 指向它，副本不在就断"
+      ? "dev 模式的 components.css 是 @import hub，按相对路径 ./components/ 指向它，副本不在就断"
       : "模板用 <link> 指向它，副本不在就直接 404";
+    const how = partialSet.has(rel)
+      ? "请确认 eleventy.config.js 里 dev-only 的直拷那一段还在（partial 只在 dev 发布）"
+      : "请把它加进 eleventy.config.js 的 assetGlobs 直拷清单";
     fail("CS3",
-      `源样式 src/assets/css/${rel} **该出现在产物里却没有** —— ${why}。` +
-        `请把它加进 eleventy.config.js 的 assetGlobs 直拷清单。`
+      `源样式 src/assets/css/${rel} **该出现在产物里却没有** —— ${why}。${how}。`
     );
   }
 }
@@ -443,6 +499,19 @@ if (CS7_ON) {
   }
 }
 
+/* ================= CS8：模式判得出 ================= */
+
+if (CS8_ON) {
+  if (siteMode === null) {
+    fail("CS8",
+      `产物 _site/assets/css/${BUNDLE_REL} 不存在（或读不出）—— ` +
+        `判不出 dev/prod 模式，partial 该不该发布就无从核对` +
+        `（prod 不许有、dev 必须有）。` +
+        `请先构建产物再跑本门禁。`
+    );
+  }
+}
+
 /* ================= 汇总 ================= */
 
 if (problems.length) report();
@@ -450,16 +519,25 @@ if (problems.length) report();
 console.log(
   `CSS 发布清单门禁通过：源样式 ${srcRels.length} 个` +
     `（内联 ${inlineSet.size} / 外链 ${linkSet.size} / partial ${partialSet.size} / 顺序声明 ${declaredSet.size}）、` +
-    `产物 ${prodRels.length} 个 —— 集合严格相等，没有没人引用的副本，也没有漏拷的样式。`
+    `产物 ${prodRels.length} 个 —— **发布类与产物严格一致**：` +
+    `没有没人引用的副本，也没有漏拷的样式。`
+);
+console.log(
+  `  · 产物形态判为 **${siteMode === "dev" ? "dev（@import hub）" : "prod（concat 单文件）"}**` +
+    `（依据：${BUNDLE_REL} 里${siteMode === "dev" ? "有" : "没有"} @import）`
 );
 console.log(
   `  · 发布清单：${[...publishSet].sort().join(" / ")}`
 );
 console.log(
-  `  · 不发布（内联或声明）：${[...nonPublishSet].sort().join(" / ")}`
+  `  · 不发布（内联 / 顺序声明${siteMode === "prod" ? " / prod 的 partial" : ""}）：` +
+    `${[...nonPublishSet].sort().join(" / ")}`
 );
 console.log(
   `  · 顺序真源三处一致（**声明顺序**，磁盘清单与 order 数组已核对为同序）：` +
     `${declaredNames.join(" → ")}`
 );
-console.log(`  · 判据出处：docs/DEFECT-BACKLOG.md D50（产物里的无人引用 CSS 副本）。`);
+console.log(
+  `  · 判据出处：docs/DEFECT-BACKLOG.md D50（产物里的无人引用 CSS 副本）` +
+    `与 D51（partial 只在 dev 发布，prod 不许留死副本）。`
+);

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * 自测 CU0–CU18：给 scripts/check-css-publish.cjs 的每条判据找一次「它会红」的证据
+ * 自测 CU0–CU21：给 scripts/check-css-publish.cjs 的每条判据找一次「它会红」的证据
  *
  * 为什么要有这个自测（2026-10-21 的 D48）：
  *   这道门禁守的是「产物里只该有发布类的 CSS，不该有没人引用的副本」。
@@ -17,12 +17,18 @@
  *     <tmp>/eleventy.config.js              partial 拼接顺序的机器镜像（CS5 看这个）
  *     <tmp>/src/assets/css/**               五个源样式，四个角色各占位（CS1/CS6）
  *     <tmp>/src/_includes/layouts/base.njk  模板：内联 + 外链两种消费路径
- *     <tmp>/_site/assets/css/**             产物：发布类 + 合成产物 components.css
+ *     <tmp>/_site/assets/css/**             产物：**随模式**（见下）
  *   门禁的 ROOT 是「它自己所在目录的上一级」，所以副本里的它**天然**
  *   指向副本里的站，不需要任何环境变量。
  *
- * 档位（11 档注入 + 7 档判据级负对照）：
- *   CU0  基线绿（并自证四类角色都被认出来了）
+ * 夹具站的**模式**（D51 起）：门禁从产物自身判 dev/prod（components.css 里
+ *   有没有 @import），所以夹具必须能造出两种形态：
+ *     prod —— components.css 是 concat 单文件（无 @import），产物里**没有** partial；
+ *     dev  —— components.css 是 @import hub，产物里**有**两个 partial。
+ *
+ * 档位（13 档注入 + 8 档判据级负对照 + 2 档基线）：
+ *   CU0  基线绿（prod 夹具，并自证四类角色都被认出来了）
+ *   CU0b 基线绿（dev 夹具 —— hub 形态下也必须绿）
  *   CU1  产物里多一份「内联类」死副本（tokens.css）        ⇒ CS2
  *   CU2  产物里少了「外链类」样式（layout.css）            ⇒ CS3
  *   CU3  产物里多一份源目录已无的 CSS（orphan.css）        ⇒ CS4
@@ -31,11 +37,14 @@
  *   CU6  order 数组里多一个名字（集合对不上）               ⇒ CS5
  *   CU7  内联类清零（删源 + 删模板引用）                   ⇒ CS6（覆盖度自证）
  *   CU8  产物里多一份「顺序声明」死副本（index.css）       ⇒ CS2
- *   CU9  产物里少了 partial 副本（_nav.css）               ⇒ CS3
+ *   CU9  **dev** 产物里少了 partial 副本（_nav.css）       ⇒ CS3
  *   CU10 门禁自己被卸掉（build 链里不叫它了）              ⇒ CS7
  *   CU11 顺序声明与 order 数组集合相同但不同序             ⇒ CS5
+ *   CU19 **prod** 产物里多一份 partial 副本（_btn.css）    ⇒ CS2（D51 的形状）
+ *   CU20 prod 产物里没有 components.css（判不出模式）     ⇒ CS8
  *   CU12–CU18（负对照）卸掉 CS1–CS7 的判定开关
  *        ⇒ 对应注入必须**转绿**（红因一个都不许剩）
+ *   CU21（负对照）卸掉 CS8 的判定开关 ⇒ CU20 必须转绿
  *
  * ⚠️ 每档都断言「红因编号集合**完全相等**」，不只是「包含期望的那条」——
  *   一档里出现两条判据的红，红因归属就不可判定了（那是脚本的缺陷，不是产品的缺陷）。
@@ -76,8 +85,12 @@ function write(p, text) {
  *   components/_btn.css   partial
  *   components/_nav.css   partial
  *   components/index.css  顺序声明（@import 清单）
+ *
+ * mode = "prod"（默认）：产物 components.css 是 concat 单文件（无 @import），
+ *   产物里**没有** partial —— prod 不发布分片（D51）。
+ * mode = "dev"：产物 components.css 是 @import hub，产物里**有**两个 partial。
  */
-function makeSandbox() {
+function makeSandbox(mode = "prod") {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mh-css-publish-"));
   fs.mkdirSync(path.join(dir, "scripts"), { recursive: true });
 
@@ -110,11 +123,21 @@ function makeSandbox() {
       '<link rel="stylesheet" href="{{ \'/assets/css/layout.css\' | relUrl }}">\n'
   );
 
-  /* 产物：发布类（外链 + 两个 partial）+ 合成产物 components.css */
+  /* 产物：**随模式** —— 门禁从 components.css 的形态判 dev/prod。 */
   write(path.join(dir, "_site", "assets", "css", "layout.css"), ".fixture-layout{color:#333}\n");
-  write(path.join(dir, "_site", "assets", "css", "components", "_btn.css"), ".fixture-btn{padding:4px}\n");
-  write(path.join(dir, "_site", "assets", "css", "components", "_nav.css"), ".fixture-nav{display:flex}\n");
-  write(path.join(dir, "_site", "assets", "css", "components.css"), "/* fixture bundle */\n");
+  if (mode === "dev") {
+    write(path.join(dir, "_site", "assets", "css", "components", "_btn.css"), ".fixture-btn{padding:4px}\n");
+    write(path.join(dir, "_site", "assets", "css", "components", "_nav.css"), ".fixture-nav{display:flex}\n");
+    write(
+      path.join(dir, "_site", "assets", "css", "components.css"),
+      '/* fixture dev hub */\n@import url("./components/_btn.css");\n@import url("./components/_nav.css");\n'
+    );
+  } else {
+    write(
+      path.join(dir, "_site", "assets", "css", "components.css"),
+      "/* fixture bundle */\n.fixture-btn{padding:4px}\n.fixture-nav{display:flex}\n"
+    );
+  }
 
   return dir;
 }
@@ -208,10 +231,10 @@ function expectGreen(id, dir, note) {
   );
 }
 
-/* ================= CU0：基线 ================= */
+/* ================= CU0：基线（prod 夹具） ================= */
 
 {
-  const dir = makeSandbox();
+  const dir = makeSandbox("prod");
   const r = runGate(dir);
   const got = redIds(r.out);
   const ok = r.code === 0 && got.size === 0;
@@ -220,12 +243,32 @@ function expectGreen(id, dir, note) {
   const roles = m ? m.slice(1).map((x) => Number(x)) : [];
   const rolesOk = roles.length === 4 && roles.every((n) => n >= 1);
   record(
-    "CU0 基线（夹具站上）",
+    "CU0 基线（prod 夹具站上）",
     ok && rolesOk,
     ok
       ? rolesOk
         ? `门禁绿；四类角色都认出来了（内联 ${roles[0]} / 外链 ${roles[1]} / partial ${roles[2]} / 顺序声明 ${roles[3]}）`
         : `门禁绿，但没读到角色统计 —— 覆盖度自证缺证据\n${r.out}`
+      : `门禁不该红，却 exit ${r.code}，红因 ${fmtIds(got)}\n${r.out}`
+  );
+  fs.rmSync(dir, { recursive: true, force: true });
+}
+
+/* ================= CU0b：基线（dev 夹具） ================= */
+
+{
+  const dir = makeSandbox("dev");
+  const r = runGate(dir);
+  const got = redIds(r.out);
+  const ok = r.code === 0 && got.size === 0;
+  const modeOk = /判为 \*\*dev/.test(r.out);
+  record(
+    "CU0b 基线（dev 夹具站上）",
+    ok && modeOk,
+    ok
+      ? modeOk
+        ? "门禁绿；产物形态被判为 dev（@import hub）"
+        : "门禁绿，但没读到模式判定 —— 模式自证缺证据\n" + r.out
       : `门禁不该红，却 exit ${r.code}，红因 ${fmtIds(got)}\n${r.out}`
   );
   fs.rmSync(dir, { recursive: true, force: true });
@@ -313,11 +356,11 @@ function expectGreen(id, dir, note) {
   fs.rmSync(dir, { recursive: true, force: true });
 }
 
-/* CU9（CS3）：产物里少了 partial 副本 —— dev 的 @import 按相对路径指向它 */
+/* CU9（CS3）：**dev** 产物里少了 partial 副本 —— hub 的 @import 按相对路径指向它 */
 {
-  const dir = makeSandbox();
+  const dir = makeSandbox("dev");
   fs.rmSync(prodOf(dir, "components/_nav.css"));
-  expectRed("CU9 产物里少了 partial 副本（components/_nav.css） ⇒ CS3", dir, ["CS3"]);
+  expectRed("CU9 dev 产物里少了 partial 副本（components/_nav.css） ⇒ CS3", dir, ["CS3"]);
   fs.rmSync(dir, { recursive: true, force: true });
 }
 
@@ -344,7 +387,27 @@ function expectGreen(id, dir, note) {
   fs.rmSync(dir, { recursive: true, force: true });
 }
 
-/* ================= 判据级负对照 CU12–CU18 ================= */
+/* CU19（CS2）：**prod** 产物里多一份 partial 副本 —— 这就是 D51 的形状：
+   prod 的 components.css 是 concat 单文件，分片本身没人请求。 */
+{
+  const dir = makeSandbox("prod");
+  write(
+    prodOf(dir, "components/_btn.css"),
+    fs.readFileSync(srcOf(dir, "components/_btn.css"), "utf8")
+  );
+  expectRed("CU19 prod 产物里塞一份没人引用的 partial 副本 ⇒ CS2", dir, ["CS2"]);
+  fs.rmSync(dir, { recursive: true, force: true });
+}
+
+/* CU20（CS8）：prod 产物里没有 components.css —— 判不出模式 */
+{
+  const dir = makeSandbox("prod");
+  fs.rmSync(prodOf(dir, "components.css"));
+  expectRed("CU20 prod 产物里没有 components.css（判不出模式） ⇒ CS8", dir, ["CS8"]);
+  fs.rmSync(dir, { recursive: true, force: true });
+}
+
+/* ================= 判据级负对照 CU12–CU18 与 CU21 ================= */
 
 /* CU12：卸掉 CS1 ⇒ CU4 的注入（没人引用的源样式）必须转绿 */
 {
@@ -417,6 +480,15 @@ function expectGreen(id, dir, note) {
   fs.rmSync(dir, { recursive: true, force: true });
 }
 
+/* CU21：卸掉 CS8 ⇒ CU20 的注入（prod 缺 components.css）必须转绿 */
+{
+  const dir = makeSandbox("prod");
+  patch(path.join(dir, "scripts", "check-css-publish.cjs"), "const CS8_ON = true;", "const CS8_ON = false;");
+  fs.rmSync(prodOf(dir, "components.css"));
+  expectGreen("CU21 负对照：卸掉 CS8 判定后，CU20 的注入转绿", dir, "证明 CU20 那档的红确实来自 CS8 判定本身");
+  fs.rmSync(dir, { recursive: true, force: true });
+}
+
 /* ================= 收尾：仓库原件没被动过 ================= */
 
 const problems = [];
@@ -435,7 +507,7 @@ const bad = results.filter((r) => !r.ok);
 console.log(
   `\n注入矩阵：${results.length} 档里 ${results.length - bad.length} 档按预期触发` +
     `${bad.length ? `，${bad.length} 档未通过` : ""}` +
-    `（CU12–CU18 是判据级负对照）。`
+    `（CU12–CU18 与 CU21 是判据级负对照）。`
 );
 if (bad.length) bad.forEach((b) => console.log(`  · 未通过：${b.id}`));
 console.log("  · 原件校验：门禁的 SHA-256 与自测开始时一致。");

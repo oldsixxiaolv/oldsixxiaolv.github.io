@@ -89,7 +89,7 @@
 - 后续每轮都从这份清单里取一条来修（不是随手挑）。
 
 **进度（2026-10-21 11:05 实测）**
-- 缺陷清单已到 **D50**（D1 / D4 / D11 / D13 / D14 / D15 / D16 / D17 / D18 / D19 / D20 / D21 / D22 / D23 / D24 / D25 / D27 / D28 / D29 / D30 / D31 / D33 / D34 / D35 / D36 / D37 / D38 / D39 / D40 / D41 / D42 / D43 / D44 / D45 / D46 / D47 / D48 / D49 / D50 已修；D2 / D3 / D5 / D6 / D9 / D10 / D12 / D26 / D32 待修；D7 / D8 不修）。
+- 缺陷清单已到 **D51**（D1 / D4 / D11 / D13 / D14 / D15 / D16 / D17 / D18 / D19 / D20 / D21 / D22 / D23 / D24 / D25 / D27 / D28 / D29 / D30 / D31 / D33 / D34 / D35 / D36 / D37 / D38 / D39 / D40 / D41 / D42 / D43 / D44 / D45 / D46 / D47 / D48 / D49 / D50 / D51 已修；D2 / D3 / D5 / D6 / D9 / D10 / D12 / D26 / D32 待修；D7 / D8 不修）。
 - 「构建链与门禁本身的失效点」这一支已补**四条**：
   ① **D13**：窄屏溢出门禁只查「横向溢出」，查不出「正文被挤成窄带」（D11 那一族坏版式当时
   build 与全部门禁都绿）—— 2026-10-20 11:00–11:30 场次给该门禁补了「正文列宽」判据
@@ -1491,6 +1491,60 @@
      双次 build 交叉只差 `feed.xml`（`lastBuildDate`）与 `robots.txt`（生成时刻）；侧车 count = 0。
   ⑨ ⚠️ **本轮不代拍、也不新增待拍板**：死副本是**客观事实**，不涉及审美取舍，
      也不改任何发布决策。
+
+- **D49**（本轮修的是缺陷 **D51**）：这一轮是**上一轮（D48）自己造出来的缺陷** ——
+  D48 把「产物里多出来的文件」这类问题立成了门禁 CS1–CS7，却把 **dev 的需求写成了 prod 的义务**。
+  ① **本轮路线**：缺陷清单里仍是「待修」的 11 条（D2 / D3 / D5 / D6 / D9 / D10 / D12 / D15 /
+     D26 / D32 与 D4/D11/D13…）**全部卡在拍板项上**（D2/D3→待拍板 40；D5→需本人定选题主线；
+     D6→push 触发；D9→待拍板 41；D10→待拍板 42；D12→待拍板 43；D15→待拍板 46；
+     D26→视觉取舍；D32→待拍板 49+7）⇒ 按规矩**不代拍**，改走**新缺陷普查**路线。
+     普查按资源族过：JS 家族**零死模块**、`site.js` **零死键**、`src/content/**` 与
+     `src/_data/**` 无死文件、sitemap `lastmod` 全同属**闭包口径**（不是缺陷）、
+     og PNG 已是 8-bit colorType 2（无位深空间）、og 体积属**待拍板 40**、
+     `package-lock.json` 的 `engines` 与 `package.json` 有漂移但 `npm ci` exit 0（卫生问题，
+     留作下轮候选）⇒ 真正坐实的是 CSS 家族。
+  ② **实测（坐实缺陷）**：修前 `_site/assets/css/components/` 下有 **7 个 `_*.css` partial 副本**
+     合计 **40,881 B**（源文件合计 73,336 B，产物侧被 `stripProductCssComments` 剥过注释），
+     而**全产物引用扫描显示零个页面引用它们**。根因有两层：
+     **构造层**是 `assetGlobs` 里的 partial 通配把 7 个分片照直拷进产物；
+     **判据层**是 D50 新立的 **CS3（partial 必须进产物）写成了无条件义务** ——
+     而 partial 只有 dev 需要（dev 的 `components.css` 是 `@import` hub，
+     浏览器按 `./components/_xxx.css` 相对路径去拉分片；**prod 的 `components.css` 是 7 个 partial
+     顺序拼接后的单文件**，分片本身没人请求）。**CS2（死副本）当时也没抓住**，
+     因为 partial 被排除在「不发布类」之外 ⇒ 7 份死副本从门禁缝里漏了过去。
+  ③ **修法（只动构建清单与门禁，不动模板与样式）**：`assetGlobs` 去掉 partial 通配，
+     改成 `if (isDevServer) { eleventyConfig.addPassthroughCopy("src/assets/css/components/_*.css"); }`
+     （`isDevServer` / `isProductionBuild` 从钩子附近**上提到 `module.exports` 开头**，
+     早于任何发布清单求值）⇒ **prod 不发布 partial、dev 照旧直拷**。
+     CSS 内容、模板、JSON-LD **一个字不动**。
+  ④ **门禁改成模式感知** `scripts/check-css-publish.cjs`（判据 **CS1–CS8**）：
+     **模式从产物自身判** —— 读 `_site/assets/css/components.css`，含 `@import url(` ⇒ **dev**，
+     否则 ⇒ **prod**（**不引入 env var、不解析 `assetGlobs`、不读 `process.argv`**
+     ⇒ 判据取值范围与被检查方实际行为同源）。
+     **CS2 / CS3 方向单一**：prod 时 partial 归「不发布类」（CS2 拦），dev 时归「发布类」（CS3 拦）。
+     **新增 CS8**：产物缺 `components.css` ⇒ 判红 —— 模式判不出时 CS2/CS3 失去依据，
+     这条原先**无人看守**。**CS1 / CS4 / CS5 / CS6 / CS7 语义不变**。
+  ⑤ **既有门禁的连带改造**：`check-css-comment-weight.cjs` 的 `NOT_PUBLISHED` 集合
+     **静态加入磁盘上的 `components/_*.css`**（CQ3(c) 才不会把「源有产物没有」误判成缺陷）
+     ⇒ **CQ 门禁保持 prod-only**（CQ2 要求 `components.css` 逐字含每个 partial，
+     只有 concat 形态成立）。
+  ⑥ **自测** `scripts/test-css-publish.cjs`（**CU0–CU21** 共 23 档）：夹具从单模改成**双模**
+     （`makeSandbox("prod")` 产物无 partial / `makeSandbox("dev")` 产物有两个 partial 且
+     `components.css` 是 `@import` hub）；新增 **CU0b**（dev 基线 + 模式自证断言）、
+     **CU19**（prod 夹具塞 partial 副本 ⇒ CS2）、**CU20**（prod 夹具删 `components.css` ⇒ CS8）、
+     **CU21**（卸掉 `CS8_ON` ⇒ CU20 转绿）；**CU9** 改用 dev 夹具；**每档断言红因编号集合完全相等**。
+  ⑦ **实测坐实「没人看守」**：把修前形态（当前 `_site` + 7 个源文件原样 partial）放 `/tmp` 副本
+     ⇒ 门禁 **exit 1 且 CS2 精确判红 7 处**（逐个点名分片）、**只有 CS2 一条**
+     （红因归属纯净）。
+  ⑧ **产物核对**：prod 产物 **43 → 36 个文件**，逐文件 SHA-256 比对 ⇒
+     **恰好只有 7 个 partial 消失**，其余**逐字节相同**（仅 `feed.xml` 的 `lastBuildDate` 与
+     `robots.txt` 生成时刻差构建时间戳）；站点总字节 **2,241,645 → 2,200,764（−40,881 B）**。
+     **dev 侧另行实测**：`npx eleventy --serve` ⇒ dev 产物落在 `_site_dev/`（不是 `_site/`），
+     `_site_dev/assets/css/components/` 下 **7 个分片齐全**、`components.css` 是 `@import` hub；
+     `SITE_DIR=_site_dev node scripts/check-css-publish.cjs` exit 0 且判为 dev。
+  ⑨ ⚠️ **本轮不代拍、也不新增待拍板**：「prod 不发布 partial、dev 仍发布」是**客观事实**，
+     `docs/design-system.md` §6.0 的 dev/prod 双模表由 DC4 强制 ⇒ **双模是契约**，
+     本轮只让契约的 prod 那半边落地，**没有改契约**。
 
 ---
 
