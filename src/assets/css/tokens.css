@@ -128,7 +128,22 @@
               0 2px 4px rgba(15, 13, 10, .04);
   --shadow-3: 0 16px 40px rgba(15, 13, 10, .10),
               0 4px 12px rgba(15, 13, 10, .06);
-  --shadow-focus: 0 0 0 3px rgba(58, 134, 255, .35);
+  /* —— Focus ring ——
+     The focus ring is TWO concentric rings, not one translucent ring.
+     A single translucent colour cannot clear WCAG 1.4.11 (3:1) against every
+     surface this site uses: the old 35%-alpha blue measured 1.48:1 on the
+     light page background, 1.78:1 on the dark one, and 1.25:1 on the
+     primary button fill.
+     Here the inner ring takes a colour that contrasts with the page
+     background, and the outer ring takes the opposite pole of the same
+     palette, so that on ANY surface at least one of the two clears 3:1
+     (e.g. light theme on the primary button: inner 2.05:1, outer 6.44:1).
+     Both tokens point at ramp colours that the dark blocks remap, so the
+     same two declarations yield a light-on-dark pair in dark mode with no
+     per-theme override needed. */
+  --focus-ring-inner: var(--color-brand-800);
+  --focus-ring-outer: var(--color-neutral-0);
+  --shadow-focus: 0 0 0 2px var(--focus-ring-inner), 0 0 0 4px var(--focus-ring-outer);
 
   /* —— Radius —— */
   --radius-sm: 4px;
@@ -257,7 +272,7 @@
     --shadow-1: 0 1px 2px rgba(0,0,0,.4);
     --shadow-2: 0 4px 12px rgba(0,0,0,.5), 0 2px 4px rgba(0,0,0,.4);
     --shadow-3: 0 16px 40px rgba(0,0,0,.6), 0 4px 12px rgba(0,0,0,.4);
-    --shadow-focus: 0 0 0 3px rgba(77, 151, 255, .35);
+    --shadow-focus: 0 0 0 2px var(--focus-ring-inner), 0 0 0 4px var(--focus-ring-outer);
 
     --color-success: #6fb988;
     --color-warning: #e5b257;
@@ -318,7 +333,7 @@
   --shadow-1: 0 1px 2px rgba(0,0,0,.4);
   --shadow-2: 0 4px 12px rgba(0,0,0,.5), 0 2px 4px rgba(0,0,0,.4);
   --shadow-3: 0 16px 40px rgba(0,0,0,.6), 0 4px 12px rgba(0,0,0,.4);
-  --shadow-focus: 0 0 0 3px rgba(77, 151, 255, .35);
+  --shadow-focus: 0 0 0 2px var(--focus-ring-inner), 0 0 0 4px var(--focus-ring-outer);
 
   --color-success: #6fb988;
   --color-warning: #e5b257;

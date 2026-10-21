@@ -125,7 +125,14 @@
               0 2px 4px rgba(15, 13, 10, .04);
   --shadow-3: 0 16px 40px rgba(15, 13, 10, .10),
               0 4px 12px rgba(15, 13, 10, .06);
-  --shadow-focus: 0 0 0 3px rgba(58, 134, 255, .35);
+  /* 焦点环是**双色**：内圈与页面底强对比，外圈取调色板另一极兜底 ——
+     单一颜色在本站的多种底色上不可能同时达到 3:1（旧的 35% 半透明蓝实测
+     浅色底 1.48:1 / 暗色底 1.78:1 / 主按钮底 1.25:1）。
+     两个 token 都指向**会被暗色块重映射**的色阶 token，
+     所以暗色主题自动取到「内浅外深」的对称一组值，无需逐主题覆写。 */
+  --focus-ring-inner: var(--color-brand-800);
+  --focus-ring-outer: var(--color-neutral-0);
+  --shadow-focus: 0 0 0 2px var(--focus-ring-inner), 0 0 0 4px var(--focus-ring-outer);
 }
 ```
 
@@ -182,7 +189,7 @@
     --shadow-1: 0 1px 2px rgba(0,0,0,.4);
     --shadow-2: 0 4px 12px rgba(0,0,0,.5), 0 2px 4px rgba(0,0,0,.4);
     --shadow-3: 0 16px 40px rgba(0,0,0,.6), 0 4px 12px rgba(0,0,0,.4);
-    --shadow-focus: 0 0 0 3px rgba(77, 151, 255, .35);
+    --shadow-focus: 0 0 0 2px var(--focus-ring-inner), 0 0 0 4px var(--focus-ring-outer);
 
     /* —— Semantic State（暗色下的覆写值） —— */
     --color-success: #6fb988;
@@ -402,7 +409,9 @@ body { text-autospace: normal; }
               0 2px 4px rgba(15, 13, 10, .04);           /* 卡片 hover */
   --shadow-3: 0 16px 40px rgba(15, 13, 10, .10),
               0 4px 12px rgba(15, 13, 10, .06);          /* 下拉 / 模态 */
-  --shadow-focus: 0 0 0 3px rgba(58, 134, 255, .35);    /* 键盘焦点环 */
+  --focus-ring-inner: var(--color-brand-800);           /* 焦点环内圈 */
+  --focus-ring-outer: var(--color-neutral-0);           /* 焦点环外圈 */
+  --shadow-focus: 0 0 0 2px var(--focus-ring-inner), 0 0 0 4px var(--focus-ring-outer);  /* 键盘焦点环（双色） */
 }
 ```
 
@@ -411,7 +420,7 @@ body { text-autospace: normal; }
 | 卡片静止 | `--shadow-1` |
 | 卡片 hover（轻微上浮） | `--shadow-2`，配合 `translateY(-2px)` |
 | Dropdown / Drawer / Modal | `--shadow-3` |
-| 焦点环 | `--shadow-focus`，永远 3px 透明蓝 |
+| 焦点环 | `--shadow-focus`，**双色**（内 2px + 外 2px）：内圈与页面底强对比、外圈取调色板另一极兜底 ⇒ 任何底色上至少一圈 ≥ 3:1 |
 
 ---
 
@@ -587,6 +596,9 @@ body { text-autospace: normal; }
 ## 九、可访问性（A11y Checklist）
 
 - 所有交互元素必须可见焦点环 `--shadow-focus`
+- 焦点环**必须是双色**（`--focus-ring-inner` + `--focus-ring-outer`）：单色在主按钮底上达不到 WCAG 1.4.11 的 3:1
+- 高对比偏好（`prefers-contrast: more`）下的焦点环加粗时**仍要双色**；系统高对比（`forced-colors: active`）改用 `outline: 3px solid Highlight` + `box-shadow: none`
+- 任何 `:focus-visible` 规则都不得自己另写焦点环颜色 —— 只能走 `--shadow-focus` / `--focus-ring-inner` / `--focus-ring-outer`（门禁 `check:focus-ring` 的 FC7 守着这条）
 - 图片 / 图表必须有 `alt`
 - 颜色不是唯一信息载体：项目卡片上有 `data-status` 文本徽章辅助
 - 跳转链接加 `.skip-link`，键盘 Tab 第一个进入
@@ -646,7 +658,9 @@ body { text-autospace: normal; }
   --shadow-1: 0 1px 2px rgba(15,13,10,.04), 0 1px 1px rgba(15,13,10,.03);
   --shadow-2: 0 4px 12px rgba(15,13,10,.06), 0 2px 4px rgba(15,13,10,.04);
   --shadow-3: 0 16px 40px rgba(15,13,10,.10), 0 4px 12px rgba(15,13,10,.06);
-  --shadow-focus: 0 0 0 3px rgba(58,134,255,.35);
+  --focus-ring-inner: #0e2c6b;   /* 焦点环内圈（暗色下 = #dbeaff） */
+  --focus-ring-outer: #ffffff;   /* 焦点环外圈（暗色下 = #0f0e0c） */
+  --shadow-focus: 0 0 0 2px #0e2c6b, 0 0 0 4px #ffffff;
 
   /* —— Radius —— */
   --radius-sm: 4px; --radius-md: 6px; --radius-lg: 8px;

@@ -65,9 +65,11 @@
     border: 1px solid var(--text-primary) !important;
   }
 
-  /* focus ring 在高对比需求下要更明显 */
+  /* focus ring 在高对比需求下要更明显（加粗：内圈 3px / 外圈 6px）
+     ⚠️ 必须是**双色**环，不能写单色：单色 brand-400 在主按钮底上只有 1.92:1，
+     达不到 WCAG 1.4.11 的 3:1；双色环（内圈近深 / 外圈近浅）任何底色上至少一圈达标。 */
   :focus-visible {
-    box-shadow: 0 0 0 3px var(--color-brand-400) !important;
+    box-shadow: 0 0 0 3px var(--focus-ring-inner), 0 0 0 6px var(--focus-ring-outer) !important;
   }
 }
 
