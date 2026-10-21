@@ -103,6 +103,8 @@ Cloudflare Pages、Nginx 等任意静态服务。详细运行 / 调试见 `HOW_T
 | `npm run check:site-language-selftest` | 上面那道门禁的本地夹具自测（7 档注入矩阵，证明它能变红；含两档**负对照**：分别卸掉 CJK 判定与「剥掉注释后再判」，证明这两条判据真的在起作用） |
 | `npm run check:block-language` | 块级内容全英文：产物里的 JSON-LD 结构化数据（逐块 JSON.parse 后递归遍历字段值与键名）、内联 `<script>`、内联 `<style>`（剥掉 CSS 注释后）都不许有中日韩字符；字段级豁免必须「用得出」（豁免用不上时只提示、不拦 build） |
 | `npm run check:block-language-selftest` | 上面那道门禁的本地夹具自测（12 档注入矩阵，证明它能变红；含两档**负对照**：分别卸掉 CJK 判定与「剥掉 CSS 注释」，证明这两条判据真的在起作用） |
+| `npm run check:css-comment-weight` | 产物里不许有 CSS 注释字节：内联 `<style>` 与外链 CSS 都不许带注释（注释在源码里保留 —— 那是维护者的笔记，不该跟着产物发给访客）；剥掉注释后仍须有内容（防「清空内联 CSS」骗过前一条）；覆盖度自证（内联块数、外链 CSS 数、每页都得有内联块） |
+| `npm run check:css-comment-weight-selftest` | 上面那道门禁的本地夹具自测（12 档注入矩阵，证明它能变红；含两档**负对照**：分别卸掉 CW1 判定与「字符串字面量保护」，证明这两条判据真的在起作用；另有一档断言产物内联块与源码剥注释后**逐字相等**、一档剥除器的单元夹具） |
 | `npm run check:a11y` | WCAG AA 实测缺陷固化成可重复检查 |
 | `npm run check:a11y-contrast-selftest` | 上面那道门禁里**底色 token 跨主题压暗**判据的本地夹具自测（6 档注入矩阵，证明它能变红：亮底 token 在暗色没重映射、压暗后仍偏亮都判红） |
 | `npm run check:print-theme` | 打印结果与屏幕主题无关（深色底不会打成白底） |

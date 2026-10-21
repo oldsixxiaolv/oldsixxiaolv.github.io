@@ -28,6 +28,9 @@ const { expectedLastmod, toRel: repoRelOf } = require("./scripts/lib/page-deps.c
 // 与 git-error.cjs 同理：渲染逻辑只此一份，图和 src/_data/extremePrecip.json
 // 里的数不可能对不上。
 const { renderChartPanel } = require("./scripts/lib/chart-svg.cjs");
+// 构建期 CSS 注释剥除器（D37）：源文件保留注释（维护者的笔记），
+// 产物剥掉（访客的带宽）。理由与实现见该文件开头。
+const { stripProductCssComments } = require("./scripts/lib/css-comments.cjs");
 
 // ---------------------------------------------------------------------------
 // 输出目录：dev server 与生产构建必须写不同的目录
@@ -219,6 +222,20 @@ module.exports = function (eleventyConfig) {
     // 重新映射子目录），所以这里在 build 后手工 cp，保证 og:image / twitter:image 引用可达。
     copyCovers();
 
+    // Phase 2B.7 · D37：剥掉产物里的 CSS 注释。
+    // 源码里的 CSS 注释写得极密（记录取舍理由、实测数字、踩过的坑），
+    // 那是维护者的资产，**一个字不动**；但它们不该跟着产物发给访客：
+    //   · 外链 CSS：注释占了近一半字节（实测 65.9 KB / 130.9 KB）——
+    //     独立文件、有缓存，但首次访问仍要下载；
+    //   · 内联 <style>：更糟，它在 HTML 里，**不可缓存、每次翻页重下**，
+    //     每页 11.8 KB（论文页 22.2 KB）—— 内联 CSS 存在的全部理由就是
+    //     把关键样式塞进 HTML 省一次往返，注释让这项优化在关键路径上
+    //     多背了十几 KB 浏览器一个字节都不用的东西。
+    // 这一步只动产物目录（_site / _site_dev），语义零变化（只删注释）。
+    // ⚠️ 必须在写完 components.css 之后跑 —— components.css 是这里生成的，
+    //    早一步会剥不到它。
+    stripProductCssComments(path.join(__dirname, OUT_DIR));
+
     // 构建产物 _site/ 里同样会长出 ._*，而且拦不住：上面开头的 stripMacResourceForks
     // 只清了 src/，这些副本是 passthrough copy 过程中在 exFAT 目标盘上被重新生成的
     // —— src/ 干净的情况下 _site/ 仍有 80 个，共 320KB 垃圾，且 11ty 的
@@ -226,6 +243,12 @@ module.exports = function (eleventyConfig) {
     // 这里只清 _site/ 这一个纯产物目录（不碰 src、不碰任何用户数据），
     // 语义与 deploy.yml 里的 `find _site -name '._*' -type f -delete` 一致，
     // 让本地产物和 CI 上传的内容保持相同。
+    //
+    // ⚠️ 顺序（Phase 2B.7 之后新增的硬约束）：**必须排在所有写盘动作之后**。
+    //    在 exFAT 目标盘上写一个文件就会在旁边长出对应的 ._<name> 资源叉 ——
+    //    实测剥 CSS 注释那一步写回 6 个 HTML + 16 个 CSS，当场生成 22 个 ._*。
+    //    所以清叉动作是「本钩子里最后写盘的那一步」：先写完（含剥注释），
+    //    再统一清一遍；顺序反了就是「清完又生」。
     stripMacResourceForks(path.join(__dirname, OUT_DIR));
   });
 
