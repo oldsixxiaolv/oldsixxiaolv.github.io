@@ -84,9 +84,32 @@ const DATASET_DOI = "10.5281/zenodo.18041880";
 const DATASET_URL = "https://doi.org/" + DATASET_DOI;
 const DATASET_TYPE = "Dataset";
 
+// ---------------------------------------------------------------------------
+// 站点标题与**订阅源显示名** —— 两者的唯一真源。
+//
+// 为什么要把 feed 的显示名收到这里（一次实测坐实的「两份副本」缺陷）：
+//   此前同一串字面量在**两个文件里各写了一遍**：
+//     ① src/_includes/layouts/base.njk 的 RSS 自动发现
+//        <link rel="alternate" type="application/rss+xml" title="…">
+//        —— 浏览器的「订阅本页」按钮里显示的就是这个属性；
+//     ② src/feed.njk 的频道级 <title> —— 订阅器里显示的是这个。
+//   两处各写一份 ⇒ **同一事实两份副本**：改一处忘另一处，浏览器里显示的
+//   订阅名与订阅器里 feed 自己的名字就对不上（访客看着像订了两个不同的源），
+//   而**没有任何东西核对二者一致**（实测：往产物副本里注入这一处漂移，
+//   16 道产物侧门禁全部放行，0 道判红）。
+//   ⇒ 字面量只在这里写一次，两个模板都从它派生；
+//     scripts/check-feed-title.cjs（FX1–FX6）负责守住这件事。
+// ---------------------------------------------------------------------------
+const SITE_TITLE = "Yihang Lyu";
+// 订阅源自己的后缀（"站点名 · 这个后缀" = 订阅源对外显示的名字）。
+const FEED_TITLE_SUFFIX = "Publications and notes";
+
 module.exports = {
-  title: "Yihang Lyu",
+  title: SITE_TITLE,
   shortTitle: "MeteoHub",
+  // 订阅源的显示名 —— **单一真源**（上文的 SITE_TITLE / FEED_TITLE_SUFFIX）。
+  // 页面上的 RSS 自动发现 title 属性与 feed.xml 的频道级 <title> 都从它派生。
+  feedTitle: `${SITE_TITLE} · ${FEED_TITLE_SUFFIX}`,
   // 站点定位：自我介绍 + 博客 + 科研分享 + 论文解释。不做复杂的东西。
   tagline: "Thunderstorms, lightning, and the physics of extreme precipitation.",
   description:

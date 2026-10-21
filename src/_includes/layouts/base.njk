@@ -136,7 +136,7 @@
        <link rel="alternate" type="application/rss+xml"> 是订阅源的标准发现方式：
        浏览器与阅读器的"订阅"按钮会自动认它，不必靠页脚那一个普通链接。
        href 走 | relUrl（相对路径），与全站"整个文件夹扔到哪都能跑"的原则一致。 #}
-  <link rel="alternate" type="application/rss+xml" title="{{ site.title }} · Publications and notes" href="{{ '/feed.xml' | relUrl }}" />
+  <link rel="alternate" type="application/rss+xml" title="{{ site.feedTitle }}" href="{{ '/feed.xml' | relUrl }}" />
 
   {# —— Google Scholar / Highwire 引用元数据 ——
        ⚠️ 这块和下面的 JSON-LD **不是一回事**：Google Scholar 只读
