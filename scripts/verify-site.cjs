@@ -37,12 +37,13 @@
  *    15. 同一张图在页面里只有一套 alt 文本
  *    16. 404 页不得声明内容类实体（ScholarlyArticle 等）；且身份实体的有无
  *        与 src/404.njk 的 identityOn404 开关一致（双向）
- *    17. robots.txt 的"生成时间"是真正的构建时间，不是文件创建时间
+ *    17. robots.txt 的 "generated-at" 是真正的构建时间，不是文件创建时间
+ *        （锚在**结构化 key** 上，不锚在文案上 —— 见 D35）
  *    18. sitemap 的 <lastmod> 是真实的 git 提交时间（逐页按**依赖闭包**核对；
  *        浅克隆直接失败）
  *    19. 内容类实体的 @id 全站一致，且指向真实存在的页面
  *    20. 订阅源的时间戳说真话：lastBuildDate = 本次构建时刻（且与 robots
- *        的「生成时间」是同一时刻），日期格式按 RSS 2.0 用 RFC 822
+ *        的 "generated-at" 是同一时刻），日期格式按 RSS 2.0 用 RFC 822
  *    21. 绝对 URL 口径：site.url 必须是域名根（无子路径）；产物里所有指向
  *        本站地址的绝对 URL（canonical / og:url / JSON-LD 的 @id 与 url /
  *        sitemap 的 loc / feed 的 link）必须以 site.url 为前缀
@@ -1259,17 +1260,28 @@ for (const type of types404) {
   }
 }
 
-/* ---------- 17. robots.txt 的"生成时间"必须是真正的构建时间 ----------
-   robots.txt 里那行 `# 生成时间：…` 此前取的是 `page.date`，而对模板页
+/* ---------- 17. robots.txt 的 "generated-at" 必须是真正的构建时间 ----------
+   robots.txt 里那行构建时刻此前取的是 `page.date`，而对模板页
    而言 page.date = **源文件的 birthtime（创建时间）**。实测本机：
      src/robots.njk birthtime = 2026-10-02T04:29:21.600Z
-     产物里那行"生成时间"     = 2026-10-02T04:29:21.600Z   ← 逐字相同
+     产物里那行时间戳          = 2026-10-02T04:29:21.600Z   ← 逐字相同
    而站点实际是 10-19 建的。那行字**标着"生成时间"却永远停在 10-02**——
    这不是"不准"，是**一个会误导人的标签**（读者会以为产物很旧）。
 
    在 CI 上更隐蔽：actions/checkout 会重新写盘，birthtime 变成 checkout
-   那一刻，于是"生成时间"看起来正好等于部署时刻——**恰好蒙对**，所以一直
+   那一刻，于是时间戳看起来正好等于部署时刻——**恰好蒙对**，所以一直
    没人发现。机制是错的，只是碰巧两次都撞对了。
+
+   ⚠️ **锚点为什么是结构化 key 而不是文案**（2026-10-20 D35）：
+     此前这条门禁（与门禁 20）匹配的是**中文文案**「生成时间」。
+     而 robots.txt 是站内对外出口，硬约束是「站内文字一律英文」——
+     锚在中文文案上，等于把这条硬约束**反向锁死**：
+       · 按硬约束把 robots.txt 英文化 ⇒ 这两条门禁立刻报红，
+         而红因是"找不到「生成时间」这一行"，与"我把注释改成英文了"
+         毫无字面关联 ⇒ 极难排查；
+       · 想让门禁保持绿 ⇒ 就得把中文留在产物里 ⇒ 硬约束被门禁顶回来。
+     现在锚在 `# generated-at: <ISO>` 上：它**认结构不认措辞**，
+     改文案不会改坏门禁，改结构才会。
 
    判据（刻意不依赖"当前时间"）：
      · 必须是合法的 ISO-8601 时间戳；
@@ -1282,27 +1294,27 @@ const robotsTxtPath = path.join(SITE, "robots.txt");
 const robotsSrcPath = path.resolve(__dirname, "../src/robots.njk");
 if (fs.existsSync(robotsTxtPath)) {
   const robotsTxt = fs.readFileSync(robotsTxtPath, "utf8");
-  const stampLine = robotsTxt.match(/^#\s*生成时间[：:]\s*(.+?)\s*$/m);
+  const stampLine = robotsTxt.match(/^#\s*generated-at:\s*(.+?)\s*$/m);
   if (!stampLine) {
-    fail("robots.txt: 找不到「生成时间」这一行");
+    fail("robots.txt: 找不到 `generated-at` 这一行（构建时刻的机器可读标记）");
   } else {
     const stamp = stampLine[1].trim();
     const parsed = Date.parse(stamp);
     if (Number.isNaN(parsed)) {
-      fail(`robots.txt: 「生成时间」不是合法时间戳 —— "${stamp}"`);
+      fail(`robots.txt: 「generated-at」不是合法时间戳 —— "${stamp}"`);
     } else if (fs.existsSync(robotsSrcPath)) {
       const st = fs.statSync(robotsSrcPath);
       const birthIso = new Date(st.birthtime).toISOString();
       if (parsed === Date.parse(birthIso)) {
         fail(
-          `robots.txt: 「生成时间」等于源文件的创建时间（birthtime = ${birthIso}）—— ` +
+          `robots.txt: 「generated-at」等于源文件的创建时间（birthtime = ${birthIso}）—— ` +
             `那是"文件什么时候被创建"，不是"这次构建是什么时候"`
         );
       }
       // 构建不早于源文件最后一次修改（留 2 秒容差，避开写盘与取时间的先后）
       if (parsed < st.mtime.getTime() - 2000) {
         fail(
-          `robots.txt: 「生成时间」早于源文件最后一次修改（${st.mtime.toISOString()}）—— ` +
+          `robots.txt: 「generated-at」早于源文件最后一次修改（${st.mtime.toISOString()}）—— ` +
             `构建时间不可能比它自己的源文件还早`
         );
       }
@@ -1710,11 +1722,11 @@ if (fs.existsSync(feedPathForStamp)) {
           `(应为 "Mon, 19 Oct 2026 12:00:00 GMT" 这样的写法)`
       );
     }
-    // 与 robots.txt 的「生成时间」对表：同一次构建，两者必须是同一时刻。
+    // 与 robots.txt 的「generated-at」对表：同一次构建，两者必须是同一时刻。
     const robotsPathForStamp = path.join(SITE, "robots.txt");
     if (fs.existsSync(robotsPathForStamp)) {
       const robotsTxt2 = fs.readFileSync(robotsPathForStamp, "utf8");
-      const stamp2 = robotsTxt2.match(/^#\s*生成时间[：:]\s*(.+?)\s*$/m);
+      const stamp2 = robotsTxt2.match(/^#\s*generated-at:\s*(.+?)\s*$/m);
       if (stamp2) {
         const buildIso = stamp2[1].trim();
         const buildMs = Date.parse(buildIso);
@@ -1723,7 +1735,7 @@ if (fs.existsSync(feedPathForStamp)) {
           if (lbd !== expected) {
             fail(
               `feed.xml: <lastBuildDate> = "${lbd}"，但本次构建的时刻是 "${expected}" ` +
-                `(robots.txt 的「生成时间」= ${buildIso}) —— ` +
+                `(robots.txt 的「generated-at」= ${buildIso}) —— ` +
                 `订阅源必须报**构建时刻**，不是最新条目的发表日`
             );
           }

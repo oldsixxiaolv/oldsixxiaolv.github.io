@@ -29,9 +29,18 @@
  *   · src/assets/img/og/*.svg —— 三张 OG 分享图里的中文是**品牌文案**
  *     （署名「吕亦航」+ 中文格言 + 中文单位），属本人拍板范畴，已列入
  *     IMPROVEMENT-LOG 的待决策段；其它 SVG（favicon 等）仍纳入门禁。
- *   · src/robots.njk —— 产物是 robots.txt（给爬虫读的纯文本），# 行按 robots.txt
- *     约定是给维护者看的注释；而门禁 17 / 20 又以其中的中文标记「生成时间」为锚点。
- *     单列豁免，理由写在 SOURCE_EXCLUDE_FILES 旁边。
+ *   · src/robots.njk —— **2026-10-20 起不再豁免**（见 D35）。
+ *     此前豁免的理由是「门禁 17 / 20 以其中的中文标记「生成时间」为锚点」——
+ *     那等于把本门禁要守的硬约束「站内文字一律英文」**反向锁死**：
+ *     一按硬约束把 robots.txt 英文化，那两条门禁就先红，而红因
+ *     "找不到「生成时间」这一行"与"我把注释改成英文了"毫无字面关联。
+ *     门禁 17 / 20 已改锚在结构化 key `# generated-at:` 上，产物行也已英文化
+ *     ⇒ 这条豁免已无必要；再把它加回来就等于「硬约束在 robots.txt 上无人守」。
+ *
+ * 扫描面的分工：
+ *   本门禁的**产物层只扫 .html** —— 非 HTML 的对外出口（robots.txt /
+ *   feed.xml / publications.bib / publications.ris / sitemap.xml）由
+ *   scripts/check-site-language.cjs（判据 TX1）负责，别把责任推回这里。
  *
  * 第二项：U+FFFD（编码损坏）。本项目已发现 3 处——site.js / about.md /
  * verify-site.cjs 各一处中文被写坏成 "�"。它们都在注释里，不影响运行，
@@ -68,13 +77,11 @@ const SOURCE_EXCLUDE = [
 ];
 
 // 豁免单文件（逐个写明理由，不搞"整个目录不看"）
-const SOURCE_EXCLUDE_FILES = [
-  // src/robots.njk：产物是 robots.txt（纯文本、给爬虫读），不是给人看的页面。
-  //   它的 # 行按 robots.txt 约定是给维护者看的注释（模板里明说"保留在生产输出中"），
-  //   而站点门禁 17 / 20（scripts/verify-site.cjs）**以其中的中文标记「生成时间」为锚点**
-  //   ——把这一行英文化会直接把那两条门禁打红，属于跨门禁的连带改动，不该由本门禁顺手做。
-  path.join(SRC, "robots.njk"),
-];
+// ⚠️ src/robots.njk 曾在此豁免，2026-10-20（D35）已删除：门禁 17 / 20 原以
+//   中文标记「生成时间」为锚点 ⇒ 反向锁死「站内文字一律英文」；
+//   两处锚点已改用结构化 key `# generated-at:`，src/robots.njk 的产物行已英文化。
+//   ⇒ 现在它**必须**被本门禁扫到；再把它加回来就是「硬约束在 robots.txt 上无人守」。
+const SOURCE_EXCLUDE_FILES = [];
 
 function* walk(dir) {
   let entries;

@@ -99,6 +99,8 @@ Cloudflare Pages、Nginx 等任意静态服务。详细运行 / 调试见 `HOW_T
 | `npm run check:figure-cover` | 论文封面图只有一处真源（site.js 的 `publications[].figure`），且正文 `<img>`、og:image、twitter:image、JSON-LD image 四个出口是**同一张图、同一组尺寸**；论文页 front matter 不得留封面副本 |
 | `npm run check:figure-cover-selftest` | 上面那道门禁的本地夹具自测（12 档注入矩阵，证明它能变红；含一档**故意判绿**的边界负对照） |
 | `npm run check:lang` | 语言标记统一 + 编码损坏 |
+| `npm run check:site-language` | 非 HTML 对外出口（feed / bib / ris / robots / sitemap）全英文；robots 的构建时刻与 feed 的 `lastBuildDate` 同一瞬间；语言门禁的每一条豁免都必须真的豁免到了**会渲染**的中文（中文只写在注释里的豁免判红，因为那是暗门） |
+| `npm run check:site-language-selftest` | 上面那道门禁的本地夹具自测（7 档注入矩阵，证明它能变红；含两档**负对照**：分别卸掉 CJK 判定与「剥掉注释后再判」，证明这两条判据真的在起作用） |
 | `npm run check:a11y` | WCAG AA 实测缺陷固化成可重复检查 |
 | `npm run check:a11y-contrast-selftest` | 上面那道门禁里**底色 token 跨主题压暗**判据的本地夹具自测（6 档注入矩阵，证明它能变红：亮底 token 在暗色没重映射、压暗后仍偏亮都判红） |
 | `npm run check:print-theme` | 打印结果与屏幕主题无关（深色底不会打成白底） |

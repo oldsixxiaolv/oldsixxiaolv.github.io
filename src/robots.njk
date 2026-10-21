@@ -7,32 +7,39 @@ eleventyExcludeFromCollections: true
   ----------------------------------------------------------------------------
   注释行在生产输出中保留（# 开头），便于人眼调试。
   Sitemap 用绝对 URL（site.url 已含 pathPrefix）。
+
+  ⚠️ 产物里的注释行**必须全英文**：robots.txt 是站内对外出口之一，
+     而硬约束是「站内文字一律英文」（见 src/_data/site.js 的 locale 说明）。
+     构建时刻那行用**结构化 key** `# generated-at: <ISO>`，不用中文文案 ——
+     门禁必须锚在**结构**上：锚在文案上等于把「全站英文」这条硬约束
+     **反向锁死**（一按硬约束把文案英文化，门禁就先红，而红因与改动
+     毫无字面关联 ⇒ 极难排查）。这条教训见 docs/DEFECT-BACKLOG.md D35。
   ========================================================================== #}
 # MeteoHub · robots.txt
-# 站点：{{ site.url }}
-{# 「生成时间」= **这次构建的时刻**。
+# Site: {{ site.url }}
+{# 「generated-at」= **这次构建的时刻**。
    ⚠️ 此前写的是 `{{ page.date | dateToIso }}`——那是本模板文件的
    **birthtime（创建时间）**，不是构建时间。本机实测：
      src/robots.njk birthtime = 2026-10-02T04:29:21.600Z
-     产物里那行"生成时间"     = 2026-10-02T04:29:21.600Z   ← 逐字相同
-   而站点实际是 10-19 建的。那行字标着"生成时间"却永远停在 10-02，
+     产物里那行 "generated-at" = 2026-10-02T04:29:21.600Z   ← 逐字相同
+   而站点实际是 10-19 建的。那行字标着 "generated-at" 却永远停在 10-02，
    是一个**会误导人的标签**（比单纯"不准"更糟）。
 
    在 CI 上更隐蔽：actions/checkout 会把文件重新写盘，birthtime 变成
-   checkout 那一刻，于是"生成时间"看起来正好等于部署时刻——**恰好蒙对**，
+   checkout 那一刻，于是 "generated-at" 看起来正好等于部署时刻——**恰好蒙对**，
    所以一直没人发现。机制是错的，只是两次都撞对了。
 
    buildStamp filter 每次渲染重新取时间，所以它就是真的构建时刻。 #}
-# 生成时间：{{ "" | buildStamp }}
+# generated-at: {{ "" | buildStamp }}
 
 User-agent: *
 Allow: /
 Disallow: /admin/
 
-# 抓取节流（Googlebot 实际不严格遵守，仅作建议）
+# Crawl-delay (Googlebot does not honour it strictly; advisory only)
 Crawl-delay: 1
 
-# 第三方爬虫
+# Third-party crawlers
 User-agent: GPTBot
 Disallow: /
 
@@ -48,5 +55,5 @@ Disallow: /
 User-agent: ClaudeBot
 Disallow: /
 
-# Sitemap（site.url 不带尾斜杠，这里手动加 / 分隔，避免拼成 MeteoHubsitemap.xml）
+# Sitemap (site.url has no trailing slash, so the "/" is added by hand here to avoid "MeteoHubsitemap.xml")
 Sitemap: {{ site.url }}/sitemap.xml
