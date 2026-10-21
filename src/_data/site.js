@@ -323,13 +323,19 @@ module.exports = {
     ],
 
     // —— 照片（首页人像卡 / 关于页 / Person JSON-LD 共用）——
+    // ⚠️ 这里**只有一组**照片：portrait（600×750 竖版），全站都用它。
+    //
+    // 此前这里还并列过一组 avatar / avatarSmall / avatarSize（600×600 方形），
+    // 但全仓**没有任何消费点** —— 模板、srcset、Person JSON-LD 一律用 portrait。
+    // 结果是 avatar.jpg / avatar-sm.jpg 两个文件仍被打进产物（合计约 65 KB），
+    // 却没有任何页面引用它们；两个语义重叠的键（avatar / portrait）还留在
+    // 真源里，后来的人照着写模板会拿到一个尺寸口径不同的旧照。
+    // 这是「改过名没删干净」的遗留，2026-10-21 场次（缺陷 D49）一并清掉，
+    // 并由 scripts/check-author-assets.cjs 守着「作者图片资产 = 字段引用」。
     photo: {
       portrait: "/assets/img/author/portrait.jpg",
       portraitSmall: "/assets/img/author/portrait-sm.jpg",
-      avatar: "/assets/img/author/avatar.jpg",
-      avatarSmall: "/assets/img/author/avatar-sm.jpg",
       portraitSize: { width: 600, height: 750 },
-      avatarSize: { width: 600, height: 600 },
       alt: "Yihang Lyu",
     },
 
