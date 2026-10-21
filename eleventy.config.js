@@ -145,8 +145,18 @@ module.exports = function (eleventyConfig) {
     // 顶层 favicon 类 SVG（向后兼容 .DS_Store / Apple touch 图）
     "src/assets/*.svg",
     // 递归覆盖 src/assets/img/ 子树（og:image、paper 配图、avatar 等）。
-    // Phase 1.3 起 src/assets/img/og/ 下有三组 SVG + PNG 双格式。
-    "src/assets/img/**/*.{svg,png,jpg,jpeg,webp}",
+    // ⚠️ **不发布 svg**（D52，见 docs/DEFECT-BACKLOG.md）：
+    //   src/assets/img/og/ 下的三份 SVG（og-1080x1080 / og-1200x630 / og-1500x500）
+    //   是分享图 PNG 的**设计母版** —— docs/og-image-and-a11y-report.md 记着
+    //   SVG → PNG 的转换关系，站内真正发布的是同名的 **PNG**（三处 og:image:type
+    //   全是 image/png，社交平台不解析 SVG）。母版本身**没有任何页面请求**，
+    //   通配直拷等于把「构建输入」当「发布物」（三份合计 18,055 B 白占部署体积）。
+    //   ⇒ 母版**留在源里**（还要靠它再生成 PNG），只是不发布。
+    // ⚠️ 将来若在 src/assets/img/ 下新增**被引用**的 SVG，
+    //   scripts/check-img-publish.cjs 的 IP2 会判红（漏拷）——
+    //   那时必须**显式**把这一份加回清单；不要改成通配（通配会把死副本带回来，
+    //   IP1 会接着判红）。
+    "src/assets/img/**/*.{png,jpg,jpeg,webp}",
   ];
   for (const glob of assetGlobs) {
     eleventyConfig.addPassthroughCopy(glob);
