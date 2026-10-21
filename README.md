@@ -85,6 +85,8 @@ Cloudflare Pages、Nginx 等任意静态服务。详细运行 / 调试见 `HOW_T
 | `npm run check:wrap` | 长 DOI / 长 URL 不能把窄屏页面撑破 |
 | `npm run check:tool-routes` | 浏览器工具量到的必须是真页面，不是本站 404 页 |
 | `npm run check:site` | 结构化数据与元数据逐项核对（`scripts/verify-site.cjs`） |
+| `npm run check:page-deps` | **页面依赖闭包**：一页的 `lastmod` 必须等于它**依赖闭包**里最晚的 git 提交时间（内容由别的文件提供时也算数）；闭包不许退化成「只看自己」、不许引用不存在的文件，模板引用必须写字面量，sitemap 不许漏掉页面，全局数据必须登记 |
+| `npm run check:page-deps-selftest` | 上面那道门禁的本地夹具自测（8 档注入矩阵，证明它能变红；含一档**故意判绿**的负对照） |
 | `npm run check:404-depth` | 404 页的站内 URL 必须根绝对（GitHub Pages 把 404 页送到任意缺失路径，相对 URL 会被解析到请求路径下） |
 | `npm run check:404-depth-selftest` | 上面那道门禁的本地夹具自测（4 档注入矩阵，证明它能变红） |
 | `npm run check:mount-contract` | 文档与代码口径一致：凡是承诺产物可整体搬迁到任意部署位置的行，都必须带例外限定；README 要讲清 404 页这个例外，`relUrl` 的 404 特判也得在位 |

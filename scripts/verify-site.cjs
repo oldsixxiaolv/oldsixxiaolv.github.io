@@ -38,7 +38,8 @@
  *    16. 404 页不得声明内容类实体（ScholarlyArticle 等）；且身份实体的有无
  *        与 src/404.njk 的 identityOn404 开关一致（双向）
  *    17. robots.txt 的"生成时间"是真正的构建时间，不是文件创建时间
- *    18. sitemap 的 <lastmod> 是真实的 git 提交时间（逐页核对；浅克隆直接失败）
+ *    18. sitemap 的 <lastmod> 是真实的 git 提交时间（逐页按**依赖闭包**核对；
+ *        浅克隆直接失败）
  *    19. 内容类实体的 @id 全站一致，且指向真实存在的页面
  *    20. 订阅源的时间戳说真话：lastBuildDate = 本次构建时刻（且与 robots
  *        的「生成时间」是同一时刻），日期格式按 RSS 2.0 用 RFC 822
@@ -119,6 +120,12 @@ const { execFileSync } = require("child_process");
 // git 失败的分类与"降级 or 抛"的决定 —— 与 eleventy.config.js 共用同一份，
 // 免得两边各抄一份、改一处忘一处（见 scripts/lib/git-error.cjs 顶部的说明）。
 const { degradeOrThrow } = require("./lib/git-error.cjs");
+// 页面依赖闭包（scripts/lib/page-deps.cjs）：lastmod 的口径由它定义 ——
+// 一页的 lastmod = 它的依赖闭包里**最晚**的提交时间。
+// 与 eleventy.config.js 的 lastCommitTime filter **同一个函数**（D34 起），
+// 两边不可能再对不上（原先各查各的：构建侧取"页面自己的源文件"，
+// 门禁侧也取"页面自己的源文件" —— 口径一致但**一起错**）。
+const { expectedLastmod } = require("./lib/page-deps.cjs");
 
 // 产物目录。默认是仓库里的 _site；SITE_DIR 只是给"故障注入"用的——
 // 改产物做注入测试时如果直接改 _site，会和并发的 build 抢同一个目录，
@@ -1312,9 +1319,10 @@ if (fs.existsSync(robotsTxtPath)) {
    部署时刻：那不是"内容最后一次改变的时间"，是个**假时间戳**，
    还会让搜索引擎以为全站每次部署都被整体重写了一遍。
 
-   现在 lastmod 取"该页源文件最后一次 git 提交时间"
-   （eleventy.config.js 的 lastCommitTime filter）。这条门禁守住它，
-   判据是五条互补的规则：
+   现在 lastmod 取「这一页**内容**最后一次改变的时间」= 它的**依赖闭包里
+   最晚的提交时间**（scripts/lib/page-deps.cjs 定义闭包的六条规则；
+   eleventy.config.js 的 lastCommitTime filter 与本门禁用**同一个函数**）。
+   这条门禁守住它，判据是五条互补的规则：
 
      A. **浅克隆一律失败**（无条件，不只 CI）。
         浅克隆里 `git log -1 -- <file>` 只能查到 HEAD 那一次，查出来的值
@@ -1332,19 +1340,29 @@ if (fs.existsSync(robotsTxtPath)) {
         且等于 src 下某个源文件真实的最后一次提交时间（集合比对）。
      D. **逐页核对（值）**：产物里每条 <url> 都带着它自己的源文件路径
         （`<!-- source: ... -->`，由 sitemap.njk 写入）。该页的 lastmod
-        必须**精确等于**那个源文件的最后提交时间。
+        必须**精确等于**它依赖闭包里最晚的提交时间。
         集合比对（C）发现不了"取错源文件"——把全站 5 条 lastmod 都填成
         src/index.njk 的提交时间，集合判定照样通过。
      E. **逐页核对（有/无）+「lastmod 整体消失」兜底**：
-        源文件提交过 → 该页必须有 lastmod；源文件还没提交 → 该页不该有。
+        闭包里有已提交的文件 → 该页必须有 lastmod；闭包里一个都没有 →
+        该页不该有。
         filter 一旦静默失效（返回空串），sitemap 里一条 lastmod 都不剩，
         而 build 照样 exit 0、门禁照样全绿 —— sitemap 规范里 lastmod 是
         **可选**字段，所以它不报错，只会悄悄地不写。
         ⚠️ 早先这个兜底挂在"src 下**每个**源文件都提交过"这个前提下，
         而本仓库流程是「先 build 后 commit」——新写的页面文件在 build 时
         还没进历史 → 前提必然不成立 → **整条兜底长期失效**，最典型的
-        静默失效反而抓不到。逐页判定（按该页自己的源文件查）没有这个前提：
-        一个还没提交的新文件只影响它自己那一页。 */
+        静默失效反而抓不到。逐页判定（按该页自己的闭包查）没有这个前提：
+        一个还没提交的新文件只影响它自己那一页。
+
+   ⚠️ 口径变更记录（D34，2026-10-21）：本条原先要求 lastmod **精确等于
+   「该页源文件自身」的最后提交时间**。那个口径本身是错的：一页的内容常由
+   别的文件提供（版式 partial、全局数据、目录数据文件），那些文件一改，
+   页面内容就变了，lastmod 却原地不动。实测：首页的 <lastmod> 停在
+   2026-10-21T03:07:24Z（= src/index.njk 自己），而它渲染的
+   src/_data/extremePrecip.json 在 05:05:04Z 才改过 —— sitemap 谎称
+   「首页自 03:07 起没变过」。改成闭包口径后，几页共享同一版式的页面会拿到
+   同一个时间戳：那是**正确**的（它们确实同时变了），少报才是缺陷。 */
 const REPO = path.resolve(__dirname, "..");
 // git 失败的分类在 scripts/lib/git-error.cjs（与 eleventy.config.js 共用一份）。
 // 这里只说**为什么**分类要这么细：
@@ -1416,6 +1434,16 @@ if (fs.existsSync(sitemapPath)) {
   }
 }
 const withLastmod = sitemapEntries.filter((e) => e.lastmod);
+
+/* 闭包依赖可能落在 src/ 之外（例：src/_data/site.js 相对 require 了
+   scripts/lib/identity.cjs）。规则 C 的集合比对必须把它们也算进去，
+   否则会把**正确**的 lastmod 判成"不等于 src 下任何源文件的提交时间"。 */
+if (inGitRepo && isShallow === "false") {
+  for (const e of sitemapEntries) {
+    if (!e.source) continue;
+    for (const t of Object.values(expectedLastmod(e.source).times)) srcCommitTimes.add(t);
+  }
+}
 // 逐页核对实际跑了多少页 —— 决定汇总句能不能说"已逐页核对"。
 // 声明提到下面的 if/else 链**之前**：汇总句在链外，作用域要够。
 let perPageChecked = 0;
@@ -1477,16 +1505,21 @@ if (isShallow === "true") {
       continue;
     }
     perPageChecked++;
-    const t = gitCommitTime(e.source);
+    // 闭包口径：这一页的内容由哪些文件决定 ⇒ 期望的 lastmod = 闭包里最晚的
+    // 提交时间（scripts/lib/page-deps.cjs，与构建侧同一个函数）。
+    const closure = expectedLastmod(e.source);
+    const t = closure.time;
     if (t && !e.lastmod) {
       fail(
-        'sitemap.xml: "' + e.loc + '" 的源文件 ' + e.source + " 提交过，" +
+        'sitemap.xml: "' + e.loc + '" 的依赖闭包里有已提交的文件' +
+          "（最晚的是 " + closure.from + "，" + t + "），" +
           "这一页却没有 <lastmod>——lastmod filter 静默失效了" +
           "（sitemap 规范里 lastmod 是可选字段，所以它不会报错，只会悄悄地不写）"
       );
     } else if (!t && e.lastmod) {
       fail(
-        'sitemap.xml: "' + e.loc + '" 的源文件 ' + e.source + " 还没有提交过，" +
+        'sitemap.xml: "' + e.loc + '" 的依赖闭包（源文件 ' + e.source + "）" +
+          "里没有任何已提交的文件，" +
           "却带了 <lastmod>" + e.lastmod + "</lastmod>——那是查不到来源的时间"
       );
     } else if (t && e.lastmod) {
@@ -1496,8 +1529,8 @@ if (isShallow === "true") {
       if (!isNaN(d.getTime()) && d.toISOString() !== t) {
         fail(
           'sitemap.xml: "' + e.loc + '" 的 <lastmod>' + e.lastmod + "</lastmod> " +
-            "不等于它自己的源文件 " + e.source + " 的最后一次提交时间" + t +
-            "——取错了源文件"
+            "不等于它的依赖闭包里最晚的提交时间 " + t + "（来自 " + closure.from + "）" +
+            "——时间戳与内容实际改变的时间对不上"
         );
       }
     }
@@ -1526,7 +1559,7 @@ note(
   "sitemap " + sitemapEntries.length + " 条 URL，其中 " + withLastmod.length +
     " 条带 lastmod" +
     (inGitRepo && isShallow === "false" && perPageChecked > 0
-      ? "（已逐页与各自源文件的 git 提交时间核对）"
+      ? "（已逐页与各自依赖闭包里最晚的 git 提交时间核对）"
       : isShallow === "true"
         ? "（未逐页核对：浅克隆没有完整提交历史，见上方报错）"
         : !inGitRepo

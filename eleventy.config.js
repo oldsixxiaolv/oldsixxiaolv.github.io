@@ -15,10 +15,15 @@
 const { DateTime } = require("luxon");
 const fs = require("fs");
 const path = require("path");
-const { execFileSync } = require("child_process");
-// git 失败的分类与"降级 or 抛"的决定 —— 与 scripts/verify-site.cjs 共用同一份
-// （见 scripts/lib/git-error.cjs 顶部的说明：抄两份会漂移，漂移会静默漏报）。
-const { classifyGitError, degradeOrThrow } = require("./scripts/lib/git-error.cjs");
+// 页面依赖闭包（scripts/lib/page-deps.cjs）：lastmod 的口径由它定义 ——
+// 一页的 lastmod = 它的依赖闭包里**最晚**的提交时间。
+// ⚠️ git 失败的分类（scripts/lib/git-error.cjs）原先是**本文件自己** import 的
+//   （本文件里曾有 gitRoot() / gitIsShallow() 两个本地函数）。D34 起 git 查询
+//   整体搬进 page-deps.cjs，那两个函数已删除，判据也随之中枢化 ——
+//   现在"浅克隆 / 不在 git 仓库里 ⇒ 不给时间戳"这条语义由 page-deps.cjs 的
+//   hasHistory() 一处负责，判据仍是 git-error.cjs 那一份（不再在本文件 import：
+//   留一个没人用的 import 只会让人误以为这里还在管降级）。
+const { expectedLastmod, toRel: repoRelOf } = require("./scripts/lib/page-deps.cjs");
 // 首页极端降水图的渲染器（手写 inline SVG，不引图表库；理由见该文件开头）。
 // 与 git-error.cjs 同理：渲染逻辑只此一份，图和 src/_data/extremePrecip.json
 // 里的数不可能对不上。
@@ -333,7 +338,7 @@ module.exports = function (eleventyConfig) {
     return buildStampValue;
   });
 
-  /* ---------- lastCommitTime：该页源文件最后一次 git 提交的时间（sitemap lastmod） ----------
+  /* ---------- lastCommitTime：该页**内容**最后一次改变的时间（sitemap lastmod） ----------
 
      为什么需要它：sitemap 的 <lastmod> 此前取 `entry.date`，而对模板页而言
      entry.date = 源文件的 **birthtime（创建时间）**。实测：
@@ -347,9 +352,20 @@ module.exports = function (eleventyConfig) {
      内容改变的时刻 —— 那是个**假时间戳**，它让搜索引擎以为全站每次部署
      都被重写了一遍。
 
-     改成"该页源文件最后一次 git 提交时间"：内容什么时候真的改过，就是
-     什么时候。附带好处是每页的 lastmod 各不相同（此前全站一个值），
-     搜索引擎才能拿它做抓取优先级判断。
+     ⚠️ 口径在 2026-10-21（D34）改过一次：原先取"该页**源文件自身**的最后提交
+     时间"，但页面内容常常由别的文件提供 —— 那些文件一改，页面内容就变了，
+     lastmod 却原地不动。实测：首页的 <lastmod> 停在 2026-10-21T03:07:24Z
+     （= src/index.njk 自己），而它渲染的 src/_data/extremePrecip.json 在
+     05:05:04Z 才改过 ⇒ sitemap 声称"首页自 03:07 起没变过"，实际变了。
+     ⇒ 现在取**依赖闭包里最晚的提交时间**（scripts/lib/page-deps.cjs 定义
+     闭包的六条规则）。闭包口径同时用于 sitemap 的 lastmod 与论文页 JSON-LD
+     的 dateModified，两处由同一个函数产出，不可能对不上。
+
+     ⚠️ 代价（明说，不藏着）：共享同一套版式的页面**会拿到同一个时间戳**
+     —— 例如 /about/、/blog/、/papers/ 与论文页都依赖 layouts/base.njk，
+     改一次 base.njk 它们的 lastmod 一起变。这是**正确**的：那几个页面确实
+     同时变了。此前"每页各不相同"的附带好处（见老注释）已不再成立，也不再
+     值得追求 —— 少报才是缺陷（sitemap 谎称内容没变），多报只多一次重抓。
 
      三个刻意的设计（少一个就会给出假时间戳）：
        1. **浅克隆一律不给**。浅克隆（CI 默认 depth=1）的历史被截断，
@@ -359,80 +375,25 @@ module.exports = function (eleventyConfig) {
           判定，浅克隆直接不给。配套硬前提：deploy.yml 的 checkout 改成
           `fetch-depth: 0`（否则 CI 永远走这条"不给"的分支）。
        2. **不在 git 仓库里 / git 不可用 → 也不给**。
-       3. **文件还没被提交过（历史里查不到）→ 也不给**。
+       3. **闭包里还没有任何文件被提交过 → 也不给**。
      sitemap 规范里 lastmod 是**可选**字段，宁可没有，也不要一个假的。 */
-  let gitRootCache;
-// git 失败的分类在 scripts/lib/git-error.cjs —— 与 scripts/verify-site.cjs
-// **共用同一份**（原来两边各抄一份判据，"改一处忘一处"就会让两侧行为不一致，
-// 而这两边恰恰必须一致：它们一起决定"门禁到底有没有真的核对过 lastmod"）。
-// 四类里只有「git 不在 PATH」「git 说这里没有提交历史」可以降级成"没有 git 历史"；
-// 「git 判定不出来」（被信号杀 / 不可执行）与编程错误都必须抛。
-  function gitRoot() {
-    if (gitRootCache !== undefined) return gitRootCache;
-    try {
-      gitRootCache = execFileSync("git", ["rev-parse", "--show-toplevel"], {
-        cwd: __dirname,
-        encoding: "utf8",
-        stdio: ["ignore", "pipe", "ignore"],
-      }).trim();
-    } catch (e) {
-      // 可降级时返回 null（= 不在 git 仓库里 / 没有 git 历史）；
-      // 不可降级时抛（见 scripts/lib/git-error.cjs）。
-      gitRootCache = degradeOrThrow(e);
-    }
-    return gitRootCache;
-  }
-
-  let gitShallowCache;
-  function gitIsShallow() {
-    if (gitShallowCache !== undefined) return gitShallowCache;
-    try {
-      gitShallowCache =
-        execFileSync("git", ["rev-parse", "--is-shallow-repository"], {
-          cwd: __dirname,
-          encoding: "utf8",
-          stdio: ["ignore", "pipe", "ignore"],
-        }).trim() === "true";
-    } catch (e) {
-      // ⚠️ 这里原来是**裸 catch**（`catch {`）—— 它把编程错误（TypeError /
-      //   ReferenceError）也一起吞掉：门禁会以为只是"浅克隆 / 不可信"，
-      //   而实际是代码写错了。现在与另两处用同一套判据：
-      //   · 「git 用不了」→ 按"不可信"处理（原来的行为，保留）；
-      //   · 「git 判定不出来」/ 编程错误 → 必须抛，不能悄悄降级。
-      const kind = classifyGitError(e);
-      if (kind === "unavailable" || kind === "no-history") {
-        gitShallowCache = true; // 判不出来就按"不可信"处理
-      } else {
-        degradeOrThrow(e); // "unknown" → 抛一句人话；"program-error" → 原样抛
-      }
-    }
-    return gitShallowCache;
-  }
+  /* ⚠️ 这里曾经有 gitRoot() / gitIsShallow() 两个本地函数（判据各抄一份
+     scripts/lib/git-error.cjs）。D34 起 lastCommitTime 的口径改成"依赖闭包"，
+     git 查询整体搬进 scripts/lib/page-deps.cjs（那里用同一份 git-error 判据），
+     这两个函数就成了**没有任何调用方的死代码** ——
+     留着它们等于留一条"看起来在管浅克隆、其实没人用"的旁路：
+     将来改了它们不会有任何效果，而读代码的人会以为某处还有人在管这件事。
+     浅克隆 / 不在 git 仓库里的降级语义，现在由 page-deps.cjs 的
+     hasHistory() 统一负责，判据仍是 git-error.cjs 那一份。 */
 
   eleventyConfig.addFilter("lastCommitTime", (inputPath) => {
     if (!inputPath) return "";
-    const root = gitRoot();
-    if (!root || gitIsShallow()) return "";
-    const rel = path.relative(root, inputPath);
-    if (!rel || rel.startsWith("..")) return "";
-    try {
-      // %cI = 严格 ISO-8601（含时区偏移），如 2026-10-19T11:10:56-07:00
-      const out = execFileSync("git", ["log", "-1", "--format=%cI", "--", rel], {
-        cwd: root,
-        encoding: "utf8",
-        stdio: ["ignore", "pipe", "ignore"],
-      }).trim();
-      if (!out) return "";
-      const d = new Date(out);
-      if (isNaN(d.getTime())) return "";
-      // 统一成 UTC 的 Z 形式，与站点其它时间戳（dateToIso）格式一致
-      return d.toISOString();
-    } catch (e) {
-      // 同上：编程错误不能被伪装成"查不到提交时间"（那会让 lastmod 静默变空）；
-      // 「git 判定不出来」同样不能伪装（降级 = 门禁以为验过了，其实没验）。
-      degradeOrThrow(e);
-      return "";
-    }
+    const rel = repoRelOf(inputPath);
+    if (!rel) return "";
+    // 闭包口径：这一页的内容由哪些文件决定 ⇒ 取其中最晚的提交时间。
+    // 口径定义在 scripts/lib/page-deps.cjs（构建侧与门禁侧共用同一份）。
+    const { time } = expectedLastmod(rel);
+    return time || "";
   });
 
   /* repoRelPath：把源文件绝对路径转成**仓库相对**路径（正斜杠）。
@@ -447,15 +408,15 @@ module.exports = function (eleventyConfig) {
      才定下地址），从 URL 反推源文件不可靠。所以让构建期把源文件路径
      一起写进产物，门禁直接读。
 
-     注意这里用 git root（不是 Eleventy 项目根）做基准，与门禁脚本里
-     `git log -- <相对路径>` 的 cwd 保持一致。 */
+     ⚠️ 基准统一到**仓库根**（scripts/lib/page-deps.cjs 的 REPO_ROOT），
+        与门禁侧的 path.resolve(ROOT, relPath)、git log 的 cwd 同一口径。
+        此前这里用 git root，而门禁侧用仓库根 —— 两者今天相等，
+        但"今天相等"不是约定，是巧合：一旦仓库被放进另一个 git 仓库里
+        （或被 submodule 包住），标注写出的路径与门禁解析的路径就会分叉。
+        一份基准（page-deps.cjs）⇒ 不可能分叉。 */
   eleventyConfig.addFilter("repoRelPath", (inputPath) => {
     if (!inputPath) return "";
-    const root = gitRoot();
-    if (!root) return "";
-    const rel = path.relative(root, inputPath);
-    if (!rel || rel.startsWith("..")) return "";
-    return rel.split(path.sep).join("/");
+    return repoRelOf(inputPath) || "";
   });
 
   // head(n)：取前 n 项（默认 3）

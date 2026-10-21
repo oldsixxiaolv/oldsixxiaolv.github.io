@@ -85,10 +85,13 @@
  *      其余门禁全绿，只是消费方拿到的作品条目"无图、无时效信号"。
  *      · image 必须**逐字等于**该页第一个 og:image 的 URL（社交平台只认
  *        第一张；结构化数据里的图与页面上那张分享图不是同一张 = 图文不符）。
- *      · dateModified 必须等于该页源文件**真实的最后提交时间**，
- *        且"有/无"与"源文件提交过/没提交过"一致（本仓流程是先 build 后
+ *      · dateModified 必须等于该页**依赖闭包里最晚的提交时间**
+ *        （闭包规则见 scripts/lib/page-deps.cjs：一页的内容由版式 partial、
+ *        全局数据、目录数据文件共同决定，只看页面自己的源文件会漏报 ——
+ *        D34 的实测：首页渲染的 extremePrecip.json 改了，lastmod 却不动），
+ *        且"有/无"与"闭包里有没有已提交的文件"一致（本仓流程是先 build 后
  *        commit，新写的论文页在 build 时还没进历史，就是"没有"这一档）。
- *        取值与 sitemap 的 lastmod 同一数据源（eleventy 的 lastCommitTime），
+ *        取值与 sitemap 的 lastmod 同一数据源（同一个函数），
  *        浅克隆 / 不在 git 仓库里两边同样取不到 → 两边一致，不判有也不判无。
  *
  * 与既有门禁的关系（**刻意不重复**）：
@@ -105,12 +108,13 @@
  */
 const fs = require("fs");
 const path = require("path");
-const { execFileSync } = require("child_process");
 const matter = require("gray-matter"); // Eleventy 自己用的 front matter 解析器（J10 求值用）
-// git 失败的分类**必须用共用的一份**（scripts/lib/git-error.cjs，J11 用）：
-// "git 判定不出来"与编程错误要**抛**，不能伪装成"没有 git 历史"——
-// 那会让 J11 整块判据被跳过，门禁全绿而实际一页都没验证过。
-const { degradeOrThrow } = require("./lib/git-error.cjs");
+// ⚠️ 这里原先还 import 了 execFileSync 与 git-error.cjs 的 degradeOrThrow ——
+//   它们只服务于本文件自己那份 git 查询（gitTop / gitIsShallow / gitCommitTime）。
+//   D34 起 git 查询与"闭包最晚提交时间"的算法都搬进 scripts/lib/page-deps.cjs，
+//   那三个函数已删除 ⇒ 这两个 import 变成没人用的（留着只会让人误以为
+//   "判不出来要抛"这件事在本文件里还有一份判据）。抛的语义现在在
+//   page-deps.cjs → git-error.cjs 那一条链上，全站只有一份。
 
 const SITE = process.env.SITE_DIR
   ? path.resolve(process.env.SITE_DIR)
@@ -251,71 +255,24 @@ function ogImageOf(html) {
   return "";
 }
 
-/* ---------- J11 需要"源文件真实的最后提交时间" ----------
+/* ---------- J11 需要"这一页内容真实的最后改变时间" ----------
    与 verify-site.cjs 第 18 条（sitemap 的 lastmod）**同一套判据、同一份数据源**：
    两者回答的是同一个问题——「这个 URL 的内容最后一次真的变过是什么时候」。
+
+   ⚠️ 口径在 D34（2026-10-21）改过一次：原先取「该页**源文件自身**的最后提交
+   时间」，但页面内容常常由别的文件提供（版式 partial、全局数据、目录数据
+   文件）——那些文件一改，页面内容就变了，时间戳却原地不动。
+   现在取「**依赖闭包里最晚的提交时间**」（闭包规则见 scripts/lib/page-deps.cjs）。
+
+   ⚠️ 这里原先**自己**抄了一份 git 查询（gitTop / gitIsShallow / gitCommitTime）。
+      同一件事抄三份（eleventy / verify-site / 这里）意味着抄错一处就静默漏报，
+      而这三处恰恰必须一致 —— 它们一起决定"门禁到底有没有真的核对过时间戳"。
+      现在三处都从 page-deps.cjs 取，口径只有一份。
+
    浅克隆里 `git log -1 -- <file>` 只能查到 HEAD 那一次，查出来的值
    「看起来像提交时间、其实是 checkout 时间」⇒ 与 eleventy 的 lastCommitTime
    filter **同样地**：浅克隆一律不给。 */
-let gitTopCache;
-let gitShallowCache;
-function gitTop() {
-  if (gitTopCache !== undefined) return gitTopCache;
-  try {
-    gitTopCache = execFileSync("git", ["rev-parse", "--show-toplevel"], {
-      cwd: ROOT,
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "ignore"],
-    }).trim();
-  } catch (e) {
-    gitTopCache = degradeOrThrow(e);
-  }
-  return gitTopCache;
-}
-function gitIsShallow() {
-  if (gitShallowCache !== undefined) return gitShallowCache;
-  try {
-    gitShallowCache =
-      execFileSync("git", ["rev-parse", "--is-shallow-repository"], {
-        cwd: ROOT,
-        encoding: "utf8",
-        stdio: ["ignore", "pipe", "ignore"],
-      }).trim() === "true";
-  } catch (e) {
-    // 判定不出来 ⇒ 当成"不可信"（与 eleventy 的同一判据）
-    const kind = require("./lib/git-error.cjs").classifyGitError(e);
-    if (kind === "unavailable" || kind === "no-history") gitShallowCache = true;
-    else degradeOrThrow(e);
-  }
-  return gitShallowCache;
-}
-
-/** 某个仓库相对路径最后一次提交的时间（UTC ISO，与产物里的格式一致）。
-    返回 null = **没有**这个时间：不在 git 仓库里 / 浅克隆 / 还没提交过。
-    ⚠️ "没有"与"判定不出来"必须分开：后者在上面就抛了，不会走到这里。 */
-function gitCommitTime(relPath) {
-  if (!relPath) return null;
-  const top = gitTop();
-  if (!top || gitIsShallow()) return null;
-  const abs = path.resolve(ROOT, relPath);
-  const rel = path.relative(top, abs);
-  if (!rel || rel.startsWith("..")) return null;
-  let out = "";
-  try {
-    out = execFileSync("git", ["log", "-1", "--format=%cI", "--", rel], {
-      cwd: top,
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "ignore"],
-    }).trim();
-  } catch (e) {
-    // git 跑了但退出码非 0 = 这个文件**还没有提交历史**（可降级）
-    out = degradeOrThrow(e) === null ? "" : "";
-  }
-  if (!out) return null;
-  const d = new Date(out);
-  if (isNaN(d.getTime())) return null;
-  return d.toISOString();
-}
+const { expectedLastmod } = require("./lib/page-deps.cjs");
 
 /* ---------- 角色声明的解析（真值口径 + 数据层）---------- */
 
@@ -875,27 +832,31 @@ for (const file of htmlFiles) {
 
     /* —— dateModified —— */
     const srcRel = sourceOf(html);
-    const realCommit = srcRel ? gitCommitTime(srcRel) : null;
+    // 闭包口径：这一页的内容由哪些文件决定 ⇒ 取其中最晚的提交时间。
+    // 与 sitemap 的 lastmod 同一个函数（scripts/lib/page-deps.cjs）⇒ 两边不可能对不上。
+    const closure = srcRel ? expectedLastmod(srcRel) : null;
+    const realCommit = closure ? closure.time : null;
+    const fromFile = closure ? closure.from : null;
     const modified = typeof a.dateModified === "string" ? a.dateModified : "";
     if (realCommit) {
       j11ModifiedCompared++;
       if (!modified) {
         fail(
           `${from}: 论文实体「${a["@id"]}」没有 dateModified —— ` +
-            `但它的源文件（${srcRel}）最后一次提交时间是 ${realCommit}：` +
-            `这一页确实改过，机器侧却看不到时效信号`
+            `但这一页的依赖闭包里最晚的提交时间是 ${realCommit}` +
+            `（来自 ${fromFile}）：这一页确实改过，机器侧却看不到时效信号`
         );
       } else if (modified !== realCommit) {
         fail(
           `${from}: 论文实体的 dateModified 是 ${JSON.stringify(modified)}，` +
-            `应是源文件（${srcRel}）真实的最后提交时间 ${JSON.stringify(realCommit)} —— ` +
-            `时间戳必须是真的`
+            `应是这一页依赖闭包里最晚的提交时间 ${JSON.stringify(realCommit)}` +
+            `（来自 ${fromFile}）—— 时间戳必须是真的`
         );
       }
     } else if (modified) {
       fail(
         `${from}: 论文实体的 dateModified 是 ${JSON.stringify(modified)}，` +
-          `但它的源文件（${srcRel || "(没标 source)"}）查不到提交历史 —— ` +
+          `但它的源文件（${srcRel || "(没标 source)"}）的依赖闭包里查不到提交历史 —— ` +
           `没有真实数据源却给出了时间戳`
       );
     }
