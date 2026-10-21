@@ -24,6 +24,16 @@
  *   前四条 build **全绿**（没有任何一条判据看得见它们）。
  *   ⇒ 这就是缺陷清单 D15：**契约写下来了，但没人守**。
  *
+ *   2026-10-21（D40）又查出同一族的第二个实例：**封面**这条内容路径。
+ *   契约（§2.3）写得比谁都细（"必须是真 SVG 文本"、连历史踩的坑都记着），
+ *   而门禁这边两个方向都不对：
+ *     · F9 只查"文件在不在"，**不查格式、不查文件名** ⇒ 契约明令禁止的形态
+ *       （文件叫 cover.png、里面装的是 `<svg …>` 文本）**全链 exit 0**，
+ *       没有任何一道门禁看守；
+ *     · 另一个方向：图片门禁 IA5 当时**只读得出 PNG / JPEG**，
+ *       于是**照契约写一张真 SVG 封面，build 必红**（IA5 + IA6 双重判红）。
+ *   ⇒ F13–F15 是补第一个缺口；IA5 的 SVG 能力是同轮补上的另一半。
+ *
  * 判据一览（F 编号，与 verify-site 的数字编号、check-jsonld 的 J 编号互不相干）：
  *   F1  文章**形状**：必须是 `<slug>/index.md`。扁平 `<name>.md` 不行 ——
  *       `getSlugFromData()` 取的是**倒数第二段**（目录名），扁平文件的倒数第二段
@@ -41,6 +51,15 @@
  *   F11 `excerpt` 与 `title` 逐字相同 ⇒ **note**（契约 §4 的自查项）。
  *   F12 **自动注入字段**齐不齐（目录数据文件）—— 这一条**永远会跑**，
  *       所以本站即使 0 篇文章，本门禁也不是空跑。
+ *   F13 封面的**真实字节格式**必须与扩展名一致：`.svg` 必须是 SVG 文本，
+ *       `.png` / `.jpg` / `.jpeg` 必须是真位图，`.webp` 必须是真 WebP。
+ *       （契约 §2.3 记的就是这个坑：文件叫 cover.png、里面装的却是 `<svg …>` 文本
+ *        ⇒ 服务器按扩展名发 Content-Type、浏览器拒绝解码、naturalWidth = 0 ⇒ 裂图。）
+ *   F14 **覆盖度自证**：声明了封面的文章，封面必须真的被逐字节验过
+ *       （应验 == 实测）；读不出真实格式的封面会在这里被点名。
+ *   F15 封面的**文件名**必须是 `cover.<ext>`（ext ∈ svg/png/jpg/jpeg/webp）——
+ *       因为构建脚本 eleventy.config.js 的 copyCovers() **只复制**这种名字的文件；
+ *       写成别的名字，F9 会绿（文件确实在）但产物里根本没有它 ⇒ 封面 404。
  *
  * ⚠️ **note 与判红的分界**（写清楚，免得后人以为本门禁什么都拦）：
  *   判红 = 「**写错了**」（形态不对、类型不对、覆盖了自动注入）；
@@ -77,6 +96,15 @@ const PURE_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 /** front matter 原文块（只看第一个 --- 到下一个 ---）。 */
 const FRONT_MATTER_RE = /^---[ \t]*\r?\n([\s\S]*?)\r?\n---[ \t]*(?=\r?\n|$)/;
 
+/* ---------- 封面（F13–F15） ---------- */
+/* 封面文件名必须是 `cover.<ext>`。这个扩展名集合**不是**这里拍脑袋定的，
+   而是与 eleventy.config.js 的 copyCovers() 实际复制的五种一一对应
+   （它只复制名为 cover.svg / cover.png / cover.jpg / cover.jpeg / cover.webp 的文件）。
+   写成别的名字 ⇒ 源码里有这个文件、F9 也绿，但产物里根本没有它 ⇒ 封面 404。 */
+const COVER_NAME_RE = /^cover\.(svg|png|jpg|jpeg|webp)$/;
+/* 扩展名 ⇒ 期望的**真实**格式（用来跟字节嗅探结果对账）。 */
+const EXT_FORMAT = { svg: "SVG", png: "PNG", jpg: "JPEG", jpeg: "JPEG", webp: "WebP" };
+
 const problems = [];
 const notes = [];
 const fail = (m) => problems.push(m);
@@ -90,6 +118,47 @@ function displayPath(p) {
   const toBlog = path.relative(BLOG_DIR, p).split(path.sep).join("/");
   if (toBlog && !toBlog.startsWith("..")) return toBlog;
   return path.basename(p) || p;
+}
+
+/** 嗅探一个文件的**真实格式**（只看头几个字节，够判类型就行）。
+    返回 { format, label } 或 null（读不出来 / 不认识）。
+    ⚠️ 自带魔数判断，**不 import** 被检查方的任何代码。 */
+function sniffFormat(file) {
+  let buf;
+  try {
+    const fd = fs.openSync(file, "r");
+    try {
+      buf = Buffer.alloc(Math.min(4096, fs.fstatSync(fd).size));
+      fs.readSync(fd, buf, 0, buf.length, 0);
+    } finally {
+      fs.closeSync(fd);
+    }
+  } catch {
+    return null;
+  }
+  const PNG_SIG = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+  if (buf.length >= 8 && PNG_SIG.every((b, i) => buf[i] === b)) {
+    return { format: "PNG", label: "PNG 位图" };
+  }
+  if (buf.length >= 3 && buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) {
+    return { format: "JPEG", label: "JPEG 位图" };
+  }
+  if (
+    buf.length >= 12 &&
+    buf.toString("latin1", 0, 4) === "RIFF" &&
+    buf.toString("latin1", 8, 12) === "WEBP"
+  ) {
+    return { format: "WebP", label: "WebP 位图" };
+  }
+  if (buf.length >= 4 && buf.toString("latin1", 0, 4) === "GIF8") {
+    return { format: "GIF", label: "GIF 位图" };
+  }
+  /* SVG 是文本：文件里得有 <svg …> 标签才算数
+     （只看开头 2 KB；只看 "<svg" 三个字母会把 XML 声明误判成 SVG）。 */
+  if (/<svg[\s>]/i.test(buf.toString("utf8", 0, 2048))) {
+    return { format: "SVG", label: "SVG 文本" };
+  }
+  return null;
 }
 
 /* ---------- 目录数据文件：F12（永远会跑） ---------- */
@@ -190,6 +259,12 @@ for (const d of dirsWithoutIndex) {
 /* ---------- 逐篇核 front matter（F2–F11） ---------- */
 let comparedArticles = 0;
 let comparedFields = 0;
+/* 封面计数（F14 的自证依据）：声明了 cover 的文章 / 其中文件确实在的 /
+   其中真的读出了真实格式的。 */
+let coverDeclared = 0;
+let coverPresent = 0;
+let coverVerified = 0;
+const coverUnverified = [];
 
 for (const a of articles) {
   const rel = displayPath(a.file);
@@ -318,6 +393,52 @@ for (const a of articles) {
     }
   }
 
+  // F13 / F14 / F15：封面
+  //   F9 只查"文件在不在"；这两条查的是**别的两件事**：
+  //   真实字节格式与扩展名对不对得上（F13）、文件名是不是构建脚本会复制的那种（F15）。
+  if (data.cover !== undefined && data.cover !== null && data.cover !== "") {
+    const coverName = String(data.cover);
+    coverDeclared++;
+    const coverPath = path.join(path.dirname(a.file), coverName);
+
+    // F15：文件名必须是 cover.<ext>
+    if (!COVER_NAME_RE.test(coverName)) {
+      fail(
+        `${rel}: \`cover\` 的文件名必须是 \`cover.<ext>\`（现在是 ${JSON.stringify(coverName)}）—— ` +
+          `规范 §2.3 说它只能是同目录下的文件名；构建脚本的 copyCovers() **只复制** ` +
+          `cover.svg / cover.png / cover.jpg / cover.jpeg / cover.webp 这五种名字，` +
+          `别的名字不会进产物 ⇒ 封面开关一开就是 404。`
+      );
+    }
+
+    // F13：真实字节格式必须与扩展名一致
+    if (fs.existsSync(coverPath) && fs.statSync(coverPath).isFile()) {
+      coverPresent++;
+      const ext = path.extname(coverName).toLowerCase().replace(/^\./, "");
+      const want = EXT_FORMAT[ext];
+      const got = sniffFormat(coverPath);
+      if (!got) {
+        coverUnverified.push(coverName);
+        fail(
+          `${rel}: 读不出 \`cover\` 的真实格式（${coverName}）—— ` +
+            `它既不是 PNG / JPEG / WebP 位图，也不是 SVG 文本；` +
+            `规范 §2.3 要求封面是**能被浏览器解码的真图**，否则就是裂图。`
+        );
+      } else if (want && got.format !== want) {
+        coverVerified++;
+        fail(
+          `${rel}: \`cover\` 的真实格式与扩展名对不上（文件叫 ${coverName}，` +
+            `里面装的是 ${got.label}）—— 服务器按扩展名发 Content-Type，` +
+            `浏览器拒绝解码 ⇒ naturalWidth = 0 ⇒ **裂图**；` +
+            `规范 §2.3 记的就是这个坑：真 SVG 必须用 .svg 扩展名。`
+        );
+      } else {
+        coverVerified++;
+      }
+      comparedFields++;
+    }
+  }
+
   // F10 excerpt 缺失 ⇒ note（契约写的是「强烈建议」；是否升级为判红 = 待拍板 46）
   const hasExcerpt = typeof data.excerpt === "string" && data.excerpt.trim() !== "";
   if (!hasExcerpt) {
@@ -340,6 +461,20 @@ for (const a of articles) {
   }
 }
 
+/* ---------- F14：覆盖度自证 ---------- */
+/* 应验 = 声明了封面且文件确实在磁盘上的；实测 = 真的读出了真实格式的。
+   两者必须相等 —— 否则本门禁在"有封面"的情况下判绿，而它其实什么都没验，
+   那就是**空跑**，空跑的门禁等于没有门禁。
+   （与图片门禁 IA6 同一族：判据依赖可被截断的输入时会静默空跑。） */
+if (coverPresent > 0 && coverVerified !== coverPresent) {
+  fail(
+    `封面判据 F14：应验 ${coverPresent} 张封面（文件确实在磁盘上），` +
+      `实测只读出真实格式 ${coverVerified} 张 —— ` +
+      `本门禁在有封面时等于**空跑**，空跑的门禁等于没有门禁，所以判红。` +
+      `没验出来的：${coverUnverified.join("、") || "（未点名）"}`
+  );
+}
+
 /* ---------- 汇总 ---------- */
 const shown = problems.slice(0, 40);
 if (problems.length) {
@@ -360,15 +495,25 @@ if (problems.length) {
 console.log(
   `博客 front matter 契约门禁通过：扫了 ${articles.length} 篇文章、` +
     `比了 ${comparedFields} 处 front matter 字段；` +
-    `目录数据文件的自动注入字段核了 ${dataFileChecked} 项。`
+    `目录数据文件的自动注入字段核了 ${dataFileChecked} 项；` +
+    `封面核了 ${coverVerified} 张（声明 ${coverDeclared} 张、文件在 ${coverPresent} 张）。`
 );
 if (notes.length) {
   console.log(`  · note（**不判红**，契约里标的是"建议"）：`);
   notes.forEach((n) => console.log(`      · ${n}`));
 }
-if (articles.length === 0) {
+if (articles.length === 0 || coverDeclared === 0) {
+  const gaps = [];
+  if (articles.length === 0) {
+    gaps.push(
+      `站内还没有文章 ⇒ F1–F9 / F11 / F13–F15 这些**逐篇**判据**当前未执行**（不是"通过"）`
+    );
+  }
+  if (coverDeclared === 0) {
+    gaps.push(`站内还没有封面 ⇒ F13 / F14 / F15 这些**逐封面**判据**当前未执行**（不是"通过"）`);
+  }
   console.log(
-    `  ⚠️ 站内还没有文章 ⇒ F1–F9 / F11 这些**逐篇**判据**当前未执行**（不是"通过"）；` +
+    `  ⚠️ ${gaps.join("；")}；` +
       `F12（目录数据文件的自动注入字段）本轮真的跑了。` +
       `判据本身有没有牙齿由 scripts/test-blog-frontmatter.cjs 的夹具站负责` +
       `（那个自测接在 build 链上，每次 build 都证明一遍）。`

@@ -42,9 +42,21 @@
  *   IA3 分享图必须有非空 alt：og:image:alt / twitter:image:alt 缺一个都不行。
  *   IA4 <img> 声明的比例必须与真实像素一致：width / height 属性与真实像素**等比**
  *        （容差 1%）。属性值写错 → 预留了错的比例 → 布局照样跳。
- *   IA5 图片格式必须能读出真实像素：本门禁只支持 PNG / JPEG；
- *        出现别的格式 → 判红（"本门禁还验不了这个格式"），
+ *        ⚠️ 已知边界（D40 登记，**待拍板 50**）：被"裁切槽"承载的图
+ *        （CSS `aspect-ratio` + `object-fit: cover`），HTML 里声明的是**槽位**比例、
+ *        不是**素材**比例 —— 两者可以合法地不相等（博客卡片槽 16:9 vs 2.5:1 的封面）。
+ *        本门禁分不出"槽位"与"素材"，所以这类图会判红（对位图与 SVG 一视同仁）。
+ *   IA5 图片格式必须能读出真实尺寸：**内容里的 <img>** 支持 PNG / JPEG / SVG；
+ *        **分享图（og / twitter）必须仍是位图**（社交平台不解析 SVG）；
+ *        别的格式 → 判红（"本门禁还验不了这个格式"），
  *        **不许静默跳过**——跳过就等于把这类图塞进"无人看守"的那一类。
+ *        ⚠️ 2026-10-21 扩展 SVG 的原因（实测，不是假想）：站内契约
+ *        （docs/blog-writing-guide.md §2.3）明写「封面一律用 .svg 扩展名 + SVG 文本」，
+ *        而旧版 IA5 **只读得出 PNG / JPEG** ⇒ **照契约写封面，build 必红**
+ *        （IA5 判红 + IA6 覆盖度自证判红，实测输出见缺陷清单 D40）。
+ *        门禁必须能处理契约推荐的东西 —— 否则契约与门禁互相矛盾，
+ *        守约的人反而被拦下。SVG 的"真实尺寸"取 <svg> 的 width / height，
+ *        没有就取 viewBox 的后两个数。
  *   IA6 自证覆盖量：本门禁必须真的把**每一张**该验的图都验了一遍
  *        （应验数 == 实验数，且 ≥ 1），否则判红。
  *        （本仓库反复修的那族病：判据依赖可被截断的输入时会**静默空跑**，
@@ -207,7 +219,49 @@ function jpegSize(buf) {
   return null;
 }
 
-/** 读图片真实像素。只支持 PNG / JPEG；别的格式返回 { unsupported: 名称 }，
+/** 读 SVG 的**固有尺寸**（SVG 没有"像素"，它的尺寸来自 <svg> 标签）：
+    先看 width / height 属性，都没有再看 viewBox 的后两个数。
+    返回 null = 这个文件不是 SVG（交给调用方按别的格式处理）。 */
+function svgSize(buf) {
+  const text = buf.toString("utf8", 0, Math.min(buf.length, 64 * 1024));
+  const m = text.match(/<svg\b[^>]*>/i);
+  if (!m) return null;
+  const tag = m[0];
+  /** 取属性值。用 (?<![\w:-]) 挡住 stroke-width / stroke-height 这类同尾属性。 */
+  const pick = (name) => {
+    const dq = tag.match(new RegExp(`(?<![\\w:-])${name}\\s*=\\s*"([^"]*)"`, "i"));
+    if (dq) return dq[1];
+    const sq = tag.match(new RegExp(`(?<![\\w:-])${name}\\s*=\\s*'([^']*)'`, "i"));
+    return sq ? sq[1] : null;
+  };
+  /** 像素尺寸：纯数字或带 px 后缀都算；百分比 / 其它单位读不出。 */
+  const num = (raw) => {
+    if (raw === null || raw === undefined) return null;
+    const t = String(raw).trim().replace(/px$/i, "");
+    if (!/^\d+(?:\.\d+)?$/.test(t)) return null;
+    const v = Number(t);
+    return Number.isFinite(v) && v > 0 ? v : null;
+  };
+  const w = num(pick("width"));
+  const h = num(pick("height"));
+  if (w && h) return { width: w, height: h, format: "SVG" };
+  const vb = pick("viewBox");
+  if (vb !== null) {
+    const parts = String(vb).trim().split(/[\s,]+/).map(Number);
+    if (
+      parts.length === 4 &&
+      parts.every((n) => Number.isFinite(n)) &&
+      parts[2] > 0 &&
+      parts[3] > 0
+    ) {
+      return { width: parts[2], height: parts[3], format: "SVG" };
+    }
+  }
+  /* 是 SVG，但读不出尺寸 —— 不能当成"跳过"（跳过 = 塞进无人看守的那一类）。 */
+  return { unsupported: "SVG（读不出固有尺寸：既没有 width / height，也没有 viewBox）" };
+}
+
+/** 读图片真实尺寸。支持 PNG / JPEG / SVG；别的格式返回 { unsupported: 名称 }，
     由调用方判红（**不许静默跳过**）。 */
 function readImageSize(file) {
   let buf;
@@ -226,6 +280,8 @@ function readImageSize(file) {
   if (png) return png;
   const jpg = jpegSize(buf);
   if (jpg) return jpg;
+  const svg = svgSize(buf);
+  if (svg) return svg;
   const head = buf.toString("latin1", 0, 16);
   if (head.startsWith("GIF8")) return { unsupported: "GIF" };
   if (head.startsWith("RIFF") && head.slice(8, 12) === "WEBP") return { unsupported: "WebP" };
@@ -334,8 +390,18 @@ for (const pageFile of pages) {
       }
     }
 
-    /* IA5：格式必须能读出真实像素。 */
+    /* IA5：分享图必须是**位图**。
+       ⚠️ 内容里的 <img> 允许 SVG（2026-10-21 扩展，见文件头 IA5），
+       但分享图不行 —— 社交平台（微信 / Twitter / Facebook / LinkedIn）
+       不解析 SVG，拿到的是一张空白卡片。 */
     const size = sizeOf(file);
+    if (size.format === "SVG") {
+      fail(
+        `门禁 IA5：${pageRel} 的 og:image ${p.image} 是 SVG —— ` +
+          `分享卡片图必须是位图（PNG / JPEG）：社交平台不解析 SVG，这张卡片会没有预览图`
+      );
+      continue;
+    }
     if (size.unsupported) {
       fail(
         `门禁 IA5：${pageRel} 的 og:image ${p.image} 是 ${size.unsupported} —— ` +
@@ -417,7 +483,7 @@ for (const pageFile of pages) {
     if (size.unsupported) {
       fail(
         `门禁 IA5：${pageRel} 的 <img src="${src}"> 是 ${size.unsupported} —— ` +
-          `本门禁只读得出 PNG / JPEG 的真实像素，请扩展本门禁或改用 PNG / JPEG`
+          `本门禁只读得出 PNG / JPEG / SVG 的真实尺寸，请扩展本门禁或改用这三种格式`
       );
       continue;
     }
@@ -445,9 +511,13 @@ for (const pageFile of pages) {
     const lhs = w * size.height;
     const rhs = h * size.width;
     if (Math.abs(lhs - rhs) / Math.max(lhs, rhs) > 0.01) {
+      const realSize =
+        size.format === "SVG"
+          ? `而文件的固有尺寸（width / height 或 viewBox）是 ${size.width}×${size.height}`
+          : `而文件真实像素是 ${size.width}×${size.height}`;
       fail(
         `门禁 IA4：${pageRel} 的 <img src="${src}"> 声明 ${w}×${h}，` +
-          `而文件真实像素是 ${size.width}×${size.height} —— ` +
+          `${realSize} —— ` +
           `预留的比例是错的，布局照样会跳`
       );
     }

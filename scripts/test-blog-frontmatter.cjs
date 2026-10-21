@@ -32,11 +32,18 @@
  *   M12 目录数据文件不注入 prev 了           → 判红，点名 prev
  *   M13 站内一篇文章都没有                   → exit 0，且明说「当前未执行」
  *   M14 front matter 覆盖 permalink          → 判红，点名 permalink
+ *   M15 封面叫 cover.png，里面装的是 SVG 文本 → 判红，点名「格式与扩展名对不上」
+ *   M16 封面叫 cover.svg，里面装的是 PNG 字节 → 判红，点名「格式与扩展名对不上」
+ *   M17 封面文件名不叫 cover.<ext>          → 判红，点名「文件名必须是」
+ *   M18 一张真 PNG 封面 + 规范的名字          → **exit 0**（证明 F13–F15 不假红）
+ *   M19 封面既不是位图也不是 SVG             → 判红，点名「读不出」+「F14」
  *
  *   M1–M8 / M14 的夹具站里**同时放着那篇完全合规的好文章** ——
  *   证明门禁不是"见着文章就红"，而是**指着坏的那一篇**红。
  *   M9 / M10 是"忘了写"档：契约里写的是"建议"，所以它们**不该**拦下 build
  *   （excerpt 缺失要不要升级为判红 = 待拍板 46，本轮定的口径是 note）。
+ *   M15–M19 是**封面**这一档（D40）：契约 §2.3 明写「必须是真 SVG 文本」，
+ *   而旧版 F9 只查"文件在不在" ⇒ 契约禁止的形态全链 exit 0。
  *
  * 用法：node scripts/test-blog-frontmatter.cjs
  */
@@ -84,6 +91,19 @@ function articleMd(fields) {
   return lines.join("\n");
 }
 
+/* ---------- 封面的三种字节 ---------- */
+/** 一张真的 1×1 PNG（标准 base64）—— "真位图"那一档的素材。 */
+const PNG_BYTES = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+  "base64"
+);
+/** 一段真的 SVG 文本（带 width / height / viewBox）—— 契约 §2.3 推荐的那种。 */
+const SVG_TEXT =
+  '<svg xmlns="http://www.w3.org/2000/svg" width="800" height="450" viewBox="0 0 800 450">' +
+  '<rect width="800" height="450" fill="#123456"/></svg>\n';
+/** 既不是位图也不是 SVG 的一段文字 —— "读不出真实格式"那一档。 */
+const PLAIN_TEXT = "This file is neither a bitmap nor an SVG document.\n";
+
 /* ---------- 夹具站 ---------- */
 function buildFixture(c) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), `mh-blog-fm-${c.id}-`));
@@ -109,6 +129,12 @@ function buildFixture(c) {
     dropDataFile() {
       fs.unlinkSync(dataFile);
     },
+    /** 在 <slug>/ 目录里写一个封面文件（内容可以是二进制字节） */
+    writeCover(slug, name, bytes) {
+      const dir = path.join(blogDir, slug);
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(path.join(dir, name), bytes);
+    },
     /** 改目录数据文件（文本层面，门禁也是按文本核的） */
     editDataFile(fn) {
       const before = fs.readFileSync(dataFile, "utf8");
@@ -119,7 +145,7 @@ function buildFixture(c) {
   };
 }
 
-/* ---------- 十五档 ---------- */
+/* ---------- 二十档 ---------- */
 const CASES = [
   { id: "M0", desc: "基线：一篇完全合规的文章", expect: "green" },
   {
@@ -263,6 +289,60 @@ const CASES = [
       fx.writeArticle("bad-post", { ...GOOD, permalink: "/custom/" });
     },
   },
+  {
+    id: "M15",
+    desc: "封面叫 cover.png，里面装的是 SVG 文本（契约 §2.3 记的历史坑）",
+    expect: "red",
+    sub: "SVG 文本",
+    setup: (fx) => {
+      fx.writeArticle("good-post", GOOD);
+      fx.writeArticle("bad-post", { ...GOOD, cover: "cover.png" });
+      fx.writeCover("bad-post", "cover.png", SVG_TEXT);
+    },
+  },
+  {
+    id: "M16",
+    desc: "封面叫 cover.svg，里面装的是 PNG 字节（扩展名反向骗人）",
+    expect: "red",
+    sub: "PNG 位图",
+    setup: (fx) => {
+      fx.writeArticle("good-post", GOOD);
+      fx.writeArticle("bad-post", { ...GOOD, cover: "cover.svg" });
+      fx.writeCover("bad-post", "cover.svg", PNG_BYTES);
+    },
+  },
+  {
+    id: "M17",
+    desc: "封面文件名不叫 cover.<ext>（copyCovers() 不会复制它 ⇒ 产物 404）",
+    expect: "red",
+    sub: "文件名必须是",
+    setup: (fx) => {
+      fx.writeArticle("good-post", GOOD);
+      fx.writeArticle("bad-post", { ...GOOD, cover: "banner.svg" });
+      fx.writeCover("bad-post", "banner.svg", SVG_TEXT);
+    },
+  },
+  {
+    id: "M18",
+    desc: "一张真 PNG 封面 + 规范的文件名（F13–F15 不该假红）",
+    expect: "green",
+    setup: (fx) => {
+      fx.writeArticle("good-post", GOOD);
+      fx.writeArticle("with-cover", { ...GOOD, cover: "cover.png" });
+      fx.writeCover("with-cover", "cover.png", PNG_BYTES);
+    },
+  },
+  {
+    id: "M19",
+    desc: "封面既不是位图也不是 SVG（读不出真实格式 ⇒ F13 + F14 覆盖度自证）",
+    expect: "red",
+    sub: ["读不出", "F14"],
+    setup: (fx) => {
+      fx.writeArticle("good-post", GOOD);
+      fx.writeArticle("bad-post", { ...GOOD, cover: "cover.png" });
+      fx.writeCover("bad-post", "cover.png", PLAIN_TEXT);
+    },
+  },
 ];
 
 /* ---------- 跑一档 ---------- */
@@ -298,6 +378,8 @@ function snapshotRealBlogDir() {
 }
 
 /* ---------- 开跑 ---------- */
+/** 一档可以要求命中多个红因（sub 给字符串或字符串数组）。 */
+const subsOf = (c) => (Array.isArray(c.sub) ? c.sub : [c.sub]);
 const beforeReal = snapshotRealBlogDir();
 let failed = 0;
 console.log("博客 front matter 契约门禁 · 本地注入矩阵：\n");
@@ -320,8 +402,9 @@ for (const c of CASES) {
       failed++;
     }
   } else if (c.expect === "red") {
-    if (r.code === 1 && r.out.includes(c.sub)) {
-      console.log(`  ✓ ${c.id} ${c.desc} → 判红，红因命中「${c.sub}」`);
+    const subs = subsOf(c);
+    if (r.code === 1 && subs.every((s) => r.out.includes(s))) {
+      console.log(`  ✓ ${c.id} ${c.desc} → 判红，红因命中「${subs.join("」与「")}」`);
     } else {
       console.error(
         `  ✗ ${c.id} ${c.desc} → 期望判红且红因含「${c.sub}」，实际 exit ${r.code}`

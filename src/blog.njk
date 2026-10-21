@@ -21,17 +21,22 @@ editPaths:
     label: "Edit this page"
 ---
 
-{# ⚠️ 封面开关 —— 必须保持 false，但阻塞点已经变了（内容素材，非本文件所有）：
-   copyCovers() 现在遍历 papers / blog / portfolio 三个 section，封面也确实
-   进了 _site（_site/blog/<slug>/cover.png 存在），所以不再是 404 问题。
-   真正的原因在素材本身：blog / portfolio 的 front-matter 都写
-   `cover: cover.png`，但磁盘上那个 cover.png 里装的是 SVG 文本
-   （文件头是 <svg …>）。静态服务器按扩展名发 Content-Type: image/png，
-   Chrome 拒绝解码，实测 naturalWidth = 0 —— 现在就打开这个开关，
-   博客页四张卡里有两张的封面会直接裂图，比没有封面更糟。
-   修法在内容侧：把 cover.png 改名为 cover.svg（front-matter 的 cover
-   字段同步改成 cover.svg），或让 front-matter 直接指向 cover.svg。
-   改完之后把这里改成 true 即可，模板不必再动 ——
+{# ⚠️ 封面开关 —— 必须保持 false，开关何时打开由本人拍板（台账里登记着）。
+   ⚠️ 2026-10-21 订正：旧注释里说的「blog / portfolio 的 front-matter 都写
+   `cover: cover.png`、那个文件里装的是 SVG 文本、博客页四张卡里有两张的封面
+   会直接裂图」**已是过时事实** —— 那批内容早已归档删除，仓库里既没有那些
+   文章，也没有那些扩展名骗人的封面文件。
+   现在关着开关的真正原因只是**还没到开的时候**：
+     · 契约（docs/blog-writing-guide.md §2.3）要求封面是**真 SVG 文本**，
+       且文件名必须是 cover.<ext>；
+     · 这两条现在都有门禁守着（front matter 门禁 F13 / F15）——
+       扩展名骗人的形态不会再悄悄进仓库；
+     · 产物层的图片门禁 IA4 / IA5 也已能读出 SVG 的固有尺寸
+       （IA5 支持 SVG 是 2026-10-21 改的：此前**照契约写封面会让 build 必红**）。
+   还有一条待拍板（**待拍板 50**）：卡片槽是 16:9 且会裁切，而模板写死的
+   width=800 height=450 是**槽位**比例 —— 素材比例与槽位不一致时 IA4 会判红，
+   口径待定（是要求素材做 16:9，还是让门禁认得出「裁切槽」）。
+   条件齐了把这里改成 true 即可，模板不必再动 ——
    封面槽（.card__media）和有无封面的两套版式都已经就位。 #}
 {% set useCovers = false %}
 
