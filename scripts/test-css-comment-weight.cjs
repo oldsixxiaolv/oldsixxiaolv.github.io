@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * 自测 CW0–CW8：给 scripts/check-css-comment-weight.cjs 的每条判据找一次「它会红」的证据
+ * 自测 CW0–CW8 + CQ*：给 scripts/check-css-comment-weight.cjs 的每条判据找一次「它会红」的证据
  *
  * 为什么要有这个自测（2026-10-21 的 D37）：
  *   这道门禁守的是「产物里的 CSS 不带注释字节」这条硬约束。
@@ -11,6 +11,7 @@
  *
  * 做法（全在临时目录的副本上，仓库里的原件一个字节都不动）：
  *   · 把 _site 复制成 <tmp>/_site；
+ *   · 把 src/assets/css 复制成 <tmp>/src/assets/css（CQ1–CQ3 要拿产物与源比对）；
  *   · 把门禁复制成 <tmp>/scripts/check-css-comment-weight.cjs —— 门禁的 ROOT 是
  *     「它自己所在目录的上一级」，所以副本里的它**天然**指向副本里的 _site，
  *     不需要任何环境变量。
@@ -34,6 +35,19 @@
  *   CW7  产物里的每个内联 <style> 块，必须与「源码里对应的那份剥掉注释后」
  *        **逐字相等** —— 证明产物里没有来历不明的字节
  *   CW8  剥除器（scripts/lib/css-comments.cjs）的单元档：tricky fixture
+ *
+ * CQ* 档（D38 新增，判内容一致性）：
+ *   CQ1a 往产物 pages.css 末尾塞一段源里没有的规则 ⇒ CQ1 判红
+ *   CQ1b 改坏产物 base.css 里的**中间**某条声明 ⇒ CQ1 判红
+ *        （CQ1a/CW1a 是两种不同的形状：追加 vs 就地改）
+ *   CQ2a 把产物 components.css 里 _misc 这个 partial 的内容整段删掉 ⇒ CQ2 判红
+ *   CQ2b 往产物 components.css 末尾塞一段源里没有的规则 ⇒ CQ2 判红
+ *   CQ3a 在沙箱的**源**里多放一个 CSS 文件（产物没有）⇒ CQ3 判红
+ *   CQ3b 删掉产物里的一个 CSS 文件（源里还在）⇒ CQ3 判红
+ *   CQ3c 在沙箱的源里多放一个 partial（index.css 没声明它）⇒ CQ3 判红
+ *   CQ1n （负对照）卸掉 CQ1 判定 ⇒ CQ1a 的注入必须转绿
+ *   CQ2n （负对照）卸掉 CQ2 判定 ⇒ CQ2a 的注入必须转绿
+ *   CQ3n （负对照）卸掉 CQ3 判定 ⇒ CQ3a 的注入必须转绿
  *
  * 收尾：按 SHA-256 校验仓库里的门禁原件与剥除器原件都没被动过。
  */
@@ -60,14 +74,32 @@ const GATE_SHA_AT_START = sha256(GATE);
 const LIB_SHA_AT_START = sha256(LIB);
 
 /**
- * 造一个临时副本区：<tmp>/_site、<tmp>/scripts/<门禁>。
+ * 造一个临时副本区：<tmp>/_site、<tmp>/src/assets/css、<tmp>/scripts/<门禁>。
  */
 function makeSandbox() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mh-css-comment-"));
   fs.mkdirSync(path.join(dir, "scripts"), { recursive: true });
   fs.cpSync(SITE, path.join(dir, "_site"), { recursive: true });
+  // CQ1–CQ3 要把产物和**源**逐字比对 ⇒ 源 CSS 也必须进沙箱，
+  // 否则副本里的门禁会因为「找不到源」而红，探针就说明不了任何事。
+  fs.mkdirSync(path.join(dir, "src", "assets"), { recursive: true });
+  fs.cpSync(
+    path.join(ROOT, "src", "assets", "css"),
+    path.join(dir, "src", "assets", "css"),
+    { recursive: true }
+  );
   fs.copyFileSync(GATE, path.join(dir, "scripts", "check-css-comment-weight.cjs"));
   return dir;
+}
+
+/** 副本里的产物 CSS 路径（相对 assets/css）。 */
+function prodCssOf(dir, rel) {
+  return path.join(dir, "_site", "assets", "css", rel);
+}
+
+/** 副本里的源 CSS 路径（相对 src/assets/css）。 */
+function srcCssOf(dir, rel) {
+  return path.join(dir, "src", "assets", "css", rel);
 }
 
 /** 跑副本里的门禁，返回 { code, out }。 */
@@ -426,6 +458,179 @@ function record(id, ok, detail) {
   );
 }
 
+/* ---------------- CQ1a：产物 pages.css 末尾塞外来规则 ⇒ 判红 ---------------- */
+{
+  const dir = makeSandbox();
+  const f = prodCssOf(dir, "pages.css");
+  fs.writeFileSync(f, fs.readFileSync(f, "utf8") + "\n.injected-from-nowhere{color:red}\n");
+  const r = runGate(dir);
+  const hit = r.code === 1 && /CQ1/.test(r.out);
+  record(
+    "CQ1a 产物 pages.css 末尾塞源里没有的规则 ⇒ 判红",
+    hit,
+    hit ? "红了，红因点名 CQ1" : `code=${r.code}\n${r.out}`
+  );
+  fs.rmSync(dir, { recursive: true, force: true });
+}
+
+/* ---------------- CQ1b：就地改坏产物 base.css 的中间某条声明 ⇒ 判红 ---------------- */
+{
+  const dir = makeSandbox();
+  const f = prodCssOf(dir, "base.css");
+  const txt = fs.readFileSync(f, "utf8");
+  const at = txt.indexOf("{");
+  if (at < 0) throw new Error("注入点不存在：base.css 里没有规则块");
+  fs.writeFileSync(f, txt.slice(0, at + 1) + "outline:0;" + txt.slice(at + 1));
+  const r = runGate(dir);
+  const hit = r.code === 1 && /CQ1/.test(r.out);
+  record(
+    "CQ1b 就地改坏产物 base.css 里的一条声明 ⇒ 判红",
+    hit,
+    hit ? "红了，红因点名 CQ1（就地改与追加两种形状都拦得住）" : `code=${r.code}\n${r.out}`
+  );
+  fs.rmSync(dir, { recursive: true, force: true });
+}
+
+/* ---------------- CQ2a：产物 components.css 里少一个 partial ⇒ 判红 ---------------- */
+{
+  const { stripCssComments } = require(LIB);
+  const dir = makeSandbox();
+  const piece = stripCssComments(
+    fs.readFileSync(srcCssOf(dir, "components/_misc.css"), "utf8").trim()
+  );
+  const f = prodCssOf(dir, "components.css");
+  const txt = fs.readFileSync(f, "utf8");
+  if (!txt.includes(piece)) {
+    throw new Error("注入点不存在：产物 components.css 里找不到 _misc 的内容");
+  }
+  fs.writeFileSync(f, txt.replace(piece, ""));
+  const r = runGate(dir);
+  const hit = r.code === 1 && /CQ2/.test(r.out);
+  record(
+    "CQ2a 产物 components.css 里 _misc 这段 partial 被删掉 ⇒ 判红",
+    hit,
+    hit ? "红了，红因点名 CQ2" : `code=${r.code}\n${r.out}`
+  );
+  fs.rmSync(dir, { recursive: true, force: true });
+}
+
+/* ---------------- CQ2b：产物 components.css 里塞外来规则 ⇒ 判红 ---------------- */
+{
+  const dir = makeSandbox();
+  const f = prodCssOf(dir, "components.css");
+  fs.writeFileSync(f, fs.readFileSync(f, "utf8") + "\n.injected-from-nowhere{color:red}\n");
+  const r = runGate(dir);
+  const hit = r.code === 1 && /CQ2/.test(r.out);
+  record(
+    "CQ2b 产物 components.css 末尾塞源里没有的规则 ⇒ 判红",
+    hit,
+    hit ? "红了，红因点名 CQ2（partial 都在，但多出来的规则块被抓住）" : `code=${r.code}\n${r.out}`
+  );
+  fs.rmSync(dir, { recursive: true, force: true });
+}
+
+/* ---------------- CQ3a：源里多一个 CSS 文件（产物没有）⇒ 判红 ---------------- */
+{
+  const dir = makeSandbox();
+  fs.writeFileSync(srcCssOf(dir, "extra.css"), ".extra{color:red}\n");
+  const r = runGate(dir);
+  const hit = r.code === 1 && /CQ3/.test(r.out);
+  record(
+    "CQ3a 源里多一个 CSS 文件、产物里没有 ⇒ 判红",
+    hit,
+    hit ? "红了，红因点名 CQ3" : `code=${r.code}\n${r.out}`
+  );
+  fs.rmSync(dir, { recursive: true, force: true });
+}
+
+/* ---------------- CQ3b：产物里少一个 CSS 文件（源里还在）⇒ 判红 ---------------- */
+{
+  const dir = makeSandbox();
+  fs.rmSync(prodCssOf(dir, "print.css"));
+  const r = runGate(dir);
+  const hit = r.code === 1 && /CQ3/.test(r.out);
+  record(
+    "CQ3b 产物里的一个 CSS 文件被删掉、源里还在 ⇒ 判红",
+    hit,
+    hit ? "红了，红因点名 CQ3" : `code=${r.code}\n${r.out}`
+  );
+  fs.rmSync(dir, { recursive: true, force: true });
+}
+
+/* ---------------- CQ3c：源里多一个 partial（index.css 没声明）⇒ 判红 ---------------- */
+{
+  const dir = makeSandbox();
+  fs.writeFileSync(srcCssOf(dir, "components/_new.css"), ".new{color:red}\n");
+  const r = runGate(dir);
+  const hit = r.code === 1 && /CQ3/.test(r.out);
+  record(
+    "CQ3c 源里多一个 partial、index.css 没声明 ⇒ 判红",
+    hit,
+    hit ? "红了，红因点名 CQ3（partial 名单与声明不一致会被抓住）" : `code=${r.code}\n${r.out}`
+  );
+  fs.rmSync(dir, { recursive: true, force: true });
+}
+
+/* ---------------- CQ1n（负对照）：卸掉 CQ1 判定 ⇒ CQ1a 转绿 ---------------- */
+{
+  const dir = makeSandbox();
+  const gate = path.join(dir, "scripts", "check-css-comment-weight.cjs");
+  patch(gate, "const CQ1_ON = true;", "const CQ1_ON = false;");
+  const f = prodCssOf(dir, "pages.css");
+  fs.writeFileSync(f, fs.readFileSync(f, "utf8") + "\n.injected-from-nowhere{color:red}\n");
+  const r = runGate(dir);
+  const hit = r.code === 0;
+  record(
+    "CQ1n 负对照：卸掉 CQ1 判定后，CQ1a 的注入转绿",
+    hit,
+    hit
+      ? "转绿了 ⇒ 证明 CQ1a 那档的红确实来自 CQ1 判定本身"
+      : `仍然红（code=${r.code}）⇒ 说明红因不止一处，负对照不成立\n${r.out}`
+  );
+  fs.rmSync(dir, { recursive: true, force: true });
+}
+
+/* ---------------- CQ2n（负对照）：卸掉 CQ2 判定 ⇒ CQ2a 转绿 ---------------- */
+{
+  const { stripCssComments } = require(LIB);
+  const dir = makeSandbox();
+  const gate = path.join(dir, "scripts", "check-css-comment-weight.cjs");
+  patch(gate, "const CQ2_ON = true;", "const CQ2_ON = false;");
+  const piece = stripCssComments(
+    fs.readFileSync(srcCssOf(dir, "components/_misc.css"), "utf8").trim()
+  );
+  const f = prodCssOf(dir, "components.css");
+  fs.writeFileSync(f, fs.readFileSync(f, "utf8").replace(piece, ""));
+  const r = runGate(dir);
+  const hit = r.code === 0;
+  record(
+    "CQ2n 负对照：卸掉 CQ2 判定后，CQ2a 的注入转绿",
+    hit,
+    hit
+      ? "转绿了 ⇒ 证明 CQ2a 那档的红确实来自 CQ2 判定本身"
+      : `仍然红（code=${r.code}）⇒ 说明红因不止一处，负对照不成立\n${r.out}`
+  );
+  fs.rmSync(dir, { recursive: true, force: true });
+}
+
+/* ---------------- CQ3n（负对照）：卸掉 CQ3 判定 ⇒ CQ3a 转绿 ---------------- */
+{
+  const dir = makeSandbox();
+  const gate = path.join(dir, "scripts", "check-css-comment-weight.cjs");
+  patch(gate, "const CQ3_ON = true;", "const CQ3_ON = false;");
+  fs.writeFileSync(srcCssOf(dir, "extra.css"), ".extra{color:red}\n");
+  const r = runGate(dir);
+  const hit = r.code === 0;
+  record(
+    "CQ3n 负对照：卸掉 CQ3 判定后，CQ3a 的注入转绿",
+    hit,
+    hit
+      ? "转绿了 ⇒ 证明 CQ3a 那档的红确实来自 CQ3 判定本身"
+      : `仍然红（code=${r.code}）⇒ 说明红因不止一处，负对照不成立\n${r.out}`
+  );
+  fs.rmSync(dir, { recursive: true, force: true });
+}
+
 /* ---------------- 收尾：仓库原件没被动过 ---------------- */
 
 const problems = [];
@@ -446,7 +651,8 @@ if (problems.length) {
 const bad = results.filter((r) => !r.ok);
 console.log(
   `\n注入矩阵：${results.length} 档里 ${results.length - bad.length} 档按预期触发` +
-    `${bad.length ? `，${bad.length} 档未通过` : ""}（CW5 / CW6 是负对照）。`
+    `${bad.length ? `，${bad.length} 档未通过` : ""}` +
+    `（CW5 / CW6 / CQ1n / CQ2n / CQ3n 是负对照）。`
 );
 if (bad.length) bad.forEach((b) => console.log(`  · 未通过：${b.id}`));
 console.log("  · 原件校验：门禁与剥除器的 SHA-256 与自测开始时一致。");

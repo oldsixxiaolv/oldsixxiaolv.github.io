@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * 门禁 CW1–CW4：产物里的 CSS 不得带注释字节
+ * 门禁 CW1–CW4 / CQ1–CQ3：产物 CSS 的注释字节 + 与源的内容一致性
  *
  * 为什么需要它（2026-10-21 的 D37）：
  *   本站的 CSS 注释写得极密 —— 记录取舍理由、实测数字、踩过的坑。
@@ -29,6 +29,10 @@
  *   CW4 覆盖度自证 —— 内联块数、外链 CSS 文件数都不得为 0，且**每个**
  *      HTML 页面都得有内联块："没报错"和"没问题"长得一模一样，
  *      判据一旦被卸掉或枚举逻辑坏了，门禁会一直绿着。
+ *
+ *   CW1–CW4 守的是「产物里没有注释字节」——那是**症状**。
+ *   CQ1–CQ3 守的是「产物 CSS 应当就是源 CSS 剥掉注释后的结果」——那是**结果**
+ *   （编号用 CQ*，与上面的 CW* 不续接；理由见下面 CQ 段的头注释）。
  *
  * 边界（如实写明）：
  *   · 只判**产物**（_site）。源码里的注释一个字都不动，也不判 ——
@@ -309,6 +313,237 @@ for (const rel of pagesWithoutInline) {
   );
 }
 
+/* ---------------- CQ1–CQ3：产物 CSS 与源 CSS 的内容一致性 ----------------
+ *
+ * 为什么需要它（2026-10-21 的 D38）：
+ *   CW1–CW4 守的是「产物里没有注释字节」——那是**症状**。
+ *   但没有任何一条判据守着「产物 CSS 应当就是源 CSS 剥掉注释后的结果」——
+ *   那是**结果**。少了结果判据，产物与源之间就没有任何一致性保证：
+ *   实测（改动前）往产物 pages.css 注入 39 B「来历不明」的规则，
+ *   check-css-comment-weight / check-css-braces / check-dead-css /
+ *   check-wrapping **四道门禁全绿** —— 谁也没报告。
+ *
+ *   更要紧的是：components.css 里那 19 KB 注释之所以被剥掉，
+ *   **靠的是剥除钩子恰好排在写盘之后**（钩子顺序的巧合），不是构造保证。
+ *   顺序一改注释就回来了，而门禁只是「看到注释才报」。
+ *
+ * 判据（CQ* 与 CW* 不续接）：
+ *   CQ1 一对一文件：产物剥注释后，必须与源剥注释后**逐字相等**
+ *      （assets/css/** 与 src/assets/css/** 同名一一对应；
+ *        components.css 是合成产物，不参与本条，交给 CQ2）。
+ *   CQ2 拼接产物 components.css：index.css 声明的每个 partial，
+ *      其剥注释后的内容必须**逐字出现**在产物里，且出现顺序与声明一致；
+ *      剥掉这些内容后剩余部分**不得含左花括号** —— 不得有源里没有的规则块。
+ *   CQ3 覆盖度自证：产物 CSS 与源 CSS 的文件集必须一一对应（components.css
+ *      除外）；components.css 必须存在；磁盘上的 partial 与 index.css 声明的
+ *      必须一致 —— 否则新增 partial 时门禁会静默放过它。
+ *
+ * 为什么自己算、不 import 构建期的剥除器：
+ *   与 CW1–CW4 同一纪律 —— 用被检查方自己的函数判自己，判据就没有独立性。
+ *   本门禁用**词法扫描**（token 正则）自己剥注释，
+ *   与 scripts/lib/css-comments.cjs 的**字符级扫描器**是两套独立实现。
+ */
+
+/* 判据开关：存在的唯一理由是自测的负对照要把某一条判据**单独**卸掉，
+   证明「那一档的红确实来自这一条判据本身」。默认值恒为 true。 */
+const CQ1_ON = true;
+const CQ2_ON = true;
+const CQ3_ON = true;
+
+const SRC_CSS_ROOT = path.join(ROOT, "src", "assets", "css");
+const PROD_CSS_ROOT = path.join(SITE, "assets", "css");
+
+/** 目录下的 .css 相对路径（正斜杠风格，排序，跳过 AppleDouble 资源叉）。 */
+function cssRels(dir) {
+  const out = [];
+  (function scan(d) {
+    let entries;
+    try {
+      entries = fs.readdirSync(d, { withFileTypes: true });
+    } catch (_) {
+      return;
+    }
+    for (const e of entries) {
+      if (e.name.startsWith("._")) continue;
+      const p = path.join(d, e.name);
+      if (e.isDirectory()) scan(p);
+      else if (e.name.toLowerCase().endsWith(".css")) {
+        out.push(path.relative(dir, p).split(path.sep).join("/"));
+      }
+    }
+  })(dir);
+  out.sort();
+  return out;
+}
+
+/** components/index.css 里声明的 partial 清单（@import url("./_xxx.css")）。 */
+function declaredPartials(hubFile) {
+  if (!fs.existsSync(hubFile)) return [];
+  const hub = fs.readFileSync(hubFile, "utf8");
+  const out = [];
+  const re = /@import\s+url\(\s*["']\.\/(_[^"']+\.css)["']\s*\)/g;
+  let m;
+  while ((m = re.exec(hub)) !== null) out.push(m[1]);
+  return out;
+}
+
+const srcRels = cssRels(SRC_CSS_ROOT);
+const prodRels = cssRels(PROD_CSS_ROOT);
+const partials = declaredPartials(path.join(SRC_CSS_ROOT, "components", "index.css"));
+const srcSet = new Set(srcRels);
+const prodSet = new Set(prodRels);
+
+if (!fs.existsSync(SRC_CSS_ROOT)) {
+  problems.push(
+    `CQ3 找不到源 CSS 目录 src/assets/css —— 本门禁要拿产物与源逐字比对，源没了就无从比对。\n` +
+      `      → 门禁必须和仓库一起跑；单独把门禁拷到别处会立刻红，这是有意的。`
+  );
+}
+
+/* ---- CQ1：一对一文件，产物剥注释后 == 源剥注释后（逐字） ---- */
+
+let cq1Checked = 0;
+if (CQ1_ON && fs.existsSync(SRC_CSS_ROOT)) {
+  for (const rel of prodRels) {
+    if (rel === "components.css") continue; // 合成产物，交给 CQ2
+    const srcFile = path.join(SRC_CSS_ROOT, rel);
+    if (!fs.existsSync(srcFile)) continue; // 缺源由 CQ3 报（这里没有可比对象）
+    const prodStripped = stripComments(fs.readFileSync(path.join(PROD_CSS_ROOT, rel), "utf8"));
+    const srcStripped = stripComments(fs.readFileSync(srcFile, "utf8"));
+    cq1Checked++;
+    if (prodStripped !== srcStripped) {
+      let i = 0;
+      const n = Math.min(prodStripped.length, srcStripped.length);
+      while (i < n && prodStripped[i] === srcStripped[i]) i++;
+      problems.push(
+        `CQ1 assets/css/${rel} 的产物内容与源 src/assets/css/${rel} 不一致 —— ` +
+          `剥掉注释后两者仍不相等，说明产物里有源里没有的字节，或产物被改过。\n` +
+          `      → 第一处差异在第 ${i} 个字符（产物 ${prodStripped.length} 字符 / 源 ${srcStripped.length} 字符）。\n` +
+          `      → 产物是 src/assets/css/** 的拷贝再剥注释（构建期做）；对不上就是拷贝、剥除或改写环节出了问题。`
+      );
+    }
+  }
+}
+
+/* ---- CQ2：components.css 必须逐字包含 index.css 声明的每个 partial ---- */
+
+let cq2Checked = 0;
+if (CQ2_ON && fs.existsSync(SRC_CSS_ROOT)) {
+  const compProd = path.join(PROD_CSS_ROOT, "components.css");
+  if (fs.existsSync(compProd) && partials.length > 0) {
+    const prodStripped = stripComments(fs.readFileSync(compProd, "utf8"));
+    let remainder = prodStripped;
+    let lastAt = -1;
+    let allFound = true;
+    for (const name of partials) {
+      const srcFile = path.join(SRC_CSS_ROOT, "components", name);
+      if (!fs.existsSync(srcFile)) {
+        problems.push(
+          `CQ2 components/index.css 声明了 ${name}，但 src/assets/css/components/${name} 不存在。`
+        );
+        allFound = false;
+        continue;
+      }
+      // 构建时拼的是「partial 源文本 trim 之后」再整体剥注释 ——
+      // 这里按同一口径取片段，才能与产物里的那段逐字对上。
+      const piece = stripComments(fs.readFileSync(srcFile, "utf8").trim());
+      if (piece.length === 0) {
+        problems.push(`CQ2 partial ${name} 剥掉注释后是空的 —— 没有内容可比。`);
+        allFound = false;
+        continue;
+      }
+      const at = prodStripped.indexOf(piece);
+      if (at < 0) {
+        problems.push(
+          `CQ2 产物 components.css 里找不到 ${name} 的内容（逐字比对）—— ` +
+            `源里有、产物里没有，或内容对不上。`
+        );
+        allFound = false;
+        continue;
+      }
+      if (at <= lastAt) {
+        problems.push(
+          `CQ2 产物 components.css 里 ${name} 出现在第 ${at} 个字符处，位置不在上一个 partial 之后 —— ` +
+            `拼接顺序与 components/index.css 的声明不一致（渲染层级会变）。`
+        );
+      }
+      lastAt = at;
+      remainder = remainder.split(piece).join("");
+    }
+    cq2Checked = partials.length;
+    // 剥掉所有 partial 后剩下的是「头部说明 + 分片标记 + 分隔空行」，
+    // 里面**不该有规则块**。有「{」就说明产物里混进了源里没有的样式。
+    if (allFound && remainder.includes("{")) {
+      problems.push(
+        `CQ2 产物 components.css 里有源里没有的规则块 —— ` +
+          `剥掉 ${partials.length} 个 partial 的内容后，剩余部分仍含左花括号。`
+      );
+    }
+  }
+}
+
+/* ---- CQ3：覆盖度自证 ---- */
+
+if (CQ3_ON && fs.existsSync(SRC_CSS_ROOT)) {
+  // (a) assets/** 下的 CSS 必须都在 assets/css/ 下（否则本门禁的对应关系漏判）
+  for (const file of allFiles) {
+    if (path.extname(file).toLowerCase() !== ".css") continue;
+    const rel = path.relative(SITE, file).split(path.sep).join("/");
+    if (!rel.startsWith("assets/")) continue;
+    if (!rel.startsWith("assets/css/")) {
+      problems.push(
+        `CQ3 产物里的 ${rel} 不在 assets/css/ 下 —— 本门禁按 assets/css/ 与 ` +
+          `src/assets/css/ 一一对应判，别处放 CSS 会漏判。`
+      );
+    }
+  }
+  // (b) 合成产物必须在
+  if (!prodSet.has("components.css")) {
+    problems.push("CQ3 产物里没有 assets/css/components.css —— 组件样式缺失。");
+  }
+  // (c) 双向文件集：产物有源没有 / 源有产物没有
+  for (const rel of prodRels) {
+    if (rel === "components.css") continue;
+    if (!srcSet.has(rel)) {
+      problems.push(
+        `CQ3 产物里有 assets/css/${rel}，但源 src/assets/css/${rel} 不存在 —— ` +
+          `产物里出现了来路不明的 CSS。`
+      );
+    }
+  }
+  for (const rel of srcRels) {
+    if (!prodSet.has(rel)) {
+      problems.push(
+        `CQ3 源里有 src/assets/css/${rel}，但产物 _site/assets/css/${rel} 不存在 —— ` +
+          `新增的源样式没被复制进产物。`
+      );
+    }
+  }
+  // (d) partial 名单：磁盘上的 vs index.css 声明的
+  const compDir = path.join(SRC_CSS_ROOT, "components");
+  const diskPartials = fs.existsSync(compDir)
+    ? fs
+        .readdirSync(compDir)
+        .filter((n) => n.startsWith("_") && n.toLowerCase().endsWith(".css"))
+        .sort()
+    : [];
+  for (const n of diskPartials) {
+    if (!partials.includes(n)) {
+      problems.push(
+        `CQ3 源里有 partial components/${n}，但 components/index.css 没有声明它 —— ` +
+          `partial 名单与产物拼接依据不一致。`
+      );
+    }
+  }
+  for (const n of partials) {
+    if (!diskPartials.includes(n)) {
+      problems.push(
+        `CQ3 components/index.css 声明了 ${n}，但源目录 src/assets/css/components/ 下没有这个 partial。`
+      );
+    }
+  }
+}
+
 /* ---------------- 汇总 ---------------- */
 
 if (problems.length) {
@@ -323,5 +558,9 @@ console.log(
     `（${inlineBytes} B）、${cssFiles.length} 个外链 CSS 文件（${cssBytes} B）—— 注释字节 0。`
 );
 notes.forEach((n) => console.log(`  · ${n}`));
+console.log(
+  `  · 内容一致性：${cq1Checked} 个一对一文件与源逐字相等；` +
+    `components.css 逐字包含 ${cq2Checked} 个 partial。`
+);
 console.log("  · 源码里的 CSS 注释一个字没动：那是维护者的笔记，不是访客的带宽。");
-console.log("  · 判据出处：docs/DEFECT-BACKLOG.md D37。");
+console.log("  · 判据出处：docs/DEFECT-BACKLOG.md D37（注释字节）与 D38（内容一致性）。");
