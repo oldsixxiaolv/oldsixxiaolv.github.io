@@ -370,5 +370,17 @@
     "r95p": "annual precipitation on the days above that gridpoint threshold, averaged over the region; the panel shows it as a share of the annual total",
     "rx1day": "the regional average of each gridpoint's annual maximum 1-day precipitation",
     "trend": "least-squares slope per decade; significance by the Mann-Kendall test on the annual values"
+  },
+  "precision": {
+    "valuesDecimals": 3,
+    "note": "The per-year values in this file are the published copy of a full-precision series, rounded to 3 decimals. Every statistic here (decadal means, trends, Mann-Kendall p-values, and the summary block) was computed on the full-precision series, not on this rounded copy. Rounding also creates artificial ties: two years whose full-precision values differ can share the same published number. Each such pair is listed in roundedTies with its resolved order, where 'ascending' means the earlier year is the smaller one.",
+    "roundedTies": [
+      {
+        "panel": "rx1day",
+        "years": [1961, 2004],
+        "roundedValue": 52.605,
+        "resolvedOrder": "ascending"
+      }
+    ]
   }
 }

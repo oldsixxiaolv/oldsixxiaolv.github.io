@@ -15,7 +15,7 @@
  *   （这正是门禁里留 SITE_DIR / CHART_DATA_PATH / CHART_JS_PATH / CHART_CSS_PATH
  *     这四个开关的原因：没有它们，自测就只能去改仓库文件，改坏了就是事故。）
  *
- * 十九档：
+ * 二十五档：
  *   M0 基线（原样）                  → 必须**全绿**（证明这套判据不是空跑）
  *   M1 读数里的数与数据文件对不上     → HC2
  *   M2 画布不可聚焦（删掉 tabindex）  → HC3
@@ -35,6 +35,12 @@
  *   M16 真源里的坐标改了，产物没跟着改        → HC8
  *   M17 区域范围被挪到「the box」之后（指代没有先行词）→ HC8
  *   M18 真源里的 region 退回成一个字符串（结构丢了）→ HC8
+ *   M19 改一个年度值（真源与产物**一起**改）→ HC9（派生量不再由年度值推出）
+ *   M20 改一个十年均值（真源与产物一起改）    → HC9-1
+ *   M21 改一个趋势斜率                          → HC9-2
+ *   M22 改一个 Mann-Kendall p 值                → HC9-3
+ *   M23 改一个 summary 派生量                   → HC9-4
+ *   M24 清空 precision.roundedTies 的并列登记    → HC9-3（并列没登记 ⇒ 解不出来）
  *
  * ⚠️ M13 这一档是**故意判绿**的，理由写在这里，别当成漏网：
  *   HC7 守的是「产物与真源不漂移」。如果有人把**两边一起**改错
@@ -374,12 +380,82 @@ expectRed(
   "不是结构化对象"
 );
 
+expectRed(
+  "M19 改一个年度值（真源与产物**一起**改 ⇒ 该红的只有 HC9）",
+  (parts) => {
+    // 这就是 D33 的原始形态：真源与产物**一起**改，HC2（产物与真源同源）仍然是绿的，
+    // 红的只可能是 HC9 —— 派生量（十年均值 / 趋势 / p 值）不再由年度值推出。
+    // 顺带看这个缺陷有多重：把 1960 年的 23.495 改成 24.495，
+    // panel A 的 Mann-Kendall p 值就从 0.0401 挪到 0.0495 —— 跨过了 0.05，
+    // 「rose … over the full record」会静默变成「not significant」。
+    const data = parts.data.replace(/("values": \[\s*\n\s*)23\.495/, (m, p1) => p1 + "24.495");
+    const html = parts.html.replace(/(&quot;values&quot;:\[)23\.495/, (m, p1) => p1 + "24.495");
+    if (data === parts.data || html === parts.html) throw new Error("注入锚点不存在：年度值 23.495");
+    return { data, html };
+  },
+  "HC9 r95pShare：十年均值 1960s"
+);
+
+expectRed(
+  "M20 改一个十年均值（真源与产物一起改）",
+  (parts) => {
+    const data = parts.data.replace(/"value": 24\.55/, '"value": 25.55');
+    const html = parts.html.replace(/&quot;value&quot;:24\.55/, "&quot;value&quot;:25.55");
+    if (data === parts.data || html === parts.html) throw new Error("注入锚点不存在：十年均值 24.55");
+    return { data, html };
+  },
+  "HC9 r95pShare：十年均值 1960s 发布 25.55"
+);
+
+expectRed(
+  "M21 改一个趋势斜率",
+  (parts) => {
+    const after = replaceOnce(parts.data, '"perDecade": 0.556', '"perDecade": 0.6');
+    return { data: after };
+  },
+  "HC9 r95pShare：趋势发布"
+);
+
+expectRed(
+  "M22 改一个 Mann-Kendall p 值",
+  (parts) => {
+    const after = replaceOnce(parts.data, '"mkP": 0.0401', '"mkP": 0.05');
+    return { data: after };
+  },
+  "HC9 r95pShare：Mann-Kendall mkP 发布 0.05"
+);
+
+expectRed(
+  "M23 改一个 summary 派生量",
+  (parts) => {
+    const after = replaceOnce(parts.data, '"meanSharePct": 25.4', '"meanSharePct": 26.4');
+    return { data: after };
+  },
+  "HC9 summary.meanSharePct 发布 26.4"
+);
+
+expectRed(
+  "M24 清空 precision.roundedTies 的并列登记（并列没登记 ⇒ 解不出来）",
+  (parts) => {
+    // 并列是四舍五入造出来的：1961 与 2004 的全精度值不同，却都发布成 52.605。
+    // 不登记就没法解算 ⇒ p 值无从复现，门禁必须红。
+    const after = replaceOnce(
+      parts.data,
+      '"roundedTies": [\n      {\n        "panel": "rx1day",\n        "years": [1961, 2004],\n' +
+        '        "roundedValue": 52.605,\n        "resolvedOrder": "ascending"\n      }\n    ]',
+      '"roundedTies": []'
+    );
+    return { data: after };
+  },
+  "precision.roundedTies 里没登记"
+);
+
 /* ---------- 收尾 ---------- */
 if (failed) {
   console.error(`\n首页降水图门禁自测**未通过**：${failed} 项不符预期。`);
   process.exit(1);
 }
 console.log(
-  "\n注入矩阵通过：19 档全部符合预期（基线绿；六类交互缺陷 + 六类出处缺陷 + 五类区域定义缺陷各自判红；" +
+  "\n注入矩阵通过：25 档全部符合预期（基线绿；六类交互缺陷 + 六类出处缺陷 + 五类区域定义缺陷 + 六类统计量缺陷各自判红；" +
     "M13 是**边界负对照**——真源与产物一起改错时门禁**判绿**，这是已知边界、不是漏网）。"
 );

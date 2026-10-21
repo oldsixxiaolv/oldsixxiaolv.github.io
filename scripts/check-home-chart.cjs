@@ -15,7 +15,7 @@
  *   · 模块文件语法坏了 —— 浏览器里静默失败，build 照样绿。
  * 上面四条都不会让构建变红，所以要有这道门禁。
  *
- * 八条判据：
+ * 九条判据：
  *   HC1 每个面板的交互钩子齐全（canvas / cursor / dot / readout-main / readout-mean）。
  *   HC2 **读数与数据同源**：SVG 上的 data-chart JSON（years / values / decades）
  *       必须与 src/_data/extremePrecip.json 逐字一致 —— 读数条和画出来的线
@@ -46,6 +46,30 @@
  *       原始缺陷形态：图注写「land gridpoints inside the box only」，而**全站
  *       从未说过这个 box 在哪**（数据文件里有坐标，却从未被渲染）⇒ 读者被告知
  *       「排除了蒙古和海」，却没被告知「包含的是哪一块」。
+ *   HC9 发布的统计量必须**能从发布的年度值复现**（2026-10-21 D31 场次新增）：
+ *       图上的每一个数（十年均值、趋势斜率、Mann-Kendall p 值、summary 里的派生量）
+ *       都是**由年度值算出来的**，不是另外抄进来的。发布值只保留 3 位小数，而统计量
+ *       在全精度序列上算 —— 这条判据负责把两者对上：
+ *       · HC9-1 每个十年均值 = 由该十年的年度值重算（容差 = 发布值的半格 + 年度值的舍入传播）；
+ *       · HC9-2 趋势斜率 = 由全部年度值重算的最小二乘斜率（每十年）；
+ *       · HC9-3 Mann-Kendall p 值 = 由年度值重算的 S → 双侧正态近似 p，
+ *         与发布值 toFixed(4) **逐字相等**；并列必须按 precision.roundedTies 的登记解算，
+ *         且「发布值里的并列对集合」必须与「登记的并列对集合」完全一致；
+ *       · HC9-4 summary 里的派生量（均值、极值与极值年份、超过旧最大值的年份、
+ *         最近十年的均值、早期十年均值的区间）都能由年度值重算。
+ *       原始缺陷形态：这些派生量是离线算好存进去的，与同一文件里的年度值**没有任何
+ *       校验关系** —— 改一个年度值，图会动，而「What it shows.」里的 0.556 /
+ *       p=0.0401 / 25.4% / 533.6 mm **全部原地不动**，build 照样全绿；其中 p 与 0.05 的
+ *       关系直接决定站内写「rose … over the full record」还是「not significant」
+ *       ⇒ 结论会静默翻转。而且 panel B 的 p 值**当下就无法复现**：发布值只保留 3 位小数，
+ *       四舍五入把 1961 与 2004 两个不同的真值压成同一个 52.605，造出一条人造并列。
+ *
+ * ⚠️ HC9 的边界（写清楚，别把它的保证当无限）：
+ *   它守的是「派生量与年度值自洽」。它**守不了**「年度值本身对不对」——
+ *   有人把整条序列换成一个自洽但错误的版本（连同所有派生量一起重算），它照样判绿。
+ *   年度值的正确性靠人工核 + 外部登记核对（DataCite / 出版商页面）。
+ *   另一处已知边界：并列解算的**方向**（哪一年更大）是人写的声明，门禁只能靠
+ *   「发布 p 值必须与该声明下的重算值一致」来交叉验证；声明与发布值一起改错时仍然自洽。
  *
  * ⚠️ HC7 的边界（写清楚，别把它的保证当无限）：
  *   它守的是「产物与真源不漂移」+「DOI 形态与卷/页/年自洽」。
@@ -520,10 +544,435 @@ const chartBlobs = [];
   }
 }
 
+/* ---------- HC9 用的小工具 ---------- */
+
+/* 本站派生量的**发布精度**（位数）。
+   ⚠️ 这张表放在**门禁里**、而不是真源里，是有意的：
+   容差必须按「本站约定用几位小数发布这个量」来算，**不能**按被检查的那个数
+   自己的小数位来算 —— 后者是自指的：把 0.556 改成 0.6，发布位数从 3 掉到 1，
+   容差跟着从 ±0.0005 放宽到 ±0.05，**缺陷反而被容差吞掉了**。
+   放进真源也一样糟：真源里的任何字段都能被顺手改宽。
+   （这张表对应的自测档位是 M21 —— 它就是被这条自引用坑出来的。）
+   真值落在 ±半格内，再叠加年度值本身的舍入传播（valueEps）。 */
+const STAT_DECIMALS = {
+  decadalValue: 2, // panels[].decadal[].value
+  trendPerDecade: 3, // panels[].trend.perDecade
+  mkP: 4, // panels[].trend.mkP / mkPto2019
+  meanSharePct: 1, // summary.meanSharePct
+  meanRx1dayMm: 2, // summary.meanRx1dayMm
+  shareRecordValue: 1, // summary.shareRecordValue
+  sharePre2020MaxValue: 1, // summary.sharePre2020MaxValue
+  recentSharePct: 2, // summary.recentSharePct
+  recentRx1dayMm: 2, // summary.recentRx1dayMm
+  earlierRx1dayRange: 1, // summary.earlierRx1dayRange
+};
+const STAT_HALF = {};
+for (const [k, v] of Object.entries(STAT_DECIMALS)) STAT_HALF[k] = 0.5 * Math.pow(10, -v);
+
+/* 消息里的数：去掉多余的 0，最多留 6 位 */
+function num(x) {
+  if (!isFinite(x)) return String(x);
+  return x
+    .toFixed(6)
+    .replace(/0+$/, "")
+    .replace(/\.$/, "");
+}
+
+/* Hart 1968 标准正态 CDF（双精度；比 erf 近似的 3e-7 稳一个量级） */
+function normCdf(z) {
+  const y = Math.abs(z);
+  if (y > 37) return z > 0 ? 1 : 0;
+  const e = Math.exp((-y * y) / 2);
+  let tail;
+  if (y < 7.07106781186547) {
+    let b = 3.52624965998911e-02 * y + 0.700383064443688;
+    b = b * y + 6.37396220353165;
+    b = b * y + 33.912866078383;
+    b = b * y + 112.079291497871;
+    b = b * y + 221.213596169931;
+    b = b * y + 220.206867912376;
+    tail = e * b;
+    b = 8.83883476483184e-02 * y + 1.75566716318264;
+    b = b * y + 16.064177579207;
+    b = b * y + 86.7807322029461;
+    b = b * y + 296.564248779674;
+    b = b * y + 637.333633378831;
+    b = b * y + 793.826512519948;
+    b = b * y + 440.413735824752;
+    tail = tail / b;
+  } else {
+    let b = y + 0.65;
+    b = y + 4.0 / b;
+    b = y + 3.0 / b;
+    b = y + 2.0 / b;
+    b = y + 1.0 / b;
+    tail = e / b / 2.506628274631;
+  }
+  return z > 0 ? 1 - tail : tail;
+}
+
+/* Mann-Kendall 的 S：并列计 0（与 scipy.stats.kendalltau 同口径） */
+function mkS(values) {
+  let s = 0;
+  for (let i = 0; i < values.length; i++) {
+    for (let j = i + 1; j < values.length; j++) {
+      s += values[j] > values[i] ? 1 : values[j] < values[i] ? -1 : 0;
+    }
+  }
+  return s;
+}
+
+/* 双侧正态近似 p：方差不做并列校正（与 scipy.stats.kendalltau 同口径） */
+function mkPValue(S, n) {
+  if (n < 2) return NaN;
+  const varS = (n * (n - 1) * (2 * n + 5)) / 18;
+  const z = Math.abs(S) / Math.sqrt(varS);
+  return 2 * (1 - normCdf(z));
+}
+
+/* 最小二乘斜率（每十年） */
+function olsPerDecade(xs, ys) {
+  const n = xs.length;
+  const mx = xs.reduce((a, b) => a + b, 0) / n;
+  const my = ys.reduce((a, b) => a + b, 0) / n;
+  let num_ = 0;
+  let den = 0;
+  for (let i = 0; i < n; i++) {
+    num_ += (xs[i] - mx) * (ys[i] - my);
+    den += (xs[i] - mx) ** 2;
+  }
+  return (num_ / den) * 10;
+}
+
+/* 斜率的最坏情况传播：δslope ≤ ε·Σ|x−x̄| / Σ(x−x̄)²，再乘 10 换成「每十年」 */
+function olsSlopeEps(xs, eps) {
+  const n = xs.length;
+  const mx = xs.reduce((a, b) => a + b, 0) / n;
+  let sabs = 0;
+  let sxx = 0;
+  for (const x of xs) {
+    sabs += Math.abs(x - mx);
+    sxx += (x - mx) ** 2;
+  }
+  return (eps * sabs / sxx) * 10 + 1e-9;
+}
+
+/* 发布值里舍入后相等的并列组 */
+function tieGroups(values) {
+  const m = new Map();
+  values.forEach((v, i) => {
+    if (!m.has(v)) m.set(v, []);
+    m.get(v).push(i);
+  });
+  return [...m.values()].filter((idx) => idx.length > 1);
+}
+
+/* 一组数实际发布到几位小数（取最多的那个；整数算 0 位） */
+function maxDecimals(values) {
+  let max = 0;
+  for (const v of values) {
+    const s = String(v);
+    const dot = s.indexOf(".");
+    if (dot < 0) continue;
+    const d = s.length - dot - 1;
+    if (d > max) max = d;
+  }
+  return max;
+}
+
+/* ---------- HC9 发布的统计量必须能从发布的年度值复现 ---------- */
+{
+  const diffs = [];
+  const years = Array.isArray(data.years) ? data.years : [];
+  const panels = Array.isArray(data.panels) ? data.panels : [];
+  const prec = data.precision;
+
+  /* --- 前提 1：precision 块必须在，还要写明发布精度 --- */
+  if (!prec || typeof prec !== "object" || Array.isArray(prec)) {
+    diffs.push(
+      "真源里没有 precision 块 —— 「发布值是全精度序列的舍入副本、统计量在全精度上算」这件事必须写下来，" +
+        "否则接手的人无从判断该按什么精度核这些数字"
+    );
+  } else if (!(Number(prec.valuesDecimals) > 0)) {
+    diffs.push("precision.valuesDecimals 没写 —— 不知道年度值保留了几位小数，容差算不出来");
+  }
+
+  /* --- 前提 1b：声明的发布精度必须与年度值实际的小数位对得上 --- */
+  /* valuesDecimals 决定「年度值的舍入能传播多大的误差」⇒ 它同时是容差的一根杠杆。
+   * 声明与数据必须一致，否则改一下声明就能把判据悄悄放宽。 */
+  if (prec && Number(prec.valuesDecimals) > 0) {
+    for (const panel of panels) {
+      if (!Array.isArray(panel.values) || !panel.values.length) continue;
+      const actual = maxDecimals(panel.values);
+      if (actual !== Number(prec.valuesDecimals)) {
+        diffs.push(
+          `${panel.key}：precision.valuesDecimals 声明 ${prec.valuesDecimals} 位小数，但年度值实际发布到 ${actual} 位 —— ` +
+            "声明与数据对不上，容差算出来的宽窄就是错的"
+        );
+      }
+    }
+  }
+
+  /* --- 前提 2：years 与每个面板的 values 对齐 --- */
+  let canCompute = years.length > 0 && panels.length > 0;
+  for (const panel of panels) {
+    if (!Array.isArray(panel.values) || panel.values.length !== years.length) {
+      diffs.push(
+        `${panel.key}：values 的长度（${(panel.values || []).length}）与 years 的长度（${years.length}）不一致`
+      );
+      canCompute = false;
+    }
+  }
+
+  /* --- 前提 3：「至 2019」的截止年由数据推导（最后一个十年的起始年 − 1），不硬编码 --- */
+  const decadalOf = (p) => (Array.isArray(p.decadal) && p.decadal.length ? p.decadal : []);
+  const lastDecadal = panels.length ? decadalOf(panels[0])[decadalOf(panels[0]).length - 1] : null;
+  const cutoffYear = lastDecadal ? lastDecadal.start - 1 : null;
+  const cutoffIndex = cutoffYear === null ? -1 : years.indexOf(cutoffYear);
+  if (cutoffIndex < 0) {
+    diffs.push(
+      `推不出「至 ${cutoffYear}」的截止年：years 里没有 ${cutoffYear} —— 截止年应由最后一个十年的起始年 − 1 推导，不该硬编码`
+    );
+    canCompute = false;
+  }
+
+  if (!canCompute) {
+    diffs.forEach((d) => bad(`HC9 ${d}`));
+  } else {
+    // 年度值只发布到 valuesDecimals 位小数 ⇒ 每个值的舍入误差 ≤ 半格，均值传播后仍是半格
+    const valueEps = 0.5 * Math.pow(10, -Number(prec.valuesDecimals)) + 1e-9;
+    const slopeEps = olsSlopeEps(years, valueEps);
+    const meanOf = (arr) => arr.reduce((a, b) => a + b, 0) / arr.length;
+    const maxIdxOf = (arr) => arr.reduce((bi, v, i) => (v > arr[bi] ? i : bi), 0);
+
+    /* ---- HC9-1 十年均值：由该十年的年度值重算 ---- */
+    for (const panel of panels) {
+      for (const dec of decadalOf(panel)) {
+        const i0 = years.indexOf(dec.start);
+        if (i0 < 0) {
+          diffs.push(`${panel.key}：十年段 ${dec.label} 的起始年 ${dec.start} 不在 years 里`);
+          continue;
+        }
+        const slice = panel.values.slice(i0, i0 + dec.nYears);
+        if (slice.length !== dec.nYears) {
+          diffs.push(`${panel.key}：十年段 ${dec.label} 取不满 ${dec.nYears} 年`);
+          continue;
+        }
+        const mean = meanOf(slice);
+        const tol = STAT_HALF.decadalValue + valueEps;
+        if (Math.abs(mean - dec.value) > tol) {
+          diffs.push(
+            `${panel.key}：十年均值 ${dec.label} 发布 ${dec.value}，由年度值重算得 ${num(mean)}（容差 ${num(tol)}）`
+          );
+        }
+      }
+    }
+
+    /* ---- HC9-2 趋势斜率：由全部年度值重算 ---- */
+    for (const panel of panels) {
+      const pub = (panel.trend || {}).perDecade;
+      if (pub === undefined) {
+        diffs.push(`${panel.key}：trend.perDecade 没写`);
+        continue;
+      }
+      const sl = olsPerDecade(years, panel.values);
+      const tol = STAT_HALF.trendPerDecade + slopeEps;
+      if (Math.abs(sl - pub) > tol) {
+        diffs.push(
+          `${panel.key}：趋势发布 ${pub}/十年，由年度值重算得 ${num(sl)}（容差 ${num(tol)}）`
+        );
+      }
+    }
+
+    /* ---- HC9-3 Mann-Kendall p 值：重算 S → 双侧正态近似 p，与发布值逐字比 ---- */
+    const declared = Array.isArray(prec.roundedTies) ? prec.roundedTies : [];
+    for (const panel of panels) {
+      const trend = panel.trend || {};
+      const decl = declared.filter((t) => t && t.panel === panel.key);
+
+      // ① 发布值里舍入后相等的并列对
+      const foundPairs = [];
+      for (const g of tieGroups(panel.values)) {
+        if (g.length > 2) {
+          diffs.push(
+            `${panel.key}：${g.length} 个年度值舍入后相等（${g.map((i) => years[i]).join("、")}）—— ` +
+              "自动解算不了这种并列组，得在 precision.roundedTies 里登记完整次序"
+          );
+          continue;
+        }
+        foundPairs.push([years[g[0]], years[g[1]]].sort((a, b) => a - b));
+      }
+      // ② 与登记核对：两个集合必须完全一样
+      const declPairs = [];
+      for (const t of decl) {
+        if (!Array.isArray(t.years) || t.years.length !== 2) {
+          diffs.push(`${panel.key}：precision.roundedTies 里有一条 years 不是两个年份 —— 并列对必须写清是哪两年`);
+          continue;
+        }
+        declPairs.push(t.years.slice().sort((a, b) => a - b));
+      }
+      const foundSet = new Set(foundPairs.map((p) => p.join("+")));
+      const declSet = new Set(declPairs.map((p) => p.join("+")));
+      for (const k of foundSet) {
+        if (!declSet.has(k)) {
+          diffs.push(
+            `${panel.key}：年度值 ${k} 两年舍入后相等（这是四舍五入造出来的并列），但 precision.roundedTies 里没登记 —— ` +
+              "并列解不出来，p 值无从复现"
+          );
+        }
+      }
+      for (const k of declSet) {
+        if (!foundSet.has(k)) {
+          diffs.push(`${panel.key}：precision.roundedTies 登记了并列对 ${k}，但年度值里这两年的数并不相等 —— 登记与数据对不上`);
+        }
+      }
+      // ③ 登记本身要合法
+      let declBroken = false;
+      for (const t of decl) {
+        if (!Array.isArray(t.years) || t.years.length !== 2) continue;
+        const [ya, yb] = t.years.slice().sort((a, b) => a - b);
+        const ia = years.indexOf(ya);
+        const ib = years.indexOf(yb);
+        if (ia < 0 || ib < 0) {
+          diffs.push(`${panel.key}：precision.roundedTies 里的并列对 ${ya}+${yb} 有年份不在 years 里`);
+          declBroken = true;
+          continue;
+        }
+        if (panel.values[ia] !== panel.values[ib]) {
+          diffs.push(
+            `${panel.key}：登记的并列对 ${ya}+${yb} 在年度值里并不相等（${panel.values[ia]} vs ${panel.values[ib]}）`
+          );
+          declBroken = true;
+        }
+        if (t.roundedValue !== undefined && Number(t.roundedValue) !== Number(panel.values[ia])) {
+          diffs.push(
+            `${panel.key}：并列对 ${ya}+${yb} 登记的 roundedValue 是 ${t.roundedValue}，年度值里是 ${panel.values[ia]}`
+          );
+        }
+        if (t.resolvedOrder !== "ascending" && t.resolvedOrder !== "descending") {
+          diffs.push(
+            `${panel.key}：并列对 ${ya}+${yb} 的 resolvedOrder 只能是 "ascending"（早的一年更小）或 "descending"`
+          );
+          declBroken = true;
+        }
+      }
+
+      // ④ 重算 p：全序列 + 「至截止年」
+      const segs = [
+        { tag: "mkP", pub: trend.mkP, seg: panel.values },
+        { tag: "mkPto2019", pub: trend.mkPto2019, seg: panel.values.slice(0, cutoffIndex + 1) },
+      ];
+      for (const sg of segs) {
+        if (sg.pub === undefined) {
+          diffs.push(`${panel.key}：trend.${sg.tag} 没写`);
+          continue;
+        }
+        if (declBroken) continue; // 登记本身有问题，上面已经报过了
+        const S0 = mkS(sg.seg);
+        let delta = 0;
+        for (const t of decl) {
+          if (!Array.isArray(t.years) || t.years.length !== 2) continue;
+          if (t.resolvedOrder !== "ascending" && t.resolvedOrder !== "descending") continue;
+          const ia = years.indexOf(t.years[0]);
+          const ib = years.indexOf(t.years[1]);
+          if (ia < 0 || ib < 0) continue;
+          if (ia >= sg.seg.length || ib >= sg.seg.length) continue; // 不在比较区间里
+          delta += t.resolvedOrder === "ascending" ? 1 : -1;
+        }
+        const p = mkPValue(S0 + delta, sg.seg.length);
+        if (p.toFixed(4) !== Number(sg.pub).toFixed(4)) {
+          diffs.push(
+            `${panel.key}：Mann-Kendall ${sg.tag} 发布 ${sg.pub}，由年度值重算得 ${p.toFixed(4)}（S=${S0 + delta}，并列按登记解算）`
+          );
+        }
+      }
+    }
+
+    /* ---- HC9-4 summary 里的派生量：由年度值重算 ---- */
+    const s = data.summary || {};
+    const pShare = panels.find((p) => p.key === "r95pShare");
+    const pRx = panels.find((p) => p.key === "rx1day");
+    if (!pShare || !pRx) {
+      diffs.push("panels 里找不到 r95pShare / rx1day —— summary 的派生量无从复算");
+    } else {
+      const checkNum = (label, published, recomputed, halfKey, extraEps) => {
+        if (published === undefined || published === null) {
+          diffs.push(`summary.${label} 没写`);
+          return;
+        }
+        const tol = STAT_HALF[halfKey] + valueEps + (extraEps || 0);
+        if (Math.abs(recomputed - published) > tol) {
+          diffs.push(
+            `summary.${label} 发布 ${published}，由年度值重算得 ${num(recomputed)}（容差 ${num(tol)}）`
+          );
+        }
+      };
+      const checkYear = (label, published, recomputed) => {
+        if (published !== recomputed) {
+          diffs.push(`summary.${label} 发布 ${published}，由年度值重算得 ${recomputed}`);
+        }
+      };
+
+      // 最近十年：起点由最后一个十年段推导
+      const recentStart = lastDecadal.start;
+      const iRecent = years.indexOf(recentStart);
+
+      checkNum("meanSharePct", s.meanSharePct, meanOf(pShare.values), "meanSharePct");
+      checkNum("meanRx1dayMm", s.meanRx1dayMm, meanOf(pRx.values), "meanRx1dayMm");
+      checkNum("recentSharePct", s.recentSharePct, meanOf(pShare.values.slice(iRecent)), "recentSharePct");
+      checkNum("recentRx1dayMm", s.recentRx1dayMm, meanOf(pRx.values.slice(iRecent)), "recentRx1dayMm");
+
+      // 极值与极值年份
+      const iMax = maxIdxOf(pShare.values);
+      checkYear("shareRecordYear", s.shareRecordYear, years[iMax]);
+      checkNum("shareRecordValue", s.shareRecordValue, pShare.values[iMax], "shareRecordValue");
+
+      // 「2020 之前」的旧最大值：分界由最近十年的起始年推导，不硬编码
+      const iPreMax = maxIdxOf(pShare.values.slice(0, iRecent));
+      checkYear("sharePre2020MaxYear", s.sharePre2020MaxYear, years[iPreMax]);
+      checkNum("sharePre2020MaxValue", s.sharePre2020MaxValue, pShare.values[iPreMax], "sharePre2020MaxValue");
+
+      // 超过旧最大值的年份
+      const above = [];
+      for (let i = 0; i < pShare.values.length; i++) {
+        if (pShare.values[i] > pShare.values[iPreMax]) above.push(years[i]);
+      }
+      if (JSON.stringify(above) !== JSON.stringify(s.shareYearsAbovePre2020Max || [])) {
+        diffs.push(
+          `summary.shareYearsAbovePre2020Max 发布 ${JSON.stringify(s.shareYearsAbovePre2020Max)}，` +
+            `由年度值重算得 ${JSON.stringify(above)}`
+        );
+      }
+
+      // 早期十年均值的区间（除最近十年外的所有十年均值，由年度值重算）
+      const decMeans = decadalOf(pRx).slice(0, -1).map((dec) => {
+        const i0 = years.indexOf(dec.start);
+        return meanOf(pRx.values.slice(i0, i0 + dec.nYears));
+      });
+      // 十年均值本身是发布到 STAT_DECIMALS.decadalValue 位小数的 ⇒ 区间下限要多留这一层舍入
+      const decEps = STAT_HALF.decadalValue;
+      const range = s.earlierRx1dayRange || [];
+      checkNum("earlierRx1dayRange 下界", range[0], Math.min(...decMeans), decEps);
+      checkNum("earlierRx1dayRange 上界", range[1], Math.max(...decMeans), decEps);
+    }
+
+    if (diffs.length) {
+      diffs.forEach((d) => bad(`HC9 ${d}`));
+    } else {
+      const tieCount = declared.length;
+      ok(
+        `HC9 发布的统计量已可从年度值复现（${panels.length} 个面板的十年均值与趋势斜率、` +
+          `Mann-Kendall p 值（toFixed(4) 逐字相等，${tieCount} 条并列按登记解算）、` +
+          `summary 的派生量；跳过 3 个无法由年度值推出的量：meanAnnualMm / r95pAmount1960sMm / r95pAmountRecentMm）`
+      );
+    }
+  }
+}
+
 if (problems) {
   console.error(`\n首页降水图门禁未通过：${problems} 项不符预期。`);
   process.exit(1);
 }
 console.log(
-  "首页降水图门禁通过：钩子齐全、读数与数据同源、键盘可达、模块与样式都在位、动态 import 全部可解析、出处与登记事实一致、区域范围已写明。"
+  "首页降水图门禁通过：钩子齐全、读数与数据同源、键盘可达、模块与样式都在位、动态 import 全部可解析、出处与登记事实一致、区域范围已写明、发布的统计量已可从年度值复现。"
 );
