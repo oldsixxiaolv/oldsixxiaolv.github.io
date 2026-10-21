@@ -20738,3 +20738,230 @@ D6 ↔ push 时机 = 7 + 发布仓 = 49、D32 ↔ 49）⇒ **本轮按惯例新�
   **D5** 等本人定选题主线；**D26** 等本人看视觉取舍；**M3** 等本人自建 OAuth App。
 - 线上仍是旧部署 ⇒ **D6** ⇒ 待拍板 7（push 时机）+ 49（发布到哪个仓）**本轮不代拍**。
 - **本轮不新增待拍板**：D43 是**纯补看护**（改门禁、不改构造层、不动需要拍板的取舍）⇒ 不占新号。
+
+## 2026-10-21 · 05:40–06:40 场次（**不占轮次号**，避免与并发场次撞号）：D42 —— 订阅与爬虫的**自我描述入口整族零看守**：给它们配上门禁
+
+### 本轮定位
+
+接 D41 场次（D43）之后继续。缺陷清单里剩下的「待修」仍**全绑在既有拍板项上**
+（D2 / D3 ↔ 40、D9 ↔ 41、D10 ↔ 42、D12 ↔ 43、D5 ↔ 选题主线、D26 视觉取舍、
+D6 ↔ push 时机 = 7 + 发布仓 = 49、D32 ↔ 49）⇒ **本轮按惯例新开编号 D44**。
+
+线上巡检：7 条 URL 仍是**旧部署**（`/` 200、`/papers/` **404**、`/blog/` 200、
+`/about/` 200、`/publications.bib` **404**、`/feed.xml` **404**、`/sitemap.xml` 200）
+⇒ 那是 **D6**（待拍板 7 + 49），**不是新缺陷**，本轮不碰、不代拍、不 push。
+
+本轮**只做 1 个改进点**，且是**纯补看护**：改门禁、**不改构造层**、站内一个字不改。
+
+### A. 缺陷事实
+
+**订阅与爬虫的「自我描述入口」整族，从来没被任何一道门禁核过。**
+
+**实测一：站点对人来说是「几个页面」，对机器来说要靠自描述才能被找到**
+
+本站有四个对外出口（`publications.bib` / `publications.ris` / `feed.xml` /
+`sitemap.xml`）。其中三个**只能靠自描述被机器找到**：
+
+| 出口 | 自描述声明 | 谁靠它 |
+|---|---|---|
+| 每页 | `<link rel="alternate" type="application/rss+xml">` | 浏览器的「订阅本页」、阅读器的源列表 |
+| `feed.xml` | `<atom:link rel="self">` | 聚合器据此知道这个 feed 自己的正式地址，多源抓取时不会把它当成别人的 |
+| `robots.txt` | `Sitemap:` 行 | 爬虫据此知道站点地图在哪 |
+
+**实测二：零门禁看守（全仓逐条 grep 坐实）**
+
+- `grep -l 'rss+xml' scripts/check-*.cjs scripts/verify-*.cjs` ⇒ **0 命中**
+- `grep -l 'atom' …` ⇒ **0 命中**
+- `grep -l 'Sitemap:' …` ⇒ **0 命中**
+
+四道门禁都碰过这些文件，但**都不判这件事**：
+
+- `scripts/check-site-language.cjs`（TX1–TX4）：TX1 只判 `_site` 顶层非 HTML 出口的
+  **语言**（有没有中日韩字符）、TX2 只判 robots.txt 的构建时刻标记与 feed 的
+  `lastBuildDate` 同刻 ⇒ **结构与指向无人判**。
+- `scripts/check-lang.cjs`：文件头明确写着「非 HTML 的对外出口（robots.txt / feed.xml /
+  publications.bib / publications.ris / sitemap.xml）由 `scripts/check-site-language.cjs`
+  负责」⇒ 它自己不越界。
+- `scripts/check-third-party.cjs`：`walk(SITE)` 之后只留 `.html` / `.css` / `.js`
+  ⇒ **robots.txt 里的外域 URL 连外域那道门禁都够不着**。
+- `scripts/verify-site.cjs`：通用引用正则 `refAttrs = /(?:href|src)\s*=\s*"([^"]*)"/gi`
+  （第 199 行）**不限定标签** ⇒ 它会核 `<link href>` 的**目标存在**，
+  但**不核「有没有这条声明」**，也不核它指向谁。
+
+**实测三（决定性）：三处注入故障，15 道产物侧门禁全绿**
+
+把产物复制到 `/tmp`，逐条注入三处故障，对该副本跑 **15 道 SITE_DIR 产物侧门禁**
+（`check:site` / `check:404-depth` / `check:a11y` / `check:site-js` / `check:jsonld` /
+`check:img-srcset` / `check:image` / `check:figure-cover` / `check:home-chart` /
+`check:about-dataset` / `check:page-deps` / `check:navigation` / `check:citation-meta` /
+`check:overflow` / `check:readme`）：
+
+| 注入 | 结果 |
+|---|---|
+| **F1** 删掉 `about/index.html` 的 RSS 自动发现 `<link>` | **0 / 15 判红** |
+| **F2** `feed.xml` 的 `<atom:link rel="self">` 指向 `/papers/` | **0 / 15 判红** |
+| **F3** `robots.txt` 的 `Sitemap:` 指向 `https://example.com/sitemap.xml` | **0 / 15 判红** |
+
+⇒ 这不是「产物现在有违规」，是**看护缺口**。实测改动前产物现状**全部健康**：
+6 个页面各有且仅有 1 处 RSS 自动发现、href 按页面 URL 口径全部落到本站 `feed.xml`；
+`atom:link rel="self"` = `https://github.lvyihang.xyz/feed.xml`；
+`robots.txt` 恰好一行 `Sitemap: https://github.lvyihang.xyz/sitemap.xml`；
+频道级 `<title>` / `<link>` / `<description>` 齐备 ⇒ 缺的只是**看守**。
+
+⚠️ **后果的严重性在于「人眼看不出来」**：模板改版时把 RSS 自动发现删掉、或把
+`atom:link` / `Sitemap:` 指到别的站 ⇒ 订阅器把本站当成别人的 feed 来订阅、
+爬虫找不到站点地图 ⇒ **全站内容对机器不可发现**，而 build 全绿、页面在人眼里一切正常。
+
+### B. 本轮排除的候选方向（这段最省事，避免下轮重查）
+
+- CSS `url()` 引用：产物 CSS 里**一条都没有** ⇒ 无缺口。
+- `<link href>` 目标存在性：`verify-site.cjs` 的通用 `href|src` 正则**已覆盖** ⇒ 作废。
+- 站内 `<a href>` 闭合性：`verify-site` 已逐条解析到磁盘并判存在 ⇒ 作废。
+- `og:image` / `twitter:image` 目标存在性：`check-image-assets.cjs` 的 IA1 已判 ⇒ 作废。
+- `aria-labelledby` / `label for` / `th headers` / 页内锚点 / id 唯一性：A5、A7 已判 ⇒ 作废。
+- sitemap 覆盖度（双向）、canonical 存在性、og:url 一致性：`verify-site` 门禁 3/5/6 已判 ⇒ 作废。
+- `<img>` 缺 alt / 缺 `width`·`height`：`verify-site` 门禁 25/26 已判 ⇒ 作废。
+- 标题层级（h1 唯一 + 不跳级）：A7 已判 ⇒ 作废。
+- `target="_blank"` 缺 `rel="noopener"`：产物 66 处**全部有** noopener ⇒ 无缺口。
+- JSON-LD headline 与可见内容一致：`check-jsonld.cjs`（J1–J11）已核 image / dateModified；
+  `datePublished` 跨页差异（`2026-06` vs `2026-06-01`）属 **D9 / 待拍板 41** ⇒ 不代拍。
+- 论文题名大小写（`From` vs `from`）：`docs/DEFECT-BACKLOG.md` §2 已查证并判定**不是缺陷**
+  （出版商登记原题即大写）。
+- preload / stylesheet 清单漂移：两者都在 `src/_includes/layouts/base.njk` 同一模板内
+  （**同一真源**）⇒ 无缺口。
+- 跨页锚点（`href="页#id"`）的 fragment 不存在：**零看守**（A7 只查 `href` 以 `#` 开头的；
+  `verify-site` 的 `resolveLocal` 用 `raw.split("#")[0]` 把 fragment 剥了），
+  但**产物里 0 处** ⇒ 潜在缺口，**本轮未取**（不占本轮名额）。
+- `rel="alternate" hreflang="en"` / `x-default` 自引用：影响低，判为**非缺陷**。
+
+### C. 改了什么（1 个新门禁 + 1 个新自测 + 4 个接线/文档路径）
+
+| 路径 | 改动 |
+|---|---|
+| `scripts/check-feed-discovery.cjs` | **新门禁**，判据 **FD1–FD6**（纯产物侧、零第三方依赖、自带扫描器） |
+| `scripts/test-feed-discovery.cjs` | **新自测**，**21 档** FT0–FT20 注入矩阵 |
+| `package.json` | 新增 `check:feed-discovery` / `check:feed-discovery-selftest` 两个 script，并插进 build 链（`check:site-language-selftest` 之后，同属「对外出口」门禁组） |
+| `README.md` | 命令表补 2 行（RD3） |
+| `docs/DEFECT-BACKLOG.md` | 开 **D44** 行（已修） |
+| `docs/ROADMAP.md` | 进度行的缺陷清单编号改到 D44；M0 叙述段加本场次一条 |
+| `docs/IMPROVEMENT-LOG.md` | 本节 |
+
+**站内文字一个字未改 ⇒ 产物零变化**（E 节有逐字节证明）。
+
+### D. 判据怎么写（FD1–FD6）
+
+- **FD1 每页的 RSS 自动发现**：每页（含 404）必须**恰好一处**
+  `<link rel="alternate" type="application/rss+xml">`，其 `href` 按**页面 URL 口径**
+  （相对页面所在目录）解析后必须落到**本站的 `feed.xml`**。
+  站内相对路径、根相对路径、**与本站同源的绝对 URL** 三种写法都算「指向本站」；
+  外域 / 重复 / 缺项 / 空 href 一律判红。
+- **FD2 feed.xml 的自我描述**：必须有 `<atom:link>`，`rel="self"`、
+  `type="application/rss+xml"`、href 非空，且等于 `site.url` + `/feed.xml`。
+- **FD3 feed 频道三件套**：频道级 `<title>` / `<link>` / `<description>` 必须存在且非空。
+  频道头 = `<channel>` 到第一个 `<item>` 之间 —— **item 里的同名字段不算**。
+- **FD4 robots.txt 的站点地图行**：必须**恰好一行** `Sitemap:`，值等于
+  `site.url` + `/sitemap.xml`。
+- **FD5 覆盖度自证**：页面数 ≥ 1、扫到的 RSS 自动发现 ≥ 1、`feed.xml` 与 `robots.txt`
+  都读到，否则「判据没落到东西上」⇒ 判红。
+- **FD6 门禁自己没被卸掉**：package.json 的 build 链里必须真的有本门禁。
+
+**几条关键取舍**：
+
+- **只判产物、不判源码**：浏览器与爬虫读的是**产物**；产物的路径（相对 / 根相对）
+  由 Eleventy 的 `relUrl` 过滤器在渲染时改写，源码里的写法与访客实际请求的 URL
+  不是一回事 ⇒ 判产物 = 判访客真正经历的那件事。
+- **`site.url` 从 `src/_data/site.js` 读**（真源）⇒ 读不到即判红、**不猜**。
+- **门禁自带** HTML 标签扫描器与属性解析器、**不 import** 被检查方的 lib，也不 import
+  兄弟门禁（D35 纪律）⇒ 代价是扫描器是**简化实现**，按「够用且不误判」的精度做。
+- **判红文案逐条带判据编号前缀**（`FD1：`…）⇒ 负对照能断言「红因来自哪一条」。
+- 门禁实现期间**修掉一个自己的 bug**：`path.posix.resolve(base, clean)` 会把相对路径
+  解析成**当前工作目录**下的绝对路径（`resolve("", "feed.xml")` ⇒ `<cwd>/feed.xml`）
+  ⇒ 5 个页面全部误判红；改用 `path.posix.normalize(path.posix.join(base, clean))`
+  （`join` 保持相对）后修复。**教训**：「解析成站点内路径」这件事不能用 `resolve`。
+
+### E. 验证
+
+- `node scripts/check-feed-discovery.cjs` → **exit 0**，逐字文案：
+  「订阅自描述门禁通过：产物 6 个页面共 6 处 RSS 自动发现入口（每页各 1 处，
+  全部指向本站的 feed.xml）；feed.xml 的 `<atom:link rel="self">` =
+  `https://github.lvyihang.xyz/feed.xml`、频道级 `<title>`/`<link>`/`<description>` 齐备；
+  robots.txt 恰好一行 `Sitemap: https://github.lvyihang.xyz/sitemap.xml`；本门禁接在 build 链上。」
+- `node scripts/test-feed-discovery.cjs` → **exit 0**，**21 档 FT0–FT20 全过**。
+- **原缺陷形态的复现**：F1 / F2 / F3 三处注入现在分别被 **FD1** / **FD2** / **FD4** 抓住；
+  **修前是 15 道产物侧门禁全部 exit 0**。
+- `npm run build` → **exit 0**（0 个 ✗）。
+- **站点产物零变化**：同一 HEAD、同一工作树下双次 build 交叉，逐文件哈希对比**只差**
+  `feed.xml` 与 `robots.txt` 两个文件；第三次 build 的 `diff -u` 逐行回推坐实
+  **各只有那一行构建时刻标记不同**（`lastBuildDate` / `# generated-at:`）⇒ 其余产物逐字节相同。
+- 提交后**再跑一次 build** 仍绿 ⇒ 「提交前绿」与「提交后的树绿」都成立（见 H 节）。
+
+### F. 负对照（这一段最关键）
+
+- **修前负对照（真实坏态级）**：F1 / F2 / F3 三处注入 ⇒ **15 道产物侧门禁全部 exit 0**
+  ⇒ 证明这道门禁**抓得住本缺陷家族的实体**，不是事后补的一句解释。
+- **FT1–FT12（十二档注入）**：每档红因**点名到自己的判据编号**（`FD1：`…`FD6：`…），
+  不只断言退出码 ⇒ 退出码 0 在「没跑到」和「跑到了但没发现」两种情况下完全同形，
+  只看退出码会漏判。
+- **FT13–FT18（六档判据级负对照）**：在**副本**里把 `const FDn_ON = true;` 改成
+  `false;`（分别是 FD1–FD6 的判定开关），对应注入必须**转绿**
+  ⇒ 证明每条红因确实来自那一条判据，不是别的检查顺手撞上的。
+  ⚠️ **FT17 照实写、不硬凑成绿**：FD5 是**覆盖度自证**，它报告的其实是
+  「判据没落到东西上」，这种故障天然与 FD1 同源（没有入口 ⇒ 入口缺失）
+  ⇒ 卸掉 FD5 之后**不可能转绿**（真实缺陷还在），能证明的只是「红因里不再出现 FD5」
+  ⇒ 该档断言写成「仍然红、但红因里 FD5 已被摘干净」。
+- **FT19（故意判绿，最要紧的一档）**：把 href 换成**与本站同源的绝对 URL**
+  `https://github.lvyihang.xyz/feed.xml` ⇒ 仍绿
+  ⇒ 证明它守的是「**指向本站的 feed**」这件事，而不是某一种写法、也不是固定清单。
+- **FT20（扫描器 tricky 档）**：在 **HTML 注释** / **`<script>` 原始文本** /
+  **别人的属性值**里各埋一个假 RSS 自动发现 ⇒ 必须判绿 ⇒ 证明扫描器只认真声明。
+
+### G. 边界与已知不足（如实记，不藏）
+
+- **只判静态产物**：JS 运行时写出来的声明判不了（本站没有这种用法）。
+- **不判订阅器能不能真的拉到内容**：feed 里有没有 item 由 `verify-site.cjs` 的第 7 条判；
+  本门禁只管「**入口在不在、指向谁**」。
+- **不判 robots.txt 的 User-agent 分组**：那部分不由本门禁管。
+- **不判 feed 频道级 `<link>` 指向哪**：只判它存在且非空 —— 频道链接指向首页还是别的，
+  属站点信息架构，不在本门禁口径内。
+- **只判「恰好一处」**：重复声明会让订阅器拿到互相冲突的源 ⇒ 判红。
+- **门禁自带 HTML 扫描器**（门禁不得 import 被检查方的 lib，D35 纪律）
+  ⇒ 代价是这个扫描器是**简化实现**：按「够用且不误判」的精度做，不追求完整 HTML 规范
+  （真要完整得引第三方依赖 ⇒ 违反「零第三方运行时依赖」）。
+- **FD5 与 FD1 同源**：这既是它的**局限**（覆盖度自证只在「全都没了」时才额外发声），
+  也是 **FT17 只能断言「红因里 FD5 消失」**的原因 ⇒ 如实记，不假装它是独立的一档。
+
+### H. 本轮纪律
+
+- **只改本轮自己那几条路径**，并发场次在途的两个文件
+  （`scripts/check-identity-handles.cjs`、`scripts/test-gates-selfcheck.cjs`）**全程未碰、未提交**。
+- **不用 `git add -A`**，只提交自己那几条路径；**不用 `git stash`**。
+- **绝不 `git push`** —— 线上仍是旧部署，发布时机属**待拍板 7**、发布仓属**待拍板 49**
+  ⇒ **本轮不代拍**。
+- **新增门禁/自测先进索引再 build**（TR1 只扫**已跟踪**文件）
+  ⇒ 「提交前绿」不等于「提交后的树绿」；提交后再 build 一次坐实。
+- **每轮都会变的数字不写进文档**：build 链段数、门禁脚本条数、自测档数
+  ⇒ `check:doc-snapshot.cjs` 的 DS1 守住这条线。
+- **判据前缀不撞车**：本轮新占用 **FD***（门禁）与 **FT***（自测），
+  实测与既有前缀（CF/DC/DI/GW/HC/IA/ID/LS/MC/PT/RD/TR/DS/SP/TS/AN/A/W/C/M/AP/LM/TX/BL/E/F/T/J/FF/LT/DT/MT/CW/CQ/TD/NA/NT/JS/JT/SX/ST）均不冲突。
+- **`/tmp` 残留用 `mavis-trash` 清**，不用 `rm`。
+- **探测在 `/tmp` 副本里做**：exFAT 卷上对 `_site` 内文件做写操作会生成 `._*`
+  AppleDouble 侧车 ⇒ 注入测试改在副本里做（`SITE_DIR` 指向副本），测完清干净。
+
+### 下一轮入口
+
+- **本轮修的是 D44**（订阅与爬虫的自我描述入口零看守）；**D43**（响应式图片候选零看守）
+  已在上一场次修完。
+- 缺陷清单里仍**待修**的：D2 / D3（待拍板 40）、D5（等本人定选题主线）、
+  D6（等 push 时机）、D9（待拍板 41）、D10（待拍板 42）、D12（待拍板 43）、
+  D26（等本人看视觉取舍）、D32（待拍板 49 + push 时机）⇒ 全绑拍板 ⇒ 下轮大概率仍要新开编号。
+- 下一轮若要找**新的**看护缺口，B 节里已排除的方向不必重查；**尚未取用**的已知候选：
+  **跨页锚点（`href="页#id"`）的 fragment 存在性**（零看守，但产物里 0 处 ⇒ 修它属于
+  「防未来退化」而非「修现存问题」）。
+- 待拍板仍挂着：**40**（og 图口径与体积 → D2 / D3）、**41**（同 `@id` 的字段口径 → D9）、
+  **42**（交互类要不要配常驻浏览器门禁 → D10）、**43**（批注层 → D12）、
+  **46**（`excerpt` 缺失判红还是 note）、**47**（`portfolio` 去留）、
+  **48**（404 页根绝对前缀）、**49**（发布到哪个仓 → D32 / D6）、
+  **50**（封面比例口径 → D40 的第 ④ 条）、**51**（顶层导航留几份真源 → D41）；
+  **D5** 等本人定选题主线；**D26** 等本人看视觉取舍；**M3** 等本人自建 OAuth App。
+- 线上仍是旧部署 ⇒ **D6** ⇒ 待拍板 7（push 时机）+ 49（发布到哪个仓）**本轮不代拍**。
+- **本轮不新增待拍板**：D44 是**纯补看护**（改门禁、不改构造层、不动需要拍板的取舍）⇒ 不占新号。
