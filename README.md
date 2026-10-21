@@ -96,6 +96,7 @@ Cloudflare Pages、Nginx 等任意静态服务。详细运行 / 调试见 `HOW_T
 | `npm run check:image` | 页面里声明的图与产物里真实存在的图是同一张 |
 | `npm run check:lang` | 语言标记统一 + 编码损坏 |
 | `npm run check:a11y` | WCAG AA 实测缺陷固化成可重复检查 |
+| `npm run check:a11y-contrast-selftest` | 上面那道门禁里**底色 token 跨主题压暗**判据的本地夹具自测（6 档注入矩阵，证明它能变红：亮底 token 在暗色没重映射、压暗后仍偏亮都判红） |
 | `npm run check:print-theme` | 打印结果与屏幕主题无关（深色底不会打成白底） |
 | `npm run check:copy` | 直接出字节的出口（`.bib` / `.ris`）取值方式正确 |
 | `npm run check:overflow` | 多档宽度（360 / 390 / 640 / 768 / 820 / 1024 / 1440）都无横向溢出，独立交互目标的点击区达到 WCAG 2.5.8 的要求，且滚动定位的目标（跳转链接、论文页目录）不会被吸顶顶栏遮住（真浏览器实测，每档重新设视口） |

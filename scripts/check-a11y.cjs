@@ -32,6 +32,10 @@
  *   A6. id 必须唯一，且页内锚点必须可达：同一页不得有两个元素用同一个 id；
  *       <a href="#xxx"> 指向的 id 必须在本页存在。
  *   A7. 标题层级：每页**恰好一个** <h1>，且不得跳级（h2 之后不能直接 h4）。
+ *   A8. 底色 token 必须跨主题压暗：凡是**被当作底色用**的色阶 token，
+ *       若它在浅色主题下落在「亮底档」（L ≥ 0.7），就必须在暗色主题里被重映射，
+ *       且重映射后不得比该主题的 --bg-page 亮出 0.05 以上
+ *       （暗色页面上留一块亮底，就是「暗色正文压在亮底上读不出来」的缺陷形态）。
  *
  * ⚠️ **不重复已有的门禁**：<img> 的 alt 存在性由 scripts/verify-site.cjs 的
  *    门禁 25 管、width/height 由门禁 26 管（第十五轮 commit 93f9497 加的），
@@ -49,8 +53,13 @@ const fs = require("fs");
 const path = require("path");
 
 const ROOT = path.resolve(__dirname, "..");
-const SITE = path.join(ROOT, "_site");
-const TOKENS_CSS = path.join(ROOT, "src", "assets", "css", "tokens.css");
+/* 这三个路径可用环境变量改 —— 自测脚本（scripts/test-a11y-contrast.cjs）要能在
+   **副本**上注入缺陷形态，让 A8 的判据被证明"能变红"。
+   仓库里的原件全程不动，自测最后按 SHA-256 校验它没被动过。 */
+const SITE = process.env.SITE_DIR || path.join(ROOT, "_site");
+const TOKENS_CSS =
+  process.env.A11Y_TOKENS_CSS || path.join(ROOT, "src", "assets", "css", "tokens.css");
+const SRC_DIR = process.env.A11Y_SRC_DIR || path.join(ROOT, "src");
 
 const problems = [];
 const notes = [];
@@ -452,7 +461,7 @@ const htmlFiles = allFiles.filter(
         if (entry.isDirectory()) walk(p);
         else files.push(p);
       }
-    })(path.join(ROOT, "src"));
+    })(SRC_DIR);
     for (const f of files) {
       const ext = path.extname(f);
       let text = "";
@@ -806,6 +815,144 @@ const htmlFiles = allFiles.filter(
   }
 }
 
+/* =====================================================================
+ * 门禁 A8 · 底色 token 必须跨主题压暗（暗色主题不得残留浅色底）
+ * ===================================================================== */
+{
+  // 为什么需要这条（缺陷清单 D25 的配套）：
+  //   D25 修的缺陷是「暗色主题下论文精读页的 Key Points 三条要点完全读不出来」。
+  //   实测（浏览器逐元素量真实底色，不是拿 --bg-page 猜）：
+  //     暗色：.paper-keypoints 的底色是 --color-accent-50，而 tokens.css 的暗色段
+  //     **只重映射了 accent-400/500**，accent-50 原样留着 = 亮奶白 #fff3eb；
+  //     块内正文走 --text-primary，暗色值是近白 #f5f2ea
+  //     ⇒ 近白字压在近白底上，实测 1.03:1，AA 要 4.5:1 —— 三条要点等于没有。
+  //   根因不在某个组件的写法上，而在**token 层**：一个被当作底色用的色阶 token，
+  //   跨主题没有跟着翻档。
+  //   而之前的 A1 只核「登记过的 5 个文字色 token × 2 种底色」，
+  //   **底色 token 本身从来不在被核之列** ⇒ 这一族缺陷一直无人看守。
+  //
+  // 判据：凡是**被当作底色用**的 --color-* token，
+  //   ① 若它在浅色主题下的明度落在「亮底档」（L ≥ 0.7），它**必须**在暗色主题里被重映射；
+  //   ② 重映射后的明度**不得高于**该主题 --bg-page 的明度 + 0.05
+  //      （也就是「不能再是亮底」——暗色页面上留亮底就是这一族缺陷的形态）。
+  // 两条都满足才算过。
+  //
+  // ⚠️ 覆盖范围的诚实边界（不写清楚就成了过度声称）：判据只认**显式**写进
+  //    background / background-color 的地方（并展开一层底色 token 的引用）；
+  //    靠伪元素、filter、SVG 造出来的底它看不到。渐变里出现的 var(--color-*)
+  //    也算「当底色用」（它确实参与底色合成）。
+  //    「暗底 + 暗字」这一族（底压暗了但字没跟着抬）不在本判据范围内。
+
+  const LIGHT_SURFACE_MIN_L = 0.7; // 「亮底档」的明度下限
+  const css = fs.readFileSync(TOKENS_CSS, "utf8");
+  const light = parseTokens(stripComments(extractBlock(css, ":root") || ""));
+  const dark = parseTokens(
+    stripComments(extractBlock(css, "@media (prefers-color-scheme: dark)") || "")
+  );
+
+  if (!Object.keys(light).length || !Object.keys(dark).length) {
+    fail(
+      "门禁 A8：没能从 tokens.css 解析出浅色 / 暗色两套 token（解析器坏了，不是样式坏了）"
+    );
+  } else {
+    /* ---------- 收集「被当作底色用」的 token ---------- */
+    const bgUsed = new Set();
+    const files = [];
+    (function walk(dir) {
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        const p = path.join(dir, entry.name);
+        if (entry.isDirectory()) walk(p);
+        else files.push(p);
+      }
+    })(SRC_DIR);
+    for (const f of files) {
+      const ext = path.extname(f);
+      let text = "";
+      if (ext === ".css") {
+        text = fs.readFileSync(f, "utf8");
+      } else if (ext === ".njk") {
+        const blocks = [];
+        const re = /<style\b[^>]*>([\s\S]*?)<\/style>/gi;
+        let m;
+        while ((m = re.exec(fs.readFileSync(f, "utf8")))) blocks.push(m[1]);
+        text = blocks.join("\n");
+        if (!text.trim()) continue;
+      } else {
+        continue;
+      }
+      const stripped = stripComments(text);
+      const bgRe = /background(?:-color)?\s*:\s*([^;]+);/g;
+      let bm;
+      while ((bm = bgRe.exec(stripped))) {
+        const valRe = /var\(\s*--([a-z0-9-]+)\s*\)/g;
+        let vm;
+        while ((vm = valRe.exec(bm[1]))) bgUsed.add(vm[1]);
+      }
+    }
+    /* 展开一层：底色 token（--bg-page 之类）若指向某个 --color-*，
+       那个 --color-* 也算被当底色用。 */
+    for (const name of [...bgUsed]) {
+      if (name.startsWith("color-")) continue;
+      const def = light[name] || dark[name];
+      if (!def) continue;
+      const m = /var\(\s*--(color-[a-z0-9-]+)\s*\)/.exec(def);
+      if (m) bgUsed.add(m[1]);
+    }
+
+    const darkPage = resolveColor("bg-page", dark);
+    if (!darkPage) {
+      fail("门禁 A8：解析不出暗色主题的 --bg-page，无法判断哪些底色 token 属于「亮底」");
+    } else {
+      const Lpage = relativeLuminance(darkPage);
+      let surfaces = 0;
+      let bright = 0;
+      for (const name of [...bgUsed].sort()) {
+        if (!name.startsWith("color-")) continue;
+        const lv = resolveColor(name, light);
+        if (!lv) continue; // 值不是具体颜色（关键字 / 渐变）→ 本判据不判
+        surfaces++;
+        const Llight = relativeLuminance(lv);
+        if (Llight < LIGHT_SURFACE_MIN_L) continue; // 不是「亮底档」，暗色下沿用浅色值不算缺陷
+        bright++;
+        if (!(name in dark)) {
+          fail(
+            `门禁 A8：--${name} 在浅色主题下是亮底（L=${Llight.toFixed(3)} ≥ ${LIGHT_SURFACE_MIN_L}），` +
+              `但暗色主题里**没有重映射**它 —— 亮底会原样留在暗色页面上，` +
+              `压在上面的是暗色主题的近白正文，对比度会掉到 1:1 附近` +
+              `（实测 1.03:1，AA 要 4.5:1，见缺陷清单 D25）`
+          );
+          continue;
+        }
+        const dv = resolveColor(name, dark);
+        if (!dv) {
+          fail(
+            `门禁 A8：--${name} 在暗色主题里定义了，但解析不出最终颜色（多半是值写成了非十六进制）`
+          );
+          continue;
+        }
+        const Ldark = relativeLuminance(dv);
+        if (Ldark > Lpage + 0.05) {
+          fail(
+            `门禁 A8：--${name} 在暗色主题里的值（L=${Ldark.toFixed(3)}）仍比该主题的页面底色` +
+              `（L=${Lpage.toFixed(3)}）亮出很多 —— 暗色页面上就是一块亮底。` +
+              `请把暗色值压到与 --bg-page 同一档（本仓用的是 #2a1408 这一档深暖底）`
+          );
+        }
+      }
+      if (bright === 0) {
+        fail(
+          "门禁 A8：一个「被当作底色用的亮底档 token」都没认出来 —— 判据可能已经失效"
+        );
+      } else {
+        note(
+          `门禁 A8：${surfaces} 个被当作底色用的色阶 token 里，${bright} 个亮底档的都已跨主题压暗` +
+            `（阈值 L ≥ ${LIGHT_SURFACE_MIN_L}，暗色底 L=${Lpage.toFixed(3)}）`
+        );
+      }
+    }
+  }
+}
+
 /* ---------------- 汇总 ---------------- */
 if (notes.length) {
   console.log("—");
@@ -817,4 +964,4 @@ if (problems.length) {
   problems.forEach((p) => console.error("  " + p));
   process.exit(1);
 }
-console.log("✓ 可访问性自检通过（门禁 A1–A7；这是机器可判的那几条，不等于完整 WCAG 审计）");
+console.log("✓ 可访问性自检通过（门禁 A1–A8；这是机器可判的那几条，不等于完整 WCAG 审计）");

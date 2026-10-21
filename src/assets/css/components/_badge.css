@@ -43,10 +43,19 @@
   border-color: var(--color-accent-300);
   background: var(--color-accent-50);
 }
-/* tokens.css 没有暗色的 accent-50 覆写，accent-50 在暗色下仍是亮奶白 (#fff3eb)，
-   原来的写法等于在深色页面上放一块亮奶白底 + 亮橙字（3.2:1，AA 不过，也刺眼）。
-   这里用 accent-900 (#260e02 深暖褐) 当底去镜像亮色的暖色淡底，文字走
-   accent-400 (#ff8e4d)，8.0:1。 */
+/* 暗色：accent-50 现在已被 tokens.css 压成深暖褐 #2a1408（底色必须跨主题压暗，
+   门禁 check-a11y 的 A8 守这一条）。深底上 accent-600（#b14810 深赭）只有 3.22:1，
+   所以这里用 accent-900（#260e02 更深的暖褐）当底去镜像亮色的暖色淡底，
+   文字走 accent-400（#ff8e4d），8.14:1。
+   ⚠️ 两条路径都要写：「跟随系统」与「手动切深色」必须是同一套徽标 ——
+      只写 [data-theme="dark"] 的话，「跟随系统」会拿到另一套颜色。 */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .badge--accent {
+    background: var(--color-accent-900);
+    color: var(--color-accent-400);
+    border-color: var(--color-accent-600);
+  }
+}
 [data-theme="dark"] .badge--accent {
   background: var(--color-accent-900);
   color: var(--color-accent-400);

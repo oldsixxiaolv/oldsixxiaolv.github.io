@@ -696,6 +696,19 @@ strong[data-annotation-ids] {
   color: var(--color-accent-700);
   margin: 0 0 var(--space-2);
 }
+/* 暗色：accent-50 已被 tokens.css 压成深暖褐 #2a1408（底色必须跨主题压暗，
+   门禁 check-a11y 的 A8 守这一条）。底色一压暗，accent-700（深赭）压上去
+   就只剩 1.85:1 —— 小标题也读不出来。换成暗色主题抬亮后的 accent-500
+   （#ffa874），压上去 9.50:1。
+   ⚠️ 两条路径都要写：「跟随系统」与「手动切深色」必须是同一套颜色。 */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .paper-keypoints h2 {
+    color: var(--color-accent-500);
+  }
+}
+[data-theme="dark"] .paper-keypoints h2 {
+  color: var(--color-accent-500);
+}
 .paper-keypoints ul {
   list-style: none;
   margin: 0;

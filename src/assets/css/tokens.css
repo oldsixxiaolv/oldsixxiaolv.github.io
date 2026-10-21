@@ -51,6 +51,10 @@
   --color-brand-900: #091b44;
 
   /* —— Accent · 暖橙赭石 —— */
+  /* accent-50 这一档是**底色**（论文页 Key Points 块、accent 徽标的底），
+     不是文字色。底色的跨主题语义与文字色相反：浅色主题要亮底，暗色主题必须压暗，
+     否则亮底会原样留在暗色页面上，暗色正文压上去实测只有 1.03:1（缺陷清单 D25）。
+     ⚠️ 暗色主题下必须重映射它 —— 门禁 check-a11y 的 A8 守这一条。 */
   --color-accent-50:  #fff3eb;
   --color-accent-100: #ffd9bd;
   --color-accent-200: #ffb787;
@@ -213,6 +217,13 @@
     --color-brand-800: #dbeaff;
     --color-brand-900: #ecf3ff;
 
+    /* accent-50 是**底色**：浅色值 #fff3eb 是亮奶白，原样留在暗色主题里，
+       暗色正文（--text-primary 近白）压上去只有 1.03:1 —— 完全读不出来。
+       这里压成深暖褐 #2a1408（与 brand-50 的暗色值 #0e1a35 同一档），
+       暗色正文压上去 15.99:1，Key Points 小标题（accent-500）压上去 9.50:1。
+       ⚠️ 这一个值在下面 [data-theme="dark"] 块里要写**一模一样**的（A1 守零漂移），
+          也要同步 docs/design-system.md §2.3（DC8 逐条核对）。 */
+    --color-accent-50: #2a1408;
     --color-accent-400: #ff8e4d;
     --color-accent-500: #ffa874;
 
@@ -269,6 +280,7 @@
   --color-brand-800: #dbeaff;
   --color-brand-900: #ecf3ff;
 
+  --color-accent-50: #2a1408;
   --color-accent-400: #ff8e4d;
   --color-accent-500: #ffa874;
 

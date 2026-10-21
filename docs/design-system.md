@@ -148,6 +148,7 @@
     --color-brand-800: #dbeaff;
     --color-brand-900: #ecf3ff;
 
+    --color-accent-50: #2a1408;    /* 底色档：浅色值是亮奶白，暗色必须压暗（否则暗色正文压上去只有 1.03:1） */
     --color-accent-400: #ff8e4d;    /* 提亮的赭石 */
     --color-accent-500: #ffa874;
 
