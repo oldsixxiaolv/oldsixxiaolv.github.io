@@ -99,7 +99,7 @@
      但暗色底 (#0f0e0c) 上只有 3.49:1，而用到它的地方全是 11px 的小标签
      （about 页的分区 eyebrow、技能组标题、产出列表的 DOI 链接），
      小字要 4.5:1 —— 直接用 accent-600 在暗色下是不合格的。
-     暗色下改走 accent-500 (#ffa874)：9.99:1。
+     暗色下改走 accent-500 (#ffa874)：10.20:1（压暗色页面底 #0f0e0c）。
      ⚠️ 不要去改 accent-600 本身：它是 --text-accent 的值，改浅了上面这些
      小字就全部不合格。门禁 check-a11y A1 会核对这组对比度（accent-600 对浅色
      底 5.21:1、对 accent-50 底 5.07:1，后者更严）。 */
@@ -235,7 +235,7 @@
     /* accent-50 是**底色**：浅色值 #fff3eb 是亮奶白，原样留在暗色主题里，
        暗色正文（--text-primary 近白）压上去只有 1.03:1 —— 完全读不出来。
        这里压成深暖褐 #2a1408（与 brand-50 的暗色值 #0e1a35 同一档），
-       暗色正文压上去 15.99:1，Key Points 小标题（accent-500）压上去 9.50:1。
+       暗色正文（#f5f2ea）压上去 15.62:1，Key Points 小标题（accent-500 #ffa874）压上去 9.24:1。
        ⚠️ 这一个值在下面 [data-theme="dark"] 块里要写**一模一样**的（A1 守零漂移），
           也要同步 docs/design-system.md §2.3（DC8 逐条核对）。 */
     --color-accent-50: #2a1408;
@@ -248,7 +248,7 @@
     --color-neutral-200: #2a2825;
     --color-neutral-300: #3a3833;
     --color-neutral-400: #5a5750;
-    --color-neutral-500: #928d83;   /* P1.4 · lifted from #807c72 for AA muted text dark (was 4.38:1 → now 5.49:1) */
+    --color-neutral-500: #928d83;   /* P1.4 · lifted from #807c72 for AA muted text dark (was 4.63:1 → now 5.84:1，均压暗色页面底 #0f0e0c) */
     --color-neutral-600: #a8a498;
     --color-neutral-700: #d2cfc6;
     --color-neutral-800: #e6e3da;
@@ -299,8 +299,8 @@
   --color-accent-400: #ff8e4d;
   --color-accent-500: #ffa874;
 
-  /* P1.4 · brand 主按钮 DARK — 浅色用的 #1453d8 在 dark bg (#161513) 上仅 2.72:1，违反 AA。
-     #2563eb：白字 5.17:1（AA pass），背景区分度 3.53:1（non-text pass）。 */
+  /* P1.4 · brand 主按钮 DARK — 浅色用的 #1453d8 在暗色页面底 (#0f0e0c) 上仅 2.99:1，违反 AA。
+     #2563eb：白字 5.17:1（AA pass），背景区分度 3.73:1（non-text pass）。 */
   --button-primary-bg: #2563eb;
 
   --color-neutral-0:   #0f0e0c;
@@ -309,7 +309,7 @@
   --color-neutral-200: #2a2825;
   --color-neutral-300: #3a3833;
   --color-neutral-400: #5a5750;
-  --color-neutral-500: #928d83;   /* P1.4 · lifted from #807c72 for AA muted text dark (was 4.38:1 → now 5.49:1) */
+  --color-neutral-500: #928d83;   /* P1.4 · lifted from #807c72 for AA muted text dark (was 4.63:1 → now 5.84:1，均压暗色页面底 #0f0e0c) */
   --color-neutral-600: #a8a498;
   --color-neutral-700: #d2cfc6;
   --color-neutral-800: #e6e3da;

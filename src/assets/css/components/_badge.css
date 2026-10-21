@@ -29,7 +29,7 @@
 }
 /* 暗色下 brand 色阶是反的：brand-50 变成深海军蓝 #0e1a35，brand-300 反而更暗
    (#24528f)。原来这里用 brand-300 当文字色，在 #0e1a35 上只有 2.2:1，AA 不过。
-   暗色下文字要走色阶的亮端：brand-500 = #6baaff，7.3:1。 */
+   暗色下文字要走色阶的亮端：brand-500 = #6baaff，7.2:1。 */
 [data-theme="dark"] .badge--brand {
   background: var(--color-brand-50);
   color: var(--color-brand-500);

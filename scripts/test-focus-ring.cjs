@@ -183,7 +183,7 @@ const INJECT = {
 
 /* ---------------- 注入形态（CSS 目录副本上的定点改写，FC7 用） ----------------
  * 高对比偏好下的 `:focus-visible` 覆写 —— 本轮修掉的真实缺陷形态是
- * 「写死成单色 var(--color-brand-400)」：主按钮底上只有 1.92:1，达不到 3:1。
+ * 「写死成单色 var(--color-brand-400)」：主按钮底上只有 1.85:1，达不到 3:1。
  */
 const A11Y_FOCUS_RULE =
   ":focus-visible {\n    box-shadow: 0 0 0 3px var(--focus-ring-inner), 0 0 0 6px var(--focus-ring-outer) !important;\n  }";

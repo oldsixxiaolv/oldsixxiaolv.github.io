@@ -165,7 +165,7 @@
     --color-neutral-200: #2a2825;    /* 边框 */
     --color-neutral-300: #3a3833;    /* 弱边 */
     --color-neutral-400: #5a5750;    /* 占位符 */
-    --color-neutral-500: #928d83;   /* 次要文字 · 为 AA muted text（dark）上调（原 #807c72 4.38:1 → 现 5.49:1） */
+    --color-neutral-500: #928d83;   /* 次要文字 · 为 AA muted text（dark）上调（原 #807c72 4.63:1 → 现 5.84:1，均压暗色页面底 #0f0e0c） */
     --color-neutral-600: #a8a498;    /* 副标题 */
     --color-neutral-700: #d2cfc6;    /* 正文 */
     --color-neutral-800: #e6e3da;    /* 强正文 */
@@ -195,7 +195,7 @@
     --color-success: #6fb988;
     --color-warning: #e5b257;
     --color-danger:  #e06757;
-    --button-primary-bg: #2563eb;   /* 浅色用的 #1453d8 在暗背景上仅 2.72:1，违反 AA */
+    --button-primary-bg: #2563eb;   /* 浅色用的 #1453d8 在暗色页面底 (#0f0e0c) 上仅 2.99:1，违反 AA */
   }
 }
 

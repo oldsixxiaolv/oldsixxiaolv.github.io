@@ -36,11 +36,11 @@
   --kind-insight-ink:   var(--color-accent-600);
 
   --kind-critique-edge: var(--color-danger);
-  /* 亮色底上 danger 只有 4.41:1，压 20% 到近黑才过 4.5:1 */
+  /* 亮色底上 danger #c84a3a 是 4.67:1，压 20% 到近黑后是 6.38:1 */
   --kind-critique-ink:  var(--color-danger);
   --kind-critique-ink:  color-mix(in srgb, var(--color-danger) 80%, var(--color-neutral-900));
 
-  /* 亮色底上 sage-500 只有 2.91:1（同亮度的问题），压 14% 到近黑 → 3.72:1 */
+  /* 亮色底上 sage-500 #6f9e6f 是 3.09:1（同亮度的问题），压 14% 到近黑 → 3.94:1 */
   --kind-figure-edge:   var(--color-sage-500);
   --kind-figure-edge:   color-mix(in srgb, var(--color-sage-500) 86%, var(--color-neutral-900));
   --kind-figure-ink:    var(--color-sage-700);
@@ -48,8 +48,8 @@
   --kind-link-edge:     var(--color-neutral-500);
   --kind-link-ink:      var(--color-neutral-600);
 
-  /* 亮色 warning 在纸白底上只有 2.30:1，既不能当文字也不能当 3:1 的边条，
-     往近黑压两档分别拿到 3.52:1（边条）/ 5.83:1（文字）。 */
+  /* 亮色 warning #d99a2b 在纸白底上只有 2.44:1，既不能当文字也不能当 3:1 的边条，
+     往近黑压两档分别拿到 3.73:1（边条）/ 6.18:1（文字）。 */
   --kind-typo-edge:     var(--color-warning);
   --kind-typo-edge:     color-mix(in srgb, var(--color-warning) 78%, var(--color-neutral-900));
   --kind-typo-ink:      var(--color-warning);
@@ -506,7 +506,7 @@ strong[data-annotation-ids] {
    整套东西从来没接上：内容里没有 status 字段，模板也没输出过它，只有 CSS
    在这里 —— D52 已删。若要恢复"论文阅读状态"这个功能，按原样重建即可，但要
    记住原来的设计：状态文字保持中性，只用一个 6px 圆点带语义色（整段文字染色
-   时 warning 在亮色纸白底上只有 2.30:1，AA 不过）。 */
+   时 warning 在亮色纸白底上只有 2.44:1，AA 不过）。 */
 .paper-head__links {
   display: inline-flex;
   gap: var(--space-3);
@@ -615,8 +615,8 @@ strong[data-annotation-ids] {
 }
 /* 暗色：accent-50 已被 tokens.css 压成深暖褐 #2a1408（底色必须跨主题压暗，
    门禁 check-a11y 的 A8 守这一条）。底色一压暗，accent-700（深赭）压上去
-   就只剩 1.85:1 —— 小标题也读不出来。换成暗色主题抬亮后的 accent-500
-   （#ffa874），压上去 9.50:1。
+   就只剩 1.90:1 —— 小标题也读不出来。换成暗色主题抬亮后的 accent-500
+   （#ffa874），压上去 9.24:1。
    ⚠️ 两条路径都要写：「跟随系统」与「手动切深色」必须是同一套颜色。 */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) .paper-keypoints h2 {
