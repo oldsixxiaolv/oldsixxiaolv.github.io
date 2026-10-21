@@ -457,7 +457,17 @@ editPaths:
           {% if p.doi %} · <a href="https://doi.org/{{ p.doi }}" target="_blank" rel="noopener noreferrer">doi:{{ p.doi }}</a>{% endif %}
         </p>
         {% if p.software %}
-        <p class="about-output__meta">Code: <a href="{{ p.software.url }}" target="_blank" rel="noopener noreferrer">{{ p.software.label }}</a> ({{ p.software.author }})</p>
+        {# —— 类型词用**登记事实**（DataCite 的 resourceTypeGeneral = Dataset）——
+           此前这里写死的是 "Code"，把一条登记为 Dataset 的记录说成代码。
+           链接文字用**这一版在 Zenodo 登记的标题**（registeredTitle）——
+           读者点进去看到的就是它；论文引用里那条的写法（citeTitle，v1.0 时期的
+           名字）不同，两种口径的差别在论文页已单独说明。
+           ⚠️ 括号里给的是**版本号**而不是「作者-年」：这一版的登记标题是 2026 年
+           随论文发布改的，而引用口径的作者-年是 2025（论文参考文献表那条的写法）。
+           两者并排 ⇒ 读者会把 2025 读成这条记录的年份。版本号才说得清"是哪一版"。
+           data-dataset-link 是给门禁定位用的标记（见 scripts/check-about-dataset.cjs）：
+           定位必须**唯一**，否则"页面上别处还有一条正确链接"就会把坏的那条放过。 #}
+        <p class="about-output__meta">{{ p.software.resourceType }}: <a href="{{ p.software.url }}" data-dataset-link target="_blank" rel="noopener noreferrer">{{ p.software.registeredTitle or p.software.label }}</a> (Zenodo · v{{ p.software.version }})</p>
         {% endif %}
       </li>
       {% endfor %}
@@ -494,9 +504,13 @@ editPaths:
         <dt>CSDN</dt>
         <dd><a href="{{ site.author.csdn }}" target="_blank" rel="noopener noreferrer me">{{ site.author.csdn | replace("https://", "") }}</a></dd>
       </div>
+      {# 数据集入口：术语用登记类型（Dataset），可见的 DOI 与地址都从真源派生。
+          此前这一行写死的是 <dt>Software</dt>，链接文字里还**烤死**了一串
+          DOI 字面量（href 走 site.author.zenodo、文字不走 ⇒ 两处可以各说各的），
+          而登记事实是 Dataset（D28）。 #}
       <div class="about-contact__row">
-        <dt>Software</dt>
-        <dd><a href="{{ site.author.zenodo }}" target="_blank" rel="noopener noreferrer me">Zenodo · doi:10.5281/zenodo.18041880</a></dd>
+        <dt>{{ site.author.zenodoType }}</dt>
+        <dd><a href="{{ site.author.zenodo }}" data-dataset-contact target="_blank" rel="noopener noreferrer me">Zenodo · doi:{{ site.author.zenodoDoi }}</a></dd>
       </div>
       {# 网盘入口：与页脚同一个数据源。url 为 null 时这一行不渲染。
           放在 Contact 末尾而不是单独开一节——它不是学术身份的一部分，

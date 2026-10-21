@@ -1438,13 +1438,34 @@ module.exports = function (eleventyConfig) {
   const fs = require("fs");
   const path = require("path");
   const ABOUT_PATH = path.join(__dirname, "src", "content", "about.md");
+  // about.md 里的**可核实事实**用构建期占位符写，由 site.js 单一真源注入。
+  // 为什么需要它：about.md 由 markdown-it 直接渲染、**不过 Nunjucks**，
+  // 模板语法在这里无效 —— 但"同一事实两份副本"这个病不会因此消失：
+  // Zenodo 记录的地址若在 about.md 里写死字面量，它就是第二份副本，
+  // 改一处忘另一处 ⇒ 页面说的与真源漂移，而没有任何门禁会叫（D28）。
+  //
+  // ⚠️ 替换发生在 md.render **之前**（Markdown 链接的目标必须已经是最终 URL；
+  //    事后去改 HTML 里的 href 容易漏掉属性顺序与转义）。
+  // ⚠️ 取不到真值就**原样留下占位符**：页面上会露出一个显眼的错，
+  //    而不是悄悄渲染成空链接（空链接看着像"正常但没内容"，最难发现）。
+  const SITE_DATA = require(path.join(__dirname, "src", "_data", "site.js"));
+  const ABOUT_PLACEHOLDERS = {
+    DATASET_URL: SITE_DATA.publications[0].software.url,
+    DATASET_DOI: SITE_DATA.publications[0].software.doi,
+  };
+  const fillAboutPlaceholders = (text) =>
+    Object.entries(ABOUT_PLACEHOLDERS).reduce(
+      (acc, [key, value]) =>
+        acc.split(`{{${key}}}`).join(value || `{{${key}}}`),
+      text
+    );
   eleventyConfig.addGlobalData("aboutHtml", () => {
     try {
       const raw = fs.readFileSync(ABOUT_PATH, "utf8");
       // 剥掉 YAML front-matter
       const parts = raw.split("---");
       const body = parts.length >= 3 ? parts.slice(2).join("---") : raw;
-      return md.render(body.trim());
+      return md.render(fillAboutPlaceholders(body).trim());
     } catch (e) {
       return "";
     }

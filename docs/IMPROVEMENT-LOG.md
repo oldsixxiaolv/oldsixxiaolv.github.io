@@ -17593,3 +17593,215 @@ ESSD 文章页 `https://essd.copernicus.org/articles/17/3987/2025/` 的 `citatio
       边界一旦只是注释，就会随时间悄悄失效；写成测试，它就一直在。
 ③ 下一轮找新缺陷，仍按 D19–D26 反复验证过的顺序问三件事 ——
    ① 真源是哪一个（唯一吗）② 能不能判取值（两边写法同形吗）③ 缺了会怎样（读的人会做什么）。
+
+---
+
+## 2026-10-20 · 19:00–19:40 场次（**不占轮次号**，避免与并发场次撞号）：D27 —— about 页对同一条 Zenodo 数据集记录给了三处互相矛盾、且与登记事实不符的描述：按登记事实统一，并给它配上门禁
+
+### 本轮定位
+
+按 D19–D26 反复验证过的三问筛候选：① **真源是哪一个**（唯一吗）② **能不能判取值**（两边写法同形吗）③ **缺了会怎样**（读的人会做什么）。
+
+本轮起手先清点了 DEFECT-BACKLOG 里的可动手条目 ⇒ **一条也没有**：D2 / D3 / D5 / D6 / D9 / D10 / D12 / D26 全部绑在本人拍板项上
+（D2 / D3 ↔ 待拍板 40、D9 ↔ 41、D10 ↔ 42、D12 ↔ 43、D5 ↔ 选题主线、D6 ↔ push 时机 = 待拍板 7 + 发布仓 = 待拍板 49、
+D26 ↔ 装饰分隔点取舍）⇒ 按 §3 规则 3 **新开 D28**，不代拍任何一条。
+
+候选筛到最后，落在**同一族**缺陷上（上一轮刚做完的 D26 也是这一族）：**内容事实缺陷** ——
+页面上的措辞没按**登记事实**写。这类缺陷的特征是：**不改变任何像素、任何字节的结构**，
+build 全绿、门禁全绿、页面看着完全正常，只是**读者按页面的说法去找那条记录时会找错东西**。
+
+### A. 缺陷事实
+
+四个症状，落在 about 页的**三个面**上，同指**同一条** Zenodo 数据集记录
+（`10.5281/zenodo.18041880`）：
+
+① **Contact 行把一条数据集标成软件**
+`src/about.njk` 的联系方式块里写死了 `<dt>Software</dt>`。
+而 DataCite 登记事实是 `types.resourceTypeGeneral` = **`Dataset`**。
+
+② **Selected output 段把同一条记录写成代码**
+同一页、同一份记录，另一处写死了类型词 `Code`。
+⇒ **同一页、同一条记录、两种类型词**，而且两种都与登记事实不符。
+
+③ **散文把同一条记录说成 tool / code**
+`src/content/about.md` 的「Where to find the work」列表项写的是
+「**Code** — the stage-identification **tool** for thunderstorms is archived on Zenodo …」
+⇒ 登记事实是 Dataset（**数据集**），页面上说成「代码 / 工具」。
+
+④ **同一事实两份副本**
+散文的链接 **href** 走 `site.author.zenodo`（真源），**文字**里却**烤死**了一串
+`10.5281/zenodo.18041880` 字面量 ⇒ href 与文字可以各说各的，改一处忘另一处页面就与真源漂了。
+
+⑤ **名字对不上**
+Selected output 的链接文字用的是「Thunderstorms stage identification」——
+那是 **v1.0 时期**的标题；而这条记录**当前登记的标题**（v2.0）是论文标题
+「New Insights from TRMM Legacy: …」⇒ **读者点开 DOI 看到的名字，与站内写的名字不是同一个**。
+
+**判定依据取的是登记事实，不是「看着像」**：DataCite API 逐字核了三条记录 ——
+`10.5281/zenodo.18041880`（v2.0）`title` = 论文标题、`version` "2.0"、`publicationYear` 2026、
+`types.resourceTypeGeneral` **"Dataset"**、`relatedIdentifiers` 含 `IsVersionOf → 10.5281/zenodo.16662143`；
+`10.5281/zenodo.16662144`（v1.0）`title` = "Thunderstorms stage identification"、
+`resourceTypeGeneral` 仍是 **"Dataset"**；`10.5281/zenodo.16662143`（概念 DOI）`version` "2.0"、
+`title` 同 v2.0、`resourceTypeGeneral` 仍是 **"Dataset"**、`HasVersion → 18041880` 与 `→ 16662144`
+⇒ **三种版本、三个 DOI，登记类型一律是 Dataset**。
+
+⚠️ **明确不误伤的两处**：
+① **论文参考文献表里那条**写的是「Lyu Y.(2025). Thunderstorms stage identification**[Software]**.Zenodo.
+https://doi.org/10.5281/zenodo.18041880」—— 那是**论文原文的引用写法**（标题沿用 v1.0、类型标 `[Software]`）。
+本站与论文保持一致是对的 ⇒ **引用条目本轮一个字不动**。
+② **论文精读页**（`src/_includes/layouts/paper.njk`）的 `<dt>Dataset</dt>` + `registeredTitle` + 双标题说明
+是**正确基准** ⇒ 不动。本轮**只管 about 页对这条记录的描述**。
+
+### B. 本轮排除的候选方向（这段最省事，避免下轮重查）
+
+① **`site.js` 的 `software` 段里那份文件清单与 md5** —— 逐条核过，自洽 ⇒ **不是**缺陷。
+② **「双标题」机制（`registeredTitle` vs `citeTitle`）** —— 是**有意设计**：页面摆登记名、引用条目摆引用名，
+   差异在页面与论文页都有说明 ⇒ **不是**缺陷（本轮只是把 about 页漏掉的那处补上）。
+③ **论文页那五处日期** —— 各自有明确口径（投稿 / 接收 / 出版 / 修订 / 在线）⇒ **不是**缺陷。
+④ **列表页与详情页的刊 / 卷 / 期** —— 逐条一致 ⇒ **不是**缺陷。
+⑤ **`affiliation` 的差异** —— 那是**投稿时的署名**（作者单位变动），不是本站记错 ⇒ **不是**缺陷。
+
+### C. 改了什么（8 个文件）
+
+1. **`src/_data/site.js`** —— 真源层。在 `TRMM_CODE_REPO` 之后加**一组常量**：
+   `DATASET_DOI` / `DATASET_URL`（由 DOI 拼出）/ `DATASET_TYPE`（登记类型 "Dataset"）。
+   随后 `publications[0].software.doi` / `.url` / `.resourceType` 与
+   `author.zenodo` / **新增** `.zenodoDoi` / **新增** `.zenodoType` **全部从这一组派生**
+   ⇒ 此前散在页面与数据文件里的**多份副本**收成**一处**。
+2. **`src/about.njk`** —— 描述层两处：
+   ① Selected output 段：类型词改用 `p.software.resourceType`、链接文字改用
+      `p.software.registeredTitle or p.software.label`、括号里给**版本号** `(Zenodo · v{{ p.software.version }})`；
+   ② Contact 行：`<dt>` 改用 `site.author.zenodoType`、链接文字改用 `site.author.zenodoDoi`（**不再写死字面量**）。
+3. **`src/content/about.md`** —— 散文改成「**Data** — the stage-identification **dataset** for thunderstorms is
+   archived on [Zenodo]({{DATASET_URL}}) so it gets a DOI and stays citable; the analysis **code** for the TRMM work
+   is on GitHub.」—— 依据是记录 description 原文（"This database is for the article … You can come to my GitHub to
+   download the codes"）⇒ **数据集在 Zenodo、代码在 GitHub**，两件事各归各处。
+4. **`eleventy.config.js`** —— `about.md` 由 markdown-it 直接渲染、**不过 Nunjucks** ⇒ Nunjucks 语法在这里无效。
+   加 `ABOUT_PLACEHOLDERS` + `fillAboutPlaceholders()`，在 `md.render` **之前**替换
+   `{{DATASET_URL}}` / `{{DATASET_DOI}}`；**取不到真值就原样留下占位符**（让页面上露出一个显眼的错，
+   而不是悄悄渲染成空链接）。
+5. **`scripts/check-about-dataset.cjs`**（新）—— 判据 **AP1–AP5**（见 D 段）。
+6. **`scripts/test-about-dataset.cjs`**（新）—— **11 档**注入矩阵 AT0–AT10。
+7. **`package.json`** —— 新增 `check:about-dataset` / `check:about-dataset-selftest`，接进 `build` 链。
+8. **`README.md`** —— 命令表补 2 行（RD3）。
+
+**顺带修的两处「注释与现状不符」**（同一份文件里的陈旧说明，属本轮范围内）：
+`site.js` 里 `resourceType` 的注释还写着「页面上**不渲染**它」（本轮起 about 页**开始渲染它了**）；
+`software.author` 缺一条「页面上刻意不渲染它」的解释 —— 它是**引用口径**的作者-年（2025），
+与 2026 年登记的 v2.0 标题并排会让读者把 2025 误读成这条记录的年份
+⇒ **Selected output 行因此给的是版本号（`Zenodo · v2.0`），不是作者-年**。
+
+### D. 门禁 AP1–AP5 怎么写的（以及为什么这么写）
+
+- **AP1（类型词跨页一致）**：Contact 行的 `<dt>`、Selected output 段的类型词、散文列表项的类型词、
+  论文页的 `<dt>` —— 四处**必须一致**，且**等于** `software.resourceType`（= 登记事实）。
+  ⇒ 这一条同时守住「页面内部自相矛盾」与「页面与登记事实不符」两种坏态。
+- **AP2（可见 DOI 同源）**：页面**可见的** DOI 逐字等于 `software.doi`；`software.url` 与 DOI 同源；
+  `author.zenodo` / `.zenodoDoi` / `.zenodoType` 三个字段与该记录**同源**。
+  ⇒ 守住「href 走真源、文字走字面量」这一族漂移。
+- **AP3（登记标题）**：Selected output 的链接文字**必须等于** `software.registeredTitle`，**不许回落** `citeTitle`
+  ⇒ 守住「读者点开 Zenodo 看到的名字与站内写的不是同一个」。
+- **AP4（散文措辞 + 不写死地址）**：`about.md` 正文**不许**出现 `10.5281/zenodo.*` 字面量（先剥 HTML 注释再查）；
+  散文 `.about-prose` 内含该链接的 `<li>` 链接**之前**的文字必须含登记类型词，
+  且**不得**出现 `tool` / `code` / `software`（类型词本身除外）。
+- **AP5（覆盖度自证 + 链接线自证）**：本门禁实际比对处数**有下限**（低于下限说明自己没跑到该比的地方 ⇒ 判红），
+  且 `package.json` 的 `build` 链必须含 `check:about-dataset`（防止门禁被摘掉而不自知）。
+
+**定位策略：「标记优先 + 内容回退」** —— 产物上放 `data-dataset-contact` / `data-dataset-link` 标记；
+标记找不到时**按内容回退**去找（这样**负对照能直接点名真缺陷**，而不是只报「标记漏了」）。
+但**候选数必须恰好为 1**（>1 或 0 一律判红 —— 不做「存在即过」这种弱判据），且**标记缺失单独判红**。
+
+### E. 验证
+
+① `node scripts/check-about-dataset.cjs` **exit 0** —— 类型词四处一致且等于 `Dataset`；
+   可见 DOI 与真源逐字相同；Selected output 链接文字等于 `registeredTitle`；
+   散文里没有写死地址；**共比对 14 处**。
+
+② `node scripts/test-about-dataset.cjs` **exit 0** —— **11 档** AT0–AT10：
+   AT0 基线绿；AT1（Contact 行写成 Software）⇒ 红因点名「登记事实」；
+   AT2（可见 DOI 换成别的）⇒ 点名「可见的 DOI」；AT3（链接文字用旧标题）⇒ 点名「登记标题」；
+   AT4（散文说成 tool）⇒ 点名「tool」；AT5（源文件写死地址）⇒ 点名「第二份副本」；
+   AT6（真源 `author.zenodo` 漂移）⇒ 点名「author.zenodo」；AT7（真源登记类型被改、产物没重建）⇒ 点名「登记事实」；
+   AT8（产物上的定位标记被删）⇒ 点名「标记」；AT9（论文页术语改成 Software）⇒ 点名「登记事实」；
+   **AT10 边界负对照**（真源与产物**一起**改错 ⇒ **判绿**）。
+
+③ **浏览器实测**（真实 Chrome + CDP，静态服务器 8899）：Contact 行 `dt` = `Dataset`、
+   链接文字 = `Zenodo · doi:10.5281/zenodo.18041880`、href = `https://doi.org/10.5281/zenodo.18041880`；
+   Selected output 段 = `Dataset: New Insights from TRMM Legacy: … (Zenodo · v2.0)`；
+   散文 = `Data — the stage-identification dataset for thunderstorms is archived on Zenodo so it gets a DOI and
+   stays citable; the analysis code for the TRMM work is on GitHub.`；
+   h1 = 1、#main = 1、title = `About · MeteoHub`；
+   **console 错误 0、未捕获异常 0**；产物里占位符计数 **0**（无泄漏）。
+
+④ `npm run build` **exit 0**；本轮**新增** 2 个 npm script（`check:about-dataset` / `check:about-dataset-selftest`），
+   README 命令表同步补 2 行 ⇒ RD3 通过；门禁接线门禁随之通过（GW1 / GW4）。
+
+### F. 负对照（这一段最关键）
+
+把**新门禁**跑在**修前产物 + 修前真源**上
+（`git worktree add --detach /tmp/mh_d28_pre 7c9ca2c` + `node_modules` 软链 + 单独 eleventy 构建）⇒
+**exit 1、12 条**红因，逐条点名**真缺陷**：
+
+- `author.zenodoDoi` 为空、在 `publications[]` 里找不到 DOI 相同的 `software` 记录（×2 条：与 DOI 不等、与类型不等）
+- Contact 行上没有 `data-dataset-contact` 标记
+- **「Contact 行把这条 Zenodo 记录标成「Software」，而登记事实是「Dataset」」**
+- Selected output 段上没有 `data-dataset-link` 标记
+- **「Selected output 段把这条记录写成「Code」，而登记事实是「Dataset」」**
+- **「Selected output 段的链接文字是「Thunderstorms stage identification」，真源里这一版的登记标题是
+  「New Insights from TRMM Legacy: …」—— 读者点开 Zenodo 看到的是另一个名字」**
+- 散文里介绍这条记录的句子没有按登记类型（Dataset）称呼它
+- **「散文里把这条记录说成「tool」」** / **「…说成「code」」**
+- **「about.md 正文里写死了 Zenodo 记录的地址（10.5281/zenodo.18041880）—— 那会变成第二份副本」**
+
+⇒ 门禁不是靠「字段结构变了」才发现问题，是**认得出那个错的类型词与那个错的名字本身**。
+（负对照的临时 worktree 建完即删，`git worktree list` 已复原。）
+
+### G. 边界与已知不足（如实记，不藏）
+
+1. **AP1–AP5 守不了「真源自己写错」** —— 它守的是「产物与真源不漂移」+「类型词与登记事实一致」
+   +「同一事实不出现第二份副本」。若有人把 `DATASET_TYPE` 改成 `Software` **并重建**，
+   产物与真源仍自洽 ⇒ 门禁**抓不到** ⇒ 真源正确性仍靠**人工核 + 外部登记核对**（DataCite）。
+   这个边界**没有**停在注释里：自测的 **AT10 档**就是它的可执行版本（真源与产物一起改错 ⇒ **判绿**）
+   ⇒ 「门禁能覆盖什么」与「门禁覆盖不到什么」现在**都是会跑的**。
+2. **没有给 Zenodo 记录补 ORCID / 挂 DataCite 引用** —— 那是**锦上添花**、不是本条缺陷的修法范围
+   ⇒ 本轮**不做**（按「清单外不擅自新增需求」的规矩）。
+3. **不核外链可达性** —— 本机 `zenodo.org` 的 TLS 直连失败（node `fetch` 打 `zenodo.org/api/records/...` 也失败），
+   `doi.org` 与 DataCite API 可用 ⇒ 判据只取**登记事实**，**不做可达性判据**
+   （环境不可靠会产假红）。⚠️ 配套的坑：**DataCite 对 Crossref 管的 DOI 一律 404**
+   （本条是 Zenodo 管的才查得到）⇒ **404 ≠ 不存在**。
+4. **引用条目一个字没动** —— 论文参考文献表那条的 `[Software]` 与 v1.0 标题**照旧**：
+   那是**论文原文的写法**，本站与论文保持一致是对的。论文页的双标题说明也照旧。
+5. **本轮没跑 Lighthouse**（工具链仍缺失）—— 本轮改的是**措辞事实**，不是样式 ⇒ 不适用。
+6. **线上仍是旧部署** —— `/papers/`、`/publications.bib`、`/feed.xml` 仍 404，属 **D6**
+   ⇒ 待拍板 7（push 时机）+ 待拍板 49（发布到哪个仓）**本轮不代拍**。
+
+### H. 本轮纪律
+
+- **不 push**：本地 `main` 领先源码远端 `oldsixxiaolv/main` **178** 个提交
+  （提交本轮后为 **179**）；部署远端 `origin`（`oldsixxiaolv.github.io`）本轮**未碰**。
+- **只提交自己那几条路径**：不用 `git add -A`；共享工作树上
+  `scripts/check-identity-handles.cjs`、`scripts/test-gates-selfcheck.cjs`
+  属**并发场次**，本轮**未碰、未覆写、未提交**。
+- **临时产物只落在 `/tmp`**；conda 一律 `xiaolv`。
+- **没有新增待拍板项**（本轮是事实性缺陷，修法无歧义 ⇒ 不需要本人拍板）。
+- **没有新增依赖**、没有新增外部服务 / 密钥 / 账号；零第三方前端运行时依赖保持。
+- 门禁红了先定位红因，不放宽判据。
+
+### 下一轮入口
+
+① **D2 / D3** 待待拍板 40 拍板；**D9** 待 41；**D10** 待 42；**D12** 待 43；
+   **D5** 等本人定选题主线；**D6** 等 push（待拍板 7），且「照 `DEPLOY.md` push 不更新线上」
+   这件事仍挂着**待拍板 49**；**M3** 等本人自建 OAuth App；
+   **待拍板 47** 等本人定 `portfolio` 的去留；**待拍板 48** 等本人定 404 页的根绝对前缀要不要跟着挂载点走；
+   **D26** 等本人定装饰分隔点的取舍。
+⇒ 在这些拍板项落地之前，后端那条线**没有可动手的条目**，继续走 ROADMAP M0 §3 找新缺陷。
+② **本轮留了两条可复用的做法**：
+   ① **「同一事实多份副本」是比「值写错」更常见的病** —— 本轮三处描述各不相同，
+      根源是**同一个 DOI 在页面与数据文件里各存了一份**。修法不是把三处都改对，
+      而是**先把真源收成一组常量**，再让门禁守住「派生关系」⇒ 以后再改只会改一处。
+      配套：模板不过的 Markdown（`about.md` 不过 Nunjucks）用**构建期占位符**，
+      **取不到真值就原样留着**（露错优于静默渲染成空）。
+   ② **「门禁守不住什么」也要写成会跑的测试** —— AT10 那一档判绿，
+      把「真源一起改错抓不到」从注释里的承诺变成**可执行的边界**。
+③ 下一轮找新缺陷，仍按 D19–D27 反复验证过的顺序问三件事 ——
+   ① 真源是哪一个（唯一吗）② 能不能判取值（两边写法同形吗）③ 缺了会怎样（读的人会做什么）。

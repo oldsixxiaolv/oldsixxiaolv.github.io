@@ -107,6 +107,8 @@ Cloudflare Pages、Nginx 等任意静态服务。详细运行 / 调试见 `HOW_T
 | `npm run check:jsonld` | JSON-LD 合法，站点实体与页面实体接得上 |
 | `npm run check:home-chart` | 首页降水图的交互层：钩子齐全、**读数与数据同源**、键盘可达、模块与样式在位 |
 | `npm run check:home-chart-selftest` | 上面那道门禁的本地夹具自测（6 档注入矩阵，证明它能变红） |
+| `npm run check:about-dataset` | about 页对同一条 Zenodo 记录的描述必须与 DataCite 登记事实一致：类型、登记标题、可见 DOI、散文措辞四处同源，散文里不许写死地址 |
+| `npm run check:about-dataset-selftest` | 上面那道门禁的本地夹具自测（11 档注入矩阵，证明它能变红；含一档**故意判绿**的边界负对照） |
 | `npm run check:identity` | 身份句柄（ORCID / GitHub / CSDN / ResearchGate）登记一致 |
 | `npm run check:identity-derivation` | 身份 URL 必须**派生**出来，不许抄成字面量 |
 | `npm run check:citation-meta` | 论文页 `citation_*` 标签与 `site.js` 逐字一致 |

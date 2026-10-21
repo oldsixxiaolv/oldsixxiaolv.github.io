@@ -61,6 +61,29 @@ const identityUrl = (host) => {
 // ---------------------------------------------------------------------------
 const TRMM_CODE_REPO = "https://github.com/oldsixxiaolv/Manuscript_Lvyh";
 
+// ---------------------------------------------------------------------------
+// TRMM 论文的 Zenodo **数据集记录**。DOI / URL / 登记类型各只写一次，
+// 三个消费点都从这儿派生：
+//   ① publications[0].software.doi / .url / .resourceType —— 论文页与参考文献口径
+//   ② author.zenodo / .zenodoDoi / .zenodoType —— 首页与 about 页的"数据集入口"
+//   ③ src/content/about.md 散文里的链接 —— 构建期由 eleventy.config.js 注入
+// 此前这三处各写一份字面量（同一事实三份副本），改一处忘另一处 ⇒
+// 页面上的描述与登记事实漂移，而没有任何门禁会叫（D28）。
+//
+// ⚠️ 登记类型是 **Dataset**，不是 Software：
+//   DataCite（https://api.datacite.org/dois/10.5281/zenodo.18041880）的
+//   resourceTypeGeneral = "Dataset"；同一概念的 v1.0（…16662144）与
+//   概念 DOI（…16662143）登记类型**一律是 Dataset**，无一是 Software。
+//   论文参考文献表里那条写的是 "[Software]" —— 那是**论文原文的写法**
+//   （投稿时的称呼，改不了）；本站描述"这条记录是什么"时以**登记事实**为准。
+//   记录里装的是数据（三份文件：参考文献 PDF + 两个 TRMM 数据集压缩包），
+//   登记描述本身也写着「This database is for the article … You can come to
+//   my GitHub to download the codes」⇒ 代码在 GitHub，不在这条记录里。
+// ---------------------------------------------------------------------------
+const DATASET_DOI = "10.5281/zenodo.18041880";
+const DATASET_URL = "https://doi.org/" + DATASET_DOI;
+const DATASET_TYPE = "Dataset";
+
 module.exports = {
   title: "Yihang Lyu",
   shortTitle: "MeteoHub",
@@ -183,7 +206,16 @@ module.exports = {
     orcid: OWNER_ORCID,
     csdn: identityUrl("blog.csdn.net"),
     researchgate: identityUrl("www.researchgate.net"),
-    zenodo: "https://doi.org/10.5281/zenodo.18041880",
+    // Zenodo 数据集记录（TRMM 论文的可复用产出物）。
+    // ⚠️ 三个字段都从**同一组常量**派生（见文件顶部 DATASET_*）——
+    //    不要在这里写回字面量：这份记录此前在 site.js 内部就有两份副本
+    //    （software.doi/.url 与 author.zenodo），加上 about 页那两处字面量，
+    //    一共四份 ⇒ 改一处忘另一处，页面说的与登记事实就不一致了（D28）。
+    zenodo: DATASET_URL,
+    zenodoDoi: DATASET_DOI,
+    // 登记类型（DataCite resourceTypeGeneral）。about 页的 Contact 行
+    // 用它当术语；此前那里写死的是 "Software" —— 与登记事实不符。
+    zenodoType: DATASET_TYPE,
     // OpenAlex：开放学术图谱的作者实体，Semantic Scholar / CORE / 众多机构
     // 检索系统的上游数据源。本人的档案是**按 ORCID 精确反查**出来的
     // （api.openalex.org/authors/orcid:0009-0005-3511-0546 → A5121394231），
@@ -532,16 +564,24 @@ module.exports = {
         registeredTitle:
           "New Insights from TRMM Legacy: Stage-Dependent Relationships Between " +
           "Lightning and Convective Structure in Thunderstorms Over Tropical Africa",
+        // ⚠️ 这是**引用口径**的「作者-年」（论文参考文献表那条的写法），
+        //    不是这条 Zenodo 记录自己的登记年份。页面上**刻意不渲染它**：
+        //    v2.0 的登记标题是 2026 年随论文发布改的，把 2025 并排放在
+        //    登记标题旁边，读者会把 2025 误读成这条记录的年份。
+        //    about 页那一行因此给的是版本号（Zenodo · v2.0），见 src/about.njk。
+        //    引用条目（citeTitle/citeYear/citeAuthor）仍按论文口径，不动。
         author: "Lyu, Y. (2025)",
-        doi: "10.5281/zenodo.18041880",
-        url: "https://doi.org/10.5281/zenodo.18041880",
+        doi: DATASET_DOI,
+        url: DATASET_URL,
         // ↓ 以下取自 https://api.datacite.org/dois/10.5281/zenodo.18041880
         //    （第十三轮重新拉取逐字核对：resourceType=Dataset、version=2.0、
         //    license=CC BY 4.0、registeredTitle、conceptDoi 均与登记一致）
-        // resourceType = DataCite 登记的 resourceTypeGeneral。页面上**不渲染**
-        //    它——"Dataset Dataset" 那处重复标签已删，dt 术语本身就说完了；
-        //    留在这里是为了记录登记事实（将来引用/结构化数据要用从这里取）。
-        resourceType: "Dataset",
+        // resourceType = DataCite 登记的 resourceTypeGeneral。
+        //    about 页 Selected output 段与 Contact 行都直接渲染它，
+        //    术语口径与登记事实保持一致（D28）；论文页的 <dt>Dataset</dt>
+        //    同样取自这里。留在这里是为了记录登记事实，
+        //    将来引用/结构化数据要从这里取，不能各处再写一遍字面量。
+        resourceType: DATASET_TYPE,
         version: "2.0",
         // ⚠️ publisher 是**唯一**没照抄登记的一项：DataCite 登记里它是
         //    "Lyu yihang"（Zenodo 把数据作者填进 publisher 字段），
