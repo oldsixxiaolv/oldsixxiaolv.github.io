@@ -111,6 +111,8 @@ Cloudflare Pages、Nginx 等任意静态服务。详细运行 / 调试见 `HOW_T
 | `npm run check:feed-discovery-selftest` | 上面那道门禁的本地夹具自测（21 档注入矩阵，证明它能变红；含 **6 档判据级负对照**（卸掉某条判据后对应注入必须转绿；FD5 那档断言的是「红因里不再出现 FD5」—— 覆盖度自证与入口缺失天然同源，卸掉它不可能转绿，断言照实写）、一档**故意判绿**（href 换成与本站同源的绝对 URL 必须判绿）、一档扫描器 tricky 档） |
 | `npm run check:feed-title` | 订阅源的**显示名必须只有一份**：真源 `site.feedTitle` 必须存在、非空、且是「站点名 + 自己的后缀」派生的；模板层（`.njk`）不许把显示名的后缀片段烤成字面量；产物里每处 RSS 自动发现的 `title` 属性、`feed.xml` 频道级 `<title>` 与真源三者必须逐字相同 |
 | `npm run check:feed-title-selftest` | 上面那道门禁的本地夹具自测（17 档注入矩阵，证明它能变红；含 **6 档判据级负对照**（卸掉某条判据后对应注入必须转绿）、两档**故意判绿**（片段只出现在模板注释里、整站一致改名都必须判绿）） |
+| `npm run check:target-blank-rel` | **新标签页打开的链接必须带 rel 安全属性**：模板层（`.njk`）与产物层里每一个会开新浏览上下文的 `target`（`_blank` 或命名目标）的 `<a>` / `<area>`，`rel` 的 token 集合必须同时含 `noopener` 与 `noreferrer`（少 `noopener` ⇒ 目标页面能用 `window.opener` 把本站这个标签页导航走；少 `noreferrer` ⇒ 会把访客的来源页带出去）；`rel` 必须写成**字面量**（模板变量静态判不出，判红）；模板与产物都不许有 `<base target>`（那是**全站默认**的打开目标） |
+| `npm run check:target-blank-rel-selftest` | 上面那道门禁的本地夹具自测（23 档注入矩阵，证明它能变红；含 **6 档判据级负对照**（卸掉某条判据后对应注入必须转绿）、**5 档故意判绿**（rel 多带无关 token、rel 的 token 大写、坏链接只出现在 HTML 注释或 Nunjucks 注释里、普通站内链接没有 rel，都必须判绿）、一档**覆盖度自证**（产物里一处会开新上下文的链接都不剩必须判红）、一档**扫描器自证**（把「读 rel 的 token」弄坏必须判红）） |
 | `npm run check:block-language` | 块级内容全英文：产物里的 JSON-LD 结构化数据（逐块 JSON.parse 后递归遍历字段值与键名）、内联 `<script>`、内联 `<style>`（剥掉 CSS 注释后）都不许有中日韩字符；字段级豁免必须「用得出」（豁免用不上时只提示、不拦 build） |
 | `npm run check:block-language-selftest` | 上面那道门禁的本地夹具自测（12 档注入矩阵，证明它能变红；含两档**负对照**：分别卸掉 CJK 判定与「剥掉 CSS 注释」，证明这两条判据真的在起作用） |
 | `npm run check:css-comment-weight` | 产物里不许有 CSS 注释字节：内联 `<style>` 与外链 CSS 都不许带注释（注释在源码里保留 —— 那是维护者的笔记，不该跟着产物发给访客）；剥掉注释后仍须有内容（防「清空内联 CSS」骗过前一条）；覆盖度自证（内联块数、外链 CSS 数、每页都得有内联块） |

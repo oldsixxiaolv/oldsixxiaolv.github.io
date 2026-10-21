@@ -21144,3 +21144,203 @@ SITE_DIR 产物侧门禁**（`check:404-depth` / `check:a11y` / `check-about-dat
 - 线上仍是旧部署 ⇒ **D6** ⇒ 待拍板 7（push 时机）+ 49（发布到哪个仓）**本轮不代拍**。
 - **本轮不新增待拍板**：D45 是**收敛真源 + 补看护**（不改名字、不改文案、不删能力，
   没有需要拍板的取舍）⇒ 不占新号。
+
+## 2026-10-21 · 07:50–08:50 场次（**不占轮次号**，避免与并发场次撞号）：D44 —— 新标签页打开的链接，其 `rel` 安全属性零看守：给它配上门禁
+
+### 本轮定位
+
+接 D43 场次（D45）之后继续。缺陷清单里剩下的「待修」仍**全绑在既有拍板项上**
+（D2 / D3 ↔ 40、D9 ↔ 41、D10 ↔ 42、D12 ↔ 43、D5 ↔ 选题主线、D26 视觉取舍、
+D6 ↔ push 时机 = 7 + 发布仓 = 49、D32 ↔ 49）⇒ **本轮按惯例新开编号 D46**。
+
+线上巡检：7 条 URL 仍是**旧部署**（`/` 200、`/papers/` **404**、`/blog/` 200、
+`/about/` 200、`/publications.bib` **404**、`/feed.xml` **404**、`/sitemap.xml` 200）
+⇒ 那是 **D6**（待拍板 7 + 49），**不是新缺陷**，本轮不碰、不代拍、不 push。
+
+**候选普查（逐条实测排除，避免把「看着像」当缺陷）**：
+
+| 候选 | 实测结论 |
+|---|---|
+| `publications.bib` / `publications.ris` 缺文件 | **不是缺口** —— 已被 `check-citation-meta.cjs`（C1/C3/C8，四个面互核）与 `verify-site.cjs`（文件 ↔ 论文页复制块双向逐字一致）守住 |
+| 论文页 `citation_publication_date` / `article:published_time` / JSON-LD `datePublished` / 可见文本日期四路不一致 | **全一致**（`2026-06-01`）⇒ 不是缺陷 |
+| `og:title` ↔ `twitter:title`、`og:description` ↔ `twitter:description` ↔ `<meta name="description">`、`og:image` ↔ `twitter:image`、图片 `alt` | **逐页全一致**（模板本来就用同一个变量渲染，结构性不可漂移）⇒ 收益薄，不做 |
+| JSON-LD 跨页同一 `@id` 节点字段分歧（`datePublished` 粒度、缺 `image` / `dateModified` / `citation` 等） | 属 **D9** 范围（待拍板 41）⇒ **不代拍** |
+| `openAccess` ↔ `isAccessibleForFree` 不同步 | **已数据驱动**（`eleventy.config.js` 两处都读 `p.openAccess`）⇒ 不是缺陷 |
+| `site.description` ↔ `CITATION.cff` 的 `abstract` | 逐字相同，且 `check-citation-cff.cjs` **CF1 = 生成 + 逐字节核对** ⇒ 已守住 |
+| `software.citeTitle` ↔ `registeredTitle` 不一致 | **有意为之且已登记**（与论文参考文献表逐字一致；Datacite 权威核实两条 Zenodo 记录原题就是 "New Insights from TRMM Legacy…" / publicationYear 2026 / version 2.0）⇒ **不碰** |
+| 产物里有 `http://` 非 TLS 外链 | **零**（`sitemap.njk` 里的 `xmlns="http://www.sitemaps.org/…"` 是命名空间、不是链接）⇒ 不是缺陷 |
+| 每页 5 处内联 `onload="this.onload=null;this.rel='stylesheet'"` | **CSS preload swap 的标准写法**，且有 `<noscript>` 兜底 ⇒ 不是缺陷 |
+| 跨页锚点（`href="页#id"`）的 fragment 存在性 | **零看守**，但产物里**现状 0 处** ⇒ 空跑门禁，本轮不占 |
+| `src/_includes/partials/publications.njk` 文件头注释写 `site.author.publications`、注释里 `site.author.name` = "Yihang Lv" | **过时注释**（代码用的是 `site.publications`；实际数据是 "Yihang Lyu"），收益薄，不占本轮 |
+
+⇒ 本轮落点：**D46**。
+
+### A. 缺陷事实
+
+**新标签页打开的链接，其 `rel` 安全属性零看守。**
+
+`target="_blank"` 的链接会在**新标签页**里打开目标页面，而新标签页默认**持有
+`window.opener`** ⇒ 目标页面里的脚本可以反过来用 `window.opener.location = "…"`
+把本站这个标签页**导航走**（reverse tabnabbing：访客点了外链，回头一看自己的站点
+被换成了钓鱼页）。规范给的解法是 `rel="noopener noreferrer"`（前者切断 opener、
+后者顺带不带 Referer）。
+
+**实测一：同一份安全属性 7 份副本**
+
+| 模板 | 处数 |
+|---|---|
+| `src/_includes/layouts/paper.njk` | 12 |
+| `src/about.njk` | 9 |
+| `src/_includes/partials/publications.njk` | 7 |
+| `src/index.njk` | 7 |
+| `src/_includes/partials/footer.njk` | 5 |
+| `src/_includes/partials/extreme-precip.njk` | 2 |
+| `src/blog.njk` | 1 |
+
+合计 **43 处**，全部手写 `rel="noopener noreferrer"`（关于页另有 5 处多带一个 `me`）。
+
+**实测二：零看守**（逐条 grep 坐实）
+
+- `scripts/` 下**没有任何一个脚本**含 `noopener` / `noreferrer` / `target=` /
+  `_blank` 字样 ⇒ 全仓**零门禁**覆盖这条属性。
+- `scripts/verify-site.cjs` 的通用引用正则只核**链接目标存在**，不核属性值。
+- `scripts/check-third-party.cjs`（TD1–TD5）只判**外域**，不判 rel。
+- `scripts/check-a11y.cjs` 只管可访问性，与 rel 无关。
+
+**实测三（决定性）：注入两处坏态，18 道产物侧门禁全绿**
+
+把产物复制到 `/tmp`，① 把 `index.html` 一个 `target="_blank"` 链接的 `rel` 属性
+**整个删掉**、② 把 `about/index.html` 一个链接的 `rel` 改成只剩 `me`，对该副本跑
+**18 道 SITE_DIR 产物侧门禁**（check-404-depth / check-a11y / check-about-dataset /
+check-citation-meta / check-feed-discovery / check-feed-title / check-figure-cover /
+check-home-chart / check-identity-handles / check-image-assets / check-img-srcset /
+check-jsonld / check-navigation-contract / check-overflow / check-page-deps /
+check-readme / check-site-js / verify-site）⇒ **18/18 全绿，0 道判红**。
+
+**后果**：新增外链时忘了写 rel（或写成 `rel="external"` 这类与保护无关的 token）
+⇒ 访客点开外链后自己的标签页被对方导航走，而 build 全绿、页面看上去一切正常。
+
+⚠️ **不要误伤**：实测产物现状 **66/66 全部合规**（6 个页面 66 处 `target="_blank"`：
+61 处 `rel="noopener noreferrer"`、5 处 `rel="noopener noreferrer me"`；模板层 43 处
+同样全合规）⇒ 缺的只是**看守** ⇒ 与 D42 同款，**只加门禁、不改构造层**，
+**产物逐字不变**。
+
+### B. 新门禁 `scripts/check-target-blank-rel.cjs`（判据 GA1–GA6）
+
+零第三方依赖、**自带** HTML 标签扫描器 / 属性解析器 / 注释遮罩器
+（门禁不得 import 被检查方的 lib，D35 纪律）：
+
+| 判据 | 守什么 |
+|---|---|
+| **GA1** | 模板层（`.njk`）里每个**会开新浏览上下文**的 `target`（`_blank` 或**命名目标**）的 `<a>` / `<area>` 必须带 `rel`，且 `rel` 的 **token 集合**必须同时含 `noopener` 与 `noreferrer`；`rel` 必须是**字面量**（模板变量静态判不出 ⇒ 判红）；Nunjucks / HTML **注释豁免** |
+| **GA2** | 产物层同上：渲染后每个页面里每个会开新上下文的链接，`rel` 的 token 集合必须同时含 `noopener` 与 `noreferrer` |
+| **GA3** | 覆盖度自证：扫到的 .njk 模板 ≥ 1、模板里会开新上下文的链接 ≥ 1、HTML 页面 ≥ 1、产物里会开新上下文的链接 ≥ 1 ⇒ 否则「判据没落到东西上」判红（**计数放在判定开关之外**） |
+| **GA4** | 门禁自己没被卸掉：`package.json` 的 build 链里必须真的有本门禁 |
+| **GA5** | 扫描器自证：合成样例走**同一条**扫描 + 判定路径 —— 合规样例必须判绿、少一个 token 的必须判红、**token 必须精确匹配**（`noopenerx` 不算 `noopener`）、HTML / Nunjucks 注释里的必须不命中、带 `target` 的 `<base>` 必须能被检出 |
+| **GA6** | 模板与产物都不许有 `<base target>` —— 那是**全站默认**的打开目标，等于让所有链接都开新标签页而都没有 rel 保护 |
+
+**判的是「会不会开新浏览上下文」，不是「是不是外链」**：产物里有 2 处
+`target="_blank"` 指向**相对路径的图片**（点开大图），同样是新标签页打开、
+同样要带 rel ⇒ 按「外链」判会漏掉它们。
+
+### C. 自测 `scripts/test-target-blank-rel.cjs`（GB0–GB22，二十三档，接在 build 链）
+
+夹具站 = **真实产物 + 真实模板的副本**（GA1 / GA3 判的就是模板层，只给产物那就没有
+判断对象）。含 **6 档判据级负对照**、**5 档故意判绿**、1 档覆盖度负对照、
+1 档扫描器自证负对照。
+
+### D. 验证
+
+1. `node scripts/check-target-blank-rel.cjs` ⇒ **exit 0**，逐字文案：
+   src/ 下 22 个 .njk 模板里 43 处会开新上下文的链接全部带 rel（noopener + noreferrer）；
+   产物 6 个页面共 66 处会开新上下文的链接全部带 rel（noopener + noreferrer）；
+   模板与产物都没有 `<base target>`；本门禁接在 build 链上。
+2. `node scripts/test-target-blank-rel.cjs` ⇒ **exit 0**（23 档 GB0–GB22 全过）。
+3. **修前实测（真实坏态级）**：在注入两处坏态的 `/tmp` 产物副本上跑新门禁 ⇒ **exit 1**，
+   红因逐字点名 `GA2：about/index.html:1544 … rel="me" **缺少 noopener 与 noreferrer**`
+   与 `GA2：index.html:1121 … 却**没有 rel 属性**`
+   ⇒ 同一份缺陷在修前的 **18 道**产物侧门禁下 0 道判红、被这道门禁抓住。
+4. **新脚本先进真实索引再 build**（TR1 只扫**已跟踪**文件）⇒ `npm run build` exit 0（0 个 ✗）。
+5. **双次 build 交叉**：两次构建的产物逐文件哈希对比**只差** `feed.xml` 与
+   `robots.txt`（构建时刻标记）⇒ **产物零变化**。
+
+### E. 负对照
+
+- **GB1–GB10（十档注入）**：每档红因**点名到自己的判据编号**（`GA1：`…`GA6：`）
+  ⇒ 不只断言退出码（退出码 0 在「没跑到」与「跑到了但没发现」两种情况下完全同形）。
+- **GB16–GB21（六档判据级负对照）**：在**副本**里把 `const GAn_ON = true;` 改成
+  `false;`（GA1–GA6 各自的判定开关），对应注入必须**转绿**
+  ⇒ 证明每条红因确实来自那一条判据，不是别的检查顺手撞上的。
+- **GB11（故意判绿）**：rel 里**多带**一个无关 token（`me`）⇒ 必须判绿
+  ⇒ 证明它守的是「有没有那两个 token」，不是「rel 只能有那两个 token」。
+- **GB12（故意判绿）**：rel 的 token **大写** ⇒ 必须判绿
+  ⇒ HTML 规范里 rel 关键字 ASCII 大小写不敏感。
+- **GB13 / GB14（故意判绿）**：坏链接只出现在 **HTML 注释** / **Nunjucks 注释**里
+  ⇒ 必须判绿 ⇒ 证明它守的是「声明里的链接」，不是「这个词出现过」。
+- **GB15（故意判绿）**：普通**站内链接**（没有 target、也没有 rel）⇒ 必须判绿
+  ⇒ 证明它守的是「会开新上下文的链接」，不是「所有链接」。
+- **GB22（扫描器自证真的会红）**：把门禁副本里的「读 rel 的 token」弄坏
+  （`function relTokens(value) {` → 直接 `return ["noopener", "noreferrer"];`）
+  ⇒ 必须**判红 GA5** ⇒ 证明 GA5 不是一句「看起来在跑」的保证。
+  ⚠️ 这一档第一版写错了：最初的破坏手法让 `relTokens` 返回**字符串**，
+  `new Set(字符串)` 退化成「按字符切」⇒ GA1 / GA2 连带判红 ⇒ 分不清
+  「GA5 被卸掉」与「判定被弄坏」两件事 ⇒ 改成**仍返回数组**后才真正独立。
+
+### F. 边界与已知不足（如实记，不藏）
+
+- **只判静态产物**：JS 运行时改出来的 target/rel 判不了（本站没有这种用法）。
+- **只判「会开新浏览上下文」的目标**：`_self` / `_parent` / `_top` / 空值不开新上下文
+  ⇒ 不判它们的 rel。
+- **只判 `<a>` 与 `<area>`**：这两个元素支持 `rel` 里的 `noopener`；
+  `<form target>` 不受 `rel="noopener"` 保护（表单没有这个语义），本门禁不管它。
+- **token 按空白切分、大小写不敏感**：`rel="noopener,noreferrer"`（逗号）**不合规**
+  —— 逗号不是 rel 的分隔符。
+- **模板层要求 `rel` 写成字面量**：这是本门禁的**刻意严格**，理由是「变量形态静态
+  判不出它到底带没带保护，就不能算有保护」；若将来有人把 rel 抽成变量，需要连同
+  本门禁一起改（产物层 GA2 仍会兜住真实结果）。
+- **命名目标**：产物现状 `target` 只有 `_blank` 一种取值；命名目标（`target="名字"`）
+  同样会开新上下文，本门禁**一并纳入判据**（同一段判定代码，不是另开一条空判据）。
+- **比的是「当前模板 / 当前产物」**：改了模板必须先重新 build
+  （build 链里 eleventy 跑在门禁之前，天然满足这个次序）。
+- **门禁自带扫描器**（不得 import 被检查方的 lib）⇒ 代价是**简化实现**：
+  按「够用且不误判」的精度做，不追求完整 HTML 规范（真要完整得引第三方依赖 ⇒
+  违反「零第三方运行时依赖」）。
+
+### G. 本轮纪律
+
+- **只改本轮自己那几条路径**，并发场次在途的两个文件
+  （`scripts/check-identity-handles.cjs`、`scripts/test-gates-selfcheck.cjs`）**全程未碰、未提交**。
+- **不用 `git add -A`**，只提交自己那几条路径；**不用 `git stash`**。
+- **绝不 `git push`** —— 线上仍是旧部署，发布时机属**待拍板 7**、发布仓属**待拍板 49**
+  ⇒ **本轮不代拍**。
+- **新增门禁/自测先进索引再 build**（TR1 只扫**已跟踪**文件）
+  ⇒ 「提交前绿」不等于「提交后的树绿」；提交后再 build 一次坐实。
+- **每轮都会变的数字不写进文档**（build 链段数、门禁脚本条数）⇒ 由 `check:doc-snapshot.cjs`
+  的 DS1 守住这条线。
+- **判据前缀不撞车**：本轮新占用 **GA***（门禁）与 **GB***（自测），
+  实测与既有前缀（TD / FX / FZ / SX / ST / JT …）均不冲突。
+- **`/tmp` 残留用 `mavis-trash` 清**，不用 `rm`。
+- **探测/注入在 `/tmp` 副本里做**：exFAT 卷上对 `_site` 内文件做写操作会生成 `._*`
+  AppleDouble 侧车 ⇒ 注入测试改在副本里做（`SITE_DIR` 指向副本），测完清干净。
+
+### 下一轮入口
+
+- **本轮修的是 D46**（新标签页链接的 `rel` 零看守）；**D45**（订阅源显示名的两份副本）
+  已在上一场次修完。
+- 缺陷清单里仍**待修**的：D2 / D3（待拍板 40）、D5（等本人定选题主线）、
+  D6（等 push 时机）、D9（待拍板 41）、D10（待拍板 42）、D12（待拍板 43）、
+  D26（等本人看视觉取舍）、D32（待拍板 49 + push 时机）⇒ 全绑拍板 ⇒ 下轮大概率仍要新开编号。
+- 下一轮若要找**新的**看护缺口：上方「候选普查」表里已排除的方向不必重查；
+  **尚未取用**的已知候选：**跨页锚点（`href="页#id"`）的 fragment 存在性**
+  （零看守，但产物里 0 处 ⇒ 属「防未来退化」而非「修现存问题」⇒ 空跑门禁，
+  要做的话得先有一个真实命中）。
+- 待拍板仍挂着：**40**（og 图口径与体积 → D2 / D3）、**41**（同 `@id` 的字段口径 → D9）、
+  **42**（交互类要不要配常驻浏览器门禁 → D10）、**43**（批注层 → D12）、
+  **46**（`excerpt` 缺失判红还是 note）、**47**（`portfolio` 去留）、
+  **48**（404 页根绝对前缀）、**49**（发布到哪个仓 → D32 / D6）、
+  **50**（封面比例口径 → D40 的第 ④ 条）、**51**（顶层导航留几份真源 → D41）；
+  **待拍板 10**（about 页正文里的 CSDN 链接要不要保留）本轮**未代拍**；
+  **D5** 等本人定选题主线；**D26** 等本人看视觉取舍；**M3** 等本人自建 OAuth App。
+- 线上仍是旧部署 ⇒ **D6** ⇒ 待拍板 7（push 时机）+ 49（发布到哪个仓）**本轮不代拍**。
+- **本轮不新增待拍板**：D46 是**纯补看护**（不改构造层、不改文案、不删能力，
+  没有需要拍板的取舍）⇒ 不占新号。
