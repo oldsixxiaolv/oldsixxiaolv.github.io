@@ -105,6 +105,8 @@ Cloudflare Pages、Nginx 等任意静态服务。详细运行 / 调试见 `HOW_T
 | `npm run check:block-language-selftest` | 上面那道门禁的本地夹具自测（12 档注入矩阵，证明它能变红；含两档**负对照**：分别卸掉 CJK 判定与「剥掉 CSS 注释」，证明这两条判据真的在起作用） |
 | `npm run check:css-comment-weight` | 产物里不许有 CSS 注释字节：内联 `<style>` 与外链 CSS 都不许带注释（注释在源码里保留 —— 那是维护者的笔记，不该跟着产物发给访客）；剥掉注释后仍须有内容（防「清空内联 CSS」骗过前一条）；覆盖度自证（内联块数、外链 CSS 数、每页都得有内联块） |
 | `npm run check:css-comment-weight-selftest` | 上面那道门禁的本地夹具自测（12 档注入矩阵，证明它能变红；含两档**负对照**：分别卸掉 CW1 判定与「字符串字面量保护」，证明这两条判据真的在起作用；另有一档断言产物内联块与源码剥注释后**逐字相等**、一档剥除器的单元夹具） |
+| `npm run check:third-party` | **零第三方前端运行时依赖**：产物里的子资源引用（`script` / `img` / `iframe` / `video` 等）、`<link>` 的资源提示（`stylesheet` / `preload` / `preconnect` / `icon` 等）、CSS 的 `@import` 与 `url()`、站内 JS 的**硬编码**外域请求目标与外域 `import`，一律不许指向外域；确需外域的按**（域，上下文）**登记在门禁的白名单里并写明理由 |
+| `npm run check:third-party-selftest` | 上面那道门禁的本地夹具自测（21 档注入矩阵，证明它能变红；含 4 档**负对照**：分别卸掉 TD1–TD4 判定，证明那几档的红确实来自这四条判据本身；另有两档专验白名单的粒度与「用不上只提示不判红」） |
 | `npm run check:a11y` | WCAG AA 实测缺陷固化成可重复检查 |
 | `npm run check:a11y-contrast-selftest` | 上面那道门禁里**底色 token 跨主题压暗**判据的本地夹具自测（6 档注入矩阵，证明它能变红：亮底 token 在暗色没重映射、压暗后仍偏亮都判红） |
 | `npm run check:print-theme` | 打印结果与屏幕主题无关（深色底不会打成白底） |

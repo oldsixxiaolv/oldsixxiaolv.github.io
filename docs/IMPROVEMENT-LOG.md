@@ -19592,3 +19592,192 @@ D12 ↔ 43、D5 ↔ 选题主线、D26 视觉取舍、D32 ↔ 49、D6 ↔ push �
   **48**（404 页根绝对前缀）、**49**（发布到哪个仓 → D32 / D6）；
   **D5** 等本人定选题主线；**D26** 等本人看视觉取舍；**M3** 等本人自建 OAuth App。
 - 线上仍是旧部署 ⇒ **D6** ⇒ 待拍板 7（push 时机）+ 49（发布到哪个仓）**本轮不代拍**。
+
+## 2026-10-21 · 01:20–01:40 场次（**不占轮次号**，避免与并发场次撞号）：D37 —— 「零第三方前端运行时依赖」这条硬约束一直没人看守：给它配上门禁
+
+### 本轮定位
+
+清单里剩下的「待修」仍**全部卡在拍板项上**（D2 / D3 ↔ 40、D9 ↔ 41、D10 ↔ 42、
+D12 ↔ 43、D5 ↔ 选题主线、D26 视觉取舍、D32 ↔ 49、D6 ↔ push 时机 = 7 + 49）⇒
+按 ROADMAP §M0 的取用规则，本轮**新开编号**（D39），不代拍任何一件。
+
+上一轮（D36）把「产物 CSS == 源 CSS 剥掉注释后」守住了，D35 把「产物里没有注释字节」
+守住了 —— 但那两轮守的都是**产物内部**的一致性。ROADMAP 第 63–64 行那条
+**最上层的**硬约束还悬着：「零运行时依赖」。本轮顺着它往下看。
+
+### A. 缺陷事实
+
+- **事实①：这条硬约束写在文档里，却没有任何一道门禁守着它（实测）。**
+  ROADMAP 第 63–64 行原文：「目前没有任何第三方前端库/框架，样式与脚本全手写。
+  **这个约束要保持**（性能 + 可控 + 无供应链风险）。」
+  全仓 36 道门禁逐条看过，结果是：
+
+  | 该判什么 | 仓内判据数 |
+  |---|---|
+  | 外域 `<script src>` | **0 条** |
+  | 第三方 CSS（外域 stylesheet / `@import` / `url()`） | **0 条** |
+  | 运行时向外部发请求（`fetch` / XHR / Worker / import） | **0 条** |
+
+  `scripts/verify-site.cjs` 里那个 `EXTERNAL` 正则是**用来解析相对链接**的
+  （判「链接指向的站内页面存不存在」），**不判「资源从哪来」** ——
+  这两件事长得一样，但方向相反：前者查「站内有没有这个页面」，
+  后者查「这个资源是不是从外面拿的」。
+- **事实②：后果是可以复现的「加一行就全绿」。**
+  往 `base.njk` 里加一行
+  `<script src="https://cdn.example.com/analytics.js"></script>` ⇒
+  CDN 的脚本进了产物、访客的浏览器去执行它，
+  而 **`npm run build` 仍然全绿** —— 36 道门禁没有一道报告过。
+  供应链风险从「不存在」变成「已引入」，而**没有任何一道门禁说过一个字**。
+- **事实③：产物现状恰好满足这条约束 ⇒ 这是「看护缺口」，不是「现存违规」。**
+  实测产物（6 个页面 / 16 个外链 CSS / 10 个外链 JS）：
+
+  | 外域引用 | 数量 |
+  |---|---|
+  | 外域 `<script src>` | **0** |
+  | 外域 `img src` / `srcset` / `iframe` / `video` / `audio` / `track` | **0** |
+  | 外域 CSS 的 `@import` / `url()` | **0**（只有 7 条本地 `./_xxx.css`） |
+  | 站内 JS 的硬编码外域请求目标 | **0** |
+  | `<link>` 的外域资源提示 | **有**：`fonts.googleapis.com`（2 个 stylesheet + 2 个 preload + 1 个 preconnect）与 `fonts.gstatic.com`（1 个 preconnect） |
+
+  那两个域是 **Google Fonts** —— 是 webfont，**不是前端库/框架**，
+  而且是 `base.njk` 里**有意**的设计（那里有详细取舍注释：关键路径只留 3 个 Latin
+  字族、Noto Serif SC 拆出去异步加载、`tokens.css` 还为此备了本地 fallback）。
+  ⇒ 修法是**加门禁**，**不是**改构造层。
+
+### B. 本轮排除的候选方向（这段最省事，避免下轮重查）
+
+- **`<img>` 的 width/height 与文件真实像素比例** ⇒ 已有门禁 **IA4**
+  （`scripts/check-image-assets.cjs`）守着等比校验 ⇒ 不是缺陷。
+- **CSS 里的 `url()` / `@import` 指向的资源是否真实存在** ⇒ 产物 CSS 里只有
+  `components/index.css` 的 7 条 `@import url("./_xxx.css")`，全部指向存在的 partial
+  ⇒ 无缺失资源。
+- **字体重复声明 / preconnect / preload + stylesheet 同 URL** ⇒ **有意设计**
+  （`base.njk:30-59` 有详细取舍注释；preload 与 stylesheet 同 URL 是标准复用缓存写法；
+  `<noscript>` 副本不重复下载）⇒ 不是缺陷。
+- **本地开发路径泄漏到产物** ⇒ `grep -rl "/Users/\|/Volumes/" _site/` **无命中**。
+- **外域 `fetch` / XHR** ⇒ 站内 JS 只有 `src/assets/js/paper-reader/annotations.js:140`
+  一处 `fetch(annotationsUrl, { credentials: "same-origin" })`，
+  URL 来自 DOM 属性（站内相对路径），**无硬编码外域**。
+  （`annotations.js:52` 的 `"http://www.w3.org/2000/svg"` 是**字符串字面量**、不是请求目标。）
+- **D36 已查证、本轮不必重查的**：外链 JS 注释字节（12,112 B / 27.6%）、产物 CSS 残留空行
+  （外链 2,415 B + 内联 1,209 B）、内联 JS 注释 = 0、`src/` 下 4 个 `.cjs` 的中文全在注释里、
+  `check-dead-css` 58 个原理性误报且 `pages.css` 判死数 0、产物 195 个 CJK 全在未引用的
+  og SVG 与 favicon 的 XML 注释里。
+
+### C. 改了什么（2 个新文件 + 2 个改动文件 / 7 个路径）
+
+- `scripts/check-third-party.cjs`（**新**）：判据 **TD1–TD5**（详见下一节）。
+- `scripts/test-third-party.cjs`（**新**）：**21 档**注入矩阵。
+- `package.json`：新增 `check:third-party` / `check:third-party-selftest` 两个 script，
+  并接进 `build` 链（`eleventy` 之后 —— 门禁读的是产物）。
+- `README.md`：命令表新增两行（RD3：每个 npm script 都必须在 README 被提到）。
+- `docs/DEFECT-BACKLOG.md`：新开 **D39**（已修）；`docs/ROADMAP.md`：进度行 + D37 段；
+  本文件：D37 整节。
+- ⚠️ **本轮新增了 npm script**（D36 那轮刻意没加，为的是不牵动 RD3 / GW1 / GW4）。
+  本轮这条约束**独立成一道门禁**、职责不含在任何既有门禁里 ⇒ 独立文件 + 独立 script
+  更清楚；连带改动是 `package.json` 两行 + `README.md` 两行，
+  `check-gates-wired` 已复核 GW1（门禁可达）与 GW4（自测可达）全过。
+
+### D. 门禁 TD1–TD5 怎么写的（以及为什么这么写）
+
+- **TD1（HTML 子资源）**：`script` 的 `src`；`img`/`source`/`video`/`audio`/`track`/
+  `iframe`/`embed`/`object`/`input` 的资源属性（含 `srcset` 的每一项）。
+  协议相对 URL（`//cdn...`）**也算外域**（实测能抓住：浏览器会按 `https:` 解析它）。
+- **TD2（`<link>` 资源提示）**：`stylesheet` / `preload` / `modulepreload` / `prefetch` /
+  `preconnect` / `dns-prefetch` / `icon` / `apple-touch-icon` / `mask-icon` / `manifest`。
+  **不判** `canonical` / `alternate` / `author` / `license` —— 那些是**元数据指针**
+  （canonical 指向本站自己；`rel=alternate type=application/rss+xml` 是 feed autodiscovery），
+  判它们是假红。同理**不判 `<a href>`**（指向 ORCID / GitHub / DOI 是正常的对外引用）。
+- **TD3（CSS）**：外链 `.css` 文件**与**内联 `<style>` 块一起扫，提取 `@import` 与 `url()`。
+  `data:` / `blob:` 视为自包含（不发起网络请求）⇒ 放行；`url(#fragment)` 是本地片段 ⇒ 放行。
+- **TD4（JS）**：外链 `.js` 与内联 `<script>` 一起扫（**跳过** `application/ld+json` ——
+  JSON-LD 不是脚本）。目标 API：`fetch` / `importScripts` / `Worker` / `EventSource` /
+  `WebSocket` / `sendBeacon` / `XMLHttpRequest.open`（`open` 另用**HTTP 方法守卫**
+  确认第一个实参是 `"GET"` 这类方法，第二个实参才是目标）；
+  再加 `import` 说明符（`import "x"` / `... from "x"` / `import("x")`）——
+  **从 CDN 导入模块是引入第三方依赖最典型的写法**，不抓它等于漏了半条。
+- **TD5（覆盖度自证）**：产物页面数 / 外链 CSS 数 / 外链 JS 数 / 本地 `script src` 数 /
+  本地 stylesheet `link` 数都不得为 0 ⇒ 枚举器坏了门禁会一直绿着。
+- ⚠️ **白名单是（域，上下文）粒度，不是按域一刀切**：
+  当前只登记 Google Fonts 两处 —— `fonts.googleapis.com` 允许
+  `link:stylesheet` / `link:preload` / `link:preconnect`，
+  `fonts.gstatic.com` 只允许 `link:preconnect`（本站不直接请求它，
+  它只是那份 CSS 里 `@font-face` 指向的字体二进制域）。
+  **用不上的条目只出提示、不判红** —— 门禁不能反过来惩罚「把 Google Fonts 撤掉」这种改进。
+- ⚠️ **门禁自带扫描器，不 import 被检查方的任何代码**（D35 纪律，本轮继续遵守）：
+  HTML 标签扫描器（**引号内的 `>` 不算标签结束** —— 属性值里出现 `>` 是合法的）、
+  CSS 引用提取器、JS 注释剥离器（字符串 / 模板串 / 行注释 / 块注释 / **正则字面量** 五态）。
+  ⚠️ 正则字面量必须单独认出来：正则里出现「斜杠 + 斜杠」是合法的
+  （如匹配 URL 的 `/a\/\/b/`），若当成行注释，**整行之后的内容会被吃掉** ⇒ 判据会静默漏报。
+  判据编号用 **TD\***（TD 尚未被任何族占用）。
+- 四个开关 `TD1_ON`–`TD4_ON` **只为自测的负对照**存在，默认恒为 true。
+
+### E. 验证
+
+- `node scripts/check-third-party.cjs` exit 0
+  （「外域子资源 0 个」；枚举「6 个 `<script src>`（本地 6 个）/ 30 个本地 stylesheet `<link>` /
+  7 处 CSS 引用 / 1 处 JS 请求调用」；并如实报出「1 处请求调用的目标不是字面量，TD4 判不了」）。
+- `node scripts/test-third-party.cjs` exit 0（**21 档** TD0–TD4d + TD1n–TD4n + TDW1–TDW2）。
+- `node scripts/check-gates-wired.cjs` / `check-readme.cjs` / `check-tracked-refs.cjs` 全部 exit 0。
+- `npm run build` exit 0（0 个 ✗）—— 且 `check:third-party` 与 `check:third-party-selftest`
+  确实在 build 链上跑到了（build 日志里能看到两段的输出）。
+
+### F. 负对照（这一段最关键）
+
+- **TD1n / TD2n / TD3n / TD4n**：把副本门禁的 `TD1_ON` / `TD2_ON` / `TD3_ON` / `TD4_ON`
+  分别置 false ⇒ 对应注入档**转绿** ⇒ 证明那几档的红确实来自这四条判据本身，不是别处。
+- **TDW1（白名单粒度）**：把副本门禁里 `fonts.googleapis.com` 的登记上下文收窄成
+  只剩 `link:stylesheet` ⇒ **真产物**里那条 preload / preconnect 立刻判红
+  ⇒ 证明白名单确实是按（域，上下文）粒度登记的，不是按域一刀切。
+- **TDW2（豁免必须「用得出」）**：往副本门禁的白名单里塞一条**永不使用的**假条目
+  ⇒ 门禁**仍绿**，只出提示 ⇒ 证明白名单条目用不上时只提示不判红。
+- **原缺陷形态的复现**：注入 `<script src="https://cdn.example.com/analytics.js">`
+  现在被 **TD1** 抓住（修前是全链门禁全绿）—— 这才是「缺陷被修掉」的证据，
+  而不是「新加了一条永远绿的判据」。
+
+### G. 边界与已知不足（如实记，不藏）
+
+- **只判产物**：源码里写了但没渲染进产物的东西不在视野内。
+- **TD4 只抓硬编码外域 URL**：目标由 DOM 属性 / 变量注入的请求**判不了**，
+  只计数并提示（真产物里就有 1 处：`annotations.js` 的 `fetch(annotationsUrl)`）。
+  那种请求的目标是访客侧数据，不是第三方服务 ⇒ 提示而非判红是诚实的口径。
+- **不判导航链接 / 元数据指针 / `meta` 里的 URL / 数据 URL** —— 理由见上一节。
+- **不判 CSS 语义、不判脚本行为**，只判「资源从哪来」。
+- **白名单是登记式**：加新外部服务 = 改门禁 + 在白名单里写明理由。
+  本轮**不代拍**任何新的外部服务（当前只登记已经在用的 Google Fonts）。
+- **本轮只补看护，不改构造层**：站内一个字没改 —— 产物与修前**逐字相同**。
+
+### H. 本轮纪律
+
+- **只改本轮自己那几条路径**，并发场次在途的两个文件
+  （`scripts/check-identity-handles.cjs`、`scripts/test-gates-selfcheck.cjs`）**全程未碰、未提交**；
+  提交用**私有索引**（`GIT_INDEX_FILE`）逐路径 `hash-object` + `update-index --cacheinfo`，
+  **不 push**。
+- 门禁红了先**定位红因**，不放宽判据 —— 本轮就撞上了一次：
+  白名单第一版漏了 `fonts.googleapis.com` 的 `link:preconnect`，
+  门禁第一次跑就红了 6 条 ⇒ **改的是白名单登记，不是判据**。
+- 自测与门禁**全程在副本上注入**，**没有动过仓库里的任何一个文件**；收尾按 SHA-256 校验。
+- ⚠️ **踩过的坑（值得记）**：
+  ① **门禁的 `_site` 是硬编码的**（`SITE = path.join(ROOT, "_site")`）⇒ 验证门禁行为
+     **必须**用「复制 `_site` + 门禁到临时目录、让 `ROOT` 指向副本」的沙箱；
+     直接在 `/tmp` 副本上跑仓内门禁会扫到**真仓**的 `_site`，探针无效（D35 / D36 各犯过一次）。
+  ② **判据不能 import 被检查方的代码**（D35 纪律，本轮继续遵守）。
+  ③ **JS 里的正则字面量要单独认**，否则正则里的 `//` 会被当成行注释 ⇒ 静默漏报。
+  ④ **判据编号别撞号** ⇒ 新的门禁判据另起 **TD\*** 族。
+
+### 下一轮入口
+
+- 清单里剩下的「待修」仍全绑在拍板项上 ⇒ **下一轮大概率还是要新开编号**。
+- ⚠️ **本轮查过、下轮不必重查的候选**：
+  ① **D36 已查证的**（外链 JS 注释字节、产物 CSS 残留空行、内联 JS 注释 = 0、
+     `src/` 下 4 个 `.cjs` 的中文全在注释里、`check-dead-css` 58 个原理性误报、
+     产物 195 个 CJK 全在未引用的 og SVG 与 favicon 注释里）⇒ 都不是缺陷；
+  ② **本轮查证的**：`<img>` 宽高比（IA4 已守）、CSS `url()`/`@import` 的资源存在性、
+     字体重复声明 / preconnect / preload+stylesheet 同 URL（有意设计）、
+     本地开发路径泄漏（无命中）、外域 `fetch`/XHR（只有一处 DOM 注入的站内相对路径）。
+- 待拍板仍挂着：**40**（og 图口径与体积 → D2 / D3）、**41**（同 `@id` 的字段口径 → D9）、
+  **42**（交互类要不要配常驻浏览器门禁 → D10）、**43**（批注层 → D12）、
+  **46**（`excerpt` 缺失判红还是 note）、**47**（`portfolio` 去留）、
+  **48**（404 页根绝对前缀）、**49**（发布到哪个仓 → D32 / D6）；
+  **D5** 等本人定选题主线；**D26** 等本人看视觉取舍；**M3** 等本人自建 OAuth App。
+- 线上仍是旧部署 ⇒ **D6** ⇒ 待拍板 7（push 时机）+ 49（发布到哪个仓）**本轮不代拍**。
