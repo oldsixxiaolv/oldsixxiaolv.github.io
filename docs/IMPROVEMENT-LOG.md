@@ -20248,3 +20248,279 @@ D6 ↔ push 时机 = 7 + 发布仓 = 49、D32 ↔ 49）⇒ **本轮按惯例新�
   且两者之间**零门禁**（第二份副本目前是死数据，仓内零消费）。
   本轮**没有删掉任何一份**（删是构造层改动），只把「留两份 + 加门禁强制对齐」落地，
   把**取舍**登记在此，不代拍。
+
+## 2026-10-21 · 03:30–04:00 场次（**不占轮次号**，避免与并发场次撞号）：D40 —— 站点的 JavaScript **一行都没被任何门禁解析过**：给站点 JS 配上门禁
+
+### 本轮定位
+
+接 D39 场次（D41）之后继续。缺陷清单里剩下的「待修」仍**全绑在既有拍板项上**
+（D2 / D3 ↔ 40、D9 ↔ 41、D10 ↔ 42、D12 ↔ 43、D5 ↔ 选题主线、D26 视觉取舍、
+D6 ↔ push 时机 = 7 + 发布仓 = 49、D32 ↔ 49）⇒ **本轮按惯例新开编号 D42**。
+
+线上巡检：7 条 URL 仍是**旧部署**（`/` 200、`/papers/` **404**、`/blog/` 200、
+`/about/` 200、`/publications.bib` **404**、`/feed.xml` **404**、`/sitemap.xml` 200）
+⇒ 那是 **D6**（待拍板 7 + 49），**不是新缺陷**，本轮不碰、不代拍。
+
+### A. 缺陷事实
+
+站点的 JavaScript **一行都没被任何门禁解析过**。
+
+**实测一：站点有 10 个 JS 文件，全部被浏览器真的加载执行**
+
+| 位置 | 文件数 | 全部复制进产物？ | 浏览器真的加载？ |
+|---|---|---|---|
+| `src/assets/js/` | 4（`home-chart.js` / `main.js` / `nav.js` / `theme.js`） | 是（→ `_site/assets/js/`） | 是 |
+| `src/assets/js/paper-reader/` | 6（`annotations.js` / `highlight.js` / `main.js` / `reading-progress.js` / `theme.js` / `toc.js`） | 是（→ `_site/assets/js/paper-reader/`） | 是 |
+
+**实测二：零门禁看守**
+
+全仓搜 `new Function｜acorn｜node --check｜vm.Script｜esprima`，只命中三个门禁，
+而**三个都不管这件事**：
+
+- `scripts/check-home-chart.cjs` —— HC6 **只扫产物页（HTML）里的动态 `import()`**，
+  且**只判 bare 与否**（不判目标存不存在、不判语法）；
+- `scripts/check-jsonld.cjs` —— 管的是 **JSON**（JSON 不是 JS）；
+- `scripts/check-third-party.cjs` —— 只判**外域** import 说明符（TD4 那条是
+  「有没有引外域」，**不是**「有没有引到不存在的文件」）。
+
+⇒ **站内 JS 的语法正确性**与**模块图闭合性**至今**零覆盖**。
+
+**实测三：这个仓库已经吃过一次这样的亏（D10）**
+
+D10 场次实测：动态 `import()` 的说明符写成 bare ⇒ Chrome 抛
+`Failed to resolve module specifier` ⇒ **首页那张图静默失去交互**，
+而当时 **build 与所有静态门禁都还是绿的**。
+现有门禁里最接近的是 HC6，但它只覆盖 9 个里的**那 2 条**（两处内联 module）
+且只判 bare 与否，**JS 文件里的 7 条**（`main.js` 的 2 条静态 import +
+`paper-reader/main.js` 的 5 条动态 import）**完全无人核**
+⇒ **同一个坑可以再踩 7 次**。
+
+**实测四：全站 import 位点共 9 个模块说明符**
+
+| # | 产物位置 | 形态 | 说明符 |
+|---|---|---|---|
+| 1–2 | `_site/assets/js/main.js:2-3` | 静态 `import` | `./theme.js` / `./nav.js` |
+| 3 | `_site/assets/js/paper-reader/main.js:28` | 动态 `import()` | `./reading-progress.js` |
+| 4 | 同上 `:29` | 动态 `import()` | `./toc.js` |
+| 5 | 同上 `:30` | 动态 `import()` | `./theme.js` |
+| 6 | 同上 `:47` | 动态 `import()` | `./annotations.js` |
+| 7 | 同上 `:49` | 动态 `import()` | `./highlight.js` |
+| 8 | `_site/index.html` 内联 module | 动态 `import()` | `./assets/js/home-chart.js` |
+| 9 | `_site/papers/trmm-thunderstorm-stages/index.html` 内联 module | 动态 `import()` | `../../assets/js/paper-reader/main.js` |
+
+另有 **6 个 `<script src>`**（各页相对路径形态实测为：首页 `assets/js/main.js`、
+papers 页 `../assets/js/main.js`、论文页 `../../assets/js/main.js`、
+404 页 `/assets/js/main.js` …）。
+
+**后果**：任何一处说明符写错（写成 bare / 少个 `./` / 文件改名没跟着改），
+**访客的浏览器会静默丢掉整块功能**（首页图 / 阅读进度条 / 目录 / 批注层 / 高亮联动），
+而 **build 全绿** —— 这类失败只能靠**产物侧**的静态解析提前到 CI。
+
+⚠️ **不要误伤**：这不是「产物现在有违规」。实测**产物现状全部健康**
+（10 个文件都能解析、9 个说明符全部闭合、6 个 `<script src>` 全部落地）；
+缺的只是**看守** ⇒ 本轮改的是**门禁**，**不改构造层**。
+
+### B. 本轮排除的候选方向（这段最省事，避免下轮重查）
+
+- **`check-home-chart.cjs`（HC6）**：它守的是「**产物页里**动态 `import()` 的
+  specifier **是不是 bare**」，覆盖 9 个里的**那 2 条**（两处内联 module）
+  ⇒ 属「已覆盖那两条」，但**不判目标存不存在**、**不判语法**、**完全不看 JS 文件**
+  ⇒ 它不是这个缺口 ⇒ 不重复开编号。
+- **`check-third-party.cjs`（TD4）**：它守的是「有没有引**外域**」，
+  与「有没有引到**不存在的文件**」是**两条不同判据** ⇒ 不重复判红，也不合并。
+- **`check-jsonld.cjs`**：管 JSON-LD，JSON 不是 JS ⇒ 不是缺口。
+- **`src/assets/js/paper-reader/main.js:37` 块注释里的「动态 import 挂载」字样**：
+  是**注释**不是真 import ⇒ 属扫描器必须屏蔽的**假阳性来源**，不是缺陷。
+- **产物里 6 个 `<script src>` 的相对路径形态**（`assets/js/…` vs `../assets/js/…` vs
+  `/assets/js/…`）：那是 Eleventy `relUrl` 的正常产物，**不是**缺陷
+  ⇒ 但它决定了门禁必须按「**页面 URL 口径**」而不是「文件路径口径」解析（D 节）。
+
+### C. 改了什么（1 个新门禁 + 1 个新自测 + 4 个接线/文档路径）
+
+- `scripts/check-site-js.cjs` —— **本轮新增的门禁**，判据 **JS1–JS6**（见 D 节）。
+- `scripts/test-site-js.cjs` —— **本轮新增的自测**，**JT0–JT17** 十八档，接在 build 链。
+- `package.json` —— 新增 2 个 npm script（`check:site-js` / `check:site-js-selftest`），
+  并把两者接进 `build` 链（接在 `check:navigation-selftest` 之后、`check:site` 之前 ——
+  这道门禁要看**产物**，必须排在 `eleventy` 之后）。
+- `README.md` —— 命令表补 2 行（RD3：每个 npm script 都要在 README 命令表里被提到）。
+- `docs/DEFECT-BACKLOG.md` —— 加 **D42** 行（已修 + 验证方式）。
+- `docs/ROADMAP.md` —— 进度行与 M0 叙述段同步（D40 段）。
+- `docs/IMPROVEMENT-LOG.md` —— 本节。
+
+⚠️ **本轮不改构造层、不改站内文字** ⇒ **产物应当零变化**（E 节用双次 build 证明）。
+
+### D. 判据怎么写（以及为什么这么写）
+
+- **JS1 产物 JS 文件的语法，必须按「浏览器加载它的那张嘴」判**：
+  `type="module"` 的按 **ESM** 判，经典 `<script src>` 的按**经典脚本**判。
+  ⚠️ 口径**不是猜的**：从 HTML 的 script 标签 + 模块图**反推**每个文件是哪种口径。
+- **JS2 产物 JS 文件里的每个模块说明符（静态 `import` / `export … from` /
+  动态 `import()`），必须按「该模块自己的产物路径」解析并落到真实存在的产物文件**；
+  **裸说明符判红**（本仓**没有 import map**，浏览器必然抛
+  `Failed to resolve module specifier`，且违反「零第三方前端运行时依赖」）。
+- **JS3 内联脚本按 classic / module 对应口径必须能解析**。
+- **JS4 内联 module 的说明符必须按「页面 URL 口径」落地** ——
+  这**正是 D10 那类 bug 的真凶**（内联 module 里的 `import("./assets/js/home-chart.js")`
+  是相对**页面**的，不是相对某个文件的）。
+- **JS5 `<script src>` 必须按页面 URL 口径落地**。
+- **JS6 覆盖度自证 + 门禁自己没被卸掉**：一处都没比过就判红；
+  package.json 的 build 链里必须真的有本门禁（自测的 **JT9** 档专门证明这条活着）。
+
+**实现上的三个关键取舍（本轮踩过的坑，如实记）**：
+
+1. **纯产物侧**：门禁以 `_site` 为准解析模块图与内联脚本 ⇒ 天然与**线上加载行为**
+   一致，免去「源路径 ↔ 产物路径」的映射（映射本身就是一处会漂的映射）。
+2. **全程不执行被检查方代码**：
+   - **ESM 口径** = `spawnSync(process.execPath, ["--input-type=module","--check"], {input: src})`
+     （走 stdin，只解析不执行）；
+   - **classic 口径** = 进程内 `new vm.Script(src)`（**只编译不执行**）。
+   ⚠️ **实测踩坑**：`node --check` 走 stdin 做 classic 口径**不可靠** ——
+   源码里含 `import()` 或顶层 `await` 时会被误判成 ESM 并 exit 1
+   ⇒ classic 改用 `vm.Script`（实测：拒绝顶层 `return` / 静态 import / 顶层 `await`，
+   接受动态 `import()` 与 `with`）。
+   ⚠️ **放弃 `vm.SourceTextModule`**：本机 node v26.8.1 默认 `undefined`，
+   要 `--experimental-vm-modules` ⇒ 实验 flag 脆弱，不入长期门禁。
+3. **HTML 的 `src` 与模块 specifier 用两套解析规则**：
+   HTML URL 引用（`<script src>`）**一律相对页面解析**（`src="assets/js/main.js"` 是正常的，
+   不是「裸」）；而模块 specifier 只有 `./` `../` `.` `..` 才算相对，**其余一律裸**。
+   ⇒ 把这两套混成一套，就会出现「首页 `<script src="assets/js/main.js">` 被误判成裸」这种假红。
+
+**扫描器自写（门禁不得 import 被检查方的 lib）**：
+`maskJs()`（屏蔽注释 / 字符串 / 模板串文字段 / 正则字面量，保留引号与反引号，
+`${…}` 递归回代码模式）、`findSpecifiers()`、`readStringLiteral()` /
+`readTemplateLiteral()`、`findFromSpecifier()`（语句层找 `from`，**深度 0 才认**）、
+`scanScriptTags()` / `parseAttrs()`（自写 HTML 扫描器）、
+`resolveSpecifier(spec, baseUrl, moduleMode)`。
+
+**判红边界**：外域说明符**不重复判红**（归 `check-third-party` 的 TD4）；
+`data:` / `blob:` 自包含**不判**；**非字面量**的动态 import（如 `import(prefix)`）
+**只计数提示、不判红**（静态解析判不了它的值）。
+
+### E. 验证
+
+- `node scripts/check-site-js.cjs` **exit 0**，通过文案逐字为：
+  「站点 JS 门禁通过：产物 10 个 JS 文件（10 个按 module 口径解析通过）、
+  8 段内联脚本、9 个模块说明符全部闭合到真实存在的产物文件、
+  6 个 `<script src>` 全部落地。」
+  ⚠️ **接线前首次跑只报「门禁自己被卸掉了」** ⇒ 证明 JS6 那条真的在起作用，不是装饰。
+- `node scripts/test-site-js.cjs` **exit 0** —— **18 档** JT0–JT17 全过
+  （含 6 档判据级负对照、1 档故意判绿、1 档扫描器 tricky 档、1 档 D10 原样复刻）。
+- 文档类门禁：`check-gates` / `check:tracked-refs` / `check:readme` / `check:readme-selftest` /
+  `check:decision-ids` 全部 exit 0。
+- `npm run build` **exit 0**（0 个 ✗），实测耗时 **1m40.091s**。
+- **产物零变化**经**双次 build 交叉证明**（同一 HEAD、同一工作树下连跑两次 build）：
+  产物 **49 个**文件里**只有 2 个**变了（`feed.xml` 的 `lastBuildDate` 与
+  `robots.txt` 的 `# generated-at:` 这两处**构建时刻**），其余 **47 个**逐字节相同。
+  ⇒ 再补一次**逐行回推**：把这两个文件在前后两次 build 之间做 `diff -u`，
+  实测**各只有一行不同** —— `feed.xml` 的 `<lastBuildDate>` 与 `robots.txt` 的
+  `# generated-at:`，且两行的值都是**构建时刻**（实测
+  `Wed, 21 Oct 2026 11:07:31 GMT` → `11:09:43 GMT`、
+  `2026-10-21T11:07:31.748Z` → `11:09:43.135Z`）⇒ **除构建时刻外没有任何别的差异**。
+  ⇒ 与 D39 场次同一条纪律：**别拿「上一次 build 的产物」当零变化基准** ——
+  `sitemap.xml` 的 `<lastmod>` 取的是**依赖闭包里最晚的 git 提交时间**，
+  两次 build 之间只要落了一个提交，sitemap 就会变；
+  有效口径只能是**同一 HEAD、同一工作树**下的双次 build。
+- ⚠️ **提交后才暴露的一件事（本轮实测，也是本轮最值得记的一条）**：
+  `check-tracked-refs`（TR1）扫的是**索引里的已跟踪代码文件**
+  ⇒ **新写的文件在「未跟踪」时 TR1 根本扫不到它** ⇒ build 绿；
+  **一旦纳入跟踪**，TR1 立刻扫到它 ⇒ 本轮自测文件里那几处
+  「造静态 import 语句」的**夹具数据**（`./nav.js` / `./extra.js`）
+  被 TR1 当成**真引用** ⇒ 目标 `scripts/nav.js` 不存在 ⇒
+  **提交后 build 直接红（4 个 ✗）**。
+  ⇒ 教训：**「提交前 build 绿」不等于「提交后的树绿」** ——
+  新增门禁/自测脚本必须**自己进索引之后**再跑一次 build（或先 `git add` 再 build）。
+  ⇒ 修法：夹具里的 import 语句改由**拼接生成**（源码里不出现「静态本地引用」字面量），
+  **真引用仍然是字面量、照旧被 TR1 扫到** ⇒ 修完 TR1 绿（扫了 115 个已跟踪代码文件）、
+  **18 档自测仍全绿**。
+
+### F. 负对照（这一段最关键）
+
+- **修前负对照（真实坏态级）**：在真产物形态上注入 D10 原样的裸说明符 ⇒ **exit 1**，
+  红因逐字点名：
+  「index.html：内联 module 的 import 说明符「assets/js/home-chart.js」是**裸说明符**
+  —— 浏览器会抛 Failed to resolve module specifier，整段脚本直接不执行。」
+  ⇒ 证明这道门禁**抓得住本缺陷家族的实体**，不是事后补的一句解释。
+- **JT3（裸说明符，JS 文件内）**：红因逐字点名
+  「/assets/js/nav.js：第 1 行的模块说明符「lodash」是**裸说明符** …」
+- **JT7（故意判绿，最要紧的一档）**：把 import 指向一个**真实存在的新文件** ⇒ 仍绿
+  ⇒ 证明它守的是「**目标存不存在**」而不是「固定文件清单」——
+  门禁若写死那 9 个说明符，它就变成「锁死内容」的门禁。
+- **JT16（扫描器 tricky 档）**：在**注释 / 字符串 / 模板串 / 正则字面量**里各埋一个
+  指向**不存在**文件的假 `import(`，外加一个真 `import.meta` 与一个真 import
+  ⇒ 必须判绿 ⇒ 证明扫描器不会把文字里的 `import(` 当成说明符。
+- **JT17（D10 原样复刻）**：首页内联 module 的说明符写成裸的 ⇒ 必须判红，
+  且**红因点名到位**（不能只报「有个 import 解析不了」）。
+- **JT9（门禁被摘掉）**：把本门禁从 build 链摘掉 ⇒ 门禁判红「门禁自己被卸掉了」
+  ⇒ 证明 JS6 那条真的在起作用。
+- **JT10–JT15（六档判据级负对照）**：在**副本**里把 `const JSn_ON = true;` 改成
+  `false;`（分别是 JS1–JS5 与 JS6 的判定开关），对应注入必须**转绿**
+  ⇒ 证明每条红因确实来自那一条判据，不是别的检查顺手撞上的。
+- **JT8（覆盖度自证）**：把产物里的 JS 与 script 标签全抽掉 ⇒ 门禁必须判红
+  （「一处都没比过就判红」）。
+
+### G. 边界与已知不足（如实记，不藏）
+
+- **门禁只看产物、不看源**：源里写了但没进产物的 JS（死代码）门禁管不着；
+  这是**有意的取舍**（产物侧 = 访客真正加载的东西），但也意味着「源里有、产物里没有」
+  这类不一致**不在本门禁视野内**。
+- **语法判定用 node 的解析器，不等于浏览器**：node v26 与 Chrome 的 ES 语法支持
+  可能存在版本差 ⇒ 门禁抓的是**确定性**的语法错（少分号、少引号、写坏结构），
+  不是「浏览器才认的新语法」。
+- **非字面量动态 import 不判红**（`import(prefix)`）⇒ 这类写法若存在，
+  门禁只会**计数提示**，闭合性由人来看。
+- **`import map` 不存在这件事本身没被本门禁守**：它是「当前没有 import map」这一
+  **现状**；若将来引入 import map，JS2 的「裸说明符判红」口径需要同步调整
+  ⇒ 这一点**已记在本门禁文件头**（说明符口径与 import map 现状绑在一起）。
+- **门禁不执行被检查方代码**：所以「能解析」不等于「运行时不会抛」；
+  运行时行为类缺陷仍属 **D10** 那条线（待拍板 **42**：交互类要不要配常驻浏览器门禁）
+  ⇒ 本轮**不越界代拍**。
+- **门禁自带 HTML 扫描器与 JS 屏蔽器**（门禁不得 import 被检查方的 lib，D35 纪律）
+  ⇒ 代价是这两个解析器本身是**简化实现**：它按「够用且不误判」的精度做，
+  不追求完整 HTML/JS 规范（真要完整，得引第三方依赖 ⇒ 违反「零第三方运行时依赖」）。
+
+### H. 本轮纪律
+
+- **只改本轮自己那几条路径**，并发场次在途的两个文件
+  （`scripts/check-identity-handles.cjs`、`scripts/test-gates-selfcheck.cjs`）**全程未碰、未提交**；
+  提交用**私有索引**（`GIT_INDEX_FILE`）逐路径 `hash-object` + `update-index --cacheinfo`，
+  **不 push**。
+- **门禁不得 import 被检查方的代码**（D35 纪律）⇒ 本门禁**零第三方依赖**，
+  只用 Node 内置能力（`fs` / `path` / `child_process` / `vm`），扫描器全部自写。
+- **门禁全程不执行被检查方代码** ⇒ 语法判定只编译不运行。
+- **判据编号别撞号** ⇒ 新开 **JS1–JS6**（Site JS）。
+  ⚠️ **不用 `SJ*`**：`docs/lighthouse/*.json` 里已有 Lighthouse 自带的审计 id
+  **SJ0 / SJ1 / SJ3 / SJ5 / SJ8 / SJ9** ⇒ 同形编号会把两套东西混在一起。
+  既有用到的前缀（CF / DC / DI / GW / HC / IA / ID / LS / MC / PT / RD / TR / DS / SP /
+  TS / AN / A / W / C / M / AP / CV / LM / TX / BL / E / F / T / J / FF / LT / DT / MT /
+  CW / CQ / TD / NA / NT / JT）均已查过。
+- **负对照必须断言红因文案命中**，不能只断言退出码 ⇒ 本轮六档判据级负对照
+  都是「转绿 + 红因点名」双断言。
+- **改门禁 ≠ 改构造层** ⇒ 本轮**一个构造层文件都没动**，产物应当零变化（E 节已证）。
+- **新增脚本必须「进索引后再 build」** ⇒ TR1 只扫**已跟踪**文件 ⇒
+  未跟踪时它不红、跟踪后它才红 ⇒ 「提交前绿」不代表「提交后的树绿」（E 节有实测）。
+  ⇒ 本轮因此**没有留下一个 build 红的提交**：改完直接**改写（amend）**那次提交，
+  让 `main` 上每个落地的提交**都是绿的**。
+- **不把会变的数字写进现状陈述** ⇒ 门禁文件头、README、缺陷清单里写的是**机制**
+  （几类判据、怎么解析），不写「站内现在有几个 JS 文件」这类会漂的数字。
+
+### 下一轮入口
+
+- 清单里剩下的「待修」仍全绑在拍板项上 ⇒ **下一轮大概率还是要新开编号**。
+- ⚠️ **本轮查过、下轮不必重查的候选**：
+  ① **D38 / D39 已查证的**（见那两节「下一轮入口」）；
+  ② **本轮查证的**：`check-home-chart.cjs`（HC6，只扫**产物页**里的动态 `import()`
+     且**只判 bare 与否**，不判目标存不存在、不判语法、完全不看 JS 文件）、
+     `check-third-party.cjs`（TD4，只管外域说明符）、`check-jsonld.cjs`（JSON 不是 JS）
+     —— 三者都不是「站内 JS 零覆盖」这个缺口；
+     `paper-reader/main.js:37` 块注释里的「动态 import 挂载」是**注释**，
+     属扫描器要屏蔽的假阳性来源，不是缺陷；
+     6 个 `<script src>` 的相对路径形态（`assets/js/…` / `../assets/js/…` / `/assets/js/…`）
+     是 `relUrl` 的正常产物。
+- 待拍板仍挂着：**40**（og 图口径与体积 → D2 / D3）、**41**（同 `@id` 的字段口径 → D9）、
+  **42**（交互类要不要配常驻浏览器门禁 → D10）、**43**（批注层 → D12）、
+  **46**（`excerpt` 缺失判红还是 note）、**47**（`portfolio` 去留）、
+  **48**（404 页根绝对前缀）、**49**（发布到哪个仓 → D32 / D6）、
+  **50**（封面比例口径 → D40 的第 ④ 条）、**51**（顶层导航留几份真源 → D41）；
+  **D5** 等本人定选题主线；**D26** 等本人看视觉取舍；**M3** 等本人自建 OAuth App。
+- 线上仍是旧部署 ⇒ **D6** ⇒ 待拍板 7（push 时机）+ 49（发布到哪个仓）**本轮不代拍**。
+- **本轮不新增待拍板**：D42 是**纯补看护**（改门禁、不改构造层、不动需要拍板的取舍）⇒ 不占新号。

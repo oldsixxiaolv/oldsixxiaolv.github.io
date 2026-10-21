@@ -86,6 +86,8 @@ Cloudflare Pages、Nginx 等任意静态服务。详细运行 / 调试见 `HOW_T
 | `npm run check:tool-routes` | 浏览器工具量到的必须是真页面，不是本站 404 页 |
 | `npm run check:navigation` | **顶层导航只有一份真源**：`site.js` 的 nav 数组与各模板的 `eleventyNavigation` 必须逐位对齐（key 同名、order 等于位次），产物上每一页的页头导航必须与真源一致，导航入口必须指向真实存在的页面 |
 | `npm run check:navigation-selftest` | 上面那道门禁的本地夹具自测（9 档注入矩阵，证明它能变红；含两档**负对照**：三处一起改必须判绿、门禁被摘掉必须判红） |
+| `npm run check:site-js` | **站点 JS 真的能被浏览器加载起来**：产物 JS 的语法按浏览器加载它的那张嘴判（module / 经典脚本）、模块说明符必须闭合到真实存在的产物文件（裸说明符判红）、内联脚本必须能解析、内联 module 的说明符与 `<script src>` 必须按**页面 URL 口径**落到真实存在的文件 |
+| `npm run check:site-js-selftest` | 上面那道门禁的本地夹具自测（18 档注入矩阵，证明它能变红；含 **6 档判据级负对照**（卸掉某条判据后对应注入必须转绿）、一档**故意判绿**（把 import 指向一个真实存在的新文件必须判绿）、一档**覆盖度自证**（抽掉全部 JS 必须判红）；另有一档**D10 原样复刻**与一档扫描器 tricky 档） |
 | `npm run check:site` | 结构化数据与元数据逐项核对（`scripts/verify-site.cjs`） |
 | `npm run check:page-deps` | **页面依赖闭包**：一页的 `lastmod` 必须等于它**依赖闭包**里最晚的 git 提交时间（内容由别的文件提供时也算数）；闭包不许退化成「只看自己」、不许引用不存在的文件，模板引用必须写字面量，sitemap 不许漏掉页面，全局数据必须登记 |
 | `npm run check:page-deps-selftest` | 上面那道门禁的本地夹具自测（8 档注入矩阵，证明它能变红；含一档**故意判绿**的负对照） |
