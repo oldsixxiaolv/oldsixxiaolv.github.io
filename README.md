@@ -104,6 +104,8 @@ Cloudflare Pages、Nginx 等任意静态服务。详细运行 / 调试见 `HOW_T
 | `npm run check:image` | 页面里声明的图与产物里真实存在的图是同一张 |
 | `npm run check:img-srcset` | 响应式图片声明（`srcset` / `imagesrcset`）的**每个候选 URL** 必须落到真实存在的产物文件（按页面 URL 口径解析）；`<img>` 必须留 `src` 兜底；候选列表不得为空；描述符必须合法且**不得混用宽度与密度**（混用会让整条声明被浏览器忽略） |
 | `npm run check:img-srcset-selftest` | 上面那道门禁的本地夹具自测（17 档注入矩阵，证明它能变红；含 **6 档判据级负对照**（卸掉某条判据后对应注入必须转绿）、一档**故意判绿**（把候选改成一个真实存在的新文件必须判绿）、一档**覆盖度自证**（抽掉全部 srcset 必须判红）、一档扫描器 tricky 档） |
+| `npm run check:img-loading` | **每张 `<img>` 都必须显式声明加载策略**：必须写 `loading`，且取值只能是 `eager` / `lazy`（不写 = 落回浏览器默认的 eager，首屏之外的图也抢带宽；写错取值浏览器会**静默忽略**）；`loading="eager"` 必须配 `fetchpriority="high"`（首屏 LCP 候选图的优先级必须显式给出），`fetchpriority="high"` 必须配 `loading="eager"`（两个属性成对，`high` 配 `lazy` 自相矛盾）；`fetchpriority` 取值只能是 `high` / `low` / `auto`（拼错会被静默忽略）；另含**覆盖度自证**与**门禁自己没被卸掉** |
+| `npm run check:img-loading-selftest` | 上面那道门禁的本地夹具自测（17 档注入矩阵，证明它能变红；含 **6 档判据级负对照**（卸掉某条判据后对应注入必须转绿）、**红因归属纯净性断言**（每档红只许出现自己那一条判据的编号）、**2 档故意判绿**（`lazy` + `fetchpriority="low"` 是合法组合；新增一张合法的 lazy 图）、一档**覆盖度自证**（抽掉全部 `<img>` 必须判红）、一档扫描器 tricky 档） |
 | `npm run check:figure-cover` | 论文封面图只有一处真源（site.js 的 `publications[].figure`），且正文 `<img>`、og:image、twitter:image、JSON-LD image 四个出口是**同一张图、同一组尺寸**；论文页 front matter 不得留封面副本 |
 | `npm run check:figure-cover-selftest` | 上面那道门禁的本地夹具自测（12 档注入矩阵，证明它能变红；含一档**故意判绿**的边界负对照） |
 | `npm run check:lang` | 语言标记统一 + 编码损坏 |

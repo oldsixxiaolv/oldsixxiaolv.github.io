@@ -356,6 +356,12 @@ editPaths:
       width="{{ site.author.photo.portraitSize.width }}"
       height="{{ site.author.photo.portraitSize.height }}"
       alt="Portrait of {{ site.author.name }}"
+      {# 首屏 LCP 候选：与首页人像（_includes/partials/hero.njk）用的是**同一张图**、
+         同一个角色 —— 加载策略必须一致：loading="eager" + fetchpriority="high"。
+         此前这一处两个属性都缺（靠浏览器默认的 eager 加载），与首页写法不一致，
+         详见缺陷清单 D48；scripts/check-img-loading.cjs（IL1–IL6）现在守着这条。 #}
+      loading="eager"
+      fetchpriority="high"
       decoding="async"
     />
     <div class="about-hero__id">
