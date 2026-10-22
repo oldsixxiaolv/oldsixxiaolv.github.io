@@ -19,7 +19,7 @@
  *     · 没有任何门禁读图片**字节** → og:image:width / height 写错、
  *       或图换了尺寸但声明没换，都没有人拦。
  *
- * 编号体系：**独立编号 IA1–IA7**，不与既有编号续接
+ * 编号体系：**独立编号 IA1–IA8**，不与既有编号续接
  *   （scripts/verify-site.cjs 用 1–32、check-a11y.cjs 用 A1–A7、
  *    check-wrapping.cjs 用 W1–W3、check-gates-wired.cjs 用 GW1–GW3）。
  *   也**不写死**对方的编号区间——那个区间会随对方加门禁而过期，
@@ -37,9 +37,13 @@
  *   IA1 分享图必须真的存在：og:image / og:image:secure_url / twitter:image
  *        指向的站内文件必须在产物里存在（外站图不查，但**要计数报出来**，
  *        不许悄悄跳过）。附带：og:image 与 og:image:secure_url 必须指向同一个文件。
+ *        ⚠️ **twitter:image 逐条验**（一张页面可以给多张 twitter:image）：
+ *          D2 修完之后，正方形与横幅这两张分享图**只挂在 twitter:image 上**
+ *          （og 那边只留一张）⇒ 若只验第一条，这两张就没人验了。
  *   IA2 og 声明的尺寸必须等于真实像素：og:image:width / og:image:height 必须存在，
  *        且与该文件的真实像素**逐字相等**（平台按这两个数取尺寸，写错就是错卡）。
- *   IA3 分享图必须有非空 alt：og:image:alt / twitter:image:alt 缺一个都不行。
+ *   IA3 分享图必须有非空 alt：og:image:alt / twitter:image:alt 缺一个都不行
+ *        （twitter 侧同样**逐条**）。
  *   IA4 <img> 声明的比例必须与真实像素一致：width / height 属性与真实像素**等比**
  *        （容差 1%）。属性值写错 → 预留了错的比例 → 布局照样跳。
  *        ⚠️ 已知边界（D40 登记，**待拍板 50**）：被"裁切槽"承载的图
@@ -74,6 +78,17 @@
  *          而产物里分享图声明为 **0** —— 分享出去全是无图卡片。
  *        这条与 IA1–IA6 互补：IA1–IA6 管"声明了的那条对不对"，
  *        IA7 管"声明在不在"。
+ *   IA8 og:image **不得多于一条**（逐页）：抓取器只取**第一张** og:image，
+ *        多出来的既不会被选中，又让"这一页的 og:image 到底是哪张"变得不确定
+ *        （结构化数据里的 image 引用的也是第一张 ⇒ 两者必须一致）。
+ *        为什么 IA1–IA7 抓不到这一形态：**它们逐条验的是"已经声明出来的那几条"，
+ *        声明了三条、三条各自都对 ⇒ 全部判绿**，而多出来的那两条是纯多余。
+ *        实测（修 D2 之前）：除论文页外每个页面都声明了 **3 条** og:image
+ *        （1200×630 / 1080×1080 / 1500×500），理由写的是"社交平台按 slot 尺寸
+ *        自动选图" —— 但那条理由只对 twitter:image 成立。
+ *        ⚠️ 与 IA7 的分工（**同一处缺陷只许红一条**，红因归属才可判定）：
+ *          **0 条**归 IA7（"没有声明 og:image"），
+ *          **多于 1 条**归 IA8（本条）；合起来 = 恰好 1 条。
  */
 
 const fs = require("fs");
@@ -90,6 +105,11 @@ const problems = [];
 const notes = [];
 const fail = (m) => problems.push(m);
 const note = (m) => notes.push(m);
+
+/* IA8 的判定开关。**覆盖度计数不在这个开关之内**（覆盖度自证要是能被
+   一起卸掉，那道判据就没有"自己被卸掉"的能力了）。
+   负对照用：把它改成 false，同一处注入必须转绿 —— 证明红确实来自 IA8 自己。 */
+const IA8_ON = true;
 
 /* 站点公开地址（site.url）。绝对 URL 口径的唯一基准。 */
 let SITE_URL = "";
@@ -172,15 +192,21 @@ function pairOgImages(html) {
   return pairs;
 }
 
-/** twitter:image / twitter:image:alt 的配对。 */
-function pairTwitterImage(html) {
-  let image = null;
-  let alt = null;
+/** twitter:image / twitter:image:alt 的配对（**逐条**）。
+    一张页面可以给多张 twitter:image（X / Twitter 按槽位比例自己挑），
+    配对规则与 og 侧同源：**每个 alt 配给最近一个还没配过 alt 的 image**
+    （即 alt 必须紧跟自己的 image）。 */
+function pairTwitterImages(html) {
+  const pairs = [];
   for (const { key, content } of metaList(html)) {
-    if (key === "twitter:image" && image === null) image = content;
-    else if (key === "twitter:image:alt" && alt === null) alt = content;
+    if (key === "twitter:image") {
+      pairs.push({ image: content, alt: null });
+    } else if (key === "twitter:image:alt" && pairs.length) {
+      const p = pairs[pairs.length - 1];
+      if (p.alt === null) p.alt = content;
+    }
   }
-  return image === null ? null : { image, alt };
+  return pairs;
 }
 
 /* ---------------- 读图片的真实像素 ---------------- */
@@ -350,18 +376,32 @@ for (const pageFile of pages) {
 
   /* --- 分享卡片图：og:image 家族 + twitter:image --- */
   const ogPairs = pairOgImages(html);
-  const tw = pairTwitterImage(html);
+  const twPairs = pairTwitterImages(html);
 
   /* IA7：分享图声明**必须存在**（逐页）。见文件头 IA7 那段：
      声明消失这一形态 IA1–IA6 抓不到（它们的应验集是从产物里的引用算出来的，
      引用没了应验集跟着空）→ 整条 build 链会 exit 0 全绿。 */
   const missingShare = [];
   if (ogPairs.length === 0) missingShare.push("og:image");
-  if (!tw) missingShare.push("twitter:image");
+  if (twPairs.length === 0) missingShare.push("twitter:image");
   if (missingShare.length) {
     fail(
       `门禁 IA7：${pageRel} 没有声明 ${missingShare.join(" 与 ")} —— ` +
         `分享到社交平台时没有预览图（分享出去是无图卡片，站点自己看不出来）`
+    );
+  }
+
+  /* IA8：og:image **不得多于一条**（逐页）。见文件头 IA8 那段：
+     多出来的 og:image 是纯多余（抓取器只取第一张），而 IA1–IA7 逐条验的是
+     "已经声明出来的那几条" ⇒ 三条各自都对时它们一句都不说。
+     ⚠️ 与 IA7 的分工：**0 条**归 IA7、**多于 1 条**归 IA8 ⇒ 同一处缺陷只红一条。 */
+  if (IA8_ON && ogPairs.length > 1) {
+    fail(
+      `门禁 IA8：${pageRel} 声明了 ${ogPairs.length} 条 og:image（` +
+        `${ogPairs.map((p) => p.image).join("、")}）—— ` +
+        `一个页面只应有一张 og:image：抓取器只取第一张，多出来的既不会被选中，` +
+        `也只会让"这一页的 og:image 是哪张"变得不确定（结构化数据引用的也是第一张）。` +
+        `多尺寸分享图请挂 twitter:image（X / Twitter 会按比例挑）。`
     );
   }
 
@@ -447,22 +487,24 @@ for (const pageFile of pages) {
     }
   }
 
-  if (tw) {
+  /* twitter 侧**逐条**验（IA1 文件存在 / IA3 alt 非空）。
+     逐条是必须的：D2 修完之后，正方形与横幅这两张分享图**只挂在 twitter 侧**
+     （og 那边只留一张）⇒ 只验第一条的话，这两张就没人验了。 */
+  for (const t of twPairs) {
     ogRefCount++;
-    const file = register("twitter:image", tw.image, pageFile);
-    if (file) {
-      if (!fs.existsSync(file) || !fs.statSync(file).isFile()) {
-        fail(
-          `门禁 IA1：${pageRel} 的 twitter:image 指向 ${tw.image} —— ` +
-            `产物里没有这个文件（分享卡片会拿到 404）`
-        );
-      }
-      /* IA3：twitter:image:alt 必须存在且非空。 */
-      if (tw.alt === null || String(tw.alt).trim() === "") {
-        fail(
-          `门禁 IA3：${pageRel} 的 twitter:image ${tw.image} 没有非空的 twitter:image:alt`
-        );
-      }
+    const file = register("twitter:image", t.image, pageFile);
+    if (!file) continue;
+    if (!fs.existsSync(file) || !fs.statSync(file).isFile()) {
+      fail(
+        `门禁 IA1：${pageRel} 的 twitter:image 指向 ${t.image} —— ` +
+          `产物里没有这个文件（分享卡片会拿到 404）`
+      );
+    }
+    /* IA3：twitter:image:alt 必须存在且非空。 */
+    if (t.alt === null || String(t.alt).trim() === "") {
+      fail(
+        `门禁 IA3：${pageRel} 的 twitter:image ${t.image} 没有非空的 twitter:image:alt`
+      );
     }
   }
 
@@ -569,9 +611,10 @@ if (missingFiles.size) {
 }
 if (!problems.length) {
   note(
-    `门禁 IA1–IA7：共验 ${verifiable.length} 张图` +
+    `门禁 IA1–IA8：共验 ${verifiable.length} 张图` +
       `（分享图引用 ${ogRefCount} 处、页面图引用 ${imgRefCount} 处；` +
-      `同一张图被引用多次只读一次字节）`
+      `同一张图被引用多次只读一次字节；每页 og:image 恰好 1 条 —— ` +
+      `IA7 管不少于 1 条、IA8 管不多于 1 条）`
   );
 }
 
@@ -584,4 +627,4 @@ if (problems.length) {
   problems.forEach((p) => console.error("  " + p));
   process.exit(1);
 }
-console.log("✓ 图片资产自检通过（门禁 IA1–IA7：分享图与页面图的声明 ↔ 实物一致）");
+console.log("✓ 图片资产自检通过（门禁 IA1–IA8：分享图与页面图的声明 ↔ 实物一致，每页 og:image 恰好 1 条）");
