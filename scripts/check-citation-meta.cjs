@@ -70,7 +70,7 @@
  * ⚠️ 为什么不写进 scripts/verify-site.cjs：那里的门禁是**一个连续编号**
  *   的整体（文件头清单 + 代码段 + 对照表三处必须一一对应，见门禁 24/29），
  *   插入新号要同时改三处、且号必须连续。本门禁是独立主题的**引用层**检查，
- *   与 check-a11y（A1–A4）、check-wrapping（W1–W3）、check-artifact-metadata
+ *   与 check-a11y（A*）、check-wrapping（W*）、check-artifact-metadata
  *   （M1–M6）同一形态：自带编号、单独成文件。因此不占用 verify-site.cjs 的号段。
  */
 const fs = require("fs");

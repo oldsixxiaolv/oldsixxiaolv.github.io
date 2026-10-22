@@ -21,7 +21,7 @@
  *
  * 编号体系：**独立编号 IA1–IA8**，不与既有编号续接
  *   （scripts/verify-site.cjs 用 1–32、check-a11y.cjs 用 A1–A7、
- *    check-wrapping.cjs 用 W1–W3、check-gates-wired.cjs 用 GW1–GW3）。
+ *    check-wrapping.cjs 用 W*、check-gates-wired.cjs 用 GW*）。
  *   也**不写死**对方的编号区间——那个区间会随对方加门禁而过期，
  *   写死就是一句会变假的话。
  *

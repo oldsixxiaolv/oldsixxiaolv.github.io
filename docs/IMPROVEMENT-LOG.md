@@ -24522,3 +24522,139 @@ D59 第三批给 `check-lang`、第四批给 `check-print-theme`、第五批给 
 - 线上仍是旧部署 ⇒ **D6** ⇒ 待拍板 7 + 49 **本轮不代拍**。
 - **D57**（暗色链接 hover 2.46:1）的修法**挂待拍板 55** ⇒ 本人拍板后即可修（改三处）。
 - **待拍板 54**：要不要把对比度检查脚本升级成常驻 build 链门禁（**前提**：D57 得先修完）⇒ **本轮不代拍**。
+
+## 2026-10-21 · 21:50–22:45 场次（**不占轮次号**，避免与并发场次撞号）：D59 —— 13 道无配对的门禁又少一道：给 `check-wrapping` 配常驻自测，顺手拆掉一个「只读第一条声明」的空跑洞
+
+### 本轮定位
+
+修 **D59 的第七批**：D57 给 `check-image-assets` 配了自测、D58 给 `check-tool-routes` 配了自测、
+D59 第三批给 `check-lang`、第四批给 `check-print-theme`、第五批给 `check-copy-export`、
+第六批给 `check-css-braces` 各配了自测，但 D59 行自己写着「**分批做，别一次改 13 道门禁**」
+⇒ 本轮**只补 `check-wrapping` 这一道**，其余 **6 道**继续挂着待做。
+
+`check-wrapping` 守的是**长串能否断行** —— 一段没被 `overflow-wrap: anywhere` 兜住的长 DOI /
+长 URL 会把容器撑破，撑破后窄屏上就出现横向滚动。它此前有 **W1–W3** 编号，但**零自证判据**
+⇒ 它的判定从未被证明过会红。
+
+本轮读代码 + 跑探针时另外实测发现**两个真洞**（所以本轮不只是补强）：
+
+① **级联洞** —— 旧 `wrapDecls()` 只取一条规则里的**第一条** `overflow-wrap` 声明，而 CSS 是
+**后写覆盖先写** ⇒ `p { overflow-wrap: anywhere; overflow-wrap: break-word; }` 的实际生效值是
+`break-word`（照样挡不住长串），旧门禁却读成 `anywhere` ⇒ **放行**，并且还打印
+「其中无 overflow-wrap: break-word」⇒ **一句明确的假话**；
+
+② **假阳性** —— `overflow-wrap: anywhere !important` 是完全合法的写法，旧门禁把整串当成值去比对
+⇒ 判成「不是受支持的兜底值」⇒ **误报判红**。
+
+（真实仓库**零影响**：实测全仓 `overflow-wrap` 只有 4 条真实声明，无一用 `!important`，也没有一条
+规则里写了两遍。）
+
+### A. 为什么挑 `check-wrapping`
+
+- D59 行说「分批做」⇒ 本轮只挑 1 道。其余 6 道候选各有各的难：`check-identity-derivation`
+  624 行 + 5 个载体家族 + ORACLE 真 URL ⇒ 夹具成本高；`check-tracked-refs` 依赖 git 索引；
+  `check-jsonld` 依赖提交时间；`verify-site` 2999 行；`check-artifact-metadata` 的 `M` 前缀
+  **真撞号**（`check-citation-meta` 已占 M1–M6）；`check-identity-handles` **正被并发场次改** ⇒ 不能碰。
+- `check-wrapping` 的扫描面是 **CSS 文件 + 模板内联 `<style>` + `style` 属性**
+  ⇒ **夹具不需要 git、也不需要 `_site`** ⇒ 一批就能做完。
+- `W` 前缀**已由本门禁占用**（全仓带冒号形式实测：另两个脚本里的 `W1` / `W3` 都是注释里写的
+  「peer 的 W1/W3」⇒ 归属明确）⇒ 编号**沿用不换**（W1–W3 语义完全不变），只把红因统一成
+  `门禁 Wn：` 前缀并各配一个 `const Wn_ON = true;` 开关。
+- ⚠️ 顺带发现：仓库里**多处注释写死了别的门禁的判据编号区间**（`A1–A4` / `W1–W3` / `GW1–GW3`）
+  ⇒ 区间会随对方加判据而过期。依据仓库自己那条教训，本轮把它们改成 `A*` / `W*` / `GW*`
+  （**5 个 peer 脚本 + `check-a11y` 自身的文件头自称**）；`docs/IMPROVEMENT-LOG.md` 里的历史记录不动。
+
+### B. 门禁本体改了什么
+
+- ① **编号化**（语义不变）：W1–W3 的判定一字未改，只把红因文案统一成 `门禁 Wn：` 前缀，
+  每条配 `const Wn_ON = true;` 可卸把手（**卸一条不连带**关掉别条的计算）。
+- ② **新增 W4「解析器自证」**：4 条合成样例 —— 末位生效 / `!important` 压过普通声明 /
+  `!important` 被剥离 / 注释里的声明不算；任一不符 ⇒ 判红。**为什么要它**：解析器一旦被改坏，
+  门禁会安静地给出**错的结论**，而这种失效**不会**让门禁自己变红。
+- ③ **修掉级联洞**：`wrapDecls()` 改成取**最后生效**的声明 —— 有 `!important` 则取最后那条
+  `!important`，否则取最后一条普通声明。
+- ④ **修掉 `!important` 假阳性**：新增 `IMPORTANT_RE`，`parseWrapDecl()` 把 `!important`
+  从值里剥离并单独标记。
+- ⑤ **W3 从字符串匹配升级为沿 `npm run` 链遍历**（做法沿用 CB4）：旧写法是
+  `build.includes("check:wrap")`，而本轮新增的 `check:wrap-selftest` 名字里**含** `check:wrap`
+  ⇒ 门禁被卸掉时旧写法反而判**绿**；链遍历后 `scripts/test-wrapping.cjs` 不含子串
+  `check-wrapping.cjs` ⇒ 不误判。
+- ⑥ **扫描面目录不在场**时由**抛栈**改成返回 `[]`（由 W1 判红），不再崩栈。
+- ⑦ 汇总行加了 `globalSummary` 兜底（`globalRule` 为 null 时不崩）—— 这个缺陷是 **N-W1 负对照**
+  抓出来的。
+
+### C. 自测矩阵（24 档）
+
+`scripts/test-wrapping.cjs` —— 跑在**自造的最小夹具站**上（自造 `package.json` + 门禁副本 +
+一张样式表 + 一个模板，**不依赖真 `_site`、不需要 git**）：
+
+- **6 档绿档**：G0 基线 / G1 合法 `anywhere !important` / G2 合法末位覆盖 / G3 注释里的 `break-word`
+  / G4 AppleDouble 侧车 / G5 模板内联 `!important`。
+- **11 档注入**：W1a 无全局规则 / W1b 缺一个标签 / W1c 用 `break-all` / W2a 末位 `break-word` /
+  W2b 内联 `<style>` / W2c `style` 属性 / W2d inlineCss 盲区 / W2e `normal` / W3 被卸 /
+  W4a 读第一条 / W4b 不剥 `!important`。
+- **4 档判据级负对照**：N-W1–N-W4（逐条卸掉判据后对应注入必须转绿）。
+- **1 档精准性负对照**：P-W4 —— 卸 W4 + 破坏解析器 + 叠加 W2e 注入 ⇒ **仍红但红因集合恰为 {W2}**。
+- **2 档覆盖度自证**：COV-A 三类扫描数量 = 夹具真实数量；COV-B 现读门禁源码验证 `note("Wn")`
+  与 `const Wn_ON = true;` 的集合**恰为 {W1,W2,W3,W4}**。
+
+### D. 断言口径
+
+- **红因编号多重集完全相等**（连红因**行数**也要相等 ⇒ 连「同一条判据报了两次」也算失败）
+  + **文案命中**（红因文案必须命中声明的字符串）。
+- **每处注入都断言「改动行数 = 声明值」**，口径是**增量**（这一处 patch 动了多少行），不是累计。
+  **追加类**注入口径不同：末尾换行槽位会被算成多一行 ⇒ 用「新增行数 + 前文未被动」。
+- **原件 SHA-256 收尾校验**：自测跑完，门禁原件的哈希必须与开跑前一致 ⇒ 证明自测**没有**动真文件。
+
+### E. 三项自检（断言不是摆设）
+
+① 把 W2a 的期望编号由 `["W2"]` 改成 `["W3"]` ⇒ 23/24、exit 1 ⇒ 断言真的会拦（已恢复）。
+② 把门禁的 `const eff = pool[pool.length - 1];` 退回 `pool[0]` ⇒ **W2a 档塌**（实际红因只剩 W4）
+⇒ 证明 W2a 那条红**确实来自本轮修的级联洞**，不是别的东西顺带红的（已恢复）。
+③ 恢复后复跑 ⇒ 24/24 绿、exit 0；真实仓库跑 `node scripts/check-wrapping.cjs` ⇒ exit 0
+（15 个 CSS 文件 + 1 个模板内联 `<style>` + 0 处 `style` 属性）。
+
+### F. 接线
+
+- `package.json` 加 `check:wrap-selftest`，**接在 `check:wrap` 之后**（GW4）。
+- README 命令表加一行（RD3）。
+- ⚠️ **不登记进 `EXEMPT_SELFTEST`**（既接 build 又登记 ⇒ 自相矛盾）。
+
+### G. 行为变化（如实记下）
+
+① `overflow-wrap` 生效值现在按 CSS 级联语义判定 ⇒ **旧门禁放行的「末位是 break-word」那类规则
+现在会判红**；
+② `!important` 形态不再误报；
+③ W3 现在认的是 `npm run` 链 ⇒ 门禁被摘出 build 链时会判红（此前字符串写法会被新脚本名骗过）；
+④ 扫描面目录不在场时，红因从**崩栈**变成 W1 的红因。
+
+### H. 线上巡检与基线
+
+- 线上 7 URL（`/` / `papers/` / `blog/` / `about/` / `publications.bib` / `feed.xml` / `sitemap.xml`）
+  = `200 / 404 / 200 / 200 / 404 / 404 / 200` ⇒ **与上轮一致**（线上仍是旧部署 D6）⇒ 非新缺陷。
+- 基线 `npm run build` **exit 0 / 0 个 ✗**。
+- 7 道元门禁（`check:gates` / `check:readme` / `check:design-contract` / `check:log-sections` /
+  `check:decision-ids` / `check:doc-snapshot` / `check:tracked-refs`）全 exit 0。
+
+### I. 本轮纪律
+
+- **每轮只做一个改进点**：D59 行要求分批 ⇒ 本轮只碰 `check-wrapping` 一道，其余 6 道不动。
+- **改门禁不放松判据**：W4 是**新增**的自证判据，不是把原有判定放宽；修假阳性是把 `!important`
+  剥掉（补成 CSS 本来的语义），不是把检查关掉。
+- **红因归属必须纯净**：每档断言多重集完全相等 + 文案命中。
+- **负对照要证明「破坏真的打上了」**：增量口径的「改动行数 = 声明值」这一层就是干这个的。
+- **行为变化如实记下**（G 段四条），**不写成「只是优化」**。
+- **中央台账不动**：本轮纯工程补强，不涉审美与内容口径 ⇒ **不新增待拍板项**。
+- **不写死别人的判据编号区间**（区间会随对方加判据而过期）⇒ 顺手把 5 个 peer 脚本的 `A1–A4` /
+  `W1–W3` / `GW1–GW3` 改成 `A*` / `W*` / `GW*`；`docs/` 里的历史记录不动。
+
+### 下一轮入口
+
+- **D59 第八批**：剩 **6 道**里再挑 1 道（`check-artifact-metadata` / `check-identity-derivation` /
+  `check-jsonld` / `check-tracked-refs` / `verify-site`；`check-identity-handles` 等并发场次放手）
+  ⇒ 挑之前先复核当时的**前缀占用**与**并发占用**。
+- **D3**（og PNG ≤ 200 KB + 同步 `og:image:type`）修法明确、不挂拍板 ⇒ 可排在 D59 之后。
+- **D5** 等本人定选题主线；**D26** 等本人看视觉取舍；**M3** 等本人自建 OAuth App。
+- 线上仍是旧部署 ⇒ **D6** ⇒ 待拍板 7 + 49 **本轮不代拍**。
+- **D57**（暗色链接 hover 2.46:1）的修法**挂待拍板 55** ⇒ 本人拍板后即可修（改三处）。
+- **待拍板 54**：要不要把对比度检查脚本升级成常驻 build 链门禁（**前提**：D57 得先修完）⇒ **本轮不代拍**。

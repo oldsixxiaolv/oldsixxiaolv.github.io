@@ -52,7 +52,7 @@
  *
  * 与既有门禁的编号关系：本门禁用独立字母编号 GW*，
  * 不与 scripts/verify-site.cjs 的数字编号体系、
- * check-a11y.cjs 的 A1–A4、check-wrapping.cjs 的 W1–W3 续接或冲突。
+ * check-a11y.cjs 的 A*、check-wrapping.cjs 的 W* 续接或冲突。
  * （这里**不写死**对方的编号上界——写死就是一个必然漂移的新来源，
  *   数字编号那边的上界由 verify-site.cjs 自己的门禁 24 守着。）
  */

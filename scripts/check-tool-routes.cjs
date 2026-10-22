@@ -63,8 +63,8 @@
  *   不是给运行期留后门。
  *
  * 与既有门禁的编号关系：本门禁用独立字母编号 RT*，
- * 不与 verify-site.cjs 的数字编号体系、check-a11y.cjs 的 A1–A4、
- * check-wrapping.cjs 的 W1–W3、check-gates-wired.cjs 的 GW*、
+ * 不与 verify-site.cjs 的数字编号体系、check-a11y.cjs 的 A*、
+ * check-wrapping.cjs 的 W*、check-gates-wired.cjs 的 GW*、
  * check-tracked-refs.cjs 的 TR* 续接或冲突。
  */
 const fs = require("fs");
