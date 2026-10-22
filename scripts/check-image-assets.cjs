@@ -19,7 +19,7 @@
  *     · 没有任何门禁读图片**字节** → og:image:width / height 写错、
  *       或图换了尺寸但声明没换，都没有人拦。
  *
- * 编号体系：**独立编号 IA1–IA8**，不与既有编号续接
+ * 编号体系：**独立编号 IA1–IA10**，不与既有编号续接
  *   （scripts/verify-site.cjs 用 1–32、check-a11y.cjs 用 A1–A7、
  *    check-wrapping.cjs 用 W*、check-gates-wired.cjs 用 GW*）。
  *   也**不写死**对方的编号区间——那个区间会随对方加门禁而过期，
@@ -89,6 +89,26 @@
  *        ⚠️ 与 IA7 的分工（**同一处缺陷只许红一条**，红因归属才可判定）：
  *          **0 条**归 IA7（"没有声明 og:image"），
  *          **多于 1 条**归 IA8（本条）；合起来 = 恰好 1 条。
+ *   IA9 分享图**体积上限**：被 og:image / twitter:image 引用的**站内**图，
+ *        真实字节数必须 ≤ 200 KB（204,800 B）。
+ *        为什么要有这条：社交平台每抓一次分享卡，就要下载**这一整张**图；
+ *        体积就是流量成本，也是抓取失败率。此前全站默认分享图是 PNG，
+ *        三张合计约 1.5 MB、单张最大 647 KB —— 每被分享一次就白流一次。
+ *        （实测：同尺寸 JPEG(q=90) 约 110 KB，肉眼无可见差异。）
+ *        ⚠️ 只管**分享图**（og / twitter 引用到的那些），不管页面正文里的 <img>：
+ *        正文配图本来就可以更大（论文成果图就是 154 KB 的 JPEG）。
+ *        ⚠️ 阈值取 200 × 1024 = 204,800 B 而不是 200,000 B —— "200 KB"
+ *        有两种口径，取宽的那个才不会让边界上的图误判红。
+ *   IA10 og:image:type 必须与**文件真实格式**一致：声明的 MIME 必须等于
+ *        按文件**魔数**读出来的真实格式（PNG → image/png、JPEG → image/jpeg、
+ *        SVG → image/svg+xml），缺声明也判红。
+ *        为什么 IA1–IA9 抓不到这一形态：它们查的是"文件在不在"、"像素对不对"、
+ *        "字节数超没超" —— **声明的类型字符串**没人查。
+ *        实测（修 D3 之前）：站点默认分享图已是 JPEG，而模板里
+ *        `og:image:type` 仍**写死** image/png ⇒ 声明与实物不符，
+ *        部分抓取器会按错误的 MIME 解析图片。
+ *        ⇒ 模板侧用 imageMime filter 按扩展名推导（构建期），
+ *          本门禁按真实魔数复核（独立的第二层：两层各自出错才可能蒙对）。
  */
 
 const fs = require("fs");
@@ -106,10 +126,21 @@ const notes = [];
 const fail = (m) => problems.push(m);
 const note = (m) => notes.push(m);
 
-/* IA8 的判定开关。**覆盖度计数不在这个开关之内**（覆盖度自证要是能被
-   一起卸掉，那道判据就没有"自己被卸掉"的能力了）。
-   负对照用：把它改成 false，同一处注入必须转绿 —— 证明红确实来自 IA8 自己。 */
+/* IA8 / IA9 / IA10 的判定开关。**覆盖度计数不在这些开关之内**（覆盖度自证
+   要是能被一起卸掉，那道判据就没有"自己被卸掉"的能力了）。
+   负对照用：把它改成 false，同一处注入必须转绿 —— 证明红确实来自这条判据自己。
+   ⚠️ IA9 的**测量**也在开关之外（只抑制判红，不抑制计算）——
+      否则"卸掉 IA9"会把空跑防护一起卸掉，红因归属就说不清了。 */
 const IA8_ON = true;
+const IA9_ON = true;
+const IA10_ON = true;
+
+/** 分享图的体积上限：200 KB。取 200 × 1024 = 204,800 B（宽口径，
+    免得"200 KB"两种写法各判一半）。 */
+const SHARE_MAX_BYTES = 200 * 1024;
+
+/** 真实格式 → MIME。IA10 用它把"文件实际是什么"翻译成"应该声明成什么"。 */
+const MIME_BY_FORMAT = { PNG: "image/png", JPEG: "image/jpeg", SVG: "image/svg+xml" };
 
 /* 站点公开地址（site.url）。绝对 URL 口径的唯一基准。 */
 let SITE_URL = "";
@@ -169,7 +200,8 @@ function metaList(html) {
 }
 
 /** 把 og:image / og:image:secure_url / og:image:width / og:image:height /
-    og:image:alt 按出现顺序配成一组一组（同组里紧跟在 image 后面的那些属性属于它）。
+    og:image:alt / og:image:type 按出现顺序配成一组一组
+    （同组里紧跟在 image 后面的那些属性属于它）。
     配对规则：每个属性只配给**最近一个还没配过这个属性**的组。 */
 function pairOgImages(html) {
   const pairs = [];
@@ -177,7 +209,7 @@ function pairOgImages(html) {
     if (!key.startsWith("og:image")) continue;
     const suffix = key.slice("og:image".length);
     if (suffix === "") {
-      pairs.push({ image: content, secure_url: null, width: null, height: null, alt: null });
+      pairs.push({ image: content, secure_url: null, width: null, height: null, alt: null, type: null });
       continue;
     }
     if (!pairs.length) continue;
@@ -186,6 +218,7 @@ function pairOgImages(html) {
       : suffix === ":width" ? "width"
       : suffix === ":height" ? "height"
       : suffix === ":alt" ? "alt"
+      : suffix === ":type" ? "type"
       : null;
     if (field && p[field] === null) p[field] = content;
   }
@@ -351,8 +384,23 @@ const expectedFiles = new Set();
 const missingFiles = new Set();   // 站内但文件不存在（<img> 的由门禁 1 负责）
 const externalRefs = [];         // 外站图：验不了，但必须报出来
 const sizeCache = new Map();     // 文件 → 真实像素（读一次）
+/* 分享图（被 og:image / twitter:image 引用的**站内**图）→ 首次引用它的
+   页面与 URL。IA9 要量它们的真实字节数；同一张图被多页引用只记一次
+   （红因指名到最先引用它的那页，不重复报同一条）。 */
+const shareFiles = new Map();
+/* IA10 实际比对过的 og:image 引用数（**计数在判定开关之外**：
+   卸掉 IA10 只该抑制判红，不该让"比对过几条"的记账归零）。 */
+let mimeChecked = 0;
 let ogRefCount = 0;
 let imgRefCount = 0;
+
+/** 登记一张站内分享图（IA9 要量它的真实字节数）。
+    同一张图只记第一次引用。 */
+function registerShareFile(file, pageRel, url, kind) {
+  if (!shareFiles.has(file)) {
+    shareFiles.set(file, { page: pageRel, url, kind });
+  }
+}
 
 function sizeOf(file) {
   if (!sizeCache.has(file)) sizeCache.set(file, readImageSize(file));
@@ -419,6 +467,9 @@ for (const pageFile of pages) {
       continue;
     }
 
+    /* 登记这张分享图（IA9 要量它的真实字节数）。 */
+    registerShareFile(file, pageRel, p.image, "og:image");
+
     /* IA1 附带：og:image 与 og:image:secure_url 必须指向同一个文件。 */
     if (p.secure_url !== null) {
       const secureFile = localFileOf(p.secure_url, pageFile);
@@ -452,6 +503,29 @@ for (const pageFile of pages) {
     if (size.unreadable) {
       fail(`门禁 IA5：${pageRel} 的 og:image ${p.image} 读不出来（文件不可读）`);
       continue;
+    }
+
+    /* IA10：og:image:type 必须存在，且与文件**真实格式**一致。
+       真实格式是从文件的**魔数**读出来的（readImageSize 走 PNG 签名 / JPEG 的
+       SOF 段 / SVG 标签），不是从扩展名 —— 扩展名可以骗人，魔数不会。
+       ⚠️ 计数在判定开关之外：卸掉 IA10 只该抑制判红，不该让"比对过几条"
+          的记账归零（否则空跑防护会被一起卸掉）。 */
+    mimeChecked++;
+    if (IA10_ON) {
+      const declaredType = p.type === null ? "" : String(p.type).trim();
+      const realMime = MIME_BY_FORMAT[size.format];
+      if (!declaredType) {
+        fail(
+          `门禁 IA10：${pageRel} 的 og:image ${p.image} 没有声明 og:image:type —— ` +
+            `部分抓取器要靠它判断图片格式，缺声明时按未知类型处理`
+        );
+      } else if (declaredType.toLowerCase() !== realMime) {
+        fail(
+          `门禁 IA10：${pageRel} 的 og:image ${p.image} 声明 og:image:type="${declaredType}"，` +
+            `而文件真实格式是 ${size.format}（应当声明 ${realMime}）—— ` +
+            `声明与实物不符，部分抓取器会按错误的 MIME 解析图片`
+        );
+      }
     }
 
     /* IA2：声明的宽高必须存在，且与真实像素逐字相等。 */
@@ -499,6 +573,10 @@ for (const pageFile of pages) {
         `门禁 IA1：${pageRel} 的 twitter:image 指向 ${t.image} —— ` +
           `产物里没有这个文件（分享卡片会拿到 404）`
       );
+    } else {
+      /* 登记这张分享图（IA9 要量它的真实字节数）。
+         twitter 侧的图**只挂在这里**（og 那边只留一张）⇒ 它们同样要过 IA9。 */
+      registerShareFile(file, pageRel, t.image, "twitter:image");
     }
     /* IA3：twitter:image:alt 必须存在且非空。 */
     if (t.alt === null || String(t.alt).trim() === "") {
@@ -595,6 +673,48 @@ if (verifiable.length === 0) {
   );
 }
 
+/* ---------------- IA9：分享图体积上限 ---------------- */
+/* 真实字节数用 fs.statSync().size —— **不能**拿读出来的 buffer 长度当体积：
+   readImageSize 只读前 64 KB（够找到 SOF 段），用 buffer 长度会把一张
+   600 KB 的图算成 64 KB，这条判据就废了。
+   ⚠️ 测量在判定开关**之外**（只抑制判红，不抑制计算）——
+      否则"卸掉 IA9"会把空跑防护一起卸掉，红因归属就说不清了。 */
+let shareSized = 0;
+for (const [file, ref] of shareFiles) {
+  let bytes;
+  try {
+    bytes = fs.statSync(file).size;
+  } catch {
+    continue;
+  }
+  shareSized++;
+  if (!IA9_ON) continue;
+  if (bytes > SHARE_MAX_BYTES) {
+    fail(
+      `门禁 IA9：${ref.page} 的 ${ref.kind} ${ref.url} 有 ${bytes} B，` +
+        `超过分享图体积上限 ${SHARE_MAX_BYTES} B（200 KB）—— ` +
+        `社交平台每抓一次分享卡就要下载这一整张，体积就是流量成本；` +
+        `换成 JPEG（或降采样）通常能压到十分之一`
+    );
+  }
+}
+if (shareSized === 0) {
+  fail(
+    "门禁 IA9：一张被引用的站内分享图都没量到 —— " +
+      "本门禁在这种情况下等于**空跑**，空跑的门禁等于没有门禁，所以判红"
+  );
+}
+
+/* ---------------- IA10：og:image:type 的比对量（空跑防护） ---------------- */
+/* 比对量由 og 循环里的 mimeChecked 累加（**在 IA10_ON 开关之外**）。
+   一条都没比对过 ⇒ 本门禁在这种情况下等于空跑 ⇒ 判红。 */
+if (mimeChecked === 0) {
+  fail(
+    "门禁 IA10：一条 og:image:type 都没比对过 —— " +
+      "本门禁在这种情况下等于**空跑**，空跑的门禁等于没有门禁，所以判红"
+  );
+}
+
 /* ---------------- 汇总 ---------------- */
 if (externalRefs.length) {
   note(
@@ -611,10 +731,12 @@ if (missingFiles.size) {
 }
 if (!problems.length) {
   note(
-    `门禁 IA1–IA8：共验 ${verifiable.length} 张图` +
+    `门禁 IA1–IA10：共验 ${verifiable.length} 张图` +
       `（分享图引用 ${ogRefCount} 处、页面图引用 ${imgRefCount} 处；` +
       `同一张图被引用多次只读一次字节；每页 og:image 恰好 1 条 —— ` +
-      `IA7 管不少于 1 条、IA8 管不多于 1 条）`
+      `IA7 管不少于 1 条、IA8 管不多于 1 条；` +
+      `分享图 ${shareSized} 张已量体积（上限 ${SHARE_MAX_BYTES} B）、` +
+      `${mimeChecked} 条 og:image:type 已按真实魔数比对）`
   );
 }
 
@@ -627,4 +749,4 @@ if (problems.length) {
   problems.forEach((p) => console.error("  " + p));
   process.exit(1);
 }
-console.log("✓ 图片资产自检通过（门禁 IA1–IA8：分享图与页面图的声明 ↔ 实物一致，每页 og:image 恰好 1 条）");
+console.log("✓ 图片资产自检通过（门禁 IA1–IA10：分享图与页面图的声明 ↔ 实物一致，每页 og:image 恰好 1 条，分享图 ≤ 200 KB 且 og:image:type 与真实格式相符）");

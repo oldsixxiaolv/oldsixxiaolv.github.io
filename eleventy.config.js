@@ -147,11 +147,12 @@ module.exports = function (eleventyConfig) {
     // 递归覆盖 src/assets/img/ 子树（og:image、paper 配图、avatar 等）。
     // ⚠️ **不发布 svg**（D52，见 docs/DEFECT-BACKLOG.md）：
     //   src/assets/img/og/ 下的三份 SVG（og-1080x1080 / og-1200x630 / og-1500x500）
-    //   是分享图 PNG 的**设计母版** —— docs/og-image-and-a11y-report.md 记着
-    //   SVG → PNG 的转换关系，站内真正发布的是同名的 **PNG**（三处 og:image:type
-    //   全是 image/png，社交平台不解析 SVG）。母版本身**没有任何页面请求**，
-    //   通配直拷等于把「构建输入」当「发布物」（三份合计 18,055 B 白占部署体积）。
-    //   ⇒ 母版**留在源里**（还要靠它再生成 PNG），只是不发布。
+    //   是分享图 JPEG 的**设计母版** —— docs/og-image-and-a11y-report.md 记着
+    //   SVG → PNG/JPEG 的转换关系，站内真正发布的是同名的 **JPEG**（og:image:type
+    //   由 imageMime filter 按扩展名推导为 image/jpeg，社交平台不解析 SVG）。
+    //   母版本身**没有任何页面请求**，通配直拷等于把「构建输入」当「发布物」
+    //   （三份合计 18,055 B 白占部署体积）。
+    //   ⇒ 母版**留在源里**（还要靠它再生成 JPEG），只是不发布。
     // ⚠️ 将来若在 src/assets/img/ 下新增**被引用**的 SVG，
     //   scripts/check-img-publish.cjs 的 IP2 会判红（漏拷）——
     //   那时必须**显式**把这一份加回清单；不要改成通配（通配会把死副本带回来，
@@ -1098,6 +1099,39 @@ module.exports = function (eleventyConfig) {
     // 裸文件名：内容侧写在 index.html 同级（如 cover: "cover.svg"），
     // permalink 恒以 / 结尾，直接拼即可。
     return `${base}${pageUrl || ""}${c}`;
+  });
+
+  /* ---------- 4c-2. imageMime filter：分享图 MIME @扩展名 ----------
+     og:image:type 必须与**实际文件格式**一致：写死 image/png 会让部分抓取器
+     按错误的 MIME 解析图片（论文页用的是 JPEG 成果图，此前被标成 png）。
+
+     为什么放 filter 而不是模板里写 if/elif：
+       og 家族（og:image:type）与 twitter 家族（多尺寸图）依赖同一份推导。
+       模板里内联两份 if/elif/else，迟早走样成"og 侧标 jpeg、twitter 侧标 png"，
+       而那种错页面照常渲染、没有任何门禁看得见。
+     ⇒ 推导只有这一个出处，调用方都调它 ⇒ 逐字相同是构造出来的。
+
+     ⚠️ 这是**按扩展名**推导（构建期不读文件）；声明与实物是否真的相符，
+        由门禁 IA10 按文件真实魔数复核 —— 两层各自独立，才不会同源出错。 */
+  eleventyConfig.addFilter("imageMime", (url) => {
+    const raw = String(url || "").split("?")[0].split("#")[0];
+    const dot = raw.lastIndexOf(".");
+    const ext = dot >= 0 ? raw.slice(dot + 1).toLowerCase() : "";
+    switch (ext) {
+      case "jpg":
+      case "jpeg":
+        return "image/jpeg";
+      case "png":
+        return "image/png";
+      case "webp":
+        return "image/webp";
+      case "gif":
+        return "image/gif";
+      case "svg":
+        return "image/svg+xml";
+      default:
+        return "image/png";
+    }
   });
 
   /* ---------- 4c. jsonLdPaper filter：论文页的完整 JSON-LD @graph ----------

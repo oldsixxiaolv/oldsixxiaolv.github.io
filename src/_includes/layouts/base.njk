@@ -247,24 +247,13 @@
     {% set coverUrl = coverSrc | coverImageUrl(site.url, page.url) %}
     {# og:image:type 必须与实际文件格式一致：cover 可能是 jpg/png/svg/webp，
        写死 image/png 会让部分抓取器按错误的 MIME 解析图片（论文页用的是
-       JPEG 成果图，之前被标成 png）。这里按扩展名推导。 #}
-    {% set coverExt = coverUrl.split('?')[0].split('.').pop() | lower %}
-    {% if coverExt == 'jpg' or coverExt == 'jpeg' %}
-      {% set coverMime = 'image/jpeg' %}
-    {% elif coverExt == 'png' %}
-      {% set coverMime = 'image/png' %}
-    {% elif coverExt == 'webp' %}
-      {% set coverMime = 'image/webp' %}
-    {% elif coverExt == 'gif' %}
-      {% set coverMime = 'image/gif' %}
-    {% elif coverExt == 'svg' %}
-      {% set coverMime = 'image/svg+xml' %}
-    {% else %}
-      {% set coverMime = 'image/png' %}
-    {% endif %}
+       JPEG 成果图，之前被标成 png）。这里调 imageMime filter 推导 ——
+       推导规则**只有那一个出处**（og 家族与 twitter 家族共用），模板里
+       不再内联第二份 if/elif：两处各写一份，迟早走样成"两边声明的格式
+       不一样"，而那种错页面照常渲染、没有任何门禁看得见。 #}
     <meta property="og:image" content="{{ coverUrl }}" />
     <meta property="og:image:secure_url" content="{{ coverUrl }}" />
-    <meta property="og:image:type" content="{{ coverMime }}" />
+    <meta property="og:image:type" content="{{ coverUrl | imageMime }}" />
     {%- if coverW %}
     <meta property="og:image:width" content="{{ coverW }}" />
     {%- endif %}
@@ -285,12 +274,16 @@
        变得不确定（结构化数据里的 image 引用的也是第一张 ⇒ 两者必须一致）。
        ⇒ 多尺寸分享图改挂 twitter:image（**只有 X / Twitter 支持按显示槽位的
        比例从多张 twitter:image 里挑一张**，最多 5 张，那里多给是有效的）。
-       三张图都还在 src/assets/img/og/（SVG 源 + PNG 导出）、都还在发布、
+       三张图都还在 src/assets/img/og/（SVG 母版 + JPEG 导出）、都还在发布、
        都还被引用 —— 只是「多尺寸」这件事从 og 家族挪到了 twitter 家族。
        ⚠️ 判据：门禁 IA8（每页 og:image 恰好 1 条）。 #}
     <meta property="og:image" content="{{ site.url }}{{ site.ogImage }}" />
     <meta property="og:image:secure_url" content="{{ site.url }}{{ site.ogImage }}" />
-    <meta property="og:image:type" content="image/png" />
+    {# 同一个 imageMime filter（与上面的 cover 分支**同源**）——
+       此前这里是写死的 image/png，而 site.ogImage 早就是 JPEG：
+       声明与实物不符，部分抓取器会按错误 MIME 解析图片。
+       ⚠️ 判据：门禁 IA10（og:image:type 必须与文件真实格式一致）。 #}
+    <meta property="og:image:type" content="{{ site.ogImage | imageMime }}" />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
     <meta property="og:image:alt" content="{{ ogCardAlt }}" />
@@ -298,7 +291,7 @@
 
   {# =====================================================================
        Twitter Card（summary_large_image：需要 1200×630 以上的图片）
-       · 默认 → 三尺寸静态 PNG（X / Twitter 按槽位比例自己挑一张）
+       · 默认 → 三尺寸静态 JPEG（X / Twitter 按槽位比例自己挑一张）
        · 覆盖 → 当 front-matter `cover` 存在时，替换为 cover（与 og:image 同步）
        ===================================================================== #}
   <meta name="twitter:card" content="summary_large_image" />
@@ -328,11 +321,11 @@
        不按顺序 ⇒ 一张图在两边指向同一文件时，两处 alt 必须逐字相同）。
        ⚠️ 第一张（1200×630）的 alt 必须与 og:image:alt **逐字相同**
        （同一张图只能有一套 alt 文本）⇒ 两边都用 {{ ogCardAlt }}。 #}
-    <meta name="twitter:image" content="{{ site.url }}/assets/img/og/og-1200x630.png" />
+    <meta name="twitter:image" content="{{ site.url }}/assets/img/og/og-1200x630.jpg" />
     <meta name="twitter:image:alt" content="{{ ogCardAlt }}" />
-    <meta name="twitter:image" content="{{ site.url }}/assets/img/og/og-1080x1080.png" />
+    <meta name="twitter:image" content="{{ site.url }}/assets/img/og/og-1080x1080.jpg" />
     <meta name="twitter:image:alt" content="{{ ogCardAlt }} (square)" />
-    <meta name="twitter:image" content="{{ site.url }}/assets/img/og/og-1500x500.png" />
+    <meta name="twitter:image" content="{{ site.url }}/assets/img/og/og-1500x500.jpg" />
     <meta name="twitter:image:alt" content="{{ ogCardAlt }} (wide)" />
   {% endif %}
   {# —— Twitter/X 身份句柄（2026-10-19 第五轮改）——
@@ -483,7 +476,12 @@
         "alternateName": {{ site.shortTitle | dump | safe }},
         "description": {{ site.description | dump | safe }},
         "inLanguage": {{ (site.locale or 'en') | dump | safe }},
-        "image": {{ (site.url + '/assets/img/og/og-1200x630.png') | dump | safe }},
+        {# 结构化数据里的 image 必须是**分享卡那张图**，与 og:image 同一张。
+           此前这里把路径写死成 '/assets/img/og/og-1200x630.png'，而 site.js
+           明明声称"这条路径只有一个出处"—— 两处各写一份，改图时只改一处，
+           结构化数据就会指向一张已经不存在（或换过格式）的图。
+           ⇒ 改用 site.ogImage，与 og 家族同源。 #}
+        "image": {{ (site.url + site.ogImage) | dump | safe }},
         "publisher": { "@id": {{ (site.url + '/#person') | dump | safe }} }
       },
       {

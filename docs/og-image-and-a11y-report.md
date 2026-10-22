@@ -1,6 +1,6 @@
 # Phase 1.3 + 1.4 · og:image 设计 + 视觉验证 + a11y 调优报告
 
-> **📸 历史快照（2026-10-01）** —— 记录当时 Phase 1.3 / 1.4 的设计与验证过程，**不再随代码更新**。相关资产现状看 `src/assets/img/og/`（3 组 SVG + PNG）与 `src/assets/css/a11y.css`；重跑对比度检查用 `python3 scripts/contrast_check.py`。同批原始数据 `fa-data/audit-raw.json` 亦为快照，为保持 JSON schema 未作改动。
+> **📸 历史快照（2026-10-01）** —— 记录当时 Phase 1.3 / 1.4 的设计与验证过程，**不再随代码更新**。相关资产现状看 `src/assets/img/og/`（3 组 SVG 母版 + **JPEG** 导出，格式已于 2026-10-22 由 PNG 改为 JPEG，见下面 §1 的现状更新）与 `src/assets/css/a11y.css`；重跑对比度检查用 `python3 scripts/contrast_check.py`。同批原始数据 `fa-data/audit-raw.json` 亦为快照，为保持 JSON schema 未作改动。
 
 **作者：** UI/UX Pro Max
 **日期：** 2026-10-01
@@ -12,6 +12,15 @@
 ## 1. og:image 交付物
 
 3 个尺寸，SVG 源 + PNG 导出，全部放在 `src/assets/img/og/` 下。
+
+> **⚠️ 现状更新（2026-10-22，缺陷 D3）** —— 下面这张表记录的是 **2026-10-01 当时的交付形态**；
+> 本报告是历史快照、**不再随代码更新**，所以表里的 PNG 与字节数**保持原样**（改它们就是改历史）。
+> 此后**发布的格式已改为 JPEG(q=90)**：三张 PNG（`og-1200x630.png` / `og-1080x1080.png` /
+> `og-1500x500.png`）**已删除**，改为 `og-1200x630.jpg`（113,997 B）、`og-1080x1080.jpg`（107,358 B）、
+> `og-1500x500.jpg`（112,615 B）—— 三张合计约 **1.5 MB → 334 KB**，全部 ≤ 200 KB；
+> **母版 SVG 不变**。理由（社交平台每次抓分享卡都要下载数百 KB）与验证方式见
+> `docs/DEFECT-BACKLOG.md` 的 **D3** 行；「分享图体积上限」与「`og:image:type` 与真实格式一致」
+> 两条已做成常驻门禁（`scripts/check-image-assets.cjs` 的 **IA9 / IA10**）。
 
 | 尺寸 | 用途 | SVG | PNG | 渲染验证 |
 |---|---|---|---|---|

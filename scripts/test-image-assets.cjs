@@ -21,7 +21,7 @@
  *   ⚠️ **不 require 被测门禁的代码**：门禁以**子进程**方式运行，
  *     本脚本只看它的**行为**（exit code + stderr 上的红因编号）。
  *
- * 十四档：
+ * 二十档：
  *   IM0  基线（原样）                     → 必须**全绿**（证明这套判据不是空跑）
  *   IM1  og:image 指向不存在的文件         → IA1
  *   IM2  第二条 twitter:image 指向不存在的文件 → IA1（**逐条**验 twitter 的证据）
@@ -38,19 +38,33 @@
  *   IM12 **故意判绿**：<style> 块与 HTML 注释里的假 <img> 指向真实存在但比例错的图
  *        → 必须仍然判绿（证明门禁剔除了这两处"看起来是图、其实不是图"的来源）
  *   IM13 **判据级负对照**：门禁**副本**把 IA8 判定卸掉 + IM10 的注入 → 必须**转绿**
+ *   IM14 分享图**超过 200 KB 上限**        → IA9（体积判据）
+ *   IM15 og:image:type 与真实格式不符      → IA10（PNG 却声明 image/jpeg）
+ *   IM16 og:image:type **整个缺失**         → IA10（缺声明也判红）
+ *   IM17 **空跑防护**：站内分享图引用全变成外站 → IA9 + IA10
+ *        （门禁在"什么都没量到"时必须自己判红，而不是安静地给一个假绿）
+ *   IM18 **判据级负对照**：门禁副本把 IA9 判定卸掉 + IM14 的注入 → 必须**转绿**
+ *   IM19 **判据级负对照**：门禁副本把 IA10 判定卸掉 + IM15 的注入 → 必须**转绿**
  *
  * 两处必须说清的诚实边界（写在这里，别当成漏网）：
  *   ① **IM10 / IM11 的注入是完全合法的**（第二条 og:image 指向真实存在、尺寸与
  *      真实像素一致、alt 非空）—— 它之所以该红，**只**因为"一个页面只应有一张
  *      og:image"这条**数量**判据。若哪天有人认为多张 og:image 是合法的，
  *      IM10 / IM11 会先红，那时该改的是门禁的判据，不是本自测。
- *   ② **IM8 只能单独触发 IA6，是因为它把站内图引用全换成外站**。
+ *   ② **IM8 的红因集合必然是 `{IA6, IA9, IA10}`**，不只是 `{IA6}`。
  *      IA6 的另一个分支（"应验 N 张、只验出 M 张"）**无法单独触发** ——
  *      能让一张图"存在但读不出尺寸"的文件形态，IA5 一定同时红
  *      （IA5 对"格式不支持"和"读不出来"都判红）⇒ 那两档的预期红因集合必然是
- *      `{IA5, IA6}`。这是**门禁判据之间的结构性依赖**，不是本自测偷懒。
- *      ⚠️ 本自测**不**把这条依赖藏起来：IM8 期望的集合就写成 `{IA6}`，
- *      并在这里说明它为什么能这么干净。
+ *      `{IA5, IA6}`。
+ *      而 IA6 这一支（"一张可验的图都没有"）要求**全站**本地图引用都断掉 ——
+ *      og / twitter 的引用断了 ⇒ **一张分享图都没量到**（IA9 的空跑防护）
+ *      ⇒ **一条 og:image:type 都没比对过**（IA10 的空跑防护）⇒ 三条必然一起红。
+ *      这是**门禁判据之间的结构性依赖**，不是本自测偷懒。
+ *      ⚠️ 本自测**不**把这条依赖藏起来：IM8 的期望集合就写成 `{IA6, IA9, IA10}`，
+ *        并在这里说明它为什么必然这么长。
+ *      ⇒ 单独证明 IA9 / IA10 空跑防护的那一档是 **IM17**：它只把 og / twitter
+ *        改成外站、页面正文里的 <img> 仍指向站内 PNG ⇒ IA6 保持绿，
+ *        只剩 `{IA9, IA10}`。
  *
  * 用法：node scripts/test-image-assets.cjs
  */
@@ -89,14 +103,8 @@ function copyFile(from, to) {
   fs.copyFileSync(from, to);
 }
 
-/**
- * 自造一张**真实可读**的 PNG（门禁要读 IHDR 里的真实像素）。
- * 为什么自造而不是抄 _site 里的真图：
- *   ① 自测于是**不依赖 build 产物** —— 没跑过 build 也能单独跑；
- *   ② 夹具站因此是**自足的最小站**，任何一档的失败都只可能来自被测判据。
- * ⚠️ 自造的 PNG 一旦坏了，**每一档都会以看不懂的方式失败** ⇒ 写完当场回读校验。
- */
-function makePng(width, height) {
+/** 把像素数据组装成一张**真实可读**的 PNG。 */
+function pngFromRaw(raw, width, height) {
   function chunk(type, data) {
     const len = Buffer.alloc(4);
     len.writeUInt32BE(data.length, 0);
@@ -111,14 +119,46 @@ function makePng(width, height) {
   ihdr.writeUInt32BE(height, 4);
   ihdr[8] = 8; // bit depth
   ihdr[9] = 2; // color type: truecolor RGB
-  const row = Buffer.alloc(1 + width * 3); // filter byte 0 + RGB
-  const raw = Buffer.concat(Array.from({ length: height }, () => row));
   return Buffer.concat([
     sig,
     chunk("IHDR", ihdr),
     chunk("IDAT", zlib.deflateSync(raw)),
     chunk("IEND", Buffer.alloc(0)),
   ]);
+}
+
+/**
+ * 自造一张**真实可读**的 PNG（门禁要读 IHDR 里的真实像素）。
+ * 为什么自造而不是抄 _site 里的真图：
+ *   ① 自测于是**不依赖 build 产物** —— 没跑过 build 也能单独跑；
+ *   ② 夹具站因此是**自足的最小站**，任何一档的失败都只可能来自被测判据。
+ * ⚠️ 自造的 PNG 一旦坏了，**每一档都会以看不懂的方式失败** ⇒ 写完当场回读校验。
+ */
+function makePng(width, height) {
+  const row = Buffer.alloc(1 + width * 3); // filter byte 0 + RGB
+  const raw = Buffer.concat(Array.from({ length: height }, () => row));
+  return pngFromRaw(raw, width, height);
+}
+
+/**
+ * 自造一张**真的很大**的 PNG（IA9 的体积上限那档要用）。
+ * ⚠️ 为什么不能用零像素凑大小：deflate 会把重复行压回几 KB ⇒ 那样造出来的
+ *   "大文件"是假的（真实字节数根本没超上限）⇒ 那一档会变成"注入没生效"。
+ *   真实的大图之所以大，就是因为像素**不可压缩** —— 这里用确定性伪随机像素
+ *   （固定 LCG 种子 ⇒ 每次跑出来都一样，可复现）。
+ */
+function makeBigPng(width, height) {
+  const rowBytes = 1 + width * 3;
+  const raw = Buffer.alloc(height * rowBytes);
+  let seed = 0x2f6e2b1 >>> 0;
+  for (let y = 0; y < height; y++) {
+    const off = y * rowBytes;
+    for (let i = 1; i < rowBytes; i++) {
+      seed = (seed * 1664525 + 1013904223) >>> 0;
+      raw[off + i] = (seed >>> 24) & 0xff;
+    }
+  }
+  return pngFromRaw(raw, width, height);
 }
 
 /** 自造 SVG（1080×1080）—— IA5 那档要它当"分享图不是位图"的证据。 */
@@ -191,6 +231,23 @@ function editText(file, fn) {
   fs.writeFileSync(file, after);
 }
 
+/**
+ * 把夹具里的分享图换成一张**真的很大**的 PNG（超过 IA9 的体积上限）。
+ * ⚠️ 写完当场回读字节数：没变大、或变大后仍没超过上限，都直接失败 ——
+ *   注入没生效时那一档会变成"假绿"。
+ */
+function makeOversized(fx) {
+  const before = fs.statSync(fx.ogPng).size;
+  fs.writeFileSync(fx.ogPng, makeBigPng(PNG_W, PNG_H));
+  const after = fs.statSync(fx.ogPng).size;
+  if (after <= before || after <= 200 * 1024) {
+    console.error(
+      `图片资产门禁自测失败：注入没有把分享图写到 200 KB 以上（${before} → ${after} B）。`
+    );
+    process.exit(1);
+  }
+}
+
 /* ---------------- 夹具站 ---------------- */
 
 function buildFixture(dir, { fakeSrc = MISSING } = {}) {
@@ -215,30 +272,39 @@ function buildFixture(dir, { fakeSrc = MISSING } = {}) {
 /* ---------------- 门禁副本（负对照用） ---------------- */
 
 /**
- * 复制一份门禁到沙箱里，并把 IA8 判定卸掉。
+ * 复制一份门禁到沙箱里，并把指定的判定开关卸掉。
  * ⚠️ **必须带齐同层依赖**：门禁用 `require(<ROOT>/src/_data/site.js)` 取站点地址，
  *   而 site.js 顶部 require 了 `../../scripts/lib/identity.cjs`
  *   ⇒ 副本要按同样的相对层级摆放（沙箱/scripts/… + 沙箱/src/_data/…）。
- * ⚠️ **卸判定必须自证**：改不到 `const IA8_ON = true;` 就直接失败 ——
+ * ⚠️ **卸判定必须自证**：改不到 `const <ID>_ON = true;` 就直接失败 ——
  *   「破坏没打上」与「判据本来就不红」在结果上完全同形。
+ * @param {string[]} disable 要卸掉的开关编号（如 ["IA9"]）
  */
-function buildGateCopy(dir, { disableIA8 }) {
+function buildGateCopy(dir, { disable = [] }) {
   copyFile(SITE_JS, path.join(dir, "src", "_data", "site.js"));
   copyFile(IDENTITY, path.join(dir, "scripts", "lib", "identity.cjs"));
   const original = fs.readFileSync(GATE, "utf8");
   let copy = original;
-  if (disableIA8) {
-    copy = copy.replace("const IA8_ON = true;", "const IA8_ON = false;");
-    if (copy === original) {
-      console.error("图片资产门禁自测失败：负对照没能改到 IA8 判定（破坏没打上，这一档会假绿）。");
+  for (const id of disable) {
+    const before = copy;
+    copy = copy.replace(`const ${id}_ON = true;`, `const ${id}_ON = false;`);
+    if (copy === before) {
+      console.error(
+        `图片资产门禁自测失败：负对照没能改到 ${id} 判定（破坏没打上，这一档会假绿）。`
+      );
       process.exit(1);
     }
-    /* 副本与原件必须**只差那一行** —— 多差一行就说明负对照动的不止判据。 */
+  }
+  if (disable.length) {
+    /* 副本与原件必须**只差那些开关行** —— 多差一行就说明负对照动的不止判据。 */
     const a = original.split("\n");
     const b = copy.split("\n");
     const diff = a.filter((line, i) => line !== b[i]).length;
-    if (diff !== 1 || a.length !== b.length) {
-      console.error(`图片资产门禁自测失败：负对照的门禁副本与原件差了 ${diff} 行（应当恰好 1 行）。`);
+    if (diff !== disable.length || a.length !== b.length) {
+      console.error(
+        `图片资产门禁自测失败：负对照的门禁副本与原件差了 ${diff} 行` +
+          `（应当恰好 ${disable.length} 行）。`
+      );
       process.exit(1);
     }
   }
@@ -369,11 +435,16 @@ const CASES = [
     id: "IM8",
     label: "站内图引用全改成外站（可验集为空 → 门禁自己空跑）",
     expect: "red",
-    causes: ["IA6"],
+    causes: ["IA6", "IA9", "IA10"],
     /* ⚠️ 必须**两页都改**：门禁的"应验集"是**全站**引用算出来的，
        只改 index.html 的话 blog/index.html 仍引用着站内 PNG ⇒ 可验集非空
        ⇒ IA6 不触发（那一档会变成"没按预期判红"）。
-       这也是 IA6 自己的口径：它问的是"整站有没有一张该验的图都没验到"。 */
+       这也是 IA6 自己的口径：它问的是"整站有没有一张该验的图都没验到"。
+       ⚠️ 预期集合是 `{IA6, IA9, IA10}` 而**不只是** `{IA6}` ——
+          这是**结构性依赖**：IA6 这一支要求全站本地图引用全断，
+          而 og / twitter 引用断了 ⇒ 一张分享图都没量到（IA9 空跑防护）
+          ⇒ 一条 og:image:type 都没比对过（IA10 空跑防护）⇒ 三条必然一起红。
+          单独证明 IA9 / IA10 空跑防护的是 IM17（那档 IA6 保持绿）。 */
     apply: (fx) => {
       const toExternal = (s) =>
         s
@@ -442,7 +513,7 @@ const CASES = [
     id: "IM13",
     label: "判据级负对照：门禁副本卸掉 IA8 判定 + IM10 的注入 → 必须转绿",
     expect: "green",
-    gateCopy: { disableIA8: true },
+    gateCopy: { disable: ["IA8"] },
     apply: (fx) =>
       editText(fx.index, (s) =>
         inBlock(s, "OG", (b) =>
@@ -453,6 +524,69 @@ const CASES = [
             `<meta property="og:image:width" content="${PNG_W}" />\n` +
             `<meta property="og:image:height" content="${PNG_H}" />\n` +
             `<meta property="og:image:alt" content="Fixture share card" />`
+        )
+      ),
+  },
+  {
+    id: "IM14",
+    label: "分享图超过 200 KB 上限（真实字节数超限）",
+    expect: "red",
+    causes: ["IA9"],
+    apply: (fx) => makeOversized(fx),
+  },
+  {
+    id: "IM15",
+    label: "og:image:type 与真实格式不符（PNG 却声明 image/jpeg）",
+    expect: "red",
+    causes: ["IA10"],
+    apply: (fx) =>
+      editText(fx.index, (s) =>
+        inBlock(s, "OG", (b) =>
+          b.replace(/(<meta property="og:image:type" content=")[^"]*(")/, "$1image/jpeg$2")
+        )
+      ),
+  },
+  {
+    id: "IM16",
+    label: "og:image:type 整个缺失",
+    expect: "red",
+    causes: ["IA10"],
+    apply: (fx) =>
+      editText(fx.index, (s) =>
+        inBlock(s, "OG", (b) => b.replace(/\s*<meta property="og:image:type"[^>]*>/, ""))
+      ),
+  },
+  {
+    id: "IM17",
+    label: "空跑防护：站内分享图引用全变成外站（IA9/IA10 都量不到东西）",
+    expect: "red",
+    causes: ["IA9", "IA10"],
+    /* ⚠️ 只改 og / twitter 的引用，页面正文里的 <img> 仍指向站内 PNG ——
+       否则 IA6（覆盖度自证）也会跟着红，红因归属就不纯了。
+       ⇒ 这一档证明的是：**门禁在"什么都没量到"时会自己判红**，
+         而不是安静地给出一个假绿。 */
+    apply: (fx) => {
+      const toExternal = (s) => s.split(`${SITE_URL}${OG_PNG}`).join(EXTERNAL);
+      editText(fx.index, toExternal);
+      editText(fx.blog, toExternal);
+    },
+  },
+  {
+    id: "IM18",
+    label: "判据级负对照：门禁副本卸掉 IA9 判定 + IM14 的注入 → 必须转绿",
+    expect: "green",
+    gateCopy: { disable: ["IA9"] },
+    apply: (fx) => makeOversized(fx),
+  },
+  {
+    id: "IM19",
+    label: "判据级负对照：门禁副本卸掉 IA10 判定 + IM15 的注入 → 必须转绿",
+    expect: "green",
+    gateCopy: { disable: ["IA10"] },
+    apply: (fx) =>
+      editText(fx.index, (s) =>
+        inBlock(s, "OG", (b) =>
+          b.replace(/(<meta property="og:image:type" content=")[^"]*(")/, "$1image/jpeg$2")
         )
       ),
   },
@@ -476,6 +610,7 @@ for (const c of CASES) {
     const fx = {
       index: path.join(fixture, "index.html"),
       blog: path.join(fixture, "blog", "index.html"),
+      ogPng: path.join(fixture, "assets", "img", "og", "og-1200x630.png"),
     };
     if (c.apply) c.apply(fx);
 
@@ -565,6 +700,6 @@ if (fail) {
 }
 console.log(
   `图片资产门禁自测通过：${pass} 档全部符合预期` +
-    `（IM0 / IM12 / IM13 绿 · IM1–IM11 红且红因集合完全相等），` +
+    `（IM0 / IM12 / IM13 / IM18 / IM19 绿 · IM1–IM11 / IM14–IM17 红且红因集合完全相等），` +
     `覆盖门禁全部 ${[...gateIds].sort().join("、")} 判据。`
 );
