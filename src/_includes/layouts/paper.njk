@@ -173,7 +173,7 @@ layout: layouts/base.njk
       {%- if pub.url %}<a href="{{ pub.url }}" target="_blank" rel="noopener noreferrer">Paper ↗</a>{% endif -%}
       {%- if pub.doi %}<a href="https://doi.org/{{ pub.doi }}" target="_blank" rel="noopener noreferrer">DOI ↗</a>{% endif -%}
       {%- if pub.pdf %}<a href="{{ pub.pdf }}" target="_blank" rel="noopener noreferrer">PDF ↗</a>{% endif -%}
-      {%- if pub.code %}<a href="{{ pub.code }}" target="_blank" rel="noopener noreferrer">Code ↗</a>{% endif -%}
+      {%- if pub.code %}<a href="{{ pub.code }}" data-code-repo target="_blank" rel="noopener noreferrer">Code ↗</a>{% endif -%}
       {%- if pub.software and pub.software.url %}<a href="{{ pub.software.url }}" target="_blank" rel="noopener noreferrer">Data ↗</a>{% endif -%}
       {%- if pub.capsule and pub.capsule.url %}<a href="{{ pub.capsule.url }}" target="_blank" rel="noopener noreferrer">Capsule ↗</a>{% endif -%}
     </p>
@@ -375,7 +375,7 @@ layout: layouts/base.njk
       {%- if pub.code %}
       <dt>Source code</dt>
       <dd>
-        <a href="{{ pub.code }}" target="_blank" rel="noopener noreferrer">{{ pub.code | replace("https://github.com/", "") }}</a>
+        <a href="{{ pub.code }}" data-code-repo target="_blank" rel="noopener noreferrer">{{ pub.code | replace("https://github.com/", "") }}</a>
         <span class="paper-availability__meta">GitHub</span>
       </dd>
       {%- endif %}

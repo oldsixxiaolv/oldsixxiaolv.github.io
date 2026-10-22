@@ -149,6 +149,7 @@ Cloudflare Pages、Nginx 等任意静态服务。详细运行 / 调试见 `HOW_T
 | `npm run check:overflow-targets-selftest` | 上面那道门禁里**触点尺寸**判据的本地夹具自测（证明它能变红：触点过小且换行处紧邻会判红；判定或收集被卸掉也会判红） |
 | `npm run check:overflow-anchors-selftest` | 上面那道门禁里**滚动定位让位**判据的本地夹具自测（证明它能变红：目标被吸顶顶栏盖住会判红；判定、检测或收集被卸掉也会判红） |
 | `npm run check:artifact` | 产物里的 @id / license / 版本 / 地址与 `site.js` 逐字一致 |
+| `npm run check:artifact-selftest` | 上面那道门禁的本地夹具自测（26 档注入矩阵，在**自造的最小夹具站**上跑，证明 M1–M8 每条判据都能变红；含 **8 档判据级负对照**（逐条卸掉 M1–M8 后对应注入必须转绿 —— 这同时证明每个可卸开关都真被消费）、**2 档精准性负对照**（卸判据叠加另一条不连坐的注入 / 前提不在场时依赖判据整段跳过）、**4 档故意判绿**（不带标记的链接不算 / 没注册产出物时豁免 / 真源只有 license 时不报假红）、**2 档覆盖度自证**、**红因归属纯净性断言**） |
 | `npm run check:jsonld` | JSON-LD 合法，站点实体与页面实体接得上 |
 | `npm run check:home-chart` | 首页降水图的交互层：钩子齐全、**读数与数据同源**、键盘可达、模块与样式在位 |
 | `npm run check:home-chart-selftest` | 上面那道门禁的本地夹具自测（6 档注入矩阵，证明它能变红） |
