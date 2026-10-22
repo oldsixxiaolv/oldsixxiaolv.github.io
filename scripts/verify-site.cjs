@@ -21,6 +21,8 @@
  *        正常页**不许**有 noindex
  *    4c. 标题不能退化成站点名（<title> / og:title），且必须有 og:title
  *   全站检查（扫全部产物）：
+ *    0. 产物里不得有 macOS 资源叉文件（._*）：macOS 在 exFAT 卷上会自动生成
+ *       这类文件，打包时会原样部署出去，部署前必须清掉
  *     5. sitemap.xml 里的每个 URL 都有对应产物
  *     6. 反过来：每个产物页面都进了 sitemap（除 404）
  *     7. feed.xml 里有 item、每条 item 的 link 指向真实页面
@@ -76,8 +78,12 @@
  *        **同一页**的 JSON-LD 实体里找到同 @id 的节点；numberOfItems 与
  *        条目数必须一致；position 必须 1..N 连续；ItemList 只允许出现在
  *        论文列表页（首页 / 博客 / 关于 / 404 页一个都不许有）
+ *    33. 逐比较点覆盖度自证：每条门禁的比较点在这一轮都必须**真的跑过**
+ *        （比较点目录静态登记；每个比较点的判据条数也必须在场），
+ *        否则「整块判据被摘掉 / 被短路」这类静默失效会全绿通过
  *
  * 旧编号 → 新编号对照（历史日志/commit 里引用的是旧号，追溯时用这张表）：
+ *   （无）            → 新 0    （本轮新增：产物里不得有 macOS 资源叉文件）
  *   旧 1 / 2 / 3      → 新 1 / 2 / 3
  *   旧 3b            → 新 4b   （第七轮 commit message 把它写成"第 15 条"，
  *                              同一个东西两个号，后来的轮次照着引用会指错对象）
@@ -112,6 +118,7 @@
  *   （无）            → 新 30   （本轮新增：RIS 导出与论文页复制块逐字一致）
  *   （无）            → 新 31   （本轮新增：同一 @id 的同名字段必须一致）
  *   （无）            → 新 32   （本轮新增：论文列表页的 ItemList 完整性）
+ *   （无）            → 新 33   （本轮新增：逐比较点覆盖度自证）
  *
  * 用法：node scripts/verify-site.cjs   （有错 exit 1）
  */
@@ -157,7 +164,103 @@ try {
   /* 读不到就跳过与 site.url 有关的检查 */
 }
 
-const fail = (msg) => problems.push(msg);
+// ---------------------------------------------------------------------------
+// 门禁编号化：每条判据的 fail() 都必须带上自己的门禁号，红因统一成
+// 「门禁 <id>：<原文>」。这解决两件事：
+//   ① 红因可归属 —— 一屏几十条报错时，「哪条判据报的」必须一眼可见；
+//   ② 可卸开关真的被消费 —— 下面每个 G<id>_ON 都是一条判据的把手，
+//      SWITCH_ON 被 fail() 读：卸掉某条判据 ⇒ 那条判据的红因不再出现，
+//      其余判据照常报（自测的判据级负对照就靠这个）。
+// ⚠️ 开关**只压住记红因，不短路计算**：这样负对照验的是
+//    「这条判据不再报红」，而不是「这段计算被跳过」——后者会让
+//    「计算本身抛异常」这类真缺陷被开关悄悄掩盖掉。
+const G0_ON = true;
+const G1_ON = true;
+const G2_ON = true;
+const G3_ON = true;
+const G4b_ON = true;
+const G4c_ON = true;
+const G5_ON = true;
+const G6_ON = true;
+const G7_ON = true;
+const G8_ON = true;
+const G9_ON = true;
+const G10_ON = true;
+const G11_ON = true;
+const G12_ON = true;
+const G13_ON = true;
+const G14_ON = true;
+const G15_ON = true;
+const G16_ON = true;
+const G17_ON = true;
+const G18_ON = true;
+const G19_ON = true;
+const G20_ON = true;
+const G21_ON = true;
+const G22_ON = true;
+const G23_ON = true;
+const G24_ON = true;
+const G25_ON = true;
+const G26_ON = true;
+const G27_ON = true;
+const G28_ON = true;
+const G29_ON = true;
+const G30_ON = true;
+const G31_ON = true;
+const G32_ON = true;
+const G33_ON = true;
+const SWITCH_ON = {
+  "0": G0_ON,
+  "1": G1_ON,
+  "2": G2_ON,
+  "3": G3_ON,
+  "4b": G4b_ON,
+  "4c": G4c_ON,
+  "5": G5_ON,
+  "6": G6_ON,
+  "7": G7_ON,
+  "8": G8_ON,
+  "9": G9_ON,
+  "10": G10_ON,
+  "11": G11_ON,
+  "12": G12_ON,
+  "13": G13_ON,
+  "14": G14_ON,
+  "15": G15_ON,
+  "16": G16_ON,
+  "17": G17_ON,
+  "18": G18_ON,
+  "19": G19_ON,
+  "20": G20_ON,
+  "21": G21_ON,
+  "22": G22_ON,
+  "23": G23_ON,
+  "24": G24_ON,
+  "25": G25_ON,
+  "26": G26_ON,
+  "27": G27_ON,
+  "28": G28_ON,
+  "29": G29_ON,
+  "30": G30_ON,
+  "31": G31_ON,
+  "32": G32_ON,
+  "33": G33_ON,
+};
+// 逐比较点覆盖度自证的记账（门禁 33 消费）。
+// ⚠️ mark() 必须跟判据**同生共死**：整块判据被删掉时 mark 也必须一起消失，
+//    否则覆盖度自证会判绿 —— 自证被自己拆掉。
+const coveredPoints = new Set();
+const waivedPoints = new Map();
+const mark = (pointId) => {
+  coveredPoints.add(pointId);
+};
+const waive = (pointId, reason) => {
+  waivedPoints.set(pointId, reason);
+};
+const fail = (gateId, msg) => {
+  if (SWITCH_ON[gateId] === false) return;
+  problems.push(`门禁 ${gateId}：${msg}`);
+};
 // note() 是给"检查通过但值得记一笔"的信息用的。⚠️ 但它有一条**必须守住**的纪律：
 // 凡是措辞里带**断言**（"…已一致""…双向绑定""…全站唯一"）的 note，
 // 必须由**这条门禁自己的判定结果**决定措辞 —— 判红时改写成
@@ -169,7 +272,8 @@ const fail = (msg) => problems.push(msg);
 // 数字是真的，断言是假的；门禁 19、24 同病。
 const note = (msg) => notes.push(msg);
 
-/* ---------- 收集产物文件 ---------- */
+/* ---------- 0. 收集产物文件（并检查 macOS 资源叉） ---------- */
+mark("0");
 if (!fs.existsSync(SITE)) {
   console.error(`✗ 找不到产物目录 ${SITE}，请先运行 npm run build`);
   process.exit(1);
@@ -190,8 +294,8 @@ const rel = (f) => path.relative(SITE, f);
 // exFAT 卷上 macOS 会留 AppleDouble 资源叉（._foo.css），它同样以 .css 结尾
 const resourceForks = allFiles.filter((f) => path.basename(f).startsWith("._"));
 if (resourceForks.length) {
-  fail(`产物里有 ${resourceForks.length} 个 macOS 资源叉文件（._*），部署前必须清掉：`);
-  resourceForks.slice(0, 5).forEach((f) => fail(`    ${rel(f)}`));
+  fail("0", `产物里有 ${resourceForks.length} 个 macOS 资源叉文件（._*），部署前必须清掉：`);
+  resourceForks.slice(0, 5).forEach((f) => fail("0", `    ${rel(f)}`));
 }
 
 /* ---------- 引用解析 ---------- */
@@ -229,6 +333,7 @@ for (const file of htmlFiles) {
   const isErrorPage = from.endsWith("404.html");
 
   // 1) 本地引用能否解析
+  mark("1");
   for (const m of html.matchAll(refAttrs)) {
     const raw = m[1].trim();
     if (!raw) continue;
@@ -246,7 +351,7 @@ for (const file of htmlFiles) {
       if (isErrorPage) errorAbsoluteCount++;
       else {
         absoluteCount++;
-        fail(`${from}: 根绝对路径引用 "${raw}" —— 会破坏"整个文件夹扔到哪都能跑"`);
+        fail("1", `${from}: 根绝对路径引用 "${raw}" —— 会破坏"整个文件夹扔到哪都能跑"`);
       }
     }
 
@@ -254,33 +359,36 @@ for (const file of htmlFiles) {
     if (!target) continue;
     refCount++;
     if (!fs.existsSync(target)) {
-      fail(`${from}: 引用 "${raw}" 找不到对应产物（解析为 ${rel(target)}）`);
+      fail("1", `${from}: 引用 "${raw}" 找不到对应产物（解析为 ${rel(target)}）`);
     }
   }
 
   // 2) JSON-LD 能否解析
+  mark("2");
   const ldBlocks = [...html.matchAll(/<script[^>]*type\s*=\s*"application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/gi)];
   for (const m of ldBlocks) {
     let parsed = null;
     try {
       parsed = JSON.parse(m[1]);
     } catch (e) {
-      fail(`${from}: JSON-LD 解析失败 —— ${e.message}`);
+      fail("2", `${from}: JSON-LD 解析失败 —— ${e.message}`);
     }
     if (parsed) ldRecords.push({ from, parsed });
   }
 
   // 3) canonical 与 og:url 是否一致
+  mark("3");
   const canonical = (html.match(/<link[^>]*rel\s*=\s*"canonical"[^>]*href\s*=\s*"([^"]*)"/i) || [])[1];
   const ogUrl = (html.match(/<meta[^>]*property\s*=\s*"og:url"[^>]*content\s*=\s*"([^"]*)"/i) || [])[1];
   if (canonical && ogUrl && canonical !== ogUrl) {
-    fail(`${from}: canonical (${canonical}) 与 og:url (${ogUrl}) 不一致`);
+    fail("3", `${from}: canonical (${canonical}) 与 og:url (${ogUrl}) 不一致`);
   }
   if (!canonical && !isErrorPage) {
-    fail(`${from}: 缺 canonical`);
+    fail("3", `${from}: 缺 canonical`);
   }
 
   // 4b) 错误页的索引控制（与下面的 4c 同属"每页检查"这一族）
+  mark("4b");
   //     404 页此前既**没有 noindex**、又发着指向自身的 canonical
   //     （实测 `<link rel="canonical" href=".../404.html">`）——等于主动向
   //     搜索引擎声明"404 也是正式内容页"，而错误页 URL 本该被排除在索引外。
@@ -305,31 +413,32 @@ for (const file of htmlFiles) {
   const hasFollow = robotsTokens.includes("follow");
   if (isNotFound) {
     if (!hasNoindex) {
-      fail(`${from}: 404 页缺少 noindex（robots meta = ${robotsMeta || "无"}）`);
+      fail("4b", `${from}: 404 页缺少 noindex（robots meta = ${robotsMeta || "无"}）`);
     }
     // follow 不能丢：noindex 只表示"不收录这个 URL 本身"，
     // follow 才表示"仍沿链抓页内的有效链接"（页脚还有 sitemap / RSS / 联系方式）。
     // 写成 "noindex, nofollow" 会让错误页里的链接彻底不被抓取。
     if (!hasFollow) {
-      fail(
+      fail("4b", 
         `${from}: 404 页的 robots 少了 follow（robots meta = ${robotsMeta || "无"}）—— ` +
           "noindex 只表示不收录这个 URL 本身，follow 才表示仍沿链抓页内有效链接"
       );
     }
     if (canonical) {
-      fail(`${from}: 404 页不应有 canonical（${canonical}）`);
+      fail("4b", `${from}: 404 页不应有 canonical（${canonical}）`);
     }
     // hreflang 那一组同样是在声明"这个 URL 是某个语言版本的正式地址"，
     // 错误页发它与发 canonical 是同一类错误。
     const hreflangLinks = html.match(/<link[^>]*hreflang\s*=/gi) || [];
     if (hreflangLinks.length) {
-      fail(`${from}: 404 页不应有 hreflang（发现 ${hreflangLinks.length} 个）`);
+      fail("4b", `${from}: 404 页不应有 hreflang（发现 ${hreflangLinks.length} 个）`);
     }
   } else if (hasNoindex) {
-    fail(`${from}: 正常页不该有 noindex（robots meta = ${robotsMeta}）`);
+    fail("4b", `${from}: 正常页不该有 noindex（robots meta = ${robotsMeta}）`);
   }
 
   // 4c) 标题不能退化成站点名
+  mark("4c");
   //    base.njk 的标题回落是「title → 论文标题 → 站点名」三级。
   //    论文页（第三轮才加）front-matter 里没有 title，最初整页的
   //    <title>/og:title 全部退化成 "Yihang Lyu"——分享出去预览标题是
@@ -339,16 +448,25 @@ for (const file of htmlFiles) {
   const ogTitleVal = (html.match(/<meta[^>]*property\s*=\s*"og:title"[^>]*content\s*=\s*"([^"]*)"/i) || [])[1];
   if (SITE_TITLE) {
     if (htmlTitle && htmlTitle.trim() === SITE_TITLE.trim()) {
-      fail(`${from}: <title> 退化成站点名 "${SITE_TITLE}" —— 该页没有自己的标题`);
+      fail("4c", `${from}: <title> 退化成站点名 "${SITE_TITLE}" —— 该页没有自己的标题`);
     }
     if (ogTitleVal && ogTitleVal.trim() === SITE_TITLE.trim()) {
-      fail(`${from}: og:title 退化成站点名 "${SITE_TITLE}" —— 分享预览会显示作者名而不是页面标题`);
+      fail("4c", `${from}: og:title 退化成站点名 "${SITE_TITLE}" —— 分享预览会显示作者名而不是页面标题`);
     }
   }
-  if (!ogTitleVal) fail(`${from}: 缺 og:title`);
+  if (!ogTitleVal) fail("4c", `${from}: 缺 og:title`);
+}
+
+// 产物里一个 HTML 页都没有时，每页检查（1 / 2 / 3 / 4b / 4c）无从执行 ——
+// 显式豁免并写明原因：覆盖度自证不接受「悄悄不跑」。
+if (!htmlFiles.length) {
+  for (const pid of ["1", "2", "3", "4b", "4c"]) {
+    waive(pid, "产物里没有 HTML 页，每页检查无从执行");
+  }
 }
 
 /* ---------- 5) sitemap 里的 URL 都要有对应产物 ---------- */
+mark("5");
 const sitemapPath = path.join(SITE, "sitemap.xml");
 const sitemapUrls = [];
 if (fs.existsSync(sitemapPath)) {
@@ -365,14 +483,15 @@ if (fs.existsSync(sitemapPath)) {
     const target = path.join(SITE, p.replace(/^\//, ""), "index.html");
     const flat = path.join(SITE, p.replace(/^\//, ""));
     if (!fs.existsSync(target) && !fs.existsSync(flat)) {
-      fail(`sitemap.xml: "${u}" 在产物里找不到对应页面`);
+      fail("5", `sitemap.xml: "${u}" 在产物里找不到对应页面`);
     }
   }
 } else {
-  fail("产物里没有 sitemap.xml");
+  fail("5", "产物里没有 sitemap.xml");
 }
 
 /* ---------- 6) 每个产物页面都要进 sitemap（除 404） ---------- */
+mark("6");
 const sitemapPaths = new Set(
   sitemapUrls.map((u) => {
     try {
@@ -386,7 +505,7 @@ for (const file of htmlFiles) {
   const r = rel(file).replace(/index\.html$/, "");
   if (r === "404.html") continue;
   if (!sitemapPaths.has("/" + r) && !sitemapPaths.has("/" + r.replace(/\/$/, ""))) {
-    fail(`${rel(file)}: 产物里有这个页面，但 sitemap.xml 没收录`);
+    fail("6", `${rel(file)}: 产物里有这个页面，但 sitemap.xml 没收录`);
   }
 }
 
@@ -397,14 +516,15 @@ for (const file of htmlFiles) {
 
    同时校验每条 item 的 <link> 都能在产物里找到对应页面：订阅源里的
    死链是读者唯一会踩到的路径，比页面里的死链更隐蔽。 */
+mark("7");
 const feedPath = path.join(SITE, "feed.xml");
 if (!fs.existsSync(feedPath)) {
-  fail("产物里没有 feed.xml");
+  fail("7", "产物里没有 feed.xml");
 } else {
   const xml = fs.readFileSync(feedPath, "utf8");
   const items = [...xml.matchAll(/<item>([\s\S]*?)<\/item>/g)];
   if (!items.length) {
-    fail("feed.xml 里一条 item 都没有——订阅源是空的，页脚的 RSS 入口点开只有空白");
+    fail("7", "feed.xml 里一条 item 都没有——订阅源是空的，页脚的 RSS 入口点开只有空白");
   }
   let feedItemCount = 0;
   for (const m of items) {
@@ -413,12 +533,12 @@ if (!fs.existsSync(feedPath)) {
     const title = (body.match(/<title>([\s\S]*?)<\/title>/) || [])[1];
     const link = (body.match(/<link>([\s\S]*?)<\/link>/) || [])[1];
     const pubDate = (body.match(/<pubDate>([\s\S]*?)<\/pubDate>/) || [])[1];
-    if (!title || !title.trim()) fail(`feed.xml 第 ${feedItemCount} 条 item 没有标题`);
+    if (!title || !title.trim()) fail("7", `feed.xml 第 ${feedItemCount} 条 item 没有标题`);
     if (!pubDate || !pubDate.trim()) {
-      fail(`feed.xml 第 ${feedItemCount} 条 item 没有 pubDate`);
+      fail("7", `feed.xml 第 ${feedItemCount} 条 item 没有 pubDate`);
     }
     if (!link || !link.trim()) {
-      fail(`feed.xml 第 ${feedItemCount} 条 item 没有 link`);
+      fail("7", `feed.xml 第 ${feedItemCount} 条 item 没有 link`);
       continue;
     }
     let p = link.trim();
@@ -430,7 +550,7 @@ if (!fs.existsSync(feedPath)) {
     const target = path.join(SITE, p.replace(/^\//, ""), "index.html");
     const flat = path.join(SITE, p.replace(/^\//, ""));
     if (!fs.existsSync(target) && !fs.existsSync(flat)) {
-      fail(`feed.xml 第 ${feedItemCount} 条 item 的 link "${link}" 在产物里找不到对应页面`);
+      fail("7", `feed.xml 第 ${feedItemCount} 条 item 的 link "${link}" 在产物里找不到对应页面`);
     }
   }
   note(`feed.xml ${feedItemCount} 条 item`);
@@ -451,11 +571,12 @@ if (!fs.existsSync(feedPath)) {
    Search 之类）看得见"有个数据集"，看不见里面有哪些文件、校验和是多少，
    也就无法自动验完整性。补上 ② 之后，就必须守住三边不漂移：
    只在页面上改 md5、或只在 JSON-LD 里改文件数，都是**静默**的错。 */
+mark("8");
 const paperHtml = allFiles
   .filter((f) => /papers\/.+\/index\.html$/.test(rel(f)))
   .map((f) => [rel(f), fs.readFileSync(f, "utf8")]);
 if (!paperHtml.length) {
-  fail("产物里没有论文独立页（papers/*/index.html）");
+  fail("8", "产物里没有论文独立页（papers/*/index.html）");
 }
 for (const [from, html] of paperHtml) {
   const blocks = [
@@ -480,7 +601,7 @@ for (const [from, html] of paperHtml) {
   }
   for (const type of ["Dataset", "SoftwareSourceCode"]) {
     if (!entities.some((e) => e && e["@type"] === type)) {
-      fail(`${from}: JSON-LD 里没有 ${type} 实体——数据集/胶囊不再能被结构化检索发现`);
+      fail("8", `${from}: JSON-LD 里没有 ${type} 实体——数据集/胶囊不再能被结构化检索发现`);
     }
   }
 
@@ -505,12 +626,12 @@ for (const [from, html] of paperHtml) {
     // ① 机读路径：distribution 必须与 site.js 逐字一致
     const dist = page.distribution;
     if (!Array.isArray(dist)) {
-      fail(
+      fail("8", 
         `${from}: Dataset 实体没有 distribution 数组——文件级清单只出现在页面上，` +
           `数据集检索工具读不到（site.js 里这一版有 ${files.length} 个文件）`
       );
     } else if (dist.length !== files.length) {
-      fail(
+      fail("8", 
         `${from}: Dataset.distribution 有 ${dist.length} 项，site.js 里是 ${files.length} 项` +
           `——两条路径说的文件数不一样`
       );
@@ -526,17 +647,17 @@ for (const [from, html] of paperHtml) {
         };
         for (const [k, v] of Object.entries(want)) {
           if (d[k] !== v) {
-            fail(
+            fail("8", 
               `${from}: Dataset.distribution[${i}].${k} = ${JSON.stringify(d[k])}，` +
                 `site.js 里是 ${JSON.stringify(v)}——机读路径与数据源不一致`
             );
           }
         }
         if (d["@type"] !== "DataDownload") {
-          fail(`${from}: Dataset.distribution[${i}] 的 @type 不是 DataDownload`);
+          fail("8", `${from}: Dataset.distribution[${i}] 的 @type 不是 DataDownload`);
         }
         if (!d.encodingFormat) {
-          fail(`${from}: Dataset.distribution[${i}] 没有 encodingFormat`);
+          fail("8", `${from}: Dataset.distribution[${i}] 没有 encodingFormat`);
         }
       }
     }
@@ -547,7 +668,7 @@ for (const [from, html] of paperHtml) {
       const wantId = `https://doi.org/${concept}`;
       const got = page.isVersionOf && page.isVersionOf["@id"];
       if (got !== wantId) {
-        fail(
+        fail("8", 
           `${from}: Dataset.isVersionOf = ${JSON.stringify(got)}，site.js 里是 ` +
             `${JSON.stringify(wantId)}——版本链关系缺失或指错`
         );
@@ -566,10 +687,10 @@ for (const [from, html] of paperHtml) {
     );
     for (const f of files) {
       if (!humanHtml.includes(f.name)) {
-        fail(`${from}: 页面上找不到文件 ${JSON.stringify(f.name)}——与 site.js 不一致`);
+        fail("8", `${from}: 页面上找不到文件 ${JSON.stringify(f.name)}——与 site.js 不一致`);
       }
       if (f.md5 && !humanHtml.includes(`md5:${f.md5}`)) {
-        fail(
+        fail("8", 
           `${from}: 页面上找不到 ${JSON.stringify("md5:" + f.md5)}——` +
             `页面上摆的校验和与 site.js 不一致`
         );
@@ -590,6 +711,7 @@ for (const [from, html] of paperHtml) {
 
    只查身份类字段（twitter:site / twitter:creator）。普通外链写错顶多是
    死链，交给人判断，不适合用脚本一票否决。 */
+mark("9");
 const siteData = (() => {
   try {
     return require(path.resolve(__dirname, "../src/_data/site.js"));
@@ -617,11 +739,11 @@ if (siteData) {
       for (const m of html.matchAll(re)) {
         const value = m[1].trim();
         if (!value) {
-          fail(`${rel(file)}: ${key} 的内容是空的——身份字段要么给真实句柄，要么整条不输出`);
+          fail("9", `${rel(file)}: ${key} 的内容是空的——身份字段要么给真实句柄，要么整条不输出`);
           continue;
         }
         if (!dataStrings.has(value)) {
-          fail(
+          fail("9", 
             `${rel(file)}: ${key}="${value}" 在 site.js 数据里找不到对应值——` +
               `这是写死在模板里的兜底值，属于对外声明归属，必须改成数据驱动`
           );
@@ -643,6 +765,7 @@ if (siteData) {
         6 个人"这个坑换个形式再犯一次。
    页面不会报错、构建不会失败、页面照出，只有懂行的人读得出来。
    所以这类"实参数量对不上"的 bug 必须有机器门禁兜住。 */
+mark("10");
 const ABSOLUTE_URL = /^https?:\/\//i;
 function collectNodes(node, out = []) {
   if (Array.isArray(node)) {
@@ -677,7 +800,7 @@ for (const { from, parsed } of ldRecords) {
       if (typeof v !== "string") continue;
       if (!v.trim()) continue;
       if (!ABSOLUTE_URL.test(v.trim())) {
-        fail(
+        fail("10", 
           `${from}: JSON-LD 的 ${key} 是相对地址 "${v}" —— 必须是绝对 URL` +
             `（多半是 filter 少传了一个实参，实参被 JS 静默丢弃）`
         );
@@ -696,6 +819,7 @@ for (const { from, parsed } of ldRecords) {
    同时校验 article:* 只出现在 og:type=article 的页面上——这两件事是
    一条规则的两面：声明自己是文章，就得带文章的属性；不是文章的页面，
    就不许挂 article:* 冒充。 */
+mark("11");
 const isPaperDetail = (r) => /^papers\/[^/]+\/index\.html$/.test(r);
 for (const file of htmlFiles) {
   const from = rel(file);
@@ -703,24 +827,24 @@ for (const file of htmlFiles) {
   const ogType = (html.match(/<meta[^>]*property\s*=\s*"og:type"[^>]*content\s*=\s*"([^"]*)"/i) || [])[1];
   const wantsArticle = isPaperDetail(from);
   if (!ogType) {
-    fail(`${from}: 缺 og:type`);
+    fail("11", `${from}: 缺 og:type`);
     continue;
   }
   if (wantsArticle && ogType !== "article") {
-    fail(`${from}: 论文详情页的 og:type 应为 article，实际是 "${ogType}"`);
+    fail("11", `${from}: 论文详情页的 og:type 应为 article，实际是 "${ogType}"`);
   }
   if (!wantsArticle && ogType !== "website") {
-    fail(`${from}: 非文章页的 og:type 应为 website，实际是 "${ogType}"`);
+    fail("11", `${from}: 非文章页的 og:type 应为 website，实际是 "${ogType}"`);
   }
   const articleMetas = [...html.matchAll(/<meta[^>]*property\s*=\s*"(article:[^"]+)"[^>]*content/gi)];
   if (!wantsArticle && articleMetas.length) {
-    fail(
+    fail("11", 
       `${from}: 非文章页却带了 ${articleMetas.length} 个 article:* 属性` +
         `（${articleMetas.map((m) => m[1]).join(", ")}）——og:type 与 article 扩展必须一致`
     );
   }
   if (wantsArticle && !articleMetas.length) {
-    fail(`${from}: 论文页 og:type=article 却没有一个 article:* 属性——分享卡片拿不到发表日期/刊名/作者`);
+    fail("11", `${from}: 论文页 og:type=article 却没有一个 article:* 属性——分享卡片拿不到发表日期/刊名/作者`);
   }
 }
 
@@ -736,6 +860,7 @@ for (const file of htmlFiles) {
    把某页的 @id 改成 ".../#person-v2"（形状变了，语义上仍是"本人"），
    门禁因为"结尾不再是 #person"而根本没看见这个节点，exit 0 —— 一个
    永远抓不到人的检查比没有检查更糟。改成人名匹配后，改形状也逃不掉。 */
+mark("12");
 const OWNER_NAME = (siteData && siteData.author && siteData.author.nameAsPublished) || "Yihang Lyu";
 const ownerIds = new Set();
 let ownerNodes = 0;
@@ -748,14 +873,14 @@ for (const { from, parsed } of ldRecords) {
     const id = node["@id"];
     if (typeof id !== "string" || !id.trim()) {
       ownerNodesWithoutId++;
-      fail(`${from}: 描述"${OWNER_NAME}"的 Person 节点没有 @id —— 消费方会把它当成另一个独立的人`);
+      fail("12", `${from}: 描述"${OWNER_NAME}"的 Person 节点没有 @id —— 消费方会把它当成另一个独立的人`);
       continue;
     }
     ownerIds.add(id.trim());
   }
 }
 if (ownerIds.size > 1) {
-  fail(
+  fail("12", 
     `全站出现了 ${ownerIds.size} 个不同的"本人" @id（${[...ownerIds].join(", ")}）` +
       `——同一个实体必须用同一个 @id，否则会被读成多个人`
   );
@@ -770,7 +895,7 @@ if (ownerIds.size > 1) {
         : `，@id 全站统一）`)
   );
 } else if (ownerNodes === 0) {
-  fail(`产物里找不到任何描述"${OWNER_NAME}"的 Person 节点`);
+  fail("12", `产物里找不到任何描述"${OWNER_NAME}"的 Person 节点`);
 }
 
 /* ---------- 13. /publications.bib 必须与论文页的 Copy 按钮逐字一致 ----------
@@ -792,6 +917,7 @@ if (ownerIds.size > 1) {
 
    ⚠️ 这条门禁以前正是靠"两边同样被转义"才逐字通过的 —— 它**结构上就抓不到
    转义 bug**：转义错了反而更"一致"。所以下面第 14 条直接盯"文件里不该有实体"。 */
+mark("13");
 
 /** 把 HTML 实体解码回原字符。
     nunjucks 的 autoescape 会把 & " ' < > \ ` 转成
@@ -820,21 +946,21 @@ const problemsBeforeBibCheck = problems.length;
 const bibExists = fs.existsSync(bibPath);
 const bibText = bibExists ? fs.readFileSync(bibPath, "utf8") : "";
 if (!bibExists) {
-  fail("产物里没有 publications.bib");
+  fail("13", "产物里没有 publications.bib");
 } else {
   const bibEntries = bibText
     .split(/\n\s*\n/)
     .map((s) => s.trim())
     .filter(Boolean);
   if (!bibEntries.length) {
-    fail("publications.bib 里一条条目都没有");
+    fail("13", "publications.bib 里一条条目都没有");
   }
   for (const e of bibEntries) {
     if (!/^@(article|dataset|software)\{/.test(e)) {
-      fail(`publications.bib 的条目不是 @article/@dataset/@software：${e.slice(0, 40)}…`);
+      fail("13", `publications.bib 的条目不是 @article/@dataset/@software：${e.slice(0, 40)}…`);
     }
     if (!/\n\s*doi\s*=\s*\{[^}]+\}/.test(e)) {
-      fail(`publications.bib 有条目没有 doi 字段：${e.split("\n")[0]}`);
+      fail("13", `publications.bib 有条目没有 doi 字段：${e.split("\n")[0]}`);
     }
   }
   // 论文页可复制的 BibTeX 块
@@ -848,7 +974,7 @@ if (!bibExists) {
     }
   }
   if (copyBlocks.length && copyBlocks.length !== bibEntries.length) {
-    fail(
+    fail("13", 
       `publications.bib 有 ${bibEntries.length} 条，但论文页有 ${copyBlocks.length} 个可复制的 BibTeX 块` +
         `——读者下载的文件与页面上能复制的条目对不上`
     );
@@ -859,13 +985,13 @@ if (!bibExists) {
       // 解码后**仍**含实体，说明多半不是"少解了一层"，而是两侧都被转义了
       // （.bib 模板漏了 | safe）。给一句能指到根因的诊断，而不是笼统的"找不到"。
       if (HTML_ENTITY_RE.test(decoded)) {
-        fail(
+        fail("13", 
           `${from}: 这个 BibTeX 块在 publications.bib 里找不到逐字相同的条目 —— ` +
             `而且解码后仍含 HTML 实体 "${decoded.match(HTML_ENTITY_RE)[0]}"，` +
             `怀疑 publications.bib 自己也被 autoescape 转义了（模板漏了 | safe）`
         );
       } else {
-        fail(`${from}: 有一个可复制的 BibTeX 块在 publications.bib 里找不到逐字相同的条目`);
+        fail("13", `${from}: 有一个可复制的 BibTeX 块在 publications.bib 里找不到逐字相同的条目`);
       }
     }
   }
@@ -892,10 +1018,11 @@ if (!bibExists) {
 
    ⚠️ 这条此前是**缩进在第 13 条的块里**的（共用一个 else 分支），
    于是从代码上根本看不出它是一条独立门禁——编号体系第九轮才理顺。 */
+mark("14");
 if (bibExists) {
   const entityHit = bibText.match(HTML_ENTITY_RE);
   if (entityHit) {
-    fail(
+    fail("14", 
       `publications.bib 里出现了 HTML 实体 "${entityHit[0]}" —— 下载文件必须是原始 BibTeX，` +
         `不能带 HTML 转义（多半是模板漏了 | safe）`
     );
@@ -919,6 +1046,7 @@ if (bibExists) {
    的 src 解析到同一路径的那张对上，两处 alt 必须逐字相同。
 
    另外钉一条：论文页分享卡片用的图，必须是页面上真给读者看的那张图。 */
+mark("15");
 
 /** 把一个 URL / 路径解析成相对产物根的站内路径（外链只取 pathname）。 */
 function siteRelPath(fromFile, raw) {
@@ -1017,7 +1145,7 @@ for (const file of htmlFiles) {
           // **逐字相同** —— 报错会变成"判红却看不出差在哪"，读的人只能
           // 自己去产物里找。altDiffExcerpt 报首个差异位置并把差异处带上。
           const { at, a: aEx, b: bEx } = altDiffExcerpt(a, b);
-          fail(
+          fail("15", 
             `${from}: ${prefix}:image:alt 与页面上同一张图的 <img alt> 不是同一句话 —— ` +
               `一张图只能有一套 alt。首个差异在第 ${at} 个字：` +
               `meta 侧 "${aEx}" vs <img alt> 侧 "${bEx}"`
@@ -1035,7 +1163,7 @@ for (const file of htmlFiles) {
       .map((x) => siteRelPath(file, x.image))
       .filter(Boolean);
     if (ogPaths.length && !ogPaths.some((p) => shown.includes(p))) {
-      fail(`${from}: 论文页的 og:image 不是页面上显示的任何一张图 —— 分享卡片的图与读者看到的图对不上`);
+      fail("15", `${from}: 论文页的 og:image 不是页面上显示的任何一张图 —— 分享卡片的图与读者看到的图对不上`);
     }
   }
 }
@@ -1089,6 +1217,7 @@ for (const file of htmlFiles) {
    ⚠️ 必须双向：从产物侧看"整块掏空"与"按口径去掉"**完全一样**
    （都让 404 页零实体），单向只查"零实体"的话，既会误伤"去掉"的口径，
    又会漏掉真正的掏空。 */
+mark("16");
 const CONTENT_TYPES = new Set([
   "ScholarlyArticle",
   "Article",
@@ -1122,7 +1251,7 @@ for (const { from, parsed } of ldRecords) {
   for (const node of collectNodes(parsed)) {
     for (const type of typesOf(node)) {
       if (CONTENT_TYPES.has(type)) {
-        fail(
+        fail("16", 
           `${from}: JSON-LD 里出现了内容类实体 "${type}" —— ` +
             `错误页不该声明论文/数据集/胶囊（页面文案是 "Nothing here"，` +
             `而实体却在对外声明这里有产出）`
@@ -1186,7 +1315,7 @@ if (fs.existsSync(identity404SrcPath)) {
   //    过了门禁。收窄后这种情况直接判红（"front matter 里找不到开关"）。
   const fm = srcText.match(/^---\r?\n([\s\S]*?)\r?\n---/);
   if (!fm) {
-    fail(
+    fail("16", 
       `src/404.njk: 文件没有 front matter（--- 包裹的那一段）—— 门禁读不到 ` +
         `identityOn404 开关，无法校验「404 页要不要声明身份」。`
     );
@@ -1198,13 +1327,13 @@ if (fs.existsSync(identity404SrcPath)) {
     //   否则加了注释的那一行就匹配不上，会被误报成"找不到开关"。
     const m = fm[1].match(/^identityOn404:[ \t]*(\S+)[ \t]*(?:#.*)?$/m);
     if (!m) {
-      fail(
+      fail("16", 
         `src/404.njk: front matter 里找不到 identityOn404 开关 —— 门禁读不到「404 页要不要声明身份」` +
           `这一口径，就不能当没事发生。请在 src/404.njk 的 front matter 里写一行` +
           `identityOn404: true（保留）或 identityOn404: false（去掉）。`
       );
     } else if (!/^(true|false|True|False|TRUE|FALSE)$/.test(m[1])) {
-      fail(
+      fail("16", 
         `src/404.njk: identityOn404 的值 "${m[1]}" 不是合法布尔（只接受 true / false / True / False / TRUE / FALSE）—— ` +
           `YAML 1.2 只把 true/True/TRUE/false/False/FALSE 这六种写法当布尔，` +
           `"${m[1]}" 会被解析成别的类型（字符串 / 数字 / null），而 Nunjucks 只看真值：` +
@@ -1220,13 +1349,13 @@ if (fs.existsSync(identity404SrcPath)) {
     }
   }
 } else {
-  fail(`src/404.njk: 文件不存在 —— 门禁读不到 identityOn404 开关`);
+  fail("16", `src/404.njk: 文件不存在 —— 门禁读不到 identityOn404 开关`);
 }
 // ⚠️ 下面两条用**严格比较**（=== true / === false），不是真值判断：
 //    identityOn404 = null 表示"读不到/不合法"，那种情况**上面已经判红了**，
 //    这里必须跳过（不能再当成 false 报"开关与产物不一致"——那会把人指向错方向）。
 if (has404File && identityOn404 === true && types404.size === 0) {
-  fail(
+  fail("16", 
     `404.html: 一个 JSON-LD 实体都没有 —— ` +
       `src/404.njk 的 identityOn404 = ${identityOn404Raw} 声明错误页**要**声明身份，` +
       `但产物里一个实体都没有（把 404 页的 JSON-LD 整块删掉了）`
@@ -1245,7 +1374,7 @@ if (has404File && identityOn404 === false && types404.size > 0) {
   const nestedHint = types404.has("Person")
     ? "；Person 是根节点，其余是它的嵌套节点"
     : "";
-  fail(
+  fail("16", 
     `404.html: 声明了身份类实体（${[...types404].join("、")}${nestedHint}），` +
       `但 src/404.njk 的 identityOn404 = ${identityOn404Raw} ` +
       `声明错误页**不**声明身份 —— 开关与产物不一致`
@@ -1253,7 +1382,7 @@ if (has404File && identityOn404 === false && types404.size > 0) {
 }
 for (const type of types404) {
   if (!otherTypes.has(type)) {
-    fail(
+    fail("16", 
       `404.html: 声明了其它页面都没有的实体类型 "${type}" —— ` +
         `错误页的身份实体应与站点其它页面同源，不许自造`
     );
@@ -1290,30 +1419,31 @@ for (const type of types404) {
    为什么不用"距今 N 分钟"：故障注入会把产物复制到 /tmp 再跑门禁，
    那种"新鲜度"判据会让**每一份历史副本都误报**。源文件相对判据在
    复制后依然成立。 */
+mark("17");
 const robotsTxtPath = path.join(SITE, "robots.txt");
 const robotsSrcPath = path.resolve(__dirname, "../src/robots.njk");
 if (fs.existsSync(robotsTxtPath)) {
   const robotsTxt = fs.readFileSync(robotsTxtPath, "utf8");
   const stampLine = robotsTxt.match(/^#\s*generated-at:\s*(.+?)\s*$/m);
   if (!stampLine) {
-    fail("robots.txt: 找不到 `generated-at` 这一行（构建时刻的机器可读标记）");
+    fail("17", "robots.txt: 找不到 `generated-at` 这一行（构建时刻的机器可读标记）");
   } else {
     const stamp = stampLine[1].trim();
     const parsed = Date.parse(stamp);
     if (Number.isNaN(parsed)) {
-      fail(`robots.txt: 「generated-at」不是合法时间戳 —— "${stamp}"`);
+      fail("17", `robots.txt: 「generated-at」不是合法时间戳 —— "${stamp}"`);
     } else if (fs.existsSync(robotsSrcPath)) {
       const st = fs.statSync(robotsSrcPath);
       const birthIso = new Date(st.birthtime).toISOString();
       if (parsed === Date.parse(birthIso)) {
-        fail(
+        fail("17", 
           `robots.txt: 「generated-at」等于源文件的创建时间（birthtime = ${birthIso}）—— ` +
             `那是"文件什么时候被创建"，不是"这次构建是什么时候"`
         );
       }
       // 构建不早于源文件最后一次修改（留 2 秒容差，避开写盘与取时间的先后）
       if (parsed < st.mtime.getTime() - 2000) {
-        fail(
+        fail("17", 
           `robots.txt: 「generated-at」早于源文件最后一次修改（${st.mtime.toISOString()}）—— ` +
             `构建时间不可能比它自己的源文件还早`
         );
@@ -1375,7 +1505,14 @@ if (fs.existsSync(robotsTxtPath)) {
    src/_data/extremePrecip.json 在 05:05:04Z 才改过 —— sitemap 谎称
    「首页自 03:07 起没变过」。改成闭包口径后，几页共享同一版式的页面会拿到
    同一个时间戳：那是**正确**的（它们确实同时变了），少报才是缺陷。 */
-const REPO = path.resolve(__dirname, "..");
+mark("18");
+// 仓库根。默认是脚本所在目录的上一级；METEO_REPO_ROOT 是**注入缝** ——
+// 自测在 /tmp 里跑，脚本副本不在 git 仓里，而门禁 18 要用真实提交时间
+// 核对 sitemap 的 <lastmod> ⇒ 沙箱必须能借到真仓库的 git 历史。
+// 未设置时行为与从前完全一致。
+const REPO = process.env.METEO_REPO_ROOT
+  ? path.resolve(process.env.METEO_REPO_ROOT)
+  : path.resolve(__dirname, "..");
 // git 失败的分类在 scripts/lib/git-error.cjs（与 eleventy.config.js 共用一份）。
 // 这里只说**为什么**分类要这么细：
 //   · 「git 不在 PATH」/「git 说这里没有提交历史」→ 可以降级成"没有 git 历史"；
@@ -1464,7 +1601,7 @@ if (isShallow === "true") {
   // 规则 A：浅克隆 = 数据源被截断，lastmod 这个功能被**静默关掉**了。
   // 这条判定刻意不挂在 withLastmod 上：浅克隆里产物零 lastmod，
   // 挂在上面就等于什么都不查、直接放行 —— 恰好放过了最该抓的那次退化。
-  fail(
+  fail("18", 
     "当前是浅克隆（git clone --depth 1，或 CI 未设 fetch-depth: 0）：" +
       "sitemap 的 <lastmod> 依赖完整 git 历史，浅克隆下 git log -1 -- <file> " +
       "只能查到 HEAD 那一次，查到的值『看起来像提交时间、其实是 checkout 时间』。" +
@@ -1475,7 +1612,7 @@ if (isShallow === "true") {
   // 规则 B：不在 git 仓库里（源码 zip 分发），本就没有 git 历史。
   // 不拦人，但产物里不许出现 lastmod —— 那只能说明有人硬凑了值。
   for (const e of withLastmod) {
-    fail(
+    fail("18", 
       'sitemap.xml: "' + e.loc + '" 带了 <lastmod>' + e.lastmod + "</lastmod>，" +
         "但当前不在 git 仓库里——查不到真实的提交时间。" +
         "lastmod 只能是内容最后一次改变的时间，宁缺勿假"
@@ -1487,14 +1624,14 @@ if (isShallow === "true") {
   for (const e of withLastmod) {
     const d = new Date(e.lastmod);
     if (isNaN(d.getTime())) {
-      fail('sitemap.xml: "' + e.loc + '" 的 <lastmod>' + e.lastmod + "</lastmod> 不是合法时间戳");
+      fail("18", 'sitemap.xml: "' + e.loc + '" 的 <lastmod>' + e.lastmod + "</lastmod> 不是合法时间戳");
       continue;
     }
     if (d.getTime() > Date.now() + 60000) {
-      fail('sitemap.xml: "' + e.loc + '" 的 <lastmod> 在未来（' + e.lastmod + "）");
+      fail("18", 'sitemap.xml: "' + e.loc + '" 的 <lastmod> 在未来（' + e.lastmod + "）");
     }
     if (!srcCommitTimes.has(d.toISOString())) {
-      fail(
+      fail("18", 
         'sitemap.xml: "' + e.loc + '" 的 <lastmod>' + d.toISOString() + "</lastmod> " +
           "不等于 src 下任何源文件真实的最后一次提交时间——" +
           "它不是内容最后一次改变的时间"
@@ -1509,7 +1646,7 @@ if (isShallow === "true") {
       // 是可有可无的注释，删掉它既不会让 build 失败、也不会让任何一条
       // 其它判据报错 —— 于是"取错源文件"这类错就再也抓不到了。
       // 所以这里必须 fail：没有标注 = 门禁自己被卸掉了。
-      fail(
+      fail("18", 
         'sitemap.xml: "' + e.loc + '" 没有 <!-- source: ... --> 源文件标注——' +
           "门禁靠它逐页核对 lastmod，标注没了整套逐页核对就失效了" +
           "（sitemap.njk 里那行 <!-- source: ... --> 不能删）"
@@ -1522,14 +1659,14 @@ if (isShallow === "true") {
     const closure = expectedLastmod(e.source);
     const t = closure.time;
     if (t && !e.lastmod) {
-      fail(
+      fail("18", 
         'sitemap.xml: "' + e.loc + '" 的依赖闭包里有已提交的文件' +
           "（最晚的是 " + closure.from + "，" + t + "），" +
           "这一页却没有 <lastmod>——lastmod filter 静默失效了" +
           "（sitemap 规范里 lastmod 是可选字段，所以它不会报错，只会悄悄地不写）"
       );
     } else if (!t && e.lastmod) {
-      fail(
+      fail("18", 
         'sitemap.xml: "' + e.loc + '" 的依赖闭包（源文件 ' + e.source + "）" +
           "里没有任何已提交的文件，" +
           "却带了 <lastmod>" + e.lastmod + "</lastmod>——那是查不到来源的时间"
@@ -1539,7 +1676,7 @@ if (isShallow === "true") {
       // 发现不了"取错了源文件"（所有页都填同一个文件的时间也会过）。
       const d = new Date(e.lastmod);
       if (!isNaN(d.getTime()) && d.toISOString() !== t) {
-        fail(
+        fail("18", 
           'sitemap.xml: "' + e.loc + '" 的 <lastmod>' + e.lastmod + "</lastmod> " +
             "不等于它的依赖闭包里最晚的提交时间 " + t + "（来自 " + closure.from + "）" +
             "——时间戳与内容实际改变的时间对不上"
@@ -1552,7 +1689,7 @@ if (isShallow === "true") {
   if (perPageChecked === 0 && srcCommitTimes.size > 0) {
     for (const e of sitemapEntries) {
       if (!e.lastmod) {
-        fail(
+        fail("18", 
           'sitemap.xml: "' + e.loc + '" 没有 <lastmod>，而 src 下有提交过的源文件——' +
             "lastmod filter 静默失效了（sitemap 规范里 lastmod 是可选字段，" +
             "所以它不会报错，只会悄悄地不写）"
@@ -1594,6 +1731,7 @@ note(
      · 同一件作品（按 identifier / DOI 归一）在全站只能有一个 @id；
      · @id 指向站内页面时，那个页面必须真实存在（否则实体归并到一个
        空地址上，等于没有）。 */
+mark("19");
 const WORK_ENTITY_TYPES = new Set([
   "ScholarlyArticle",
   "Article",
@@ -1626,7 +1764,7 @@ for (const { from, parsed } of ldRecords) {
     const id = node["@id"];
     if (typeof id !== "string" || !id.trim()) {
       workIssue = true;
-      fail(
+      fail("19", 
         from + ": JSON-LD 里有一个 " + type + " 实体没有 @id —— " +
           "没有 @id 就没有归并的抓手，同一件作品在站内会被读成多件"
       );
@@ -1634,7 +1772,7 @@ for (const { from, parsed } of ldRecords) {
     }
     if (!ABSOLUTE_URL.test(id.trim())) {
       workIssue = true;
-      fail(from + ": " + type + " 实体的 @id " + JSON.stringify(id) + " 不是绝对地址");
+      fail("19", from + ": " + type + " 实体的 @id " + JSON.stringify(id) + " 不是绝对地址");
       continue;
     }
     const ident =
@@ -1659,7 +1797,7 @@ for (const { from, parsed } of ldRecords) {
         !sitemapPaths.has(p + "/")
       ) {
         workIssue = true;
-        fail(
+        fail("19", 
           from + ": " + type + " 实体的 @id " + JSON.stringify(id) +
             " 指向站内一个不存在的页面 —— 实体归并到一个空地址上，等于没有"
         );
@@ -1671,7 +1809,7 @@ for (const [ident, seen] of idByWork) {
   if (seen.size > 1) {
     const list = [...seen.entries()].map(([id, from]) => id + "（" + from + "）").join(" / ");
     workIssue = true;
-    fail(
+    fail("19", 
       '同一件作品 "' + ident + '" 在站内出现了 ' + seen.size + " 个不同的 @id：" +
         list + " —— 消费方按 @id 归并，同一件作品会被读成多件"
     );
@@ -1703,6 +1841,7 @@ note(
      3. 每条 item 的 <pubDate> 同样必须是 RFC 822 格式；
      4. <lastBuildDate> 不得早于任何一条 item 的 <pubDate>
         （订阅源不可能比它收录的内容还旧）。 */
+mark("20");
 const feedPathForStamp = path.join(SITE, "feed.xml");
 if (fs.existsSync(feedPathForStamp)) {
   const feedXml = fs.readFileSync(feedPathForStamp, "utf8");
@@ -1713,11 +1852,11 @@ if (fs.existsSync(feedPathForStamp)) {
   const RFC822_RE = /^(Mon|Tue|Wed|Thu|Fri|Sat|Sun), \d{2} (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) \d{4} \d{2}:\d{2}:\d{2} GMT$/;
 
   if (!lbdMatch) {
-    fail("feed.xml: 缺 <lastBuildDate>（订阅源必须声明最后一次构建的时刻）");
+    fail("20", "feed.xml: 缺 <lastBuildDate>（订阅源必须声明最后一次构建的时刻）");
   } else {
     const lbd = lbdMatch[1].trim();
     if (!RFC822_RE.test(lbd)) {
-      fail(
+      fail("20", 
         `feed.xml: <lastBuildDate> 不是 RSS 2.0 要求的 RFC 822 格式 —— "${lbd}" ` +
           `(应为 "Mon, 19 Oct 2026 12:00:00 GMT" 这样的写法)`
       );
@@ -1733,7 +1872,7 @@ if (fs.existsSync(feedPathForStamp)) {
         if (!Number.isNaN(buildMs)) {
           const expected = new Date(buildMs).toUTCString();
           if (lbd !== expected) {
-            fail(
+            fail("20", 
               `feed.xml: <lastBuildDate> = "${lbd}"，但本次构建的时刻是 "${expected}" ` +
                 `(robots.txt 的「generated-at」= ${buildIso}) —— ` +
                 `订阅源必须报**构建时刻**，不是最新条目的发表日`
@@ -1746,11 +1885,11 @@ if (fs.existsSync(feedPathForStamp)) {
     for (const raw of pubMatches) {
       const pub = raw.replace(/^<pubDate>/, "").replace(/<\/pubDate>$/, "").trim();
       if (!RFC822_RE.test(pub)) {
-        fail(
+        fail("20", 
           `feed.xml: item 的 <pubDate> 不是 RSS 2.0 要求的 RFC 822 格式 —— "${pub}"`
         );
       } else if (!Number.isNaN(lbdMs) && Date.parse(pub) > lbdMs) {
-        fail(
+        fail("20", 
           `feed.xml: 有条目的 <pubDate>（${pub}）晚于 <lastBuildDate>（${lbd}）—— ` +
             `订阅源不可能比它收录的内容还旧`
         );
@@ -1784,9 +1923,10 @@ if (fs.existsSync(feedPathForStamp)) {
    ⚠️ ④ 只管 @id（实体标识符），不管 url：Person 的 affiliation.url 指向
       https://iap.cas.cn/，其 path 恰好也是 "/"，若一并按"path 对上页面"判，
       就会把一个完全正常的外部机构链接误报成错。 */
+mark("21");
 if (SITE_URL) {
   if (!/^https?:\/\/[^/?#]+$/.test(SITE_URL)) {
-    fail(
+    fail("21", 
       `site.url = "${SITE_URL}" 不是**域名根** —— 站点铺在域名根 / 上，` +
         `url 里不能带子路径（历史上写成 "https://github.lvyihang.xyz/MeteoHub" 时，` +
         `线上 canonical / og:url / sitemap 的每条 loc 全部指向 404 的 /MeteoHub/...）`
@@ -1807,12 +1947,12 @@ if (SITE_URL) {
     for (const [label, v] of pairs) {
       if (!v) continue;
       if (!v.startsWith(sitePrefix)) {
-        fail(
+        fail("21", 
           `${from}: ${label} = "${v}" 不在站点地址 ${sitePrefix} 之下 —— ` +
             `绝对地址的口径由 site.url 决定，不要在模板里另写域名`
         );
       } else if (v !== SITE_URL + route) {
-        fail(
+        fail("21", 
           `${from}: ${label} = "${v}" 与该页自己的路由（${SITE_URL + route}）不一致`
         );
       }
@@ -1822,7 +1962,7 @@ if (SITE_URL) {
   // ③ sitemap 的 loc 与 feed 的 item link
   for (const u of sitemapUrls) {
     if (!u.startsWith(sitePrefix)) {
-      fail(`sitemap.xml: "${u}" 不在站点地址 ${sitePrefix} 之下 —— sitemap 只放本站地址`);
+      fail("21", `sitemap.xml: "${u}" 不在站点地址 ${sitePrefix} 之下 —— sitemap 只放本站地址`);
     }
   }
   if (fs.existsSync(feedPath)) {
@@ -1830,7 +1970,7 @@ if (SITE_URL) {
     for (const m of feedXml.matchAll(/<link>([\s\S]*?)<\/link>/g)) {
       const u = m[1].trim();
       if (u && !u.startsWith(sitePrefix)) {
-        fail(`feed.xml: item 的 link "${u}" 不在站点地址 ${sitePrefix} 之下`);
+        fail("21", `feed.xml: item 的 link "${u}" 不在站点地址 ${sitePrefix} 之下`);
       }
     }
   }
@@ -1852,7 +1992,7 @@ if (SITE_URL) {
       const isSelf = fs.existsSync(target) || fs.existsSync(flat);
       if (!isSelf) continue; // 外部标识符（如 doi.org / zenodo 的 @id），不管
       if (!id.startsWith(sitePrefix)) {
-        fail(
+        fail("21", 
           `${from}: JSON-LD 的 @id "${id}" 指向的是本站页面（${p}），` +
             `origin 却不是 ${SITE_URL} —— 本站的实体标识必须挂在站点地址上`
         );
@@ -1893,6 +2033,7 @@ function altDiffExcerpt(a, b) {
    ⚠️ 判据按**图片路径**配对，不按出现顺序，也不按 alt 文本配对：
    og 侧默认会输出 3 个尺寸（1200×630 / 1080×1080 / 1500×500），
    twitter 侧只输出 1200×630；按顺序配会错位，必须按路径。 */
+mark("22");
 for (const file of htmlFiles) {
   const html = fs.readFileSync(file, "utf8");
   const from = rel(file);
@@ -1908,7 +2049,7 @@ for (const file of htmlFiles) {
       const b = String(twAlt || "").trim();
       if (a === b) continue;
       const { at, a: aEx, b: bEx } = altDiffExcerpt(a, b);
-      fail(
+      fail("22", 
         `${from}: og:image:alt 与 twitter:image:alt 描述的是**同一张图**（${p}）` +
           `却是两句话 —— 一张图只能有一套 alt 文本。首个差异在第 ${at} 个字：` +
           `og 侧 "${aEx}" vs twitter 侧 "${bEx}"${b ? "" : "（twitter 侧整条缺失）"}`
@@ -1938,6 +2079,7 @@ for (const file of htmlFiles) {
      · jsonLdPaper：  person.sameAs = A.sameAs    → **数组**（site.js 里那份）
    写成 `sameAs.includes(ORCID)` 对字符串会退化成"子串在字符串里"、
    对数组才是"元素匹配"——必须先归一成数组再判，两种形态都成立。 */
+mark("23");
 const OWNER_ORCID =
   (siteData && siteData.author && siteData.author.orcid) || "";
 if (OWNER_ORCID && SITE_URL) {
@@ -1960,14 +2102,14 @@ if (OWNER_ORCID && SITE_URL) {
       if (isOwner) withOwnerId++;
       if (hasOrcid && !isOwner) {
         bindingIssue = true;
-        fail(
+        fail("23", 
           `${from}: Person 节点的 sameAs 里含本人 ORCID，却没有 canonical @id ` +
             `（${OWNER_PERSON_ID}）—— 有本人标识却不指向本人实体`
         );
       }
       if (isOwner && !hasOrcid) {
         bindingIssue = true;
-        fail(
+        fail("23", 
           `${from}: 带 canonical @id 的 Person 节点，sameAs 里没有本人 ORCID ` +
             `（${OWNER_ORCID}）—— 本人实体与自己的权威标识脱钩了`
         );
@@ -2006,6 +2148,7 @@ if (OWNER_ORCID && SITE_URL) {
    ⚠️ "真实 <img>" 的定义见 realImgTags()：<style> 里的 CSS 注释与
      HTML 注释里的字面 <img> 都不算（src/about.njk 里就有一处字面 <img>，
      不剔掉会误伤）。 */
+mark("25");
 const allRealImgs = [];
 for (const file of htmlFiles) {
   for (const tag of realImgTags(fs.readFileSync(file, "utf8"))) {
@@ -2027,7 +2170,7 @@ for (const file of htmlFiles) {
     }
     if (alt === null || alt.trim() === "") {
       missing++;
-      fail(
+      fail("25", 
         `${from}: <img> 缺 alt 属性（src="${attrOf(tag, "src") || "(无 src)"}"）—— ` +
           `读屏软件会把文件名或 URL 念出来；有信息的图写 alt，` +
           `装饰性的图显式写 alt="" 或 role="presentation"`
@@ -2057,6 +2200,7 @@ for (const file of htmlFiles) {
    ⚠️ 为什么不能只靠 CSS aspect-ratio：它要等 CSS 解析完才生效，
      在那之前盒子没有高度；width/height 是**解析 HTML 时**就能读到的，
      这正是"解码前预留位置"的关键。 */
+mark("26");
 {
   let missing = 0;
   for (const { from, tag } of allRealImgs) {
@@ -2065,7 +2209,7 @@ for (const file of htmlFiles) {
     if (hasW && hasH) continue;
     missing++;
     const which = !hasW && !hasH ? "width 与 height" : !hasW ? "width" : "height";
-    fail(
+    fail("26", 
       `${from}: <img> 缺 ${which} 属性（src="${attrOf(tag, "src") || "(无 src)"}"）—— ` +
         `图片解码前的比例预留靠这两个属性，缺了 CLS 会从 0 变成正数`
     );
@@ -2099,6 +2243,7 @@ for (const file of htmlFiles) {
    ⚠️ 局限：锚点来自门禁 12 的**姓名**匹配。若作者把 site.author 的姓名
    字段全改到产物里一个都对不上，门禁 12 会先报红（"找不到任何描述本人的
    Person 节点"），本条随之跳过并记一条 note，不会静默放过。 */
+mark("27");
 {
   const ownerAuthor = (siteData && siteData.author) || {};
   const acceptedNames = new Set(
@@ -2123,7 +2268,7 @@ for (const file of htmlFiles) {
   }
   if (drifted.length) {
     for (const d of drifted) {
-      fail(
+      fail("27", 
         `${d.from}: 该 Person 节点挂着本人 @id（${d.id}），但 name 是 "${d.name}" —— ` +
           `本人 @id 的节点姓名必须取自 src/_data/site.js 的 author ` +
           `（当前认可：${[...acceptedNames].join(" / ")}）`
@@ -2170,6 +2315,7 @@ for (const file of htmlFiles) {
    理由与门禁 24 同构 —— 清单是显式契约；条目失效后本条会一直绿着，
    看着像在把关、实际已经不拦任何东西，那比没有这条门禁更糟。
    改内容时忘了同步清单，就该被提醒，而不是悄悄失效。 */
+mark("28");
 {
   const PROPER_NOUNS = [
     "North China",
@@ -2231,7 +2377,7 @@ for (const file of htmlFiles) {
   }
 
   for (const w of wrongCase) {
-    fail(
+    fail("28", 
       `${w.from}: 专有名词 "${w.P}" 出现了非规范大小写 —— ` +
         `专有名词（地名 / 机构名 / 品牌名 / 缩写）不能被小写化，` +
         `检查模板里是不是给它加了 | lower 或 | capitalize`
@@ -2240,7 +2386,7 @@ for (const file of htmlFiles) {
   for (const P of PROPER_NOUNS) {
     if (!seenCanonical.has(P)) {
       stale.push(P);
-      fail(
+      fail("28", 
         `门禁 28 的清单条目 "${P}" 已经失效：产物里找不到它的规范写法 —— ` +
           `要么内容里删掉了这个词（把这条清单删掉），要么改名了（改成新写法）`
       );
@@ -2270,6 +2416,7 @@ for (const file of htmlFiles) {
      · 文件头清单：` *    22. 文字`（星号 + 编号 + 点）
      · 代码段：      `// 1) 文字` 与 `/* ---------- 10. 文字`（两种写法都有）
    编号里允许带字母后缀（4b / 4c）——历史上有过。 */
+mark("24");
 const SELF_SRC = fs.readFileSync(__filename, "utf8");
 const headerNums = [];
 for (const m of SELF_SRC.matchAll(/^\s*\*\s+(\d+[a-z]?)\.\s/gm)) headerNums.push(m[1]);
@@ -2298,7 +2445,7 @@ for (const [label, arr] of [
   const dups = dupOf(arr);
   if (dups.length) {
     registryOk = false;
-    fail(`门禁编号在${label}里重复：${dups.join(", ")} —— 同一个号只能有一条门禁`);
+    fail("24", `门禁编号在${label}里重复：${dups.join(", ")} —— 同一个号只能有一条门禁`);
   }
 }
 const headerSet = new Set(headerNums);
@@ -2307,14 +2454,14 @@ const onlyHeader = [...headerSet].filter((n) => !codeSet.has(n));
 const onlyCode = [...codeSet].filter((n) => !headerSet.has(n));
 if (onlyHeader.length) {
   registryOk = false;
-  fail(
+  fail("24", 
     `文件头清单里登记了门禁 ${onlyHeader.join(", ")}，但代码里没有对应的门禁段 —— ` +
       `清单与代码对不上，按清单引用会引到不存在的号`
   );
 }
 if (onlyCode.length) {
   registryOk = false;
-  fail(
+  fail("24", 
     `代码里有门禁 ${onlyCode.join(", ")}，但文件头清单里没有登记 —— ` +
       `新加的门禁忘了登记编号（清单只到 ${Math.max(
         ...[...headerSet].map((n) => parseInt(n, 10) || 0)
@@ -2339,7 +2486,7 @@ let maxInt = 0;
   }
   if (missing.length) {
     registryOk = false;
-    fail(`门禁编号不连续，缺 ${missing.join(", ")}（最大号 ${maxInt}）—— 编号必须是连续的`);
+    fail("24", `门禁编号不连续，缺 ${missing.join(", ")}（最大号 ${maxInt}）—— 编号必须是连续的`);
   }
 }
 // ⚠️ 这条 note 必须把"**最高编号**"与"**项数**"分开写：
@@ -2390,6 +2537,7 @@ note(
      · 表里的"旧 N → 新 M"是多对一/一对多（"旧 1 / 2 / 3 → 新 1 / 2 / 3"），
        所以要把"新"后面的数字串按 " / " 拆开逐个算；
      · 只有以"旧"或"（无）"开头的行才算表里的行（标记行与续行都不算）。 */
+mark("29");
 {
   /* 锚点只在**文件头块注释**里找：本文件自己的代码段也含这两个字符串
      （判据代码里就写着它们），全文件搜会把判据自己的代码当成表。 */
@@ -2426,7 +2574,7 @@ note(
   }
 
   if (nStart !== 1 || nEnd !== 1) {
-    fail(
+    fail("29", 
       `对照表的锚点不对：文件头里「${START_ANCHOR}」出现 ${nStart} 次、` +
         `「${END_ANCHOR}」出现 ${nEnd} 次（两者都必须恰好 1 次）—— ` +
         (nStart === 0 || nEnd === 0
@@ -2435,14 +2583,14 @@ note(
           : "锚点不唯一，取哪一个都是猜 —— 判据不能这么用。")
     );
   } else if (!tableBlock) {
-    fail(
+    fail("29", 
       "对照表的结尾标记出现在标记行之前 —— 表头结构被改乱了。" +
         "对照表是追溯门禁号的唯一入口，结构乱了就等于让所有门禁号查不到出处。"
     );
   } else {
     const dupRows = dupOf(tableRows);
     if (dupRows.length) {
-      fail(
+      fail("29", 
         `对照表里有 ${dupRows.length} 行逐字重复 —— ` +
           `同一个号只能有一行（若你刚补了一行、而本表已由别人补全，撤掉你那一行）`
       );
@@ -2451,14 +2599,14 @@ note(
     const missingInTable = [...headerSet].filter((n) => !tableSet.has(n));
     const extraInTable = [...tableSet].filter((n) => !headerSet.has(n));
     if (missingInTable.length) {
-      fail(
+      fail("29", 
         `对照表里没有门禁 ${missingInTable.join(", ")} —— ` +
           `每加一条门禁都要在文件头那张「旧编号 → 新编号对照」表里补一行，` +
           `否则拿这个号去追溯历史日志会查不到出处`
       );
     }
     if (extraInTable.length) {
-      fail(
+      fail("29", 
         `对照表里有门禁 ${extraInTable.join(", ")}，但文件头清单里没有 —— ` +
           `要么门禁被删了（表里那行也删掉），要么表里写错了号`
       );
@@ -2491,6 +2639,7 @@ note(
    比对前解码页面侧的 HTML 实体，理由同门禁 13：页面侧被 nunjucks 的
    autoescape 加工过（& → &amp;），.ris 侧是原文（模板里有 | safe）。
    只解页面侧、不解 .ris 侧——.ris 侧是原文，解它等于把原文改掉。 */
+mark("30");
 const risPath = path.join(SITE, "publications.ris");
 const risExists = fs.existsSync(risPath);
 const risText = risExists ? fs.readFileSync(risPath, "utf8") : "";
@@ -2498,7 +2647,7 @@ const risText = risExists ? fs.readFileSync(risPath, "utf8") : "";
 // （失败时还打印它，就是同一屏上既报错又宣称一致——自相矛盾）。
 const problemsBeforeRisCheck = problems.length;
 if (!risExists) {
-  fail("产物里没有 publications.ris");
+  fail("30", "产物里没有 publications.ris");
 } else {
   // 条目之间用空行分隔（模板 join("\n\n")），条内不含空行
   const risRecords = risText
@@ -2506,26 +2655,26 @@ if (!risExists) {
     .map((s) => s.trim())
     .filter(Boolean);
   if (!risRecords.length) {
-    fail("publications.ris 里一条记录都没有");
+    fail("30", "publications.ris 里一条记录都没有");
   }
 
   /* 30e 记录形状：首行 TY、末行 ER、每行一个字段 */
   for (const rec of risRecords) {
     const lines = rec.split("\n").map((l) => l.trim()).filter(Boolean);
     if (!/^TY {2}- [A-Z]+$/.test(lines[0] || "")) {
-      fail(
+      fail("30", 
         `publications.ris 有记录的第一行不是 "TY  - XXX"：${(lines[0] || "").slice(0, 40)}…`
       );
     }
     if (lines[lines.length - 1] !== "ER  -") {
-      fail(
+      fail("30", 
         `publications.ris 有记录没有以 "ER  -" 收尾：${(lines[0] || "").slice(0, 40)}…`
       );
     }
     for (const l of lines) {
       if (l === "ER  -") continue;
       if (!/^[A-Z][A-Z0-9] {2}- \S/.test(l)) {
-        fail(
+        fail("30", 
           `publications.ris 里有一行不是 RIS 字段格式（应为 "XX  - 值"）：${l.slice(0, 60)}`
         );
       }
@@ -2535,7 +2684,7 @@ if (!risExists) {
   /* 30d 下载文件里不得含 HTML 实体 */
   const risEntityHit = risText.match(HTML_ENTITY_RE);
   if (risEntityHit) {
-    fail(
+    fail("30", 
       `publications.ris 里出现了 HTML 实体 "${risEntityHit[0]}" —— 下载文件必须是原始 RIS，` +
         `不能带 HTML 转义（多半是模板漏了 | safe）`
     );
@@ -2552,7 +2701,7 @@ if (!risExists) {
     }
   }
   if (!risBlocks.length) {
-    fail(
+    fail("30", 
       "页面上找不到任何 RIS 复制块（class 含 paper-cite__ris）—— " +
         "复制入口和下载文件对不上"
     );
@@ -2561,18 +2710,18 @@ if (!risExists) {
   /* 30b / 30c 双向逐字一致 */
   for (const { from, text } of risBlocks) {
     if (!risRecords.includes(text)) {
-      fail(`${from}: 这个 RIS 块在 publications.ris 里找不到逐字相同的记录`);
+      fail("30", `${from}: 这个 RIS 块在 publications.ris 里找不到逐字相同的记录`);
     }
   }
   for (const rec of risRecords) {
     if (!risBlocks.some((b) => b.text === rec)) {
-      fail(
+      fail("30", 
         `publications.ris 里有记录在页面上找不到逐字相同的 RIS 块：${rec.split("\n")[0]}…`
       );
     }
   }
   if (risBlocks.length && risRecords.length && risBlocks.length !== risRecords.length) {
-    fail(
+    fail("30", 
       `publications.ris 有 ${risRecords.length} 条，但论文页有 ${risBlocks.length} 个 RIS 块` +
         `——下载的文件与页面上能复制的条目对不上`
     );
@@ -2640,6 +2789,7 @@ if (!risExists) {
    ⚠️ 本条必须**自证存活**：一个字段都没比成、或 sameAs 一次都没被比对，
    都说明判据已经失效（与门禁 18"标注没了整条失效"是同一类病：
    "没报错"和"没问题"长得一模一样）。 */
+mark("31");
 {
   // 列表型字段：这些字段的"逗号串"与"数组"是同一份数据的两种形状
   const LIST_FIELDS = new Set(["sameAs", "keywords", "knowsAbout"]);
@@ -2737,7 +2887,7 @@ if (!risExists) {
           return `「${v}」出现在 ${[...b.pages].sort().join("、")}`;
         })
         .join("；");
-      fail(
+      fail("31", 
         `同一 @id「${g.id}」（@type ${g.typeKey}）的 ${field} 有 ${buckets.size} 种取值：${detail}` +
           `—— 同一个实体、同一个字段必须给出同一个值，否则消费方按 @id 归并时` +
           `取到哪一套全看遍历顺序`
@@ -2784,11 +2934,11 @@ if (!risExists) {
 
   // 自证存活：判据自己被卸掉时不能"全绿"（与门禁 18 的 source 标注同一类病）
   if (!compared) {
-    fail(
+    fail("31", 
       "本条一个字段都没比成——全站找不到有两个及以上节点的同名节点组，判据可能已经失效"
     );
   } else if (!sameAsCompared) {
-    fail(
+    fail("31", 
       "sameAs 一次都没有被比对——本条存在的理由就是守住它；" +
         "sameAs 从产物里消失了，判据也就跟着失效了"
     );
@@ -2832,6 +2982,7 @@ if (!risExists) {
      于是 32d 变成一条永远为绿的空判（与门禁 18 / 31 的"自证存活"同类）。
      只收**带 @type 的实体节点**，才是真的在问"这个 @id 背后有没有一个
      被声明过的作品实体"。 */
+mark("32");
 {
   // 本条自己判出的问题数（用于给 note 选措辞，见文件里 note() 的纪律：
   // 判红时不能照抄通过时那句带断言的话）
@@ -2851,13 +3002,13 @@ if (!risExists) {
   const onPapers = itemListHits.filter((h) => h.from === PAPERS_PAGE);
   for (const h of itemListHits) {
     if (h.from === PAPERS_PAGE) continue;
-    fail(
+    fail("32", 
       `${h.from}: 出现了 ItemList —— 论文列表实体只允许出现在 ${PAPERS_PAGE}；` +
         `这一页不是论文列表页，声明 ItemList 是假声明（消费方会以为这里也有一份列表）`
     );
   }
   if (onPapers.length !== 1) {
-    fail(
+    fail("32", 
       `${PAPERS_PAGE}: 论文列表页的 ItemList 数量是 ${onPapers.length}（应为 1）—— ` +
         `列表级实体缺了，"这个站点共有几篇论文、按什么顺序"就没有答案`
     );
@@ -2889,12 +3040,12 @@ if (!risExists) {
   for (const { node } of onPapers) {
     const list = Array.isArray(node.itemListElement) ? node.itemListElement : null;
     if (!list) {
-      fail(`${PAPERS_PAGE}: ItemList 缺 itemListElement（或它不是数组）—— 列表没有条目`);
+      fail("32", `${PAPERS_PAGE}: ItemList 缺 itemListElement（或它不是数组）—— 列表没有条目`);
       continue;
     }
     // 32b：numberOfItems 与实际条目数一致
     if (node.numberOfItems !== list.length) {
-      fail(
+      fail("32", 
         `${PAPERS_PAGE}: ItemList 的 numberOfItems 是 ${node.numberOfItems}，` +
           `实际条目数是 ${list.length} —— 两者必须一致（消费方按 numberOfItems 决定读几条）`
       );
@@ -2904,7 +3055,7 @@ if (!risExists) {
       const el = list[i];
       const pos = el && typeof el === "object" ? el.position : undefined;
       if (pos !== i + 1) {
-        fail(
+        fail("32", 
           `${PAPERS_PAGE}: ItemList 第 ${i + 1} 条的 position 是 ${pos}（应为 ${i + 1}）—— ` +
             `position 必须 1..N 连续，不能跳号或重复`
         );
@@ -2917,7 +3068,7 @@ if (!risExists) {
       const ref = el && typeof el === "object" ? el.item : null;
       const id = ref && typeof ref === "object" ? ref["@id"] : undefined;
       if (typeof id !== "string" || !id.trim()) {
-        fail(
+        fail("32", 
           `${PAPERS_PAGE}: ItemList 第 ${i + 1} 条没有 item.@id —— ` +
             `列表项必须指向那个作品实体，消费方才能把"列表项"与"论文"合并成同一个节点`
         );
@@ -2926,7 +3077,7 @@ if (!risExists) {
       const idv = id.trim();
       itemIds.push(idv);
       if (!typedIdsOnPapers.has(idv)) {
-        fail(
+        fail("32", 
           `${PAPERS_PAGE}: ItemList 第 ${i + 1} 条的 item.@id「${idv}」` +
             `在本页的 JSON-LD 实体里找不到同 @id 的节点 —— 列表项指向了一个本页没声明的作品`
         );
@@ -2934,14 +3085,14 @@ if (!risExists) {
     }
     // 32e：与该页 ScholarlyArticle 的 @id 序列逐项同序
     if (itemIds.length !== articleIdsOnPapers.length) {
-      fail(
+      fail("32", 
         `${PAPERS_PAGE}: ItemList 列了 ${itemIds.length} 项，但本页声明了 ` +
           `${articleIdsOnPapers.length} 个 ScholarlyArticle —— 两者必须逐项对应（多一个少一个都不行）`
       );
     } else {
       for (let i = 0; i < itemIds.length; i++) {
         if (itemIds[i] !== articleIdsOnPapers[i]) {
-          fail(
+          fail("32", 
             `${PAPERS_PAGE}: ItemList 第 ${i + 1} 项的 @id「${itemIds[i]}」与本页第 ${i + 1} 个 ` +
               `ScholarlyArticle 的 @id「${articleIdsOnPapers[i]}」不一致 —— 列表顺序必须与实体顺序一致`
           );
@@ -2953,12 +3104,12 @@ if (!risExists) {
 
   // 32f：自证存活 —— 判据自己被卸掉时不能"全绿"
   if (!itemListHits.length) {
-    fail(
+    fail("32", 
       "全站找不到任何 ItemList —— 本条存在的理由就是守住论文列表的列表级实体；" +
         "它消失了，判据也就跟着失效了"
     );
   } else if (onPapers.length === 1 && !itemCount) {
-    fail(
+    fail("32", 
       `${PAPERS_PAGE}: ItemList 存在但一条都没被比对 —— 判据可能已经失效` +
         `（本条存在的理由是守住"每一项都能在同页找到作品实体"）`
     );
@@ -2976,6 +3127,118 @@ if (!risExists) {
           `每一项的 @id 都能在本页找到同 @id 的作品实体，顺序与 ScholarlyArticle 一致`
     );
   }
+}
+
+/* ---------- 33. 逐比较点覆盖度自证：每条判据的比较点都必须真的跑过 ----------
+   这条是**给自己这一族门禁上的保险**：编号化之后，最坏的一类失效是
+   「判据还在、编号还在，但那段代码已经不跑了」——
+   比如有人把某条判据整个 if 短路掉、或者把判定表达式改成永假。
+   这类失效**不会**让任何页面检查变红，build 照样全绿：门禁还在，只是不判了。
+
+   所以这里把「每条门禁的比较点」当成一件要**逐个记账**的东西：
+     ① 比较点目录必须**静态登记**（COVERAGE_POINTS）。
+        ⚠️ 必须是静态的：动态生成的话，把一整块判据删掉时它会连同自己的
+           比较点一起消失 ⇒ 覆盖度自证反而判绿 ⇒ 自证被自己拆掉。
+     ② 每个目录里的比较点，这一轮必须**真的跑过**（coveredPoints），
+        或被**显式豁免**并写明原因（waivedPoints）——
+        「悄悄不跑」不算通过，「明说不跑」才算。
+     ③ 每个比较点在源码里至少还得有 N 条判据（N 记在目录里）：
+        删掉一条判据 ⇒ 条数不够 ⇒ 判红。
+        ⚠️ 用「至少」而不是「恰好」：自测做故障注入时会在判据旁边**再插**
+           一条 fail()，条数只会变多不会变少 —— 变少才是「判据被摘掉」。
+     ④ 源码里出现的每个 fail() 门禁号都必须在目录里（或就是门禁 33 自己）：
+        新加门禁忘了登记 ⇒ 判红。
+     ⑤ 开关表必须覆盖目录的全部编号，且除门禁 33 自己外不得有目录外的编号。
+     ⑥ fail() 的实现必须**真的读** SWITCH_ON：
+        开关表若不被消费，「卸掉判据」这件事根本不会发生，
+        判据级负对照就全是假绿。
+     ⑦ 门禁 33 不得把自己列进目录（否则它就成了自己判据的裁判）。
+     ⑧ 目录条目数必须等于文件头清单的门禁数减一（减去门禁 33 自己）——
+        与门禁 24 的清单形成交叉校验。 */
+const COVERAGE_POINTS = {
+  "0": 2, "1": 2, "2": 1, "3": 2, "4b": 5, "4c": 3,
+  "5": 2, "6": 1, "7": 6, "8": 10, "9": 2, "10": 1, "11": 5, "12": 3,
+  "13": 7, "14": 1, "15": 2, "16": 8, "17": 4, "18": 10, "19": 4,
+  "20": 5, "21": 6, "22": 1, "23": 2, "24": 4, "25": 1, "26": 1, "27": 1,
+  "28": 2, "29": 5, "30": 10, "31": 3, "32": 11,
+};
+{
+  const dirIds = Object.keys(COVERAGE_POINTS);
+  let coverageOk = true;
+
+  // ① ② 每个比较点这一轮都跑过 / 或显式豁免
+  const notRun = dirIds.filter((id) => !coveredPoints.has(id) && !waivedPoints.has(id));
+  if (notRun.length) {
+    coverageOk = false;
+    fail("33", 
+      `比较点 ${notRun.join(", ")} 这一轮没有真的跑过（既没被记账，也没有显式豁免）—— ` +
+        "判据还在但不判，等于没有判据"
+    );
+  }
+  // ③ 每个比较点在源码里至少还得有 N 条判据
+  const actualFails = {};
+  for (const m of SELF_SRC.matchAll(/fail\(\s*"(\d+[a-z]?)"/g)) {
+    actualFails[m[1]] = (actualFails[m[1]] || 0) + 1;
+  }
+  const tooFew = dirIds.filter((id) => (actualFails[id] || 0) < COVERAGE_POINTS[id]);
+  if (tooFew.length) {
+    coverageOk = false;
+    fail("33", 
+      `比较点 ${tooFew.join(", ")} 的判据条数比目录登记的少 —— ` +
+        "整块判据被摘掉时，覆盖度自证必须判红"
+    );
+  }
+  // ④ 源码里出现的每个 fail() 门禁号都必须在目录里（或就是门禁 33 自己）
+  const strayIds = Object.keys(actualFails).filter((id) => !dirIds.includes(id) && id !== "33");
+  if (strayIds.length) {
+    coverageOk = false;
+    fail("33", 
+      `源码里出现了目录外的门禁号 ${strayIds.join(", ")} —— ` +
+        "新加门禁忘了在 COVERAGE_POINTS 里登记"
+    );
+  }
+  // ⑤ 开关表必须覆盖目录的全部编号，且不得有目录外的编号（门禁 33 自己除外）
+  const switchIds = Object.keys(SWITCH_ON);
+  const missingSwitch = dirIds.filter((id) => !switchIds.includes(id));
+  const extraSwitch = switchIds.filter((id) => !dirIds.includes(id) && id !== "33");
+  if (missingSwitch.length || extraSwitch.length) {
+    coverageOk = false;
+    fail("33", 
+      `开关表与比较点目录对不上：缺 ${missingSwitch.join(", ") || "无"}、` +
+        `多 ${extraSwitch.join(", ") || "无"} —— ` +
+        "每条判据都要有把手，卸把手才是判据级负对照的前提"
+    );
+  }
+  // ⑥ fail() 的实现必须真的读 SWITCH_ON
+  const failImpl = SELF_SRC.match(/const fail = \(gateId, msg\) => \{[\s\S]*?\n\};/);
+  if (!failImpl || !failImpl[0].includes("SWITCH_ON")) {
+    coverageOk = false;
+    fail("33", 
+      "fail() 的实现里没有读 SWITCH_ON —— 开关表不被消费的话，" +
+        "「卸掉一条判据」根本不会发生，判据级负对照全是假绿"
+    );
+  }
+  // ⑦ 门禁 33 不得把自己列进目录
+  if (dirIds.includes("33")) {
+    coverageOk = false;
+    fail("33", "门禁 33 把自己列进了比较点目录 —— 它不能当自己判据的裁判");
+  }
+  // ⑧ 目录条目数 = 文件头清单门禁数 - 1（门禁 33 自己）
+  if (dirIds.length !== headerSet.size - 1) {
+    coverageOk = false;
+    fail("33", 
+      `比较点目录有 ${dirIds.length} 项，而文件头清单有 ${headerSet.size} 项门禁 —— ` +
+        "两者必须只差门禁 33 自己（交叉校验门禁 24 的清单）"
+    );
+  }
+
+  note(
+    coverageOk
+      ? `逐比较点覆盖度：${dirIds.length} 个比较点这一轮都跑过` +
+        `（另有 ${waivedPoints.size} 个因前提不在场而显式豁免），` +
+        "每个比较点的判据条数也都还在"
+      : `逐比较点覆盖度：${dirIds.length} 个比较点 —— 存在缺口（见上方报错）`
+  );
 }
 
 /* ---------- 汇总 ---------- */
@@ -2996,4 +3259,7 @@ if (problems.length) {
   problems.forEach((p) => console.error("  " + p));
   process.exit(1);
 }
-console.log("✓ 站点自检全部通过");
+console.log(
+  `✓ 站点自检全部通过（门禁 0–33；逐比较点覆盖度 ${coveredPoints.size}/` +
+    `${Object.keys(COVERAGE_POINTS).length}）`
+);
