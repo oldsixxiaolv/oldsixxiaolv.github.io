@@ -15,7 +15,13 @@
  *   本条抓"根本不该抄"。
  *
  * 编号约定（⚠️ 两套编号域，不要混）：
- *   · ID1–ID5 = **本门禁的判据编号**（Identity-Derivation）。
+ *   · ID0–ID7 = **本门禁的判据编号**（Identity-Derivation）。每个编号都写在
+ *     红因里（`✗ 门禁 IDx：…`）—— 判据坐标是**给人看**的，也是自测按编号
+ *     断言"红因归属"的唯一依据。
+ *       ID0 判据自证（遮罩层 + 匹配层）/ ID1 数据源层不许抄字面量 /
+ *       ID2 site.js 必须 require 共享真源 / ID3 共享真源必须存在 /
+ *       ID4 模板层不许抄字面量 / ID5 构建配置层不许抄字面量 /
+ *       ID6a-d 载体清单四件事 / ID7 逐比较点覆盖度自证
  *   · scripts/test-gates-selfcheck.cjs 里的 D1–D6 = **自测脚本的用例编号**，
  *     与本门禁无关。本门禁原用 D1–D4，与自测脚本撞号 → 2026-10-19 改为 ID*。
  *
@@ -81,8 +87,103 @@ const ORACLE_SAMEAS = [
 ];
 const EXPECTED_COUNT = 5;
 
+/* ---------- 逐比较点覆盖度目录（**静态登记**）----------
+   ⚠️ 2026-10-22（D59 第十批）实测修：旧实现里那三条"判据自证"是**恒等式** ——
+     siteChecked = ORACLE_SAMEAS.length;  然后 if (siteChecked !== EXPECTED_COUNT) 判红
+   ⇒ 左边恒等于右边 ⇒ **永远不会红**。而它就写在"自证存活：一条都没查 =
+     判据本身没生效"的注释下面 ⇒ 一条永远不会红的自证，给出了看起来很确定的绿。
+     （更糟的是它们数的是"URL 条数"这个常量，而不是"读过几个文件"。）
+   现在改成：每个「该被读过 / 该被比对过」的位置都记一笔，静态目录里每个比较点
+   都必须被记到 —— 缺一个判红（ID7）。
+   ⚠️ 目录**必须静态**：动态登记的话，把一整块判据删掉时它连同自己的比较点
+     一起消失 ⇒ ID7 反而判绿 ⇒ ID7 就守不住它要守的东西。
+   min = 这条比较点至少要被记到几次（"每条身份 URL 都真的送进过匹配器"）。 */
+const COVERAGE_POINTS = [
+  { key: "ID0.mask", min: 1 }, // 遮罩层自证真的跑过
+  { key: "ID0.find", min: 1 }, // 匹配层自证真的跑过
+  { key: "ID1.read", min: 1 }, // site.js 真被读过
+  { key: "ID1.url", min: EXPECTED_COUNT }, // 5 条身份 URL 逐条送进过匹配器
+  { key: "ID2.require", min: 1 }, // "require 真源"这个判定真的做过
+  { key: "ID3.exists", min: 1 }, // "真源存在"这个判定真的做过
+  { key: "ID4.list", min: 1 }, // .njk 列表真的列过
+  { key: "ID4.file", min: 1 }, // 模板文件真的逐个读过
+  { key: "ID4.url", min: EXPECTED_COUNT },
+  { key: "ID5.read", min: 1 }, // eleventy.config.js 真被读过
+  { key: "ID5.url", min: EXPECTED_COUNT },
+  { key: "ID6a.fam.0", min: 1 }, // 载体家族 0（数据源层）
+  { key: "ID6a.fam.1", min: 1 }, // 载体家族 1（目录数据层）
+  { key: "ID6a.fam.2", min: 1 }, // 载体家族 2（模板层）
+  { key: "ID6a.fam.3", min: 1 }, // 载体家族 3（构建辅助层）
+  { key: "ID6a.fam.4", min: 1 }, // 载体家族 4（构建配置层）
+  { key: "ID6b.claim", min: 1 }, // 候选载体的认领面真的走过
+  { key: "ID6c.scan", min: 1 }, // 清单与扫描面一致性真的核对过
+  { key: "ID6d.carrier.file", min: 1 }, // 清单里的载体文件真的逐个读过
+  { key: "ID6d.carrier.url", min: EXPECTED_COUNT },
+  { key: "ID7.self", min: 1 },
+];
+
+/* 比较点记账：记到几次、哪些被豁免。 */
+const hits = Object.create(null);
+const mark = (key) => {
+  hits[key] = (hits[key] || 0) + 1;
+};
+const waived = new Set();
+const waive = (key) => {
+  waived.add(key);
+};
+const waivePrefix = (prefix) => {
+  for (const p of COVERAGE_POINTS) if (p.key.startsWith(prefix)) waived.add(p.key);
+};
+/* 比较点归哪条判据：key 的第一段就是判据编号（ID0./ID1./…/ID6a./…）。 */
+const ownerOf = (key) => key.split(".")[0];
+
+/* 每条身份 URL 都要**真的送进**匹配器一次 —— 记一笔。
+   这样"只比了 1 条 URL"这种缩水也会被 ID7 抓到。 */
+const compareAll = (maskedText, key) => {
+  const found = findLiteralCopies(maskedText, ORACLE_SAMEAS);
+  for (let i = 0; i < ORACLE_SAMEAS.length; i++) mark(key);
+  return found;
+};
+
 const problems = [];
-const fail = (msg) => problems.push(msg);
+
+/* ---------- 判据编号与可卸开关 ----------
+   ⚠️ 2026-10-22（D59 第十批）实测修：旧的 fail() 只收一句文案，
+      **判据编号只活在注释里** ⇒ ① 红因里没有判据坐标，人读不出是哪条判据；
+      ② 自测没法按编号断言"红因归属"，判据级负对照根本写不出来。
+   ⚠️ 开关必须**真的被 fail() 消费**：声明了却没人看的开关等于没有开关
+      （那样自测的负对照会永远不成立 —— 红还在，"卸掉判据就转绿"证明不了什么）。 */
+const ID0_ON = true; // 判据自证（遮罩层 + 匹配层的合成样例）
+const ID1_ON = true; // 数据源层：site.js 不许抄字面量
+const ID2_ON = true; // site.js 必须 require 共享真源
+const ID3_ON = true; // 共享清单必须存在
+const ID4_ON = true; // 模板层不许抄字面量
+const ID5_ON = true; // 构建配置层不许抄字面量
+const ID6a_ON = true; // 载体清单：每个家族必须非空
+const ID6b_ON = true; // 载体清单：候选载体必须都被认领
+const ID6c_ON = true; // 载体清单：清单与实际扫描面必须一致
+const ID6d_ON = true; // 载体清单：认领了就必须真的被检查
+const ID7_ON = true; // 逐比较点覆盖度自证
+
+const SWITCH_ON = {
+  ID0: ID0_ON,
+  ID1: ID1_ON,
+  ID2: ID2_ON,
+  ID3: ID3_ON,
+  ID4: ID4_ON,
+  ID5: ID5_ON,
+  ID6a: ID6a_ON,
+  ID6b: ID6b_ON,
+  ID6c: ID6c_ON,
+  ID6d: ID6d_ON,
+  ID7: ID7_ON,
+};
+
+const fail = (id, msg) => {
+  /* 开关关 ⇒ 这条判据不说话（**计算照做**，不短路） */
+  if (SWITCH_ON[id] === false) return;
+  problems.push(`门禁 ${id}：${msg}`);
+};
 
 /* ---------- 注释遮罩 ----------
    两种载体两套语法：
@@ -224,8 +325,9 @@ const SELF_TESTS = [
 ];
 for (const t of SELF_TESTS) {
   const got = findLiteralCopies(maskJsComments(t.text), ORACLE_SAMEAS).length;
+  mark("ID0.find"); // ← 跑过一条才算一点（整段被摘掉 ⇒ 这一点不命中 ⇒ ID7 会红）
   if (got !== t.want) {
-    fail(
+    fail("ID0", 
       `判据自证失败：${t.name} —— 期望命中 ${t.want} 条，实际 ${got} 条。` +
         `本门禁的"找字面量"这一步结构上已经失效，继续跑只会给出**假保证**。`
     );
@@ -254,32 +356,36 @@ const MASK_TESTS = [
 ];
 for (const t of MASK_TESTS) {
   const masked = maskJsComments(t.text);
+  mark("ID0.mask"); // ← 同上：跑过一条才算一点
   if (t.mustKeep && !masked.includes(t.mustKeep)) {
-    fail(
+    fail("ID0", 
       `遮罩自证失败：${t.name} —— 遮罩把不该动的文本吃掉了（URL 本体消失）。` +
         `本门禁会因此**看不见**合法形态下的字面量。`
     );
   }
   if (t.mustDrop && masked.includes(t.mustDrop)) {
-    fail(
+    fail("ID0", 
       `遮罩自证失败：${t.name} —— 遮罩**没有**吃掉注释里的内容（注释豁免失效）。`
     );
   }
 }
 
 /* ---------- ID1：身份 URL 不得在 site.js 里以字面量出现 ---------- */
-let siteChecked = 0;
 let siteSource = "";
 try {
   siteSource = fs.readFileSync(SITE_JS, "utf8");
+  mark("ID1.read");
 } catch (e) {
-  fail(`读不到 src/_data/site.js（${e.message}）——本门禁没有判断对象，直接判红。`);
+  fail("ID1", `读不到 src/_data/site.js（${e.message}）——本门禁没有判断对象，直接判红。`);
+  /* 前提不在场 ⇒ 数据源层与"真源被 require"这两条没有判断对象，
+     它们的比较点一并豁免（不让 ID7 拿一个读不到的文件说事）。 */
+  waivePrefix("ID1.");
+  waivePrefix("ID2.");
 }
 
 if (siteSource) {
-  siteChecked = ORACLE_SAMEAS.length;
-  for (const h of findLiteralCopies(maskJsComments(siteSource), ORACLE_SAMEAS)) {
-    fail(
+  for (const h of compareAll(maskJsComments(siteSource), "ID1.url")) {
+    fail("ID1", 
       `src/_data/site.js 第 ${h.line} 行把身份 URL ${h.url} **写成了字面量**——` +
         `身份清单的真源是 scripts/lib/identity.cjs，页面上的身份链接必须从它派生` +
         `（否则就多出第二份清单，改一处忘另一处会静默漂移）。`
@@ -287,8 +393,10 @@ if (siteSource) {
   }
 
   /* ---------- ID2：真源必须真的被引用（结构上的另一半） ---------- */
-  if (!/require\(\s*["'][^"']*lib\/identity\.cjs["']\s*\)/.test(siteSource)) {
-    fail(
+  const requiresShared = /require\(\s*["'][^"']*lib\/identity\.cjs["']\s*\)/.test(siteSource);
+  mark("ID2.require"); // ← 这个判定真的做过（哪怕结论是"没 require"）
+  if (!requiresShared) {
+    fail("ID2", 
       `src/_data/site.js 没有 require 共享身份清单 scripts/lib/identity.cjs——` +
         `身份链接与 sameAs 就没有共同真源，本条的前提不成立。`
     );
@@ -296,27 +404,30 @@ if (siteSource) {
 }
 
 /* ---------- ID3：共享模块自身必须存在（锚失效即判红） ---------- */
-if (!fs.existsSync(SHARED)) {
-  fail(`共享身份清单 scripts/lib/identity.cjs 不存在——真源没了，本门禁无从判断。`);
+const sharedExists = fs.existsSync(SHARED);
+mark("ID3.exists"); // ← 存在性判定真的做过
+if (!sharedExists) {
+  fail("ID3", `共享身份清单 scripts/lib/identity.cjs 不存在——真源没了，本门禁无从判断。`);
 }
 
 /* ---------- ID4：模板层同样不许抄字面量（peer W1 的洞） ---------- */
 let templateFiles = 0;
-let templateChecked = 0;
 try {
   const njkFiles = listNjkFiles(SRC);
   templateFiles = njkFiles.length;
+  mark("ID4.list");
   if (!templateFiles) {
-    fail(
+    fail("ID4", 
       `src/ 下找不到任何 .njk 模板——模板层这条判据没有判断对象（扫描面空跑），直接判红。`
     );
+    waivePrefix("ID4."); // ← 扫描面空跑 ⇒ 模板层的比较点豁免
   }
-  templateChecked = ORACLE_SAMEAS.length;
   for (const file of njkFiles) {
     const rel = path.relative(ROOT, file);
     const text = maskTemplateComments(fs.readFileSync(file, "utf8"));
-    for (const h of findLiteralCopies(text, ORACLE_SAMEAS)) {
-      fail(
+    mark("ID4.file"); // ← 每个模板文件真的被读过
+    for (const h of compareAll(text, "ID4.url")) {
+      fail("ID4", 
         `模板 ${rel} 第 ${h.line} 行把身份 URL ${h.url} **写成了字面量**——` +
           `身份链接必须从 scripts/lib/identity.cjs 派生；模板里烤死一份就是` +
           `站点上的第二份身份清单（数据源是干净的，页面却已经不指向本人了）。`
@@ -324,16 +435,16 @@ try {
     }
   }
 } catch (e) {
-  fail(`扫不到 src/ 下的 .njk 模板（${e.message}）——模板层这条判据没跑起来，直接判红。`);
+  fail("ID4", `扫不到 src/ 下的 .njk 模板（${e.message}）——模板层这条判据没跑起来，直接判红。`);
+  waivePrefix("ID4.");
 }
 
 /* ---------- ID5：构建配置层同样不许抄字面量（sameAs 的发射点） ---------- */
-let configChecked = 0;
 try {
   const configSource = fs.readFileSync(ELEVENTY_CONFIG, "utf8");
-  configChecked = ORACLE_SAMEAS.length;
-  for (const h of findLiteralCopies(maskJsComments(configSource), ORACLE_SAMEAS)) {
-    fail(
+  mark("ID5.read");
+  for (const h of compareAll(maskJsComments(configSource), "ID5.url")) {
+    fail("ID5", 
       `eleventy.config.js 第 ${h.line} 行把身份 URL ${h.url} **写成了字面量**——` +
         `这里正是 person.sameAs 的发射点（实测 910 行 person.sameAs = [...A.sameAs]）；` +
         `在这里烤死一份，数据源与模板都干净，产物里的 sameAs 却会多出一条。` +
@@ -341,9 +452,10 @@ try {
     );
   }
 } catch (e) {
-  fail(
+  fail("ID5", 
     `读不到 eleventy.config.js（${e.message}）——构建配置层这条判据没有判断对象，直接判红。`
   );
+  waivePrefix("ID5.");
 }
 
 /* ---------- ID6：载体清单 —— 扫描面必须与仓库现状一致 ----------
@@ -440,6 +552,17 @@ const CARRIER_FAMILIES = [
   },
 ];
 
+/* 家族 → 比较点键（**字面量登记**，不是运行时拼的 ——
+   运行时拼出来的键在源码里查不到落点，覆盖度自证（ID7）就抓不到
+   "这一族被摘掉了"，而比较点目录与落点不同源本身就是一种假保证）。 */
+const FAM_POINT_KEYS = {
+  数据源层: "ID6a.fam.0",
+  目录数据层: "ID6a.fam.1",
+  模板层: "ID6a.fam.2",
+  构建辅助层: "ID6a.fam.3",
+  构建配置层: "ID6a.fam.4",
+};
+
 /* 按扩展名选遮罩：不同载体的注释语法不同 */
 const maskYamlComments = (text) =>
   text.replace(/^\s*#[^\n]*/gm, (m) => m.replace(/[^\n]/g, " "));
@@ -452,17 +575,36 @@ const maskFor = (file) => {
 };
 
 const familyFiles = new Map(); // 绝对路径 → 家族 id
-for (const fam of CARRIER_FAMILIES) {
+for (let famIdx = 0; famIdx < CARRIER_FAMILIES.length; famIdx++) {
+  const fam = CARRIER_FAMILIES[famIdx];
+  const famPoint = FAM_POINT_KEYS[fam.id];
+  if (!famPoint) {
+    fail(
+      `载体家族「${fam.id}」没有登记比较点键 —— 比较点目录与载体家族清单不同源，` +
+        `这一族被改名或删掉时 ID7 的覆盖度自证会跟着一起消失（又是假保证）。` +
+        `请在 FAM_POINT_KEYS 里给它补一个键。`
+    );
+    continue;
+  }
+  if (Number(famPoint.split(".").pop()) !== famIdx) {
+    fail(
+      `载体家族「${fam.id}」的比较点键 ${famPoint} 与它在 CARRIER_FAMILIES 里的序号 ` +
+        `${famIdx} 对不上 —— 两边必须一一对应，否则 ID7 的覆盖度自证数的是别的家族。`
+    );
+    continue;
+  }
   let files = [];
   try {
     files = fam.files();
+    mark(famPoint); // ← 这一族真的列过（编号与 CARRIER_FAMILIES 的顺序一一对应）
   } catch (e) {
-    fail(`载体家族「${fam.id}」列文件失败（${e.message}）——本门禁没有完整判断对象，直接判红。`);
+    fail("ID6a", `载体家族「${fam.id}」列文件失败（${e.message}）——本门禁没有完整判断对象，直接判红。`);
+    waive(famPoint); // ← 列不出来 ⇒ 这一族没有判断对象
     continue;
   }
   /* ID6a：家族必须非空 */
   if (!files.length) {
-    fail(
+    fail("ID6a", 
       `载体家族「${fam.id}」一个文件都没有 —— 这一族载体已经消失或改名，` +
         `扫描面可能已经悄悄失效（门禁还在按老清单跑）。`
     );
@@ -474,6 +616,7 @@ for (const fam of CARRIER_FAMILIES) {
 }
 
 /* ID6b：候选载体必须都被认领 */
+mark("ID6b.claim"); // ← 认领面真的走过
 const claimRoots = [
   { dir: path.join(ROOT, "src/_data"), recursive: true },
   { dir: path.join(ROOT, "src/_includes"), recursive: true },
@@ -496,7 +639,7 @@ for (const root of claimRoots) {
     }
     if (familyFiles.has(file)) continue; // 已被某个家族认领
     const rel = path.relative(ROOT, file);
-    fail(
+    fail("ID6b", 
       `载体 ${rel} 不在任何已登记的载体家族里 —— 里面的身份 URL 字面量**不受本门禁管**` +
         `（本门禁只查清单里的文件；这份清单在 scripts/check-identity-derivation.cjs 的` +
         ` CARRIER_FAMILIES）。要么把它登记进某个家族（改 CARRIER_FAMILIES 一处），` +
@@ -508,7 +651,7 @@ for (const root of claimRoots) {
 for (const file of listFiles(ROOT, false)) {
   if (!/^eleventy\.config\./.test(path.basename(file))) continue;
   if (familyFiles.has(file)) continue;
-  fail(
+  fail("ID6b", 
     `构建配置 ${path.relative(ROOT, file)} 不在载体清单里 —— 它同样参与构建，` +
       `身份 URL 写在这里不会被本门禁发现。请登记进 CARRIER_FAMILIES（或改用` +
       ` eleventy.config.js）。`
@@ -516,6 +659,7 @@ for (const file of listFiles(ROOT, false)) {
 }
 
 /* ID6c：清单与实际扫描面必须一致 —— 清单不能漏掉已经扫过的文件 */
+mark("ID6c.scan"); // ← 一致性真的核对过
 const alreadyScanned = new Set();
 if (siteSource) alreadyScanned.add(SITE_JS);
 try {
@@ -526,7 +670,7 @@ try {
 alreadyScanned.add(ELEVENTY_CONFIG);
 for (const f of alreadyScanned) {
   if (!familyFiles.has(f)) {
-    fail(
+    fail("ID6c", 
       `载体清单漏掉了正在被扫描的文件 ${path.relative(ROOT, f)} —— ` +
         `清单与实际扫描面不一致，清单不能作为"覆盖范围"来读。`
     );
@@ -551,24 +695,26 @@ for (const [file, famId] of familyFiles) {
       markExempt(file);
       continue; // 登记在案的显式豁免
     }
-    fail(
+    fail("ID6d", 
       `载体 ${path.relative(ROOT, file)}（${famId}）**在载体清单里，却不受检查** —— ` +
         `它的扩展名 ${ext || "（无）"} 不在候选集里，本门禁不会读它；` +
         `清单说它被管，实际没人查（身份 URL 写在这里不会被发现）。` +
         `要么把 ${ext || "该扩展名"} 加进 CARRIER_EXTS，要么在 EXEMPT_EXTS 里登记豁免理由。`
     );
     continue;
-  }  let text = "";
+  }
+  let text = "";
   try {
     text = fs.readFileSync(file, "utf8");
   } catch (e) {
-    fail(`读不到载体 ${path.relative(ROOT, file)}（${e.message}）——该载体没被检查，直接判红。`);
+    fail("ID6d", `读不到载体 ${path.relative(ROOT, file)}（${e.message}）——该载体没被检查，直接判红。`);
     continue;
   }
   carrierScanned++;
+  mark("ID6d.carrier.file"); // ← 清单里的这个载体真的被读过
   const rel = path.relative(ROOT, file);
-  for (const h of findLiteralCopies(maskFor(file)(text), ORACLE_SAMEAS)) {
-    fail(
+  for (const h of compareAll(maskFor(file)(text), "ID6d.carrier.url")) {
+    fail("ID6d", 
       `载体 ${rel}（${famId}）第 ${h.line} 行把身份 URL ${h.url} **写成了字面量**——` +
         `这个文件在 ID6 的载体清单里，身份清单的真源是 scripts/lib/identity.cjs；` +
         `在这里烤死一份就是站点上的第二份身份清单（改一处忘另一处会静默漂移）。`
@@ -576,23 +722,47 @@ for (const [file, famId] of familyFiles) {
   }
 }
 
-/* ---------- 自证存活：一条都没查 = 判据本身没生效 ---------- */
-if (siteSource && siteChecked !== EXPECTED_COUNT) {
-  fail(
-    `数据源层只查了 ${siteChecked} 条身份 URL（应为 ${EXPECTED_COUNT} 条）——` +
-      `期望集被改动了，本条没有生效。`
+/* ---------- ID7：逐比较点覆盖度自证 ----------
+   ⚠️ 2026-10-22（D59 第十批）实测修：上面这三条"自证存活"原本是**恒等式** ——
+     siteChecked / templateChecked / configChecked 三个变量都是直接赋值
+     `ORACLE_SAMEAS.length`，所以 `!== EXPECTED_COUNT` **永远为假** ⇒
+     它们**永远不会红**。而它们就写在"一条都没查 = 判据本身没生效"的注释下面
+     ⇒ 一条永远不会红的自证，给出了看起来很确定的绿（本门禁最坏的一种状态）。
+     （更糟的是它们数的是"URL 条数"这个常量，而不是"读过几个文件"。）
+   现在改成 ID7：每个「该被读过 / 该被比对过」的位置都记一笔，
+   静态目录里每个比较点都必须被记到，缺一个就判红。
+   ⚠️ 判据被卸掉（开关关）⇒ 它的比较点不算缺失 —— 否则"卸判据"永远转不了绿。 */
+mark("ID7.self");
+const missingPoints = [];
+for (const p of COVERAGE_POINTS) {
+  if (SWITCH_ON[ownerOf(p.key)] === false) continue; // 判据被卸掉 ⇒ 不算缺失
+  if (waived.has(p.key)) continue; // 前提不在场 ⇒ 豁免
+  const n = hits[p.key] || 0;
+  if (n < p.min) missingPoints.push(`${p.key}（记到 ${n} 次，至少要 ${p.min} 次）`);
+}
+if (missingPoints.length) {
+  fail("ID7", 
+    `逐比较点覆盖度自证失败：${missingPoints.length} 个比较点没跑到 —— ` +
+      `${missingPoints.join("；")}。` +
+      `这说明有判据**没有真正执行**（或者整段被摘掉了）——门禁正在给出一个假的绿。`
   );
 }
-if (templateFiles && templateChecked !== EXPECTED_COUNT) {
-  fail(
-    `模板层只查了 ${templateChecked} 条身份 URL（应为 ${EXPECTED_COUNT} 条）——` +
-      `期望集被改动了，本条没有生效。`
+/* 结构自证 ①：家族点数必须与 CARRIER_FAMILIES 的实际条数一致 ——
+   否则"少登记一个家族"会变成"少一个比较点"，两边一起消失，ID7 抓不到。 */
+const famPointCount = COVERAGE_POINTS.filter((p) => p.key.startsWith("ID6a.fam.")).length;
+if (famPointCount !== CARRIER_FAMILIES.length) {
+  fail("ID7", 
+    `载体家族数与比较点目录里的家族点数量对不上（家族 ${CARRIER_FAMILIES.length} 个、目录 ${famPointCount} 个）——` +
+      `两边必须一起改，否则少一个家族会变成"少一个比较点"、两边一起消失。`
   );
 }
-if (configChecked !== EXPECTED_COUNT) {
-  fail(
-    `构建配置层只查了 ${configChecked} 条身份 URL（应为 ${EXPECTED_COUNT} 条）——` +
-      `期望集被改动了，本条没有生效。`
+/* 结构自证 ②：期望集的条数必须与静态声明一致 ——
+   改了 ORACLE_SAMEAS 却没改 EXPECTED_COUNT ⇒ 下面所有"每条 URL 都比对过"
+   的计数会跟着缩水，比较点的下限也就跟着缩水。 */
+if (ORACLE_SAMEAS.length !== EXPECTED_COUNT) {
+  fail("ID7", 
+    `期望集有 ${ORACLE_SAMEAS.length} 条，与声明的 ${EXPECTED_COUNT} 条不一致 —— ` +
+      `期望集被改动却没同步声明，这条比较点的下限就跟着缩水了。`
   );
 }
 
@@ -614,11 +784,17 @@ const exemptSummary =
     .join("；") || "无";
 const familySummary = [...new Set(familyFiles.values())].join(" / ");
 
+const ranPoints = COVERAGE_POINTS.filter(
+  (p) => SWITCH_ON[ownerOf(p.key)] !== false && !waived.has(p.key)
+).length;
+const waivedPoints = COVERAGE_POINTS.length - ranPoints;
 console.log(
   `身份派生门禁通过：数据源（src/_data/site.js）、模板层（${templateFiles} 个 .njk）、` +
     `构建配置层（eleventy.config.js）与 ID6 载体清单里的另外 ${carrierScanned} 个载体文件里，` +
     `${ORACLE_SAMEAS.length} 条身份 URL **没有一条**以字面量出现` +
     `（页面可见链接与 sameAs 全部派生自 scripts/lib/identity.cjs，站点只有一份身份清单）。` +
     `载体清单共 ${familyFiles.size} 个文件（${familySummary}），其中 ${carrierScanned} 个被逐字检查；` +
-    `不在扫描面内的显式豁免：${exemptSummary}。`
+    `不在扫描面内的显式豁免：${exemptSummary}。` +
+    `逐比较点覆盖度自证：${ranPoints}/${COVERAGE_POINTS.length} 个比较点都跑过` +
+    `（另有 ${waivedPoints} 个因前提不在场或判据被卸掉而豁免）。`
 );
