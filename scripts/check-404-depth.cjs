@@ -20,6 +20,7 @@
  *   必须一律**根绝对**（"/assets/..."、"/blog/"）。
  *
  * 判据：
+ *   E0 404 产物必须在场 —— 产物里没有 404.html，缺失路径就会显示 GitHub 的默认错误页。
  *   E1 404 页的站内 URL 一律根绝对 —— 不得出现任何相对站内 URL。
  *   E2 覆盖度自证 —— 404 页至少要检出 N 个站内 URL（防止"改空了就通过"：
  *      把 404 页的链接全删光，E1 自然没话可说，但那是页面更坏了，不是修好了）。
@@ -109,17 +110,27 @@ function htmlFiles(dir, base = dir, out = []) {
   return out;
 }
 
-/* ---------------- E1 / E2：404 页 ---------------- */
+/* ---------------- E0 / E1 / E2：404 页 ---------------- */
 
-if (!fs.existsSync(PAGE_404)) {
+/* E0：404 产物必须在场。
+   ⚠️ 这里刻意**不**写成 if/else，而是把 E0 与 E1/E2 拆成两段**独立**语句。
+      写成 else 的话，两段共用同一个 `if` 条件 ⇒ 判据级负对照没法**只**摘掉 E0：
+      摘掉 E0 的守卫条件后，else 分支就会跟着跑、随即在读文件时崩掉，
+      "E0 的红因消失"就变成"门禁崩了"，两件事混在一起，红因归属就不纯。
+      拆开之后，E0 的守卫条件可以被**单独**替换成永假，其余判据的行为一字不变。 */
+const has404 = fs.existsSync(PAGE_404);
+const html404Src = has404 ? fs.readFileSync(PAGE_404, "utf8") : "";
+
+if (!has404) {
   fail(
-    `找不到 404 产物 ${path.relative(ROOT, PAGE_404) || PAGE_404} —— ` +
+    `E0 找不到 404 产物 ${path.relative(ROOT, PAGE_404) || PAGE_404} —— ` +
       `GitHub Pages 靠它兜住所有未匹配路径；产物里没有它，缺失路径会直接显示` +
       `GitHub 的默认错误页，站点自己的样式与导航全丢。`
   );
-} else {
-  const html = fs.readFileSync(PAGE_404, "utf8");
-  const internal = extractUrls(html).filter(isInternal);
+}
+
+if (has404) {
+  const internal = extractUrls(html404Src).filter(isInternal);
   const relativeOnes = internal.filter((u) => !isRootAbsolute(u));
 
   // E1：站内 URL 一律根绝对
@@ -176,8 +187,7 @@ if (problems.length) {
   process.exit(1);
 }
 
-const html404 = fs.existsSync(PAGE_404) ? fs.readFileSync(PAGE_404, "utf8") : "";
-const n404 = extractUrls(html404).filter(isInternal).length;
+const n404 = extractUrls(html404Src).filter(isInternal).length;
 console.log(
   `404 页路径深度门禁通过：404.html 的 ${n404} 个站内 URL 全部根绝对` +
     `（≥${MIN_INTERNAL_URLS}），其余页面仍保持相对 URL。`
