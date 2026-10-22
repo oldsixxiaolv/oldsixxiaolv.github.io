@@ -74,6 +74,7 @@ Cloudflare Pages、Nginx 等任意静态服务。详细运行 / 调试见 `HOW_T
 | `npm run serve` | 本地 dev server（热更新） |
 | `npm run check:gates` | **门禁接线**：每道门禁都必须从 `build` 可达（防止"门禁被摘掉"） |
 | `npm run check:tracked-refs` | 已跟踪文件里引用的本地文件必须也已被 git 跟踪 |
+| `npm run check:tracked-refs-selftest` | 上面那道门禁的本地夹具自测（18 档注入矩阵，在**临时 git 仓**上跑，证明它能变红；含 **4 档判据级负对照**（逐条卸掉 TR1–TR4 后对应注入必须转绿）、**2 档精准性负对照**、**2 档覆盖度自证**、**2 档故意判绿**（注释里 / 字符串里写着本地 require 的字样都不算引用 —— 补之前这两档是红的）；**红因归属纯净性断言**（每档红只许出现自己那一条判据的编号）） |
 | `npm run check:log-sections` | 改进日志的 `##` 节**只增不减**（历史全量核对） |
 | `npm run check:decision-ids` | 待拍板编号唯一性：一个编号只能指一件事（台账内外同号必须是同一件事） |
 | `npm run check:decision-ids-selftest` | 上面那道门禁的本地夹具自测（14 档注入矩阵，证明它能变红） |
