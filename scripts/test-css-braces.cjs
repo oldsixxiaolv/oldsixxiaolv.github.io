@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * 自测 CB0–CB19：给 scripts/check-css-braces.cjs 的每条判据找一次「它会红」的证据
+ * 自测 CB1–CB4：给 scripts/check-css-braces.cjs 的每条判据找一次「它会红」的证据
  *
  * 为什么要有这个自测（2026-10-21 的 D59 第六批）：
  *   这道门禁守的是「CSS 花括号配平」—— 少一个 } 会让后面的规则被**静默吞掉**
@@ -21,7 +21,7 @@
  *      若夹具注释里本来就有 {，遮罩一坏 CB1 就会跟着红 ⇒ 红因归属被污染（两条判据同时红，
  *      就说不清红因到底来自哪一条了）。所以「注释里有 {」单独用 G1 档来测。
  *
- * 档位（5 档绿 + 9 档注入 + 7 档判据级负对照 + 1 档覆盖度自证 = 22 档）：
+ * 档位（5 档绿 + 10 档注入 + 7 档判据级负对照 + 7 档覆盖度自证 = 29 档）：
  *   G0    基线绿
  *   G1    注释里有 {                          ⇒ 绿（遮罩有效）
  *   G2    字符串里有 {                        ⇒ 绿（遮罩有效）
@@ -36,16 +36,35 @@
  *   CB3a  破坏注释遮罩                        ⇒ CB3
  *   CB3b  破坏 url() 剥离                     ⇒ CB3
  *   CB4   门禁自己被卸掉（build 链里不叫它了） ⇒ CB4
+ *   CB4pkg package.json 是坏 JSON              ⇒ CB4（读不到就当没有 ⇒ 静默绿，必须判红）
  *   N-CB1 负对照：卸掉 CB1 ⇒ CB1a 的注入必须**转绿**
  *   N-CB2 负对照：卸掉 CB2 ⇒ CB2 / CB2b 的注入必须**转绿**
  *   N-CB3 负对照：卸掉 CB3 ⇒ CB3a / CB3b 的注入必须**转绿**
  *   N-CB4 负对照：卸掉 CB4 ⇒ CB4 的注入必须**转绿**
  *   P-CB3 精准性负对照：卸掉 CB3 + 破坏遮罩 + CB1a 注入 ⇒ 必须**恰好**红 CB1
  *   COV   覆盖度自证：门禁报出的文件数与夹具里真实的 .css 张数一致（不是编的）
+ *   COV2a 门禁里的 fail() 调用点数 == 归属表条数
+ *   COV2b 每个调用点的判据都在静态清单里
+ *   COV2c 门禁解析出的判据集合 == 静态清单（**双向**）
+ *   COV2d 每条归属恰好认领一个调用点
+ *   COV2e 归属片段互不包含
+ *   COV2f 运行时红因归属纯净（一条判据触发多条红因时逐条认领）
  *
  * ⚠️ 每档都断言「红因编号多重集**完全相等**」，不只是「包含期望的那条」——
  *   一档里出现两条判据的红，红因归属就不可判定了（那是脚本的缺陷，不是产品的缺陷）。
  *   N-CB1–N-CB4 / P-CB3 这五档负对照正是「归属纯净」的守门人。
+ *
+ * ⚠️ 判红/判绿档还额外断言**门禁自己的横幅**（失败横幅 / 通过横幅）：
+ *   node 遇到语法错或未捕获异常也是 exit 1，只看退出码会把「门禁崩了」当成判红。
+ *   横幅必须出现，才说明门禁真的跑到了它自己的结论。
+ *
+ * ⚠️ 本轮（D65）补的是「红因归属表」+「覆盖度自证（双向）」两件：
+ *   原来的 COV 只证明「报出的文件数不是编的」，**没有**证明
+ *   ① 门禁里每一条 fail() 调用点都被自测登记过（漏一条 ⇒ 自测不知道）；
+ *   ② 自测登记的判据清单与门禁里实际用的判据集合**完全一致**（门禁偷偷加了 CB5、
+ *      或者清单里写了门禁根本没用上的判据 ⇒ 都得露出来）。
+ *   这正是 D63 / D64 场次在 check-tag-leak / check-404-depth / check-mount-contract
+ *   上确立的同一套口径。
  *
  * ⚠️ 注入到**门禁副本**上的每一处改动，都额外断言「副本与原件的改动行数 = 声明值」：
  *   证明破坏确实打上了，而且只打了声明的那些行（既防「没打上」，也防「顺手多改了一行」）。
@@ -70,6 +89,48 @@ function sha256(p) {
 /* 原件指纹：**自测开始时**记下来，收尾时比对 ——
    证明这一整轮注入全在副本上，仓库里的原件一个字节都没动。 */
 const GATE_SHA_AT_START = sha256(GATE);
+
+/* ================= 红因归属表 + 静态判据清单 ================= */
+
+/**
+ * 每条 fail() 调用点一行 —— 这就是「红因归属表」。
+ *
+ * frag = 该调用点的红因正文里一段**唯一可辨**的片段。三条用处：
+ *   ① 静态：把门禁源码里的 fail() 调用点与本表**一一对应**（见 COV2 段）；
+ *   ② 运行时：每条红因行必须被**恰好一条**归属认领（按片段命中）——
+ *      一条都认领不到 ⇒ 出现了本表没登记过的新红因；被两条同时认领 ⇒ 归属不纯；
+ *   ③ 交叉校验：归属认出的判据必须与红因行开头的编号一致（对不上 ⇒ 归属表错了）。
+ *
+ * ⚠️ 片段之间必须**互不包含**，否则一条红因行会被两条归属同时认领 ⇒ 归属就不纯了。
+ * ⚠️ CB4 有**两个**调用点（读不到 package.json / 门禁自己被卸掉），两条红因文案不同
+ *    ⇒ 用两个片段区分；它们的判据号都是 CB4 —— **一条判据可以触发多条红因**，
+ *    所以「红因条数」与「判据集合」是两个量，必须分开断言。
+ */
+const CAUSES = [
+  { id: "C1", crit: "CB1", frag: "未闭合", desc: "样式表括号不平衡（depth 与 minDepth 都要查）" },
+  { id: "C2", crit: "CB2", frag: "一张样式表都扫不到", desc: "扫描面为空 ⇒ 空跑" },
+  { id: "C3", crit: "CB3", frag: "遮罩自证失败", desc: "遮罩自证失败（注释 / 字符串 / url()）" },
+  {
+    id: "C4",
+    crit: "CB4",
+    frag: "读不到 package.json",
+    desc: "读不到 package.json ⇒ 无法确认接在 build 链上",
+  },
+  {
+    id: "C5",
+    crit: "CB4",
+    frag: "门禁自己被卸掉了",
+    desc: "build 链里没有指向本门禁的 script",
+  },
+];
+
+/* 静态判据清单：门禁里出现过的判据必须**恰好**是这四个（多一个少一个都露）。 */
+const CRITERIA = ["CB1", "CB2", "CB3", "CB4"];
+
+/* 门禁自己的失败 / 通过横幅 —— 用来判「门禁确实跑到了自己的结论」。
+ * 少了这两条，node 遇到语法错或未捕获异常（也是 exit 1）会被当成「判红通过」。 */
+const GATE_FAIL_BANNER = "CSS 括号检查未通过：";
+const GATE_PASS_BANNER = "CSS 括号检查通过（";
 
 /* ================= 夹具站 ================= */
 
@@ -163,6 +224,66 @@ function fmtIds(ids) {
   return [...ids].sort().join("+") || "（无）";
 }
 
+/* ================= 覆盖度自证用的解析器 ================= */
+
+/**
+ * 从门禁源码里解析出**全部** fail() 调用点及其判据编号（首参）。
+ * 正则同时吃四种写法：多行模板字面量 / 单行模板字面量 / 双引号 / 单引号。
+ * ⚠️ 必须用整文件正则而不是逐行找 `fail(` —— 多行调用（`fail(\n  "CB3",`）
+ *    逐行是数不出来的。
+ */
+function scanFailCalls(src) {
+  const calls = [];
+  const re = /(?<![.\w$])fail\s*\(\s*(?:`([^`]*)`|"([^"]*)"|'([^']*)')/g;
+  let m;
+  while ((m = re.exec(src)) !== null) {
+    const crit = m[1] !== undefined ? m[1] : m[2] !== undefined ? m[2] : m[3];
+    calls.push({ index: m.index, crit: crit });
+  }
+  return calls;
+}
+
+/**
+ * 一个归属片段落在**哪些**调用点的区间里。
+ * 规则：片段必须出现在「它自己的那个调用点之后、下一个调用点之前」——
+ * 落在区间外 ⇒ 它认领错了调用点（或根本没被登记）。
+ * @returns {number[]} 认领了这个片段的调用点下标
+ */
+function ownersOfFrag(frag, calls, src) {
+  const owners = [];
+  let from = 0;
+  for (;;) {
+    const k = src.indexOf(frag, from);
+    if (k < 0) break;
+    from = k + 1;
+    for (let i = 0; i < calls.length; i++) {
+      const start = calls[i].index;
+      const end = i + 1 < calls.length ? calls[i + 1].index : src.length;
+      if (k > start && k < end) owners.push(i);
+    }
+  }
+  return owners;
+}
+
+/**
+ * 运行时归属：把每条红因行交给归属表认领。
+ * 每行必须**恰好**被一条归属认领，且认出的判据要与行首编号一致；
+ * 行首没有编号（裸红因）或认不出归属 ⇒ 这一行就是「没登记过的新红因」。
+ */
+function attributeRows(out) {
+  const rows = out.split("\n").filter((l) => /^[ \t]*✗[ \t]*门禁[ \t]/.test(l));
+  return rows.map((row) => {
+    const hits = CAUSES.filter((c) => row.includes(c.frag));
+    const m = /^[ \t]*✗[ \t]*门禁[ \t]+(CB\d+)/.exec(row);
+    return {
+      row: row,
+      hits: hits.map((c) => c.id),
+      crits: hits.map((c) => c.crit),
+      prefix: m ? m[1] : null,
+    };
+  });
+}
+
 /** 改副本里的一个文件；注入点找不到就当场抛错（不静默跳过）。 */
 function patch(file, from, to) {
   const text = fs.readFileSync(file, "utf8");
@@ -228,7 +349,14 @@ function expectRed(id, dir, want, opts) {
   const got = redIds(r.out);
   const idsOk = sameMultiset(got, want);
   const textOk = !o.mustContain || r.out.includes(o.mustContain);
-  const ok = r.code === 1 && idsOk && textOk;
+  /* 门禁必须跑到了自己的结论（横幅出现）—— 否则「门禁崩了」也是 exit 1，会被当成判红。 */
+  const bannerOk = r.out.includes(GATE_FAIL_BANNER);
+  /* 归属纯净：每条红因行恰好被一条归属认领，且认出的判据与行首编号一致。 */
+  const rows = attributeRows(r.out);
+  const attrOk =
+    rows.length === got.length &&
+    rows.every((row) => row.hits.length === 1 && row.crits[0] === row.prefix);
+  const ok = r.code === 1 && idsOk && textOk && bannerOk && attrOk;
   record(
     id,
     ok,
@@ -236,7 +364,10 @@ function expectRed(id, dir, want, opts) {
       ? `红了，红因编号 = ${fmtIds(got)}（归属纯净）${o.note ? "；" + o.note : ""}`
       : `期望红因 ${fmtIds(want)} 且只有这些` +
         `${o.mustContain ? `、文案含「${o.mustContain}」` : ""}` +
-        `，实际 code=${r.code} 红因 ${fmtIds(got)}\n${r.out}`
+        `${bannerOk ? "" : "、且须出现门禁失败横幅"}` +
+        `${attrOk ? "" : "、且每条红因行恰好被一条归属认领"}` +
+        `，实际 code=${r.code} 红因 ${fmtIds(got)}` +
+        `归属 ${rows.map((x) => `${x.prefix}<-${x.hits.join("+") || "无"}`).join(" / ")}\n${r.out}`
   );
 }
 
@@ -244,13 +375,15 @@ function expectRed(id, dir, want, opts) {
 function expectGreen(id, dir, note) {
   const r = runGate(dir);
   const got = redIds(r.out);
-  const ok = r.code === 0 && got.length === 0;
+  const bannerOk = r.out.includes(GATE_PASS_BANNER);
+  const ok = r.code === 0 && got.length === 0 && bannerOk;
   record(
     id,
     ok,
     ok
       ? `转绿了，红因一个不剩${note ? "；" + note : ""}`
-      : `仍然红（code=${r.code}）红因 ${fmtIds(got)} ⇒ 负对照不成立\n${r.out}`
+      : `仍然红（code=${r.code}）红因 ${fmtIds(got)}` +
+        `${bannerOk ? "" : "（且缺少门禁通过横幅）"} ⇒ 负对照不成立\n${r.out}`
   );
 }
 
@@ -258,13 +391,15 @@ function expectGreen(id, dir, note) {
 function expectGreenBaseline(id, dir, note) {
   const r = runGate(dir);
   const got = redIds(r.out);
-  const ok = r.code === 0 && got.length === 0;
+  const bannerOk = r.out.includes(GATE_PASS_BANNER);
+  const ok = r.code === 0 && got.length === 0 && bannerOk;
   record(
     id,
     ok,
     ok
       ? `绿${note ? "；" + note : ""}`
-      : `不该红，却 exit ${r.code}，红因 ${fmtIds(got)}\n${r.out}`
+      : `不该红，却 exit ${r.code}，红因 ${fmtIds(got)}` +
+        `${bannerOk ? "" : "（且缺少门禁通过横幅）"}\n${r.out}`
   );
 }
 
@@ -429,6 +564,20 @@ function expectGreenBaseline(id, dir, note) {
   fs.rmSync(dir, { recursive: true, force: true });
 }
 
+/* CB4pkg：package.json **存在但内容是坏 JSON** ⇒ 门禁必须判红 CB4。
+ * ⚠️ 为什么单独造这一档：CB4 有**两个**调用点（读不到 package.json /
+ *    门禁自己被卸掉）。只测后者 ⇒ 前者那条红因就永远没人证明过；
+ *    而「package.json 坏了就当它不存在」正是最容易被写成静默绿的地方。 */
+{
+  const dir = makeSandbox();
+  write(path.join(dir, "package.json"), '{ "scripts": { "build": "npm run check:css" \n');
+  expectRed("CB4pkg package.json 是坏 JSON ⇒ CB4", dir, ["CB4"], {
+    mustContain: "读不到 package.json",
+    note: "CB4 的另一个调用点也必须能被触发",
+  });
+  fs.rmSync(dir, { recursive: true, force: true });
+}
+
 /* ================= 判据级负对照 N-CB1–N-CB4 ================= */
 
 /* N-CB1：卸掉 CB1 ⇒ CB1a 的注入必须转绿 */
@@ -561,6 +710,111 @@ function expectGreenBaseline(id, dir, note) {
   fs.rmSync(dir, { recursive: true, force: true });
 }
 
+/* ================= COV2：覆盖度自证（双向） ================= */
+
+/* 这一段回答一个问题：**门禁里到底有几条判据、每条判据在源码里被调用了几次，
+   自测知不知道？**
+   上面的 COV 只证明了「报出的文件数不是编的」，没回答这个问题 ⇒ 本轮补上。
+ *
+ * 六条互相独立的断言（缺一条就露一个洞）：
+ *   COV2a 门禁里的 fail() 调用点数 == 归属表条数（多一条少一条都露）
+ *   COV2b 每个调用点的判据都在静态清单里（清单外的新判据会露）
+ *   COV2c 门禁解析出的判据集合 == 静态清单（**双向**：门禁多出来的、
+ *          清单里写了门禁却没用上的，两边都会露）
+ *   COV2d 每条归属恰好认领一个调用点（片段必须落在它自己的调用点区间里）
+ *   COV2e 归属片段互不包含（否则一条红因行会被两条归属同时认领 ⇒ 归属不纯）
+ *   COV2f 运行时归属纯净（一条判据触发多条红因时，每条红因行都恰好被一条归属认领）
+ */
+{
+  const src = fs.readFileSync(GATE, "utf8");
+  const calls = scanFailCalls(src);
+
+  record(
+    "COV2a 门禁的 fail() 调用点数 == 归属表条数",
+    calls.length === CAUSES.length,
+    calls.length === CAUSES.length
+      ? `${calls.length} 个调用点 ↔ ${CAUSES.length} 条归属`
+      : `解析出 ${calls.length} 个调用点，归属表登记了 ${CAUSES.length} 条`
+  );
+
+  const stray = calls.filter((c) => CRITERIA.indexOf(c.crit) < 0);
+  record(
+    "COV2b 每个调用点的判据都在静态清单里",
+    stray.length === 0,
+    stray.length === 0
+      ? `调用点的判据：${calls.map((c) => c.crit).join(" / ")}`
+      : `清单外的判据：${stray.map((c) => c.crit).join(" / ")}`
+  );
+
+  const gateSet = [...new Set(calls.map((c) => c.crit))].sort();
+  const listSet = [...new Set(CRITERIA)].sort();
+  record(
+    "COV2c 门禁解析出的判据集合 == 静态清单（双向）",
+    gateSet.length === listSet.length && gateSet.every((x, i) => x === listSet[i]),
+    gateSet.join(",") === listSet.join(",")
+      ? `判据集合 = {${gateSet.join(", ")}}`
+      : `门禁 = {${gateSet.join(", ")}}，清单 = {${listSet.join(", ")}}`
+  );
+
+  /* 每条归属的片段必须落在「它自己的那个调用点」后面、下一个调用点前面。 */
+  const pairing = CAUSES.map((c) => {
+    const owners = ownersOfFrag(c.frag, calls, src);
+    const ownerCall = owners.length === 1 ? calls[owners[0]] : null;
+    return { c, owners, ok: owners.length === 1 && !!ownerCall && ownerCall.crit === c.crit };
+  });
+  const badPair = pairing.filter((p) => !p.ok);
+  record(
+    "COV2d 每条归属恰好认领一个调用点",
+    badPair.length === 0,
+    badPair.length === 0
+      ? pairing.map((p) => `${p.c.id}→${p.c.crit}`).join(" / ")
+      : badPair.map((p) => `${p.c.id}(${p.c.crit}) 认领了 ${p.owners.length} 个调用点`).join(" / ")
+  );
+
+  const fragClash = [];
+  for (let i = 0; i < CAUSES.length; i++) {
+    for (let j = i + 1; j < CAUSES.length; j++) {
+      const a = CAUSES[i].frag;
+      const b = CAUSES[j].frag;
+      if (a.indexOf(b) >= 0 || b.indexOf(a) >= 0) fragClash.push(`${CAUSES[i].id}/${CAUSES[j].id}`);
+    }
+  }
+  record(
+    "COV2e 归属片段互不包含",
+    fragClash.length === 0,
+    fragClash.length === 0
+      ? `${CAUSES.length} 段片段互不包含`
+      : `互相包含：${fragClash.join(" / ")}`
+  );
+}
+
+/* COV2f：运行时归属纯净 —— **一条判据触发多条红因**时，每条红因行都要各自认领。
+ * 这一档故意把**两张**表都打破 ⇒ CB1 触发两次 ⇒ 两行红因，两行都必须被 C1 认领，
+ * 且认出的判据与行首编号一致。 */
+{
+  const dir = makeSandbox();
+  patch(cssMainOf(dir), ".fixture-b { color: inherit; }", ".fixture-b { color: inherit;");
+  patch(cssSecondOf(dir), ".fixture-c { color: inherit; }", ".fixture-c { color: inherit;");
+  const r = runGate(dir);
+  const rows = attributeRows(r.out);
+  const got = redIds(r.out);
+  const ok =
+    r.code === 1 &&
+    got.length === 2 &&
+    rows.length === 2 &&
+    rows.every((row) => row.hits.length === 1 && row.crits[0] === row.prefix && row.prefix === "CB1");
+  record(
+    "COV2f 运行时红因归属纯净（一条判据触发多条红因时逐条认领）",
+    ok,
+    ok
+      ? `2 条红因行都被 C1 认领，行首编号与归属判据一致`
+      : `code=${r.code} 红因 ${fmtIds(got)}，归属=${rows
+          .map((x) => `${x.prefix}<-${x.hits.join("+") || "无"}`)
+          .join(" / ")}\n${r.out}`
+  );
+  fs.rmSync(dir, { recursive: true, force: true });
+}
+
 /* ================= 收尾：仓库原件没被动过 ================= */
 
 const problems = [];
@@ -577,9 +831,9 @@ if (problems.length) {
 
 const bad = results.filter((r) => !r.ok);
 console.log(
-  `\n注入矩阵：${results.length} 档里 ${results.length - bad.length} 档按预期触发` +
+  `\n自测矩阵：${results.length} 档里 ${results.length - bad.length} 档按预期触发` +
     `${bad.length ? `，${bad.length} 档未通过` : ""}` +
-    `（N-CB1–N-CB4、P-CB3 是判据级负对照）。`
+    `（N-CB1–N-CB4、P-CB3 是判据级负对照；COV / COV2 是覆盖度自证）。`
 );
 if (bad.length) bad.forEach((b) => console.log(`  · 未通过：${b.id}`));
 console.log("  · 原件校验：门禁的 SHA-256 与自测开始时一致。");
