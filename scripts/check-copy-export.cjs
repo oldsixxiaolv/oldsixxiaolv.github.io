@@ -105,11 +105,40 @@
  *   ⚠️ 命令行注入模式（`node scripts/check-copy-export.cjs <文件>`）的语义
  *      保持不变：**只查你给的那个文件**。给了 .njk 时，查的是它内部的
  *      内联脚本块（这样"模板里的坏出口"也能被注入用例覆盖到）。
+ *
+ * ── 判据清单（编号供 test-copy-export.cjs 逐条卸判据用）────────────────
+ *   CE1：扫描面缺失——磁盘 .js 与模板内联脚本块都没有 ⇒ 门禁看不懂就判红
+ *   CE2：计数自检——源码里的 writeText 调用点数必须等于门禁认出的剪贴板出口数
+ *   CE3：计数自检——源码里的 textarea 创建点数必须等于门禁认出的变量数
+ *   CE4：复制出口的取值链必须最终来自 .textContent（链上不得有 innerHTML/outerHTML）
+ *   CE5：同一单元内的两条复制路径必须取同一个值
+ *   CE6：复制出口必须自足——writeText 与 textarea 回退必须同处一个单元
+ *   CE7：扫描集合里必须有复制出口（门禁看不懂现在的写法时必须判红）
+ *   CE8：注入前提缺失——目标文件不可读，或目标模板里没有内联脚本块
+ *   CE9：门禁自己没被卸掉——check:copy 必须在 build 链上
+ *
+ *   ⚠️ 编号的用处：每条判据都能被**单独卸掉**（把对应开关改成 false），
+ *      自测据此证明"这档红确实是这条判据抓到的"，而不是"门禁整体红了"。
+ *      → 开关只包住"报红"这一步，**计算无条件做**
+ *        （卸开关不许改变分析结果，否则就不是"卸一条判据"而是"关掉半个门禁"）。
  */
 const fs = require("fs");
 const path = require("path");
 
 const REPO = path.join(__dirname, "..");
+
+// ---- 判据开关（见文件头「判据清单」）------------------------------------
+// ⚠️ 开关只包住"报红"这一步；提取/分析/计数一律无条件做。
+//    否则"卸掉一条判据"会连别的判据的计算一起关掉，自测就证明不了什么。
+const CE1_ON = true;
+const CE2_ON = true;
+const CE3_ON = true;
+const CE4_ON = true;
+const CE5_ON = true;
+const CE6_ON = true;
+const CE7_ON = true;
+const CE8_ON = true;
+const CE9_ON = true;
 
 // ---------------------------------------------------------------------------
 // 扫描集合
@@ -195,6 +224,9 @@ function listTemplateScripts(root) {
 }
 
 const problems = [];
+
+// 注入模式下"目标不可判定"（CE8）已经说清了原因 ⇒ 存在性判据 CE7 不再连坐。
+let injectionPremiseMissing = false;
 
 /** 剥掉注释（保留字符串字面量：判定要认 "textarea" 这个 createElement 参数） */
 function stripComments(src) {
@@ -407,18 +439,18 @@ function analyzeSource(rel, raw, absPath) {
     /\bcreateElement\s*\(\s*["']textarea["']\s*\)/g
   );
   if (writeTextCallSites !== writeTextExprs.length) {
-    fileProblems.push(
+    const why =
       `${rel}: 源码里有 ${writeTextCallSites} 处 writeText 调用，但门禁只认出 ` +
         `${writeTextExprs.length} 个**剪贴板**出口——有复制路径没被门禁看见。` +
         "（多半是实参写法超出了正则能匹配的范围。）" +
-        "少认 = 没守：这条路径里完全可能藏着 innerHTML。"
-    );
+        "少认 = 没守：这条路径里完全可能藏着 innerHTML。";
+    if (CE2_ON) fileProblems.push(`门禁 CE2：${why}`);
   }
   if (textareaCreateSites !== textareaVars.length) {
-    fileProblems.push(
+    const why =
       `${rel}: 源码里有 ${textareaCreateSites} 处 textarea 创建，但门禁只认出 ` +
-        `${textareaVars.length} 个 textarea 变量——回退路径没被门禁看见。`
-    );
+        `${textareaVars.length} 个 textarea 变量——回退路径没被门禁看见。`;
+    if (CE3_ON) fileProblems.push(`门禁 CE3：${why}`);
   }
 
   // ---- 2) 两条路径必须取同一个值（**按文件**）----------------------------
@@ -432,18 +464,18 @@ function analyzeSource(rel, raw, absPath) {
   const roots = exits.map((e) => rootOf(e.expr));
   const distinct = [...new Set(roots.filter(Boolean))];
   if (exits.length > 1 && distinct.length > 1) {
-    fileProblems.push(
+    const why =
       `${rel}: 复制出口取的不是同一个值（${exits
         .map((e) => `${e.kind} → ${e.expr}`)
         .join("，")}）——` +
-        "将来只改一条路径，两条出口的行为就会分叉（剪贴板一份、回退一份）。"
-    );
+        "将来只改一条路径，两条出口的行为就会分叉（剪贴板一份、回退一份）。";
+    if (CE5_ON) fileProblems.push(`门禁 CE5：${why}`);
   }
 
   // ---- 3) 取值链必须最终来自 .textContent，且链上不得有 innerHTML -------
   for (const e of exits) {
     const r = judge(code, e.expr);
-    if (!r.ok) fileProblems.push(`${rel}: ${e.kind} → ${r.why}`);
+    if (!r.ok && CE4_ON) fileProblems.push(`门禁 CE4：${rel}: ${e.kind} → ${r.why}`);
   }
 
   return { rel, absPath, exits, fileProblems };
@@ -452,14 +484,18 @@ function analyzeSource(rel, raw, absPath) {
 /** 分析一个**磁盘文件**（.js 扫描集合，或注入模式指定的文件） */
 function analyzeFile(absPath) {
   if (!fs.existsSync(absPath)) {
+    const rel = path.relative(REPO, absPath);
+    const why =
+      `${rel}: 找不到要检查的文件：${absPath}——` +
+      "门禁读不到源码就无法判定（判红，不静默放行）";
+    // 目标不可读 ⇒ "扫描集合里还有没有复制出口"这个问题没有意义
+    //（存在性判据 CE7 让位给前提缺失判据 CE8，红因不连坐）。
+    injectionPremiseMissing = true;
     return {
-      rel: path.relative(REPO, absPath),
+      rel,
       absPath,
       exits: [],
-      fileProblems: [
-        `${path.relative(REPO, absPath)}: 找不到要检查的文件：${absPath}——` +
-          "门禁读不到源码就无法判定（判红，不静默放行）",
-      ],
+      fileProblems: CE8_ON ? [`门禁 CE8：${why}`] : [],
     };
   }
   const rel = path.relative(REPO, absPath);
@@ -487,11 +523,12 @@ for (const f of jsFiles) {
     // 注入模式给了模板 → 查它**内部**的内联脚本块
     const inner = listTemplateScripts(path.dirname(f)).filter((t) => t.absPath === f);
     if (inner.length === 0) {
-      problems.push(
+      const why =
         `${path.relative(REPO, f)}: 这个模板里没有内联 <script> 块` +
-          "（type=application/ld+json 的数据块与带 src= 的外部脚本都不算）——" +
-          "注入用例可能选错了目标，门禁没什么可判的。"
-      );
+        "（type=application/ld+json 的数据块与带 src= 的外部脚本都不算）——" +
+        "注入用例可能选错了目标，门禁没什么可判的。";
+      if (CE8_ON) problems.push(`门禁 CE8：${why}`);
+      injectionPremiseMissing = true;
     }
     for (const t of inner) units.push({ rel: t.rel, absPath: f, code: t.code, kind: "template" });
   } else {
@@ -508,19 +545,43 @@ const jsUnitCount = units.filter((u) => u.kind === "js").length;
 const tplUnitCount = units.filter((u) => u.kind === "template").length;
 
 // 扫描面自查：磁盘 .js 扫不到 = 一个洞，模板扫描补不了（两套形态各管一段）
-if (!cliFiles.length && jsUnitCount === 0) {
-  console.error(
-    "  ✗ 磁盘 JS 扫描集合是空的（src/assets/ 下没找到 .js）——" +
+//
+// ⚠️ 「磁盘 .js 为空」与「整个扫描集合为空」是同一件事的两种说法
+//    （后者包含前者）——拆成两条判据会让红因不纯：一条前提缺失报出两条红。
+//    → 合并为 CE1；并让依赖扫描面的存在性判据（CE7）在 CE1 触发时整段跳过。
+// ⚠️ 注入模式给了一个没有内联脚本块的 .njk 时，CE8 已经说清了原因
+//    ⇒ 此时 CE1 不再报（同一件事只归一条判据）。
+const scanSurfaceMissing = units.length === 0 && !injectionPremiseMissing;
+if (scanSurfaceMissing && CE1_ON) {
+  problems.push(
+    "门禁 CE1：扫描集合是空的（磁盘 .js + 模板内联脚本块都没有）——" +
       "扫描面本身没了，门禁看不懂就判红。"
   );
-  process.exit(1);
 }
-if (units.length === 0) {
-  console.error(
-    "  ✗ 扫描集合里一个单元都没有（磁盘 .js + 模板内联脚本块）——" +
-      "扫描面本身没了，门禁看不懂就判红。"
-  );
-  process.exit(1);
+
+// ---- CE9：门禁自己没被卸掉 ----------------------------------------------
+// "门禁自己被卸掉"和"门禁没生效"在结果上长得一模一样（build 照过、门禁全绿），
+// 所以凡是靠"某处存在某样东西"做判据的门禁，都必须有这一条兜底。
+// ⚠️ 注入模式跳过：它本就是"只查你给的那个文件"，不承担全站检查职责。
+if (!cliFiles.length) {
+  const pkgPath = path.join(REPO, "package.json");
+  if (!fs.existsSync(pkgPath)) {
+    if (CE9_ON) {
+      problems.push("门禁 CE9：找不到 package.json，无法确认本门禁是否接在 build 上。");
+    }
+  } else {
+    const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf8"));
+    const build = (pkg.scripts && pkg.scripts.build) || "";
+    const wired =
+      build.includes("check:copy") &&
+      (pkg.scripts["check:copy"] || "").includes("check-copy-export.cjs");
+    if (!wired && CE9_ON) {
+      problems.push(
+        "门禁 CE9：门禁自己被卸掉了：package.json 的 build 链里没有 check:copy，" +
+          "或 check:copy 没有指向 scripts/check-copy-export.cjs。"
+      );
+    }
+  }
 }
 
 const analyses = units.map((u) =>
@@ -536,16 +597,24 @@ const allExits = analyses.flatMap((a) => a.exits.map((e) => ({ ...e, rel: a.rel 
 // 判据 1 对**集合**成立，而不是对每个文件成立：某个文件里没有复制出口
 // 只是"它不参与复制"，不是问题。真要判红的是"整个站点都没有复制出口"——
 // 那说明复制功能被删了，或门禁看不懂现在的写法。
-if (allExits.length === 0) {
+// ⚠️ 前提在场条件：扫描面在场（CE1 未触发）且注入目标可读（CE8 未触发）。
+//    前提缺失时本判据整段跳过 ⇒ 一条前提缺失只报一条红因，不连坐。
+if (
+  allExits.length === 0 &&
+  !scanSurfaceMissing &&
+  !injectionPremiseMissing &&
+  CE7_ON
+) {
   problems.push(
-    units.length === 1
-      ? `${analyses[0].rel}: 找不到任何复制出口（clipboard.writeText / textarea 回退）——` +
-          "要么复制功能被删了，要么这段源码改成了门禁看不懂的写法。" +
-          "门禁看不懂时必须判红：否则它会一直'全绿'，看着像在守着，其实没守。"
-      : `在 ${units.length} 个扫描单元（${jsUnitCount} 个 JS 文件 + ${tplUnitCount} 个模板内联脚本块）` +
-          "里找不到任何复制出口（clipboard.writeText / textarea 回退）——" +
-          "要么复制功能被删了，要么它被挪到了扫描范围之外。" +
-          "门禁看不懂时必须判红：否则它会一直'全绿'，看着像在守着，其实没守。"
+    "门禁 CE7：" +
+      (units.length === 1
+        ? `${analyses[0].rel}: 找不到任何复制出口（clipboard.writeText / textarea 回退）——` +
+            "要么复制功能被删了，要么这段源码改成了门禁看不懂的写法。" +
+            "门禁看不懂时必须判红：否则它会一直'全绿'，看着像在守着，其实没守。"
+        : `在 ${units.length} 个扫描单元（${jsUnitCount} 个 JS 文件 + ${tplUnitCount} 个模板内联脚本块）` +
+            "里找不到任何复制出口（clipboard.writeText / textarea 回退）——" +
+            "要么复制功能被删了，要么它被挪到了扫描范围之外。" +
+            "门禁看不懂时必须判红：否则它会一直'全绿'，看着像在守着，其实没守。")
   );
 }
 
@@ -580,13 +649,13 @@ const fallbackFiles = [...byFile.values()]
 if (fallbackFiles.length > 0) {
   for (const f of byFile.values()) {
     if (f.hasWriteText && !f.hasFallback) {
-      problems.push(
+      const why =
         `${f.rel}: 这个单元有 clipboard.writeText 出口，但 textarea 回退在别的单元` +
-          `（回退 → ${fallbackFiles.join("、")}）—— 两条复制路径分处两个单元。` +
-          "本检查按单元核对「两条路径取同一个值」，跨单元就够不着这条 writeText：" +
-          "将来只改它一条、两条出口的行为就会分叉（剪贴板一份、回退一份），而门禁看不见。" +
-          "请把回退路径与 writeText 放回同一个单元（同文件，或同一个模板内联脚本块）。"
-      );
+        `（回退 → ${fallbackFiles.join("、")}）—— 两条复制路径分处两个单元。` +
+        "本检查按单元核对「两条路径取同一个值」，跨单元就够不着这条 writeText：" +
+        "将来只改它一条、两条出口的行为就会分叉（剪贴板一份、回退一份），而门禁看不见。" +
+        "请把回退路径与 writeText 放回同一个单元（同文件，或同一个模板内联脚本块）。";
+      if (CE6_ON) problems.push(`门禁 CE6：${why}`);
     }
   }
 }

@@ -90,20 +90,24 @@
 
 **进度（2026-10-21 20:25 实测）**
 - 缺陷清单已到 **D59**（D1 / D2 / D4 / D11 / D13 / D14 / D15 / D16 / D17 / D18 / D19 / D20 / D21 / D22 / D23 / D24 / D25 / D27 / D28 / D29 / D30 / D31 / D33 / D34 / D35 / D36 / D37 / D38 / D39 / D40 / D41 / D42 / D43 / D44 / D45 / D46 / D47 / D48 / D49 / D50 / D51 / D52 / D53 / D54 / D55 / D56 / D58 已修；D3 / D5 / D6 / D9 / D10 / D12 / D26 / D32 / D57 / D59 待修；D7 / D8 不修）。
-- **D59 已做第一、二、三、四批**（第一批 2026-10-21 D57 场次；第二批 2026-10-21 D58 场次；第三批
-  2026-10-21 D59 场次；第四批 2026-10-21 D59 场次）：给 `check-image-assets` 补了常驻自测
+- **D59 已做第一、二、三、四、五批**（第一批 2026-10-21 D57 场次；第二批 2026-10-21 D58 场次；第三批
+  2026-10-21 D59 场次；第四批 2026-10-21 D59 场次；第五批 2026-10-21 D59 场次）：给 `check-image-assets` 补了常驻自测
   `scripts/test-image-assets.cjs`（**14 档注入矩阵**，跑在自造的最小夹具站上，不依赖 `_site`），
   给 `check-tool-routes` 补了常驻自测 `scripts/test-tool-routes.cjs`（**15 档注入矩阵**，跑在
   自造的最小夹具站上，不依赖真 `_site`、不需要 git），给 `check-lang` 补了常驻自测
   `scripts/test-lang.cjs`（**28 档注入矩阵**，同样跑在自造的最小夹具站上），给 `check-print-theme`
   补了常驻自测 `scripts/test-print-theme.cjs`（**27 档注入矩阵**，同样跑在自造的最小夹具站上），
-  四者都接进 `npm run build` 与 README 命令表 ⇒ D56 留在 `/tmp` 里那份「矩阵跑完即弃」的证明
-  **已进仓库**；第三批还顺带给 `check-lang` **编号化**（此前一条编号都没有 ⇒
+  给 `check-copy-export` 补了常驻自测 `scripts/test-copy-export.cjs`（**25 档注入矩阵**，同样跑在
+  自造的最小夹具站上），五者都接进 `npm run build` 与 README 命令表 ⇒ D56 留在 `/tmp` 里那份
+  「矩阵跑完即弃」的证明**已进仓库**；第三批还顺带给 `check-lang` **编号化**（此前一条编号都没有 ⇒
   红因无法按编号归属）成 **LG1–LG7**，并补了 3 条**自证存活**判据（源文件层空跑 / `_site` 缺失 /
   产物层空跑）；第四批给 `check-print-theme` 补了 **PT7「前提文件在场」**判据（此前 print.css
   缺失时门禁只打一行**裸红因**就退出 ⇒ 其余判据根本没跑）并把红因文案统一成 `门禁 PTn：` 前缀；
-  D59 行自己要求「分批做」⇒ **剩 9 道**门禁（`check-artifact-metadata` /
-  `check-copy-export` / `check-css-braces` / `check-identity-derivation` /
+  第五批给 `check-copy-export` **编号化**成 **CE1–CE9**（此前一条编号都没有 ⇒ 红因同样无法按编号
+  归属）并补了 **CE9「门禁自己没被卸掉」**判据（读 `package.json` 确认 `build` 仍链着
+  `check:copy` 且 `check:copy` 仍指向本门禁），红因文案统一成 `门禁 CEn：` 前缀；
+  D59 行自己要求「分批做」⇒ **剩 8 道**门禁（`check-artifact-metadata` /
+  `check-css-braces` / `check-identity-derivation` /
   `check-identity-handles` / `check-jsonld` /
   `check-tracked-refs` / `check-wrapping` / `verify-site`）继续待做。
 - 「构建链与门禁本身的失效点」这一支已补**四条**：
@@ -2026,6 +2030,42 @@
      差 **2 行**（期望集 1 行 + 哈希锚 1 行），自测按档声明允许的差异行数。
   ⑨ **接线**：`package.json` 加 `check:print-theme-selftest`，**接在 `check:print-theme` 之后**
      （GW4）；README 命令表加一行（RD3）；⚠️ **不登记进 `EXEMPT_SELFTEST`**（既接 build 又登记
+     ⇒ 自相矛盾）。
+  ⑩ ⚠️ **本轮没有新增待拍板项**（纯工程补强，不涉审美与内容口径）；**中央台账不动**。
+
+- **D59**（本轮修的是缺陷 **D59**）：这一轮**接着上一批的尾巴** —— 上一批给 `check-print-theme` 配了
+  常驻自测，但 D59 行自己要求「分批做」，**还有 9 道**门禁仍无 `test-*` 配对。
+  ① **本轮只做 D59 的第五批** ⇒ 只补 `check-copy-export` 这一道，其余 **8 道**继续挂着待做。
+  ② **落点**：常驻自测 `scripts/test-copy-export.cjs` —— **25 档注入矩阵**，跑在**自造的最小夹具站**上
+     （自造 `package.json` + `src/assets/js/*.js` + `src/_includes/*.njk`，**不依赖真 `_site`、
+     不需要 git**）：G1–G5 绿档 / CE1–CE9 每条**至少**一档 / **9 档判据级负对照** /
+     **1 档精准性负对照**。
+  ③ **为什么在 9 道候选里挑它**：① `CE` 前缀全仓**零占用**（带冒号形式零命中；裸 `CE` 唯一命中在
+     `node_modules/@sindresorhus/transliterate/replacements.js`，非本仓源码）⇒ 首次编号化**不用换号**；
+     ② 它是这批里**零自证判据**者之一 ⇒ 九条判据从未被证明过会红；③ 它**自带注入模式**
+     （`node scripts/check-copy-export.cjs <文件>` 只查指定文件）⇒ 夹具成本极低；④ 九条判据各有
+     **独立失败形态** ⇒ 注入矩阵能逐条拆开。
+  ④ **为什么门禁必须「复制」到沙箱里跑**：本门禁的仓库根是 `path.join(__dirname, "..")` ——
+     **硬编码，没有环境变量开关** ⇒ 只有把副本放进夹具的 `scripts/` 下，ROOT 才会指向夹具根。
+     ⇒ 夹具因此不需要 git、不需要真产物，也不会和并发场次抢同一个 `_site` 目录。
+  ⑤ **红因文案统一带 `门禁 CEn：` 前缀**，自测只从 **stderr** 抽编号（stdout 里另有一句说明
+     ⇒ 只扫 stderr 才是天然隔离）；断言用**多重集完全相等**（连红因**行数**也要相等 ⇒ 连
+     「同一条判据报了两次」也算失败）。
+  ⑥ **顺带给门禁本体编号化**（本轮新增的**行为变化**，如实记下）：`check-copy-export` 此前
+     **一条编号都没有**（红因是一句人话 ⇒ 自测没法按编号判定红因归属），本轮改成 **CE1–CE9**，
+     并**新增 CE9「门禁自己没被卸掉」**（读 `package.json` 确认 `build` 仍链着 `check:copy`、
+     `check:copy` 仍指向本门禁）⇒ CE9 **只在非注入模式**生效。
+  ⑦ **三条必须说清的诚实边界**：① 门禁的**提取**正则**不排除字符串字面量**（只要求前面有 `.`），
+     而**计数**正则排除字面量 ⇒ 文案里写 `clipboard.writeText(` 会被**多认一个出口**并触发 CE2
+     （门禁已知边界）⇒ 绿档只能用「无点的 `writeText(`」；② **CE1 把原来两处提前 `exit 1` 的
+     扫描面自查合并成一条**（否则「扫描面为空」会同时报 CE1 与 CE7 ⇒ 红因不纯）；③ 原
+     「找不到要检查的文件」那条**裸红因**在注入模式下**根本没机会输出**（`analyzeFile` 找不到文件
+     直接 exit），本轮把它归成 **CE8「注入前提缺失」** ⇒ 前提缺失时红因**恰为 {CE1} 或 {CE8}**，
+     不连坐。
+  ⑧ **判据的「计算」与「开关」解耦**：提取/分析/计数**无条件**算出来，判据开关只包住 `push`
+     ⇒ 卸一条判据**不连带**关掉别条；只有「前提缺失」才让依赖链整段跳过（那是 CE1 / CE8 的职责）。
+  ⑨ **接线**：`package.json` 加 `check:copy-selftest`，**接在 `check:copy` 之后**（GW4）；
+     README 命令表加一行（RD3）；⚠️ **不登记进 `EXEMPT_SELFTEST`**（既接 build 又登记
      ⇒ 自相矛盾）。
   ⑩ ⚠️ **本轮没有新增待拍板项**（纯工程补强，不涉审美与内容口径）；**中央台账不动**。
 
