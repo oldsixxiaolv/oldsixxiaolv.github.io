@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 /**
- * README 事实核对门禁的**自测**（注入矩阵）—— 证明 RD1–RD5 每一条都**能变红**。
+ * README 事实核对门禁的**自测**（四件套）—— 证明 RD1–RD5 每一条都**能变红**，
+ * 且门禁新增判据 / 新增红因时本自测**立刻察觉**。
  *
  * 为什么要有这个自测：
  *   一条**永远不会红**的判据，给出的是"看起来很确定的绿"——它比没有判据更坏，
@@ -8,64 +9,294 @@
  *   （遮罩把目标文本本身吃掉、覆盖度只覆盖一半还照样打印"通过"）。
  *   所以"这条判据结构上能不能触发"本身必须**被证明**，而不是假定。
  *
- * 做法：把 README **复制**一份到临时目录，在副本上逐个注入缺陷，
- *   用 `README_PATH` 环境变量把门禁指向副本，然后断言门禁**确实**报出了
- *   对应的那条红因。
- *   ⚠️ 全程**不动仓库里真的那份 README** —— 注入必须在副本上做。
- *   （这正是门禁里加 `README_PATH` 这个开关的原因：没有它，自测就只能去改
- *     仓库文件，改坏了就是事故。）
+ * ⚠️ 这道门禁的**红因有两套出口**，旧版自测只覆盖了其中一套：
+ *   ① **收集型**：`problems.push(...)` —— 10 处，红因行首带判据号 `RD1`–`RD5`，
+ *      最后由门禁统一打印成 `  ✗ <消息>`；
+ *   ② **早期退出型**：`console.error("  ✗ …")` + `process.exit(1)` —— 4 处
+ *      （README 不存在 / package.json 不存在 / package.json 是坏 JSON /
+ *        产物 _site 不存在或不完整）。这 4 条**不进 problems**，
+ *      **红因行首也没有判据号** ⇒ 旧版自测的「输出里含 RD1」式断言**一条都测不到**。
+ *   ⇒ 覆盖度自证必须**分别数两类出口**，运行时归属必须**按「行首有没有编号」分流**。
  *
- * 八档：
- *   M0 基线（原样）           → 必须**全绿**（证明这套判据不是空跑）
- *   M1 README 写了一个不存在的路由 → RD1
- *   M2 README 的 Node 下限低于 package.json → RD2
- *   M3 README 漏掉了一个命令   → RD3
- *   M4 README 漏掉了一个对外出口 → RD4
- *   M5 判据自身失效（一个路由都认不出）→ RD5
- *   M6 README 写了一个指向不存在站内页的**绝对 URL** → RD1
- *   M7 **外部域名**的绝对 URL → 必须**仍绿**（合法路径应绿，防止过度核）
+ * 四件套：
+ *   ① **红因归属表**（`CAUSES` 14 条：10 条收集型 + 4 条早期退出型），
+ *      每条恰好认领**一个**出口点（区间法绑定），归属片段**互不包含**、
+ *      且在门禁源码里**只出现一次**；
+ *   ② **归属纯净**：每条红因行必须被**恰好一条**归属认领；
+ *      收集型认出的判据必须与**行首编号**一致；早期退出型认出的必须是 early 条目。
+ *   ③ **覆盖度自证（双向）**：收集型出口数 == 归属表条数、早期退出型出口数 == 归属表条数、
+ *      门禁解析出的判据**集合** == 静态判据清单、每条归属恰好认领一个出口、
+ *      片段互不包含、**每条红因至少有一档能证明它会变红**；
+ *   ④ **判据级负对照**：门禁**副本**里把某判据（或某条早期退出）的打印**静默**，
+ *      证明那条红因确实由那个出口产生（行数不变 + `node --check` 语法自检）。
+ *
+ * 夹具站：门禁**副本**放在 `<tmp>/gate/scripts/` 下 ⇒ 门禁里的
+ *   `ROOT = path.resolve(__dirname, "..")` 变成 `<tmp>/gate`
+ *   ⇒ 它读的那份 `package.json` / `CITATION.cff` 就**可控**了
+ *   （门禁本体没有给 package.json 留环境变量开关，只给 README 与产物留了）。
+ *   全程**不动仓库里真的 README / package.json / 产物**。
+ *
+ * 档位（18 档注入 + 9 档判据级负对照 + 7 档覆盖度自证 = 34 档）：
+ *   SP0  基线（原样）                                  → 必须**全绿**
+ *   SP1  README 写了一个不存在的路由                  → RD1
+ *   SP2  README 的 Node 下限低于 package.json          → RD2
+ *   SP3  README 漏掉了一个命令                          → RD3
+ *   SP4  README 里 CITATION.cff 改名（漏掉一个出口）   → RD4
+ *   SP5  判据自身失效（一个路径都认不出）              → RD5
+ *   SP6  产物推不出本站自己的域名                      → RD1
+ *   SP7  package.json 的 engines.node 读不出版本号     → RD2
+ *   SP8  README 完全没声明 Node 版本                   → RD2
+ *   SP9  package.json 的命令少到认不满下限             → RD5（命令数不足）
+ *   SP10 一个对外出口都认不出来                        → RD4×6 + RD5
+ *   SP11 README 不存在                                 → 早期退出型
+ *   SP12 package.json 不存在                           → 早期退出型
+ *   SP13 package.json 是坏 JSON                        → 早期退出型
+ *   SP14 产物 _site 不存在或不完整                     → 早期退出型
+ *   SP15 README 写了指向不存在站内页的**绝对 URL**     → RD1
+ *   SP16 **外部域名**的绝对 URL                        → 必须**仍绿**（防止过度核）
+ *   SP17 README 漏掉 /publications.bib（既是路径又是出口）→ RD4
+ *   NC-RD1–NC-RD5  判据级负对照（卸掉某判据的收集型出口）
+ *   NC-E1–NC-E4    早期退出型负对照（卸掉某条早期退出的打印）
+ *   COV2a–COV2g    覆盖度自证（双向）
  *
  * 用法：node scripts/test-readme.cjs
  */
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
+const crypto = require("crypto");
 const { spawnSync } = require("child_process");
 
 const ROOT = path.resolve(__dirname, "..");
-const GATE = path.join(__dirname, "check-readme.cjs");
-const README = path.join(ROOT, "README.md");
+const GATE = path.join(ROOT, "scripts", "check-readme.cjs");
+const README_SRC = path.join(ROOT, "README.md");
+const PKG_SRC = path.join(ROOT, "package.json");
+const CFF_SRC = path.join(ROOT, "CITATION.cff");
+const SITE_SRC = path.join(ROOT, "_site");
 
-if (!fs.existsSync(README)) {
+function sha256(p) {
+  return crypto.createHash("sha256").update(fs.readFileSync(p)).digest("hex");
+}
+
+if (!fs.existsSync(README_SRC)) {
   console.error("README 自测失败：找不到 README.md。");
   process.exit(1);
 }
-if (!fs.existsSync(path.join(ROOT, "_site", "index.html"))) {
-  console.error("README 自测失败：找不到 _site/index.html，请先运行 npm run build。");
+if (!fs.existsSync(SITE_SRC)) {
+  console.error("README 自测失败：找不到 _site/，请先运行 npm run build。");
+  process.exit(1);
+}
+if (!fs.existsSync(CFF_SRC)) {
+  console.error("README 自测失败：找不到 CITATION.cff。");
   process.exit(1);
 }
 
-const original = fs.readFileSync(README, "utf8");
-const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "mh-readme-selftest-"));
-const copyPath = path.join(tmp, "README.md");
+const GATE_SHA_AT_START = sha256(GATE);
 
-/** 在副本上注入 → 跑门禁 → 返回 {code, out} */
-function run(mutate) {
-  let text = original;
-  if (mutate) {
-    const next = mutate(text);
-    if (next === text) throw new Error("注入没有改变内容 —— 锚点不存在，这一档是坏跑");
-    text = next;
-  }
-  fs.writeFileSync(copyPath, text);
-  const r = spawnSync(process.execPath, [GATE], {
-    env: { ...process.env, README_PATH: copyPath },
-    encoding: "utf8",
-  });
-  return { code: r.status, out: `${r.stdout || ""}${r.stderr || ""}` };
+/* ================= 红因归属表 + 静态判据清单 ================= */
+
+/**
+ * 14 条归属，**分两类**：
+ *   site="push"  —— 收集型出口（`problems.push(`），红因行首带判据号；
+ *   site="early" —— 早期退出型出口（`console.error("  ✗ …")`），红因行首**没有**判据号。
+ *
+ * frag 必须在门禁源码里**只出现一次**（运行时也只出现一次），
+ * 否则它既认不准出口、也会在运行时认错行。覆盖度自证 COV2f 会当场验这一条。
+ */
+const CAUSES = [
+  /* ---- 收集型：problems.push( ---- */
+  { id: "RD1a", site: "push", crit: "RD1", frag: "推不出本站自己的域名", desc: "产物里读不出本站域名（canonical 与 sitemap 都读不到）" },
+  { id: "RD1b", site: "push", crit: "RD1", frag: "在产物里不存在", desc: "README 提到的站内路径在产物里不存在" },
+  { id: "RD2a", site: "push", crit: "RD2", frag: "里读不出版本号", desc: "package.json 的 engines.node 里读不出版本号" },
+  { id: "RD2b", site: "push", crit: "RD2", frag: "没有声明 Node 版本", desc: "README 完全没声明 Node 版本下限" },
+  { id: "RD2c", site: "push", crit: "RD2", frag: "声明的 Node 下限是", desc: "README 声明的 Node 下限低于 package.json" },
+  { id: "RD3", site: "push", crit: "RD3", frag: "package.json 里的脚本", desc: "package.json 里的某个 npm script 没被 README 提到" },
+  { id: "RD4", site: "push", crit: "RD4", frag: "RD4 对外出口", desc: "某个对外出口没被 README 提到" },
+  { id: "RD5a", site: "push", crit: "RD5", frag: "个真实存在的路径", desc: "只认出太少的真实路径（判据可能已失效）" },
+  { id: "RD5b", site: "push", crit: "RD5", frag: "个命令（至少要", desc: "只认出太少的命令（判据可能已失效）" },
+  { id: "RD5c", site: "push", crit: "RD5", frag: "一个对外出口都没认出来", desc: "一个对外出口都没认出来（判据可能已失效）" },
+  /* ---- 早期退出型：console.error("  ✗ …") + process.exit(1) ---- */
+  { id: "E1", site: "early", crit: null, frag: "找不到 README.md", desc: "README.md 不存在 ⇒ 门禁直接退出" },
+  { id: "E2", site: "early", crit: null, frag: "找不到 package.json", desc: "package.json 不存在 ⇒ 门禁直接退出" },
+  { id: "E3", site: "early", crit: null, frag: "package.json 解析失败", desc: "package.json 是坏 JSON ⇒ 门禁直接退出" },
+  { id: "E4", site: "early", crit: null, frag: "产物 _site/ 不存在或不完整", desc: "产物 _site 缺失或连 index.html 都没有 ⇒ 门禁直接退出" },
+];
+
+/** 静态判据清单 —— 必须与门禁源码里解析出的判据集合**双向相等**。 */
+const CRITERIA = ["RD1", "RD2", "RD3", "RD4", "RD5"];
+
+/* 门禁自己的失败 / 通过横幅 —— 用来判「门禁确实跑到了自己的结论」。
+   门禁崩了（语法错、未捕获异常）**也是 exit 1** ⇒ 只看退出码会把崩溃当成判红。 */
+const GATE_FAIL_BANNER = "README 事实核对门禁未通过：";
+const GATE_PASS_BANNER = "README 事实核对门禁通过：";
+
+/* ================= 夹具站 ================= */
+
+const ORIGINAL_README = fs.readFileSync(README_SRC, "utf8");
+const ORIGINAL_PKG = fs.readFileSync(PKG_SRC, "utf8");
+const TMP_ROOT = fs.mkdtempSync(path.join(os.tmpdir(), "mh-readme-selftest-"));
+
+/**
+ * 造一个「门禁副本站」：
+ *   <tmp>/gate/scripts/check-readme.cjs   门禁副本（ROOT 变成 <tmp>/gate）
+ *   <tmp>/gate/package.json               可控（缺失 / 坏 JSON / 裁剪脚本）
+ *   <tmp>/gate/CITATION.cff               可控（决定 RD4 的期望集里有没有它）
+ *   <tmp>/README.md                      README 副本（注入都在副本上做）
+ */
+function makeSandbox(mut) {
+  const dir = fs.mkdtempSync(path.join(TMP_ROOT, "case-"));
+  const gateDir = path.join(dir, "gate");
+  fs.mkdirSync(path.join(gateDir, "scripts"), { recursive: true });
+  fs.copyFileSync(GATE, path.join(gateDir, "scripts", "check-readme.cjs"));
+  fs.writeFileSync(path.join(gateDir, "package.json"), ORIGINAL_PKG);
+  fs.copyFileSync(CFF_SRC, path.join(gateDir, "CITATION.cff"));
+  const readmePath = path.join(dir, "README.md");
+  fs.writeFileSync(readmePath, ORIGINAL_README);
+  const sb = {
+    dir,
+    gateDir,
+    gateFile: path.join(gateDir, "scripts", "check-readme.cjs"),
+    pkgFile: path.join(gateDir, "package.json"),
+    cffFile: path.join(gateDir, "CITATION.cff"),
+    readmePath,
+    siteDir: SITE_SRC,
+  };
+  if (mut) mut(sb);
+  return sb;
 }
 
-/** 替换一次；锚点不存在就抛错（坏跑必须当场暴露，不能记成"测过了"）。 */
+function readmeOf(sb) {
+  return fs.readFileSync(sb.readmePath, "utf8");
+}
+function writeReadme(sb, text) {
+  fs.writeFileSync(sb.readmePath, text);
+}
+
+/* ================= 跑门禁 / 解析红因 ================= */
+
+function runGate(sb, envExtra) {
+  const env = Object.assign({}, process.env, {
+    README_PATH: sb.readmePath,
+    SITE_DIR: sb.siteDir,
+  }, envExtra || {});
+  const r = spawnSync(process.execPath, [sb.gateFile], { env, encoding: "utf8" });
+  return {
+    code: typeof r.status === "number" ? r.status : -1,
+    out: `${r.stdout || ""}${r.stderr || ""}`,
+  };
+}
+
+/** 所有红因行（`  ✗ …` 开头的行）。早期退出型与收集型都在这里。 */
+function redRows(out) {
+  return out.split("\n").filter((l) => /^[ \t]*✗/.test(l));
+}
+
+/** 红因行的行首判据号；早期退出型（没有编号）返回 null。 */
+function rowPrefix(row) {
+  const m = /^[ \t]*✗[ \t]+(RD\d+)/.exec(row);
+  return m ? m[1] : null;
+}
+
+/** 多重集完全相等（不是「包含」）：多一条、少一条都算这档失败。 */
+function sameMultiset(got, want) {
+  if (got.length !== want.length) return false;
+  const g = [...got].sort();
+  const w = [...want].sort();
+  return g.every((x, i) => x === w[i]);
+}
+
+function fmtIds(ids) {
+  return [...ids].sort().join("+") || "（无）";
+}
+
+/* ================= 覆盖度自证用的解析器 ================= */
+
+/**
+ * 门禁源码里的**收集型出口**：`problems.push(` 的调用点及其判据编号。
+ *
+ * ⚠️ 判据编号要从**调用点之后**的模板文本里取（形如 `RD3 package.json 里的脚本…`）。
+ * ⚠️ 必须用**整文件**正则而不是逐行找 —— 多行调用（`problems.push(\n  "…"`）
+ *    逐行是数不出来的。
+ */
+function scanPushCalls(src) {
+  const calls = [];
+  const re = /problems\.push\(/g;
+  let m;
+  while ((m = re.exec(src)) !== null) {
+    const tail = src.slice(m.index, m.index + 400);
+    const cm = /RD\d/.exec(tail);
+    calls.push({ index: m.index, crit: cm ? cm[0] : null });
+  }
+  return calls;
+}
+
+/**
+ * 门禁源码里的**早期退出型出口**：红因行首是 `✗ ` 后面**紧跟实际文字**的那些。
+ *
+ * ⚠️ 汇总那行是 `  ✗ ${p}` ⇒ `✗ ` 后面紧跟 `${` ⇒ 用负向断言 `(?!\$\{)` 排除掉。
+ *    不排除的话会把「统一打印」那个出口也算进来，覆盖度自证就会数错。
+ */
+function scanEarlyExits(src) {
+  const sites = [];
+  const re = /✗ (?!\$\{)/g;
+  let m;
+  while ((m = re.exec(src)) !== null) {
+    sites.push({ index: m.index });
+  }
+  return sites;
+}
+
+/**
+ * 一个归属片段落在**哪些**出口点的区间里（区间法）。
+ * 规则：片段必须出现在「它自己的那个出口点之后、下一个出口点之前」。
+ * @param sites 同类出口点（收集型或早期退出型）按源码位置排序
+ */
+function ownersOfFrag(frag, sites, src) {
+  const owners = [];
+  let from = 0;
+  for (;;) {
+    const k = src.indexOf(frag, from);
+    if (k < 0) break;
+    from = k + 1;
+    for (let i = 0; i < sites.length; i++) {
+      const start = sites[i].index;
+      const end = i + 1 < sites.length ? sites[i + 1].index : src.length;
+      if (k > start && k < end) owners.push(i);
+    }
+  }
+  return owners;
+}
+
+/**
+ * 运行时归属：把每条红因行交给归属表认领。
+ *
+ * **按「行首有没有判据号」分流**：
+ *   · 有编号 ⇒ 只在**该判据**的收集型归属里找片段命中
+ *     （不用「全表扫片段」—— 一个判据可能有多条红因，跨判据扫会认错行）；
+ *   · 没有编号 ⇒ 只在**早期退出型**归属里找片段命中
+ *     （这才是这道门禁的早期退出型红因；收集型裸红因在这道门里不存在，
+ *       真出现了一条没编号的收集型红因，也会被这一支判成「认领不到」⇒ 当场红）。
+ */
+function attributeRows(out) {
+  return redRows(out).map((row) => {
+    const prefix = rowPrefix(row);
+    const pool = prefix
+      ? CAUSES.filter((c) => c.site === "push" && c.crit === prefix)
+      : CAUSES.filter((c) => c.site === "early");
+    const hits = pool.filter((c) => row.includes(c.frag));
+    return {
+      row,
+      hits: hits.map((c) => c.id),
+      crits: hits.map((c) => c.crit),
+      sites: hits.map((c) => c.site),
+      prefix,
+    };
+  });
+}
+
+/* ================= 注入 / 破坏的公用动作 ================= */
+
+/** 替换一次；锚点不存在就抛错（坏跑必须当场暴露，不能记成「测过了」）。 */
 function replaceOnce(text, from, to) {
   if (!text.includes(from)) throw new Error(`注入锚点不存在：找不到「${from}」`);
   const out = text.replace(from, to);
@@ -73,115 +304,659 @@ function replaceOnce(text, from, to) {
   return out;
 }
 
-/** 替换**全部**出现；一个都没换到就抛错。
- *  为什么需要"全部"：M3 要证明"漏掉一个命令"能被抓到，而命令名在 README 里
- *  可能出现**多次**（表格里一次、正文里一次）——只改一处的话，名字还在，
- *  RD3 本来就该绿，那一档就变成了"坏跑"而不是"判据没触发"。 */
-function replaceAll(text, from, to) {
-  if (!text.includes(from)) throw new Error(`注入锚点不存在：找不到「${from}」`);
-  const out = text.split(from).join(to);
-  if (out === text) throw new Error(`注入没有改变内容：「${from}」`);
+/**
+ * 替换**全部**出现（词边界）。
+ * 为什么需要「全部」：命令名在 README 里可能出现**多次**（表格里一次、正文里一次）
+ * —— 只改一处的话名字还在，RD3 本来就该绿，那一档就变成了「坏跑」而不是「判据没触发」。
+ */
+function replaceAllWords(text, word, to) {
+  const esc = word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const re = new RegExp(`(?<![A-Za-z0-9_-])${esc}(?![A-Za-z0-9_-])`, "g");
+  if (!re.test(text)) throw new Error(`注入锚点不存在：找不到「${word}」`);
+  const out = text.replace(re, to);
+  if (out === text) throw new Error(`注入没有改变内容：「${word}」`);
   return out;
 }
 
-const cases = [];
+/** 副本与原件的「改动行数」—— 证明注入确实打上了，且只打了声明的那些行。 */
+function changedLines(a, b) {
+  const la = a.split("\n");
+  const lb = b.split("\n");
+  const n = Math.max(la.length, lb.length);
+  let c = 0;
+  for (let i = 0; i < n; i++) if (la[i] !== lb[i]) c += 1;
+  return c;
+}
 
-/* 本站域名（**由产物推导**，与门禁同一口径 —— 不写死域名，
- *   否则换域名后这两档会一起坏跑、而没人知道）。 */
-const SITE_ORIGIN = (() => {
-  const html = fs.readFileSync(path.join(ROOT, "_site", "index.html"), "utf8");
-  const tags = html.match(/<link\b[^>]*>/gi) || [];
-  for (const tag of tags) {
-    if (!/rel\s*=\s*["']?canonical/i.test(tag)) continue;
-    const m = tag.match(/href\s*=\s*["']([^"']+)["']/i);
-    if (m) return new URL(m[1]).origin;
+/**
+ * 把门禁副本里某个判据的**每一条** `problems.push(` 调用**同行**加 `if (false) ` 前缀。
+ *
+ * 为什么是「同行加前缀」而不是改判断条件：
+ *   · 门禁**没有** `RD*_ON` 开关，改条件会碰到生产契约；
+ *   · 同行加前缀 ⇒ **行数不变** ⇒ 可与基线副本逐行比对，只差该判据的调用数；
+ *   · 静默的是**判定**（这条红因不再被收集），不是**红因文案**。
+ *
+ * ⚠️ 下标要**倒序**处理：插入会让后面的下标整体位移。
+ */
+function unloadCriterion(sb, crit) {
+  const before = fs.readFileSync(sb.gateFile, "utf8");
+  const calls = scanPushCalls(before).filter((c) => c.crit === crit);
+  if (!calls.length) throw new Error(`门禁副本里找不到判据 ${crit} 的 problems.push( 调用`);
+  let out = before;
+  for (let i = calls.length - 1; i >= 0; i -= 1) {
+    out = out.slice(0, calls[i].index) + "if (false) " + out.slice(calls[i].index);
   }
-  throw new Error("推不出本站域名（_site/index.html 里没有 canonical）—— 注入基准不存在，这一档是坏跑");
-})();
+  fs.writeFileSync(sb.gateFile, out);
+  const after = fs.readFileSync(sb.gateFile, "utf8");
+  const n = changedLines(before, after);
+  if (n !== calls.length) {
+    throw new Error(
+      `卸掉 ${crit} 的改动行数与声明不符（期望 ${calls.length} 行，实际 ${n} 行）—— 已中止。`
+    );
+  }
+  const chk = spawnSync(process.execPath, ["--check", sb.gateFile], { encoding: "utf8" });
+  if (chk.status !== 0) {
+    throw new Error(`卸掉 ${crit} 之后门禁副本语法不过：${(chk.stderr || "").trim()}`);
+  }
+  return calls.length;
+}
 
-/* M0 基线 */
-const m0 = run(null);
-cases.push(["M0 基线（原样 README）", m0.code === 0, m0.out.trim().split("\n").slice(-1)[0]]);
+/**
+ * 把门禁副本里某条**早期退出型**出口的打印**同行**加 `if (false) ` 前缀。
+ *
+ * 做法：定位该归属片段的位置 ⇒ 往前找**最近的** `console.error(` ⇒ 在那里插入前缀。
+ *   · 为什么不是直接改片段所在行：早期退出型里有一条是多行调用
+ *     （`console.error(\n  "  ✗ 产物 _site/ …" +\n …`），
+ *     片段所在行是**字符串续行**，不是语句开头 ⇒ 前缀加在那里是语法错误。
+ *   · `if (false) console.error(...)` 不需要花括号，多行参数也合法。
+ *   · 静默之后门禁**仍然 exit 1**（`process.exit(1)` 还在）但**一条红因都不打**
+ *     ⇒ 这正是「那条红因就是由这个出口打印的」的证据。
+ */
+function unloadEarly(sb, causeId) {
+  const cause = CAUSES.find((c) => c.id === causeId);
+  if (!cause) throw new Error(`归属表里没有 ${causeId}`);
+  const before = fs.readFileSync(sb.gateFile, "utf8");
+  const fragAt = before.indexOf(cause.frag);
+  if (fragAt < 0) throw new Error(`门禁副本里找不到 ${causeId} 的片段「${cause.frag}」`);
+  const ceAt = before.lastIndexOf("console.error(", fragAt);
+  if (ceAt < 0) throw new Error(`${causeId} 的片段不在任何 console.error( 调用里`);
+  const out = before.slice(0, ceAt) + "if (false) " + before.slice(ceAt);
+  fs.writeFileSync(sb.gateFile, out);
+  const after = fs.readFileSync(sb.gateFile, "utf8");
+  const n = changedLines(before, after);
+  if (n !== 1) {
+    throw new Error(`卸掉 ${causeId} 的改动行数与声明不符（期望 1 行，实际 ${n} 行）—— 已中止。`);
+  }
+  const chk = spawnSync(process.execPath, ["--check", sb.gateFile], { encoding: "utf8" });
+  if (chk.status !== 0) {
+    throw new Error(`卸掉 ${causeId} 之后门禁副本语法不过：${(chk.stderr || "").trim()}`);
+  }
+  return 1;
+}
 
-/* M1：写一个不存在的路由
- *   ⚠️ 注入行里**不能出现**任何"未实现"标记词 —— 否则那一行会被
- *      "规划中的路径"豁免掉，注入自己把自己遮住了（第一版就这么坏跑过）。 */
-const m1 = run((t) =>
-  replaceOnce(t, "| 博客 | `/blog/` |", "| 旧归档 | `/portfolio-archive/` | 往年的项目 |")
-);
-cases.push([
-  "M1 README 写了不存在的路由",
-  m1.code === 1 && m1.out.includes("RD1") && m1.out.includes("/portfolio-archive/"),
-  m1.out.trim().split("\n").slice(-1)[0],
-]);
+/* ================= 断言 ================= */
 
-/* M2：Node 下限低于 package.json */
-const m2 = run((t) => replaceOnce(t, "需要 **Node ≥ 22**", "需要 **Node ≥ 18**"));
-cases.push([
-  "M2 README 的 Node 下限低于 package.json",
-  m2.code === 1 && m2.out.includes("RD2"),
-  m2.out.trim().split("\n").slice(-1)[0],
-]);
+const results = [];
+/** 所有判红档实际认领过的归属条目 —— 收尾断言「每条红因至少有一档能证明它会红」。 */
+const coveredCauses = new Set();
 
-/* M3：漏掉一个命令（要**全部**换掉，否则名字还在，RD3 本来就该绿） */
-const m3 = run((t) => replaceAll(t, "check:citation-cff", "check:citation-xxx"));
-cases.push([
-  "M3 README 漏掉了一个命令",
-  m3.code === 1 && m3.out.includes("RD3") && m3.out.includes("check:citation-cff"),
-  m3.out.trim().split("\n").slice(-1)[0],
-]);
+function record(id, ok, detail) {
+  results.push({ id, ok, detail });
+  console.log(`  ${ok ? "✓" : "✗"} ${id}${detail ? " —— " + detail : ""}`);
+}
 
-/* M4：漏掉一个对外出口 */
-const m4 = run((t) => replaceOnce(t, "| BibTeX | `/publications.bib` |", "| BibTeX | `/publications-x.bib` |"));
-cases.push([
-  "M4 README 漏掉了一个对外出口",
-  m4.code === 1 && m4.out.includes("RD4") && m4.out.includes("publications.bib"),
-  m4.out.trim().split("\n").slice(-1)[0],
-]);
+/**
+ * 一档「注入 ⇒ 应当恰好红这么几条判据」。
+ * @param want 期望的判据编号**多重集**（必须完全相等，不只是「包含」）；
+ *        早期退出型红因没有编号 ⇒ 传 []。
+ * @param opts.mustContain 红因文案里必须出现的片段：证明「红的是这一类问题」，
+ *        而不只是「编号对上了」（同一个编号下有多条红因时靠它区分）
+ * @param opts.rows 期望的红因**行数**（一条判据可能触发多条红因）
+ */
+function expectRed(id, sb, want, opts) {
+  const o = opts || {};
+  const r = runGate(sb, o.env);
+  const rows = redRows(r.out);
+  /* 早期退出型的红因**没有**行首判据号 ⇒ 不进编号多重集
+     （它们的归属由 attrOk 负责：认不到归属的行会当场判红）。
+     编号集合只用来断言「收集型红因恰好是这几条」。 */
+  const got = rows.map(rowPrefix).filter((x) => x !== null);
+  const idsOk = sameMultiset(got, want);
+  const textOk = !o.mustContain || r.out.includes(o.mustContain);
+  const rowsOk = o.rows === undefined ? rows.length === want.length : rows.length === o.rows;
+  /* 门禁必须跑到了自己的结论（横幅出现）—— 否则「门禁崩了」也是 exit 1，会被当成判红。 */
+  const bannerOk = r.out.includes(GATE_FAIL_BANNER);
+  /* 归属纯净：每条红因行恰好被一条归属认领；收集型认出的判据必须与行首编号一致。 */
+  const attr = attributeRows(r.out);
+  const attrOk =
+    attr.length === rows.length &&
+    attr.every((row) =>
+      row.hits.length === 1 &&
+      (row.prefix ? row.crits[0] === row.prefix : row.sites[0] === "early")
+    );
+  const ok = r.code === 1 && idsOk && textOk && rowsOk && bannerOk && attrOk;
+  attr.forEach((row) => row.hits.forEach((h) => coveredCauses.add(h)));
+  record(
+    id,
+    ok,
+    ok
+      ? `红了，判据 = ${fmtIds(got)}（${rows.length} 条红因、归属纯净）${o.note ? "；" + o.note : ""}`
+      : `期望判据 ${fmtIds(want)} 且只有这些` +
+        `${o.mustContain ? `、文案含「${o.mustContain}」` : ""}` +
+        `${o.rows !== undefined ? `、红因行数 ${o.rows}` : ""}` +
+        `${bannerOk ? "" : "、且须出现门禁失败横幅"}` +
+        `${attrOk ? "" : "、且每条红因行恰好被一条归属认领"}` +
+        `，实际 code=${r.code} 红因 ${fmtIds(got)}（${rows.length} 行）` +
+        `归属 ${attr.map((x) => `${x.prefix || "无编号"}<-${x.hits.join("+") || "无"}`).join(" / ")}\n${r.out}`
+  );
+}
 
-/* M5：判据自身失效（把 README 里的路径全部改成认不出的形态） */
-const m5 = run((t) => t.replace(/\/[A-Za-z0-9._~%+-]+/g, ""));
-cases.push([
-  "M5 判据自身失效（一个路径都认不出）",
-  m5.code === 1 && m5.out.includes("RD5"),
-  m5.out.trim().split("\n").slice(-1)[0],
-]);
+/** 一档「绿档」：门禁应当 exit 0、一个红因都不许有，且须出现通过横幅。 */
+function expectGreen(id, sb, note) {
+  const r = runGate(sb);
+  const rows = redRows(r.out);
+  const bannerOk = r.out.includes(GATE_PASS_BANNER);
+  const ok = r.code === 0 && rows.length === 0 && bannerOk;
+  record(
+    id,
+    ok,
+    ok
+      ? `绿，一个红因都不剩${note ? "；" + note : ""}`
+      : `不该红，却 exit ${r.code}，红因 ${fmtIds(rows.map(rowPrefix))}` +
+        `${bannerOk ? "" : "（且缺少门禁通过横幅）"}\n${r.out}`
+  );
+}
 
-/* M6：README 写了一个指向**不存在站内页**的绝对 URL → RD1
+/**
+ * 一档「早期退出型负对照」：把某条早期退出的**打印**卸掉之后，
+ * 门禁仍然 exit 1（`process.exit(1)` 还在）、横幅仍在，但**一条红因都不许打**。
+ */
+function expectNoRowRed(id, sb, note) {
+  const r = runGate(sb);
+  const rows = redRows(r.out);
+  const bannerOk = r.out.includes(GATE_FAIL_BANNER);
+  const ok = r.code === 1 && rows.length === 0 && bannerOk;
+  record(
+    id,
+    ok,
+    ok
+      ? `那条红因消失了（仍 exit 1 + 失败横幅在）${note ? "；" + note : ""}`
+      : `期望 exit 1 且零红因行，实际 code=${r.code}、红因 ${rows.length} 行` +
+        `${bannerOk ? "" : "（且缺少门禁失败横幅）"}\n${r.out}`
+  );
+}
+
+/* ================= 注入档 SP0–SP17 ================= */
+
+console.log("README 事实核对门禁 · 本地注入矩阵：\n");
+
+/* SP0：基线 —— 原样，必须**全绿**（证明这套判据不是空跑）。 */
+{
+  const sb = makeSandbox();
+  expectGreen("SP0 基线（原样 README / package.json / 产物）", sb);
+}
+
+/* SP1：README 写一个不存在的路由 ⇒ RD1
+ *   ⚠️ 注入行里**不能出现**任何「未实现」标记词 —— 否则那一行会被
+ *      「规划中的路径」豁免掉，注入自己把自己遮住了（第一版就这么坏跑过）。 */
+{
+  const sb = makeSandbox();
+  writeReadme(sb, replaceOnce(readmeOf(sb), "| 博客 | `/blog/` |", "| 旧归档 | `/portfolio-archive/` | 往年的项目 |"));
+  expectRed("SP1 README 写了不存在的路由", sb, ["RD1"], { mustContain: "/portfolio-archive/" });
+}
+
+/* SP2：Node 下限低于 package.json ⇒ RD2 */
+{
+  const sb = makeSandbox();
+  writeReadme(sb, replaceOnce(readmeOf(sb), "需要 **Node ≥ 22**", "需要 **Node ≥ 18**"));
+  expectRed("SP2 README 的 Node 下限低于 package.json", sb, ["RD2"], { mustContain: "声明的 Node 下限是" });
+}
+
+/* SP3：漏掉一个命令（要**全部**换掉，否则名字还在，RD3 本来就该绿）⇒ RD3 */
+{
+  const sb = makeSandbox();
+  writeReadme(sb, replaceAllWords(readmeOf(sb), "check:citation-cff", "check:citation-xxx"));
+  expectRed("SP3 README 漏掉了一个命令", sb, ["RD3"], { mustContain: "check:citation-cff" });
+}
+
+/* SP4：漏掉一个**对外出口** ⇒ RD4
+ *   ⚠️ 为什么改的是 CITATION.cff 而不是 /publications.bib：
+ *      出口名单里同时有「既是站内路径、又是出口」的那几个（/publications.bib 等）。
+ *      把路径形态一起改掉 ⇒ RD1 也会红 ⇒ 这一档就变成「连坐」，判据集合不再恰为。
+ *      CITATION.cff 在 README 里**从不带前导斜杠** ⇒ 只动 RD4、不动 RD1。 */
+{
+  const sb = makeSandbox();
+  writeReadme(sb, replaceAllWords(readmeOf(sb), "CITATION.cff", "CITATION-zz.cff"));
+  expectRed("SP4 README 里对外出口 CITATION.cff 改名", sb, ["RD4"], { mustContain: "CITATION.cff" });
+}
+
+/* SP5：判据自身失效（把 README 里的路径全部改成认不出的形态）⇒ RD5
+ *   ⚠️ 出口名必须用**不带路径**的写法补回去：RD1（路径）与 RD4（出口 basename）
+ *      在这里是**对偶**的 —— README 提到出口的路径形态就等于提到 basename；
+ *      不补回去的话 RD4 会连坐 3 条，这一档的判据集合就不再「恰为」。 */
+function breakAllPaths(readme) {
+  return (
+    readme.replace(/\/[A-Za-z0-9._~%+-]+/g, "") +
+    "\n出口文件名：publications.bib、publications.ris、sitemap.xml。\n"
+  );
+}
+{
+  const sb = makeSandbox();
+  writeReadme(sb, breakAllPaths(readmeOf(sb)));
+  expectRed("SP5 判据自身失效（一个路径都认不出）", sb, ["RD5"], {
+    mustContain: "个真实存在的路径",
+    rows: 1,
+  });
+}
+
+/* SP6：产物推不出本站自己的域名 ⇒ RD1
+ *   做法：拿产物**副本**，删掉 index.html 的 canonical，并把 sitemap.xml 的 loc 换成别的域名
+ *   ⇒ 门禁两个来源都读不到 ⇒ 判红。
+ *   ⚠️ 只能用**副本**：改真的产物就是改构建结果，那是事故。 */
+{
+  const siteCopy = path.join(fs.mkdtempSync(path.join(TMP_ROOT, "site-")), "site");
+  fs.cpSync(SITE_SRC, siteCopy, { recursive: true });
+  const idxPath = path.join(siteCopy, "index.html");
+  const idx = fs.readFileSync(idxPath, "utf8");
+  const idx2 = idx.replace(/<link\b[^>]*rel=["']?canonical["']?[^>]*>/gi, "");
+  if (idx2 === idx) throw new Error("SP6 注入锚点不存在：index.html 里没有 canonical 标签 —— 坏跑");
+  fs.writeFileSync(idxPath, idx2);
+  const smPath = path.join(siteCopy, "sitemap.xml");
+  const sm = fs.readFileSync(smPath, "utf8");
+  /* ⚠️ 必须让 <loc> **读不出内容**，**不能**只是换成别的域名：
+     门禁的兜底逻辑是「读到第一个 <loc> 就推出域名」⇒ 换成别的域名时
+     siteOrigin 依然**非空** ⇒ 判据根本不红（第一版就这么坏跑过）。 */
+  const sm2 = sm.replace(/<loc>\s*[^<\s]*\s*<\/loc>/gi, "<loc></loc>");
+  if (sm2 === sm) throw new Error("SP6 注入锚点不存在：sitemap.xml 里没有 <loc> —— 坏跑");
+  fs.writeFileSync(smPath, sm2);
+  const sb = makeSandbox((s) => {
+    s.siteDir = siteCopy;
+  });
+  expectRed("SP6 产物推不出本站自己的域名", sb, ["RD1"], { mustContain: "推不出本站自己的域名" });
+}
+
+/* SP7：package.json 的 engines.node 里读不出版本号 ⇒ RD2 */
+{
+  const sb = makeSandbox((s) => {
+    const pkg = JSON.parse(fs.readFileSync(s.pkgFile, "utf8"));
+    pkg.engines = { node: "lts" };
+    fs.writeFileSync(s.pkgFile, JSON.stringify(pkg, null, 2) + "\n");
+  });
+  expectRed("SP7 engines.node 读不出版本号", sb, ["RD2"], { mustContain: "里读不出版本号" });
+}
+
+/* SP8：README 完全没声明 Node 版本 ⇒ RD2 */
+{
+  const sb = makeSandbox();
+  writeReadme(sb, replaceOnce(readmeOf(sb), "需要 **Node ≥ 22**", "需要 **较新的 Node**"));
+  expectRed("SP8 README 完全没声明 Node 版本", sb, ["RD2"], { mustContain: "没有声明 Node 版本" });
+}
+
+/* SP9：命令少到认不满下限 ⇒ RD5（命令数不足）
+ *   做法：把 package.json 副本的 scripts **裁到只剩几个**。
+ *   ⚠️ RD3 **不该**红：裁掉的是 package.json 里**多余**的命令，
+ *      而 README 里那些命令名还在（依然被提到）⇒ RD3 绿。
+ *      这一档因此证明 RD3 与 RD5b 是两条**独立**的判据（不是同一件事的两种说法）。 */
+{
+  const sb = makeSandbox((s) => {
+    const pkg = JSON.parse(fs.readFileSync(s.pkgFile, "utf8"));
+    const names = Object.keys(pkg.scripts);
+    const kept = names.slice(0, 5);
+    const trimmed = {};
+    for (const k of kept) trimmed[k] = pkg.scripts[k];
+    pkg.scripts = trimmed;
+    fs.writeFileSync(s.pkgFile, JSON.stringify(pkg, null, 2) + "\n");
+  });
+  expectRed("SP9 命令少到认不满下限", sb, ["RD5"], {
+    mustContain: "个命令（至少要",
+    rows: 1,
+  });
+}
+
+/* SP10：一个对外出口都认不出来 ⇒ RD4×6 + RD5
+ *   做法：**只改 README**（产物一个字都不动）：把出口的**路径形态**那几行整行删掉，
+ *   再把剩下**不带斜杠**的出口名（feed.xml / robots.txt / CITATION.cff）改掉。
+ *   ⚠️ 为什么不动产物：删掉产物里的出口文件 ⇒ README 里那些路径变成「不存在」
+ *      ⇒ RD1 连坐 5 条 ⇒ 判据集合不再恰为（第一版就这么坏跑过）。
+ *   ⚠️ 路径形态**只能整行删、不能改名**：改成别的名字它在产物里就不存在了 ⇒ RD1 照样红。
+ *   ⚠️ 行过滤的正则必须排除 `.njk`（目录树那行里有 "/publications.ris.njk"，
+ *      它不是路径形态，删了整行会平白少掉别的内容）。 */
+{
+  const sb = makeSandbox();
+  const SLASH_OUTLET =
+    /\/(publications\.bib|publications\.ris|feed\.xml|sitemap\.xml|robots\.txt)(?![\w.])/;
+  const lines = readmeOf(sb).split("\n");
+  const kept = lines.filter((l) => !SLASH_OUTLET.test(l));
+  if (kept.length === lines.length) {
+    throw new Error("SP10 注入锚点不存在：README 里没有出口的路径形态 —— 坏跑");
+  }
+  let text = kept.join("\n");
+  text = replaceAllWords(text, "feed.xml", "feed-zz.xml");
+  text = replaceAllWords(text, "robots.txt", "robots-zz.txt");
+  text = replaceAllWords(text, "CITATION.cff", "CITATION-zz.cff");
+  writeReadme(sb, text);
+  expectRed("SP10 一个对外出口都认不出来", sb, ["RD4", "RD4", "RD4", "RD4", "RD4", "RD4", "RD5"], {
+    mustContain: "一个对外出口都没认出来",
+    rows: 7,
+  });
+}
+
+/* SP11：README 不存在 ⇒ 早期退出型（红因行首**没有**判据号） */
+{
+  const sb = makeSandbox((s) => {
+    fs.rmSync(s.readmePath, { force: true });
+  });
+  expectRed("SP11 README 不存在", sb, [], { mustContain: "找不到 README.md", rows: 1 });
+}
+
+/* SP12：package.json 不存在 ⇒ 早期退出型 */
+{
+  const sb = makeSandbox((s) => {
+    fs.rmSync(s.pkgFile, { force: true });
+  });
+  expectRed("SP12 package.json 不存在", sb, [], { mustContain: "找不到 package.json", rows: 1 });
+}
+
+/* SP13：package.json 是坏 JSON ⇒ 早期退出型 */
+{
+  const sb = makeSandbox((s) => {
+    fs.writeFileSync(s.pkgFile, "{ 这不是 JSON ");
+  });
+  expectRed("SP13 package.json 是坏 JSON", sb, [], { mustContain: "package.json 解析失败", rows: 1 });
+}
+
+/* SP14：产物 _site 不存在或不完整 ⇒ 早期退出型 */
+{
+  const sb = makeSandbox((s) => {
+    s.siteDir = path.join(fs.mkdtempSync(path.join(TMP_ROOT, "empty-")), "empty");
+    fs.mkdirSync(s.siteDir, { recursive: true });
+  });
+  expectRed("SP14 产物 _site 不存在或不完整", sb, [], {
+    mustContain: "产物 _site/ 不存在或不完整",
+    rows: 1,
+  });
+}
+
+/* SP15：README 写了一个指向**不存在站内页**的绝对 URL ⇒ RD1
  *   为什么要有这一档：第一版只认相对写法，绝对 URL **整个逃过**——
  *   实测 exit 0、路径计数纹丝不动（11 → 11），判据看上去在管、实际没管。
- *   ⚠️ 注入行里不能出现任何"未实现"标记词，否则那一行被豁免、注入自己遮住自己。 */
-const m6 = run((t) => t + `\n绝对地址探针：${SITE_ORIGIN}/no-such-page-xyz/\n`);
-cases.push([
-  "M6 README 写了指向不存在站内页的绝对 URL",
-  m6.code === 1 && m6.out.includes("RD1") && m6.out.includes("/no-such-page-xyz/"),
-  m6.out.trim().split("\n").slice(-1)[0],
-]);
-
-/* M7：外部域名的绝对 URL → 必须**仍绿**（"合法路径应绿"那一档）
- *   只核"指向本站"的绝对 URL 是 M6 的另一半：核过头就是假红。
- *   用 RFC 2606 保留域，不取自被测数据。 */
-const m7 = run((t) => t + "\n外部链接：https://example.invalid/no-such-page-xyz/\n");
-cases.push([
-  "M7 外部域名的绝对 URL 不被判红",
-  m7.code === 0,
-  m7.out.trim().split("\n").slice(-1)[0],
-]);
-
-/* ---------- 汇总 ---------- */
-let failed = 0;
-console.log("README 事实核对门禁 · 本地注入矩阵：\n");
-for (const [label, ok, detail] of cases) {
-  console.log(`  ${ok ? "✓" : "✗"} ${label}`);
-  if (!ok) {
-    failed++;
-    console.log(`      详情：${detail}`);
-  }
+ *   ⚠️ 注入行里不能出现任何「未实现」标记词，否则那一行被豁免、注入自己遮住自己。 */
+{
+  const sb = makeSandbox();
+  const origin = (() => {
+    const html = fs.readFileSync(path.join(SITE_SRC, "index.html"), "utf8");
+    const tags = html.match(/<link\b[^>]*>/gi) || [];
+    for (const tag of tags) {
+      if (!/rel\s*=\s*["']?canonical/i.test(tag)) continue;
+      const m = tag.match(/href\s*=\s*["']([^"']+)["']/i);
+      if (m) return new URL(m[1]).origin;
+    }
+    throw new Error("推不出本站域名（_site/index.html 里没有 canonical）—— 注入基准不存在，这一档是坏跑");
+  })();
+  writeReadme(sb, readmeOf(sb) + `\n绝对地址探针：${origin}/no-such-page-xyz/\n`);
+  expectRed("SP15 README 写了指向不存在站内页的绝对 URL", sb, ["RD1"], {
+    mustContain: "/no-such-page-xyz/",
+  });
 }
-fs.rmSync(tmp, { recursive: true, force: true });
 
-if (failed) {
-  console.error(`\n自测失败：${failed} 档没有按预期触发。\n`);
+/* SP16：**外部域名**的绝对 URL → 必须**仍绿**（"合法路径应绿"那一档）
+ *   只核"指向本站"的绝对 URL 是 SP15 的另一半：核过头就是假红。
+ *   用 RFC 2606 保留域，不取自被测数据。 */
+{
+  const sb = makeSandbox();
+  writeReadme(sb, readmeOf(sb) + "\n外部链接：https://example.invalid/no-such-page-xyz/\n");
+  expectGreen("SP16 外部域名的绝对 URL 不被判红", sb);
+}
+
+/* SP17：漏掉 /publications.bib —— 它**既是**站内路径**又是**对外出口 ⇒ RD4
+ *   这一档证明「既是路径又是出口」的那类出口也能被抓到。
+ *   做法：删掉提到它的**整行**（路径形态随之消失 ⇒ RD1 不红），
+ *   再把目录树里那个 `publications.bib.njk` 改名（它不带前导斜杠 ⇒ RD1 本来就不核它）。 */
+{
+  const sb = makeSandbox();
+  const lines = readmeOf(sb).split("\n");
+  const kept = lines.filter((l) => !l.includes("/publications.bib"));
+  if (kept.length === lines.length) {
+    throw new Error("SP17 注入锚点不存在：README 里没有提到 /publications.bib —— 坏跑");
+  }
+  let text = kept.join("\n");
+  text = replaceOnce(text, "publications.bib.njk", "zz-publications.bib.njk");
+  writeReadme(sb, text);
+  expectRed("SP17 README 漏掉 /publications.bib", sb, ["RD4"], { mustContain: "publications.bib" });
+}
+
+/* ================= 判据级负对照 NC-RD1–NC-RD5 ================= */
+
+console.log("");
+
+/** 卸掉某个判据 ⇒ 它的注入档应当**一条红因都不剩**（转绿）。
+ *  ⚠️ 卸判据本身失败（找不到调用点 / 语法不过）必须**记成红**而不是抛异常：
+ *     抛异常会把整场自测打断 ⇒ 后面的覆盖度自证一行都跑不到 ⇒ 报告里只剩栈。 */
+function expectGreenAfterUnload(id, crit, inject, note) {
+  let sb;
+  let n = 0;
+  try {
+    sb = makeSandbox();
+    n = unloadCriterion(sb, crit);
+    inject(sb);
+  } catch (e) {
+    record(id, false, `档位执行抛错（是坏跑，不是判红）：${e.message}`);
+    return;
+  }
+  const r = runGate(sb);
+  const rows = redRows(r.out);
+  const bannerOk = r.out.includes(GATE_PASS_BANNER);
+  const ok = r.code === 0 && rows.length === 0 && bannerOk;
+  record(
+    id,
+    ok,
+    ok
+      ? `卸掉 ${crit} 的 ${n} 处收集型出口后，注入档完全转绿${note ? "；" + note : ""}`
+      : `期望 exit 0 且零红因，实际 code=${r.code}、红因 ${rows.length} 行` +
+        `${bannerOk ? "" : "（且缺少门禁通过横幅）"}\n${r.out}`
+  );
+}
+
+expectGreenAfterUnload(
+  "NC-RD1 负对照：卸掉 RD1 ⇒ RD1 的注入转绿",
+  "RD1",
+  (sb) => writeReadme(sb, replaceOnce(readmeOf(sb), "| 博客 | `/blog/` |", "| 旧归档 | `/portfolio-archive/` | 往年的项目 |")),
+  "RD1 有 2 处收集型出口，两处都被卸掉"
+);
+
+expectGreenAfterUnload(
+  "NC-RD2 负对照：卸掉 RD2 ⇒ RD2 的注入转绿",
+  "RD2",
+  (sb) => writeReadme(sb, replaceOnce(readmeOf(sb), "需要 **Node ≥ 22**", "需要 **Node ≥ 18**")),
+  "RD2 有 3 处收集型出口，三处都被卸掉"
+);
+
+expectGreenAfterUnload(
+  "NC-RD3 负对照：卸掉 RD3 ⇒ RD3 的注入转绿",
+  "RD3",
+  (sb) => writeReadme(sb, replaceAllWords(readmeOf(sb), "check:citation-cff", "check:citation-xxx"))
+);
+
+expectGreenAfterUnload(
+  "NC-RD4 负对照：卸掉 RD4 ⇒ RD4 的注入转绿",
+  "RD4",
+  (sb) => writeReadme(sb, replaceAllWords(readmeOf(sb), "CITATION.cff", "CITATION-zz.cff"))
+);
+
+expectGreenAfterUnload(
+  "NC-RD5 负对照：卸掉 RD5 ⇒ RD5 的注入转绿",
+  "RD5",
+  (sb) => writeReadme(sb, breakAllPaths(readmeOf(sb))),
+  "RD5 有 3 处收集型出口，三处都被卸掉"
+);
+
+/* ================= 早期退出型负对照 NC-E1–NC-E4 ================= */
+
+console.log("");
+
+/** 卸掉某条早期退出的**打印** ⇒ 注入档应当 exit 1 但**一条红因都不打**。
+ *  ⚠️ 同上：卸判据失败必须**记成红**而不是抛异常打断整场。 */
+function expectNoRowAfterUnload(id, causeId, inject) {
+  let sb;
+  try {
+    sb = makeSandbox();
+    unloadEarly(sb, causeId);
+    inject(sb);
+  } catch (e) {
+    record(id, false, `档位执行抛错（是坏跑，不是判红）：${e.message}`);
+    return;
+  }
+  expectNoRowRed(id, sb, `卸掉 ${causeId} 的打印出口`);
+}
+
+expectNoRowAfterUnload(
+  "NC-E1 负对照：卸掉「找不到 README.md」⇒ 不再打出那条红因",
+  "E1",
+  (sb) => fs.rmSync(sb.readmePath, { force: true })
+);
+
+expectNoRowAfterUnload(
+  "NC-E2 负对照：卸掉「找不到 package.json」⇒ 不再打出那条红因",
+  "E2",
+  (sb) => fs.rmSync(sb.pkgFile, { force: true })
+);
+
+expectNoRowAfterUnload(
+  "NC-E3 负对照：卸掉「package.json 解析失败」⇒ 不再打出那条红因",
+  "E3",
+  (sb) => fs.writeFileSync(sb.pkgFile, "{ 这不是 JSON ")
+);
+
+expectNoRowAfterUnload(
+  "NC-E4 负对照：卸掉「产物 _site 不存在或不完整」⇒ 不再打出那条红因",
+  "E4",
+  (sb) => {
+    sb.siteDir = path.join(fs.mkdtempSync(path.join(TMP_ROOT, "empty-")), "empty");
+    fs.mkdirSync(sb.siteDir, { recursive: true });
+  }
+);
+
+/* ================= COV2：覆盖度自证（双向） ================= */
+
+console.log("");
+
+const GATE_SRC = fs.readFileSync(GATE, "utf8");
+const PUSH_SITES = scanPushCalls(GATE_SRC);
+const EARLY_SITES = scanEarlyExits(GATE_SRC);
+const PUSH_CAUSES = CAUSES.filter((c) => c.site === "push");
+const EARLY_CAUSES = CAUSES.filter((c) => c.site === "early");
+
+/* COV2a：收集型出口数 == 归属表收集型条数 */
+record(
+  "COV2a 收集型出口数 == 归属表条数",
+  PUSH_SITES.length === PUSH_CAUSES.length,
+  `门禁里 problems.push( 有 ${PUSH_SITES.length} 处，归属表登记了 ${PUSH_CAUSES.length} 条`
+);
+
+/* COV2b：早期退出型出口数 == 归属表早期退出型条数 */
+record(
+  "COV2b 早期退出型出口数 == 归属表条数",
+  EARLY_SITES.length === EARLY_CAUSES.length,
+  `门禁里早期退出的红因出口有 ${EARLY_SITES.length} 处，归属表登记了 ${EARLY_CAUSES.length} 条`
+);
+
+/* COV2c：门禁解析出的判据集合 == 静态判据清单（**双向**） */
+{
+  const parsed = [...new Set(PUSH_SITES.map((c) => c.crit))].sort();
+  const staticList = [...CRITERIA].sort();
+  const ok =
+    parsed.length === staticList.length &&
+    parsed.every((x, i) => x === staticList[i]) &&
+    PUSH_SITES.every((c) => c.crit && staticList.includes(c.crit));
+  record(
+    "COV2c 门禁解析出的判据集合 == 静态判据清单（双向）",
+    ok,
+    `门禁解析出 {${parsed.join(",")}}，静态清单 {${staticList.join(",")}}`
+  );
+}
+
+/* COV2d：每条收集型归属恰好认领**一个**收集型出口（区间法） */
+{
+  const detail = [];
+  let ok = true;
+  for (const c of PUSH_CAUSES) {
+    const owners = ownersOfFrag(c.frag, PUSH_SITES, GATE_SRC);
+    if (owners.length !== 1) {
+      ok = false;
+      detail.push(`${c.id} 认领了 ${owners.length} 个出口`);
+    }
+  }
+  record("COV2d 每条收集型归属恰好认领一个出口", ok, ok ? `${PUSH_CAUSES.length} 条全部一一对应` : detail.join("；"));
+}
+
+/* COV2e：每条早期退出型归属恰好认领**一个**早期退出型出口（区间法） */
+{
+  const detail = [];
+  let ok = true;
+  for (const c of EARLY_CAUSES) {
+    const owners = ownersOfFrag(c.frag, EARLY_SITES, GATE_SRC);
+    if (owners.length !== 1) {
+      ok = false;
+      detail.push(`${c.id} 认领了 ${owners.length} 个出口`);
+    }
+  }
+  record("COV2e 每条早期退出型归属恰好认领一个出口", ok, ok ? `${EARLY_CAUSES.length} 条全部一一对应` : detail.join("；"));
+}
+
+/* COV2f：归属片段互不包含，且每个片段在门禁源码里**只出现一次** */
+{
+  const detail = [];
+  let ok = true;
+  for (let i = 0; i < CAUSES.length; i++) {
+    const n = GATE_SRC.split(CAUSES[i].frag).length - 1;
+    if (n !== 1) {
+      ok = false;
+      detail.push(`${CAUSES[i].id} 的片段在门禁源码里出现 ${n} 次`);
+    }
+    for (let j = i + 1; j < CAUSES.length; j++) {
+      if (CAUSES[i].frag.includes(CAUSES[j].frag) || CAUSES[j].frag.includes(CAUSES[i].frag)) {
+        ok = false;
+        detail.push(`${CAUSES[i].id} 与 ${CAUSES[j].id} 的片段互相包含`);
+      }
+    }
+  }
+  record("COV2f 归属片段互不包含且各出现一次", ok, ok ? `${CAUSES.length} 条片段全部唯一且互不包含` : detail.join("；"));
+}
+
+/* COV2g：**每条红因至少有一档**能证明它会变红 */
+{
+  const missing = CAUSES.filter((c) => !coveredCauses.has(c.id)).map((c) => c.id);
+  record(
+    "COV2g 每条红因至少有一档能证明它会变红",
+    missing.length === 0,
+    missing.length === 0
+      ? `${CAUSES.length} 条红因全部有档可证`
+      : `这几条红因没有任何一档证明过它会变红：${missing.join(", ")}`
+  );
+}
+
+/* ================= 收尾：门禁原件没被动过 ================= */
+
+console.log("");
+{
+  const now = sha256(GATE);
+  record(
+    "门禁原件 SHA-256 前后一致（本轮一字未改）",
+    now === GATE_SHA_AT_START,
+    `sha256 = ${now.slice(0, 16)}…`
+  );
+}
+
+fs.rmSync(TMP_ROOT, { recursive: true, force: true });
+
+const bad = results.filter((r) => !r.ok);
+console.log(
+  `\n自测矩阵：${results.length} 档里 ${results.length - bad.length} 档按预期触发` +
+    `（SP0–SP17 是注入档；NC-RD1–NC-RD5 与 NC-E1–NC-E4 是判据级负对照；COV2a–COV2g 是覆盖度自证）。\n`
+);
+if (bad.length) {
+  console.error(`\n自测失败：${bad.length} 档没有按预期触发。\n`);
+  for (const b of bad) console.error(`  ✗ ${b.id}\n${b.detail}\n`);
   process.exit(1);
 }
-console.log(`\n自测通过：${cases.length} 档全部按预期触发。\n`);
+console.log("自测通过：全部档位按预期触发。\n");
