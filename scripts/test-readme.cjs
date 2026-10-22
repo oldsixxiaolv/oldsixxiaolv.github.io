@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * README 事实核对门禁的**自测**（四件套）—— 证明 RD1–RD5 每一条都**能变红**，
+ * README 事实核对门禁的**自测**（四件套）—— 证明 RD1–RD7 每一条都**能变红**，
  * 且门禁新增判据 / 新增红因时本自测**立刻察觉**。
  *
  * 为什么要有这个自测：
@@ -10,7 +10,7 @@
  *   所以"这条判据结构上能不能触发"本身必须**被证明**，而不是假定。
  *
  * ⚠️ 这道门禁的**红因有两套出口**，旧版自测只覆盖了其中一套：
- *   ① **收集型**：`problems.push(...)` —— 10 处，红因行首带判据号 `RD1`–`RD5`，
+ *   ① **收集型**：`problems.push(...)` —— 13 处，红因行首带判据号 `RD1`–`RD7`，
  *      最后由门禁统一打印成 `  ✗ <消息>`；
  *   ② **早期退出型**：`console.error("  ✗ …")` + `process.exit(1)` —— 4 处
  *      （README 不存在 / package.json 不存在 / package.json 是坏 JSON /
@@ -19,7 +19,7 @@
  *   ⇒ 覆盖度自证必须**分别数两类出口**，运行时归属必须**按「行首有没有编号」分流**。
  *
  * 四件套：
- *   ① **红因归属表**（`CAUSES` 14 条：10 条收集型 + 4 条早期退出型），
+ *   ① **红因归属表**（`CAUSES` 17 条：13 条收集型 + 4 条早期退出型），
  *      每条恰好认领**一个**出口点（区间法绑定），归属片段**互不包含**、
  *      且在门禁源码里**只出现一次**；
  *   ② **归属纯净**：每条红因行必须被**恰好一条**归属认领；
@@ -34,9 +34,12 @@
  *   `ROOT = path.resolve(__dirname, "..")` 变成 `<tmp>/gate`
  *   ⇒ 它读的那份 `package.json` / `CITATION.cff` 就**可控**了
  *   （门禁本体没有给 package.json 留环境变量开关，只给 README 与产物留了）。
+ *   ⚠️ 还要把 `scripts/check-*.cjs` / `verify-*.cjs` **整份复制**进 `<tmp>/gate/scripts/`：
+ *      RD6 要读门禁源码来对账判据编号，RD7a 要证明解析器还活着。
+ *      少复制 ⇒ 门禁一个源码都读不到 ⇒ RD7a/RD7b 连坐 ⇒ 现有每一档都会连锁失败。
  *   全程**不动仓库里真的 README / package.json / 产物**。
  *
- * 档位（18 档注入 + 9 档判据级负对照 + 7 档覆盖度自证 = 34 档）：
+ * 档位（23 档注入 + 11 档判据级负对照 + 7 档覆盖度自证 = 41 档）：
  *   SP0  基线（原样）                                  → 必须**全绿**
  *   SP1  README 写了一个不存在的路由                  → RD1
  *   SP2  README 的 Node 下限低于 package.json          → RD2
@@ -46,7 +49,8 @@
  *   SP6  产物推不出本站自己的域名                      → RD1
  *   SP7  package.json 的 engines.node 读不出版本号     → RD2
  *   SP8  README 完全没声明 Node 版本                   → RD2
- *   SP9  package.json 的命令少到认不满下限             → RD5（命令数不足）
+ *   SP9  package.json 的命令少到认不满下限             → RD5（命令数不足；
+ *        裁剪时**保留「声明了判据编号的门禁行」对应的 script**，否则 RD6/RD7b 连坐）
  *   SP10 一个对外出口都认不出来                        → RD4×6 + RD5
  *   SP11 README 不存在                                 → 早期退出型
  *   SP12 package.json 不存在                           → 早期退出型
@@ -55,7 +59,12 @@
  *   SP15 README 写了指向不存在站内页的**绝对 URL**     → RD1
  *   SP16 **外部域名**的绝对 URL                        → 必须**仍绿**（防止过度核）
  *   SP17 README 漏掉 /publications.bib（既是路径又是出口）→ RD4
- *   NC-RD1–NC-RD5  判据级负对照（卸掉某判据的收集型出口）
+ *   SP18 README 门禁行**少列**一个判据编号               → RD6
+ *   SP19 README 门禁行**多列**一个不存在的判据编号       → RD6
+ *   SP20 门禁行**不列**判据编号（没声明就没有义务）       → 必须**仍绿**
+ *   SP21 README 一个判据编号都不列（对账无事可做）        → RD7b
+ *   SP22 门禁源码一个都读不到（解析器自证失效）          → RD7a + RD7b
+ *   NC-RD1–NC-RD7  判据级负对照（卸掉某判据的收集型出口）
  *   NC-E1–NC-E4    早期退出型负对照（卸掉某条早期退出的打印）
  *   COV2a–COV2g    覆盖度自证（双向）
  *
@@ -73,6 +82,16 @@ const README_SRC = path.join(ROOT, "README.md");
 const PKG_SRC = path.join(ROOT, "package.json");
 const CFF_SRC = path.join(ROOT, "CITATION.cff");
 const SITE_SRC = path.join(ROOT, "_site");
+/* 门禁源码清单 —— RD6 要读它们来对账判据编号，RD7a 要靠它们证明解析器还活着。
+   清单**现读**目录，不写死：门禁增删时自测自动跟上。 */
+const GATES_SRC_DIR = path.join(ROOT, "scripts");
+const GATE_SOURCE_FILES = fs
+  .readdirSync(GATES_SRC_DIR)
+  .filter((f) => /^(?:check|verify)-[A-Za-z0-9._-]+\.cjs$/.test(f))
+  .sort();
+/* README 里 `check:css-publish` 那一行关于 CS8 的**当前写法** —— SP18/SP19 的注入锚点。
+   ⚠️ README 改了这一句 ⇒ 锚点不存在 ⇒ 那两档会当场报「坏跑」（而不是悄悄放过）。 */
+const README_CS8 = "（CS8：产物里必须有 components.css，否则判不出 dev/prod 模式）";
 
 function sha256(p) {
   return crypto.createHash("sha256").update(fs.readFileSync(p)).digest("hex");
@@ -115,6 +134,9 @@ const CAUSES = [
   { id: "RD5a", site: "push", crit: "RD5", frag: "个真实存在的路径", desc: "只认出太少的真实路径（判据可能已失效）" },
   { id: "RD5b", site: "push", crit: "RD5", frag: "个命令（至少要", desc: "只认出太少的命令（判据可能已失效）" },
   { id: "RD5c", site: "push", crit: "RD5", frag: "一个对外出口都没认出来", desc: "一个对外出口都没认出来（判据可能已失效）" },
+  { id: "RD6", site: "push", crit: "RD6", frag: "列的判据编号与门禁源码对不上", desc: "README 门禁行列的判据编号与门禁源码对不上" },
+  { id: "RD7a", site: "push", crit: "RD7", frag: "都没解析出非空的判据编号集合", desc: "一道门禁源码都没解析出非空判据集合（解析器可能已失效）" },
+  { id: "RD7b", site: "push", crit: "RD7", frag: "一次都没真的比对过", desc: "RD6 一次都没真的比对过（对账空跑）" },
   /* ---- 早期退出型：console.error("  ✗ …") + process.exit(1) ---- */
   { id: "E1", site: "early", crit: null, frag: "找不到 README.md", desc: "README.md 不存在 ⇒ 门禁直接退出" },
   { id: "E2", site: "early", crit: null, frag: "找不到 package.json", desc: "package.json 不存在 ⇒ 门禁直接退出" },
@@ -123,7 +145,7 @@ const CAUSES = [
 ];
 
 /** 静态判据清单 —— 必须与门禁源码里解析出的判据集合**双向相等**。 */
-const CRITERIA = ["RD1", "RD2", "RD3", "RD4", "RD5"];
+const CRITERIA = ["RD1", "RD2", "RD3", "RD4", "RD5", "RD6", "RD7"];
 
 /* 门禁自己的失败 / 通过横幅 —— 用来判「门禁确实跑到了自己的结论」。
    门禁崩了（语法错、未捕获异常）**也是 exit 1** ⇒ 只看退出码会把崩溃当成判红。 */
@@ -147,6 +169,11 @@ function makeSandbox(mut) {
   const dir = fs.mkdtempSync(path.join(TMP_ROOT, "case-"));
   const gateDir = path.join(dir, "gate");
   fs.mkdirSync(path.join(gateDir, "scripts"), { recursive: true });
+  /* 门禁源码整份复制进来 —— RD6 要读它们对账判据编号。
+     ⚠️ 少复制 ⇒ 门禁一个源码都读不到 ⇒ RD7a/RD7b 连坐 ⇒ 每一档都连锁失败。 */
+  for (const f of GATE_SOURCE_FILES) {
+    fs.copyFileSync(path.join(GATES_SRC_DIR, f), path.join(gateDir, "scripts", f));
+  }
   fs.copyFileSync(GATE, path.join(gateDir, "scripts", "check-readme.cjs"));
   fs.writeFileSync(path.join(gateDir, "package.json"), ORIGINAL_PKG);
   fs.copyFileSync(CFF_SRC, path.join(gateDir, "CITATION.cff"));
@@ -316,6 +343,17 @@ function replaceAllWords(text, word, to) {
   const out = text.replace(re, to);
   if (out === text) throw new Error(`注入没有改变内容：「${word}」`);
   return out;
+}
+
+/**
+ * 把某段文本里某个前缀的**判据编号**全部抹掉（换成可读文字）。
+ * 断言真的抹掉了 —— 否则这一档是「坏跑」而不是「判据没触发」。
+ */
+function stripCritTokens(text, prefix) {
+  const re = new RegExp(`${prefix}\\d{1,3}`, "g");
+  const n = (text.match(re) || []).length;
+  if (!n) throw new Error(`注入锚点不存在：文本里没有 ${prefix} 开头的判据编号 —— 坏跑`);
+  return text.replace(re, "该判据");
 }
 
 /** 副本与原件的「改动行数」—— 证明注入确实打上了，且只打了声明的那些行。 */
@@ -596,14 +634,63 @@ function breakAllPaths(readme) {
  *   做法：把 package.json 副本的 scripts **裁到只剩几个**。
  *   ⚠️ RD3 **不该**红：裁掉的是 package.json 里**多余**的命令，
  *      而 README 里那些命令名还在（依然被提到）⇒ RD3 绿。
- *      这一档因此证明 RD3 与 RD5b 是两条**独立**的判据（不是同一件事的两种说法）。 */
+ *      这一档因此证明 RD3 与 RD5b 是两条**独立**的判据（不是同一件事的两种说法）。
+ *   ⚠️ 必须**保留「README 里声明了判据编号」的那些门禁 script**：
+ *      RD6 的入口是 package.json 里的 npm script 命令（README 门禁行 → 命令 → 门禁源码）。
+ *      把门禁 script 一起裁掉 ⇒ README 的门禁行映射不到命令 ⇒ RD6 无从对账 ⇒
+ *      RD7b（一次都没真的比对过）**连坐**红 ⇒ 这一档就不再是「只红 RD5」的干净对照。
+ *      所以这里按 README 反查（**不写死脚本名**，门禁增减后这一档仍然成立）：
+ *      「声明了判据编号的 README 行」→ 其 npm script 名 → 命令里跑的是门禁 ⇒ 留下。
+ *   ⚠️ 填充命令从「README 行里**没有**判据编号」的那些里取 ⇒ 不会带出额外的对账组。 */
 {
   const sb = makeSandbox((s) => {
     const pkg = JSON.parse(fs.readFileSync(s.pkgFile, "utf8"));
     const names = Object.keys(pkg.scripts);
-    const kept = names.slice(0, 5);
+    const readme = fs.readFileSync(s.readmePath, "utf8");
+
+    /* 门禁自己声明的下限：裁到它以下 RD5 才会红（不写死数字）。 */
+    const gateSrc = fs.readFileSync(s.gateFile, "utf8");
+    const minScripts = Number((/const MIN_SCRIPTS = (\d+);/.exec(gateSrc) || [])[1]);
+    if (!minScripts) throw new Error("SP9 注入锚点不存在：读不出 MIN_SCRIPTS —— 坏跑");
+
+    const CRIT_TOKEN = /(?<![A-Za-z0-9_-])([A-Z][A-Z-]{0,4})(\d{1,3})/;
+    const GATE_CMD = /scripts\/(?:check|verify)-[A-Za-z0-9._-]+\.cjs/;
+
+    /* README 里每个 npm script 所在行：有没有声明判据编号 / 命令是不是门禁。 */
+    const rowInfo = new Map();
+    for (const line of readme.split("\n")) {
+      const cell = /^\|\s*`npm run ([^`]+)`\s*\|/.exec(line);
+      if (!cell) continue;
+      const cmd = pkg.scripts[cell[1]];
+      rowInfo.set(cell[1], {
+        hasCrit: CRIT_TOKEN.test(line),
+        isGate: !!(cmd && GATE_CMD.test(cmd)),
+      });
+    }
+
+    const keep = [];
+    for (const name of names) {
+      const r = rowInfo.get(name);
+      if (r && r.hasCrit && r.isGate) keep.push(name);
+    }
+    if (!keep.length) {
+      throw new Error("SP9 注入锚点不存在：README 里没有「声明了判据编号的门禁行」—— 坏跑");
+    }
+
+    const kept = new Set(keep);
+    for (const name of names) {
+      if (kept.size >= 5) break;
+      const r = rowInfo.get(name);
+      if (r && !r.hasCrit) kept.add(name);
+    }
+    if (kept.size >= minScripts) {
+      throw new Error(
+        `SP9 注入锚点不对：裁完还有 ${kept.size} 个命令（要 < ${minScripts}）—— 坏跑`
+      );
+    }
+
     const trimmed = {};
-    for (const k of kept) trimmed[k] = pkg.scripts[k];
+    for (const k of names) if (kept.has(k)) trimmed[k] = pkg.scripts[k];
     pkg.scripts = trimmed;
     fs.writeFileSync(s.pkgFile, JSON.stringify(pkg, null, 2) + "\n");
   });
@@ -725,7 +812,81 @@ function breakAllPaths(readme) {
   expectRed("SP17 README 漏掉 /publications.bib", sb, ["RD4"], { mustContain: "publications.bib" });
 }
 
-/* ================= 判据级负对照 NC-RD1–NC-RD5 ================= */
+/* ================= RD6 / RD7 的注入档 SP18–SP22 ================= */
+
+/* SP18：README 门禁行**少列**一个判据编号 ⇒ RD6
+ *   做法：把 CS8 那一句里的编号去掉（文字留着），README 就停在 CS1–CS7，
+ *   而门禁源码里已经是 CS1–CS8 —— 两份副本对不上。 */
+{
+  const sb = makeSandbox();
+  writeReadme(
+    sb,
+    replaceOnce(readmeOf(sb), README_CS8, "（产物里必须有 components.css，否则判不出 dev/prod 模式）")
+  );
+  expectRed("SP18 README 门禁行少列了一个判据编号", sb, ["RD6"], {
+    mustContain: "列的判据编号与门禁源码对不上",
+  });
+}
+
+/* SP19：README 门禁行**多列**一个门禁源码里没有的编号 ⇒ RD6
+ *   做法：CS8 改成 CS8–CS9（区间写法会被展开成 CS8、CS9）。
+ *   ⚠️ 少列与多列是**两个方向**：只测少列的话，"凭空多出来的编号"可能漏网。 */
+{
+  const sb = makeSandbox();
+  writeReadme(
+    sb,
+    replaceOnce(
+      readmeOf(sb),
+      README_CS8,
+      "（CS8–CS9：产物里必须有 components.css，否则判不出 dev/prod 模式）"
+    )
+  );
+  expectRed("SP19 README 门禁行多列了一个不存在的判据编号", sb, ["RD6"], {
+    mustContain: "列的判据编号与门禁源码对不上",
+  });
+}
+
+/* SP20：门禁行**不列**判据编号 ⇒ 必须**仍绿**
+ *   这一档是"没声明就没有义务"：README 没说 CS1–CS8，门禁不该因为"对不上"就判红
+ *   （否则这条判据就变成了"README 必须列全"，那是另一条判据的事）。
+ *   ⚠️ 只抹 CS ⇒ JA / IP 两行还带着编号 ⇒ 对账仍在跑 ⇒ RD7b 不会连坐。 */
+{
+  const sb = makeSandbox();
+  writeReadme(sb, stripCritTokens(readmeOf(sb), "CS"));
+  expectGreen("SP20 门禁行不列判据编号时不该误报", sb);
+}
+
+/* SP21：README 一个判据编号都不列 ⇒ 对账**无事可做** ⇒ RD7b 判红
+ *   这一档证明 RD7b 不是摆设：把 README 里所有判据编号抹掉，
+ *   RD6 的"通过"就是**空跑**（没有任何一组被比对过）⇒ 必须判红。 */
+{
+  const sb = makeSandbox();
+  let text = stripCritTokens(readmeOf(sb), "JA");
+  text = stripCritTokens(text, "IP");
+  text = stripCritTokens(text, "CS");
+  writeReadme(sb, text);
+  expectRed("SP21 README 一个判据编号都不列（对账空跑）", sb, ["RD7"], {
+    mustContain: "一次都没真的比对过",
+    rows: 1,
+  });
+}
+
+/* SP22：门禁源码**一个都读不到** ⇒ 解析器自证失效 ⇒ RD7a + RD7b 判红
+ *   做法：把 GATES_DIR 指到一个**空目录**（门禁本体新增的环境变量开关）。
+ *   ⚠️ 这一档不碰 README ⇒ 变的是"读哪儿"，证明 RD7a 盯的是**源码读得到读不到**，
+ *      而不是 README 的内容。 */
+{
+  const sb = makeSandbox();
+  const emptyGates = path.join(fs.mkdtempSync(path.join(TMP_ROOT, "gates-")), "empty");
+  fs.mkdirSync(emptyGates, { recursive: true });
+  expectRed("SP22 门禁源码一个都读不到（解析器自证失效）", sb, ["RD7", "RD7"], {
+    env: { GATES_DIR: emptyGates },
+    mustContain: "都没解析出非空的判据编号集合",
+    rows: 2,
+  });
+}
+
+/* ================= 判据级负对照 NC-RD1–NC-RD7 ================= */
 
 console.log("");
 
@@ -788,6 +949,29 @@ expectGreenAfterUnload(
   "RD5",
   (sb) => writeReadme(sb, breakAllPaths(readmeOf(sb))),
   "RD5 有 3 处收集型出口，三处都被卸掉"
+);
+
+expectGreenAfterUnload(
+  "NC-RD6 负对照：卸掉 RD6 ⇒ 判据编号对账那档转绿",
+  "RD6",
+  (sb) =>
+    writeReadme(
+      sb,
+      replaceOnce(readmeOf(sb), README_CS8, "（产物里必须有 components.css，否则判不出 dev/prod 模式）")
+    ),
+  "RD6 有 1 处收集型出口，被卸掉"
+);
+
+expectGreenAfterUnload(
+  "NC-RD7 负对照：卸掉 RD7 ⇒ 对账空跑那档转绿",
+  "RD7",
+  (sb) => {
+    let t = stripCritTokens(readmeOf(sb), "JA");
+    t = stripCritTokens(t, "IP");
+    t = stripCritTokens(t, "CS");
+    writeReadme(sb, t);
+  },
+  "RD7 有 2 处收集型出口（RD7a / RD7b），都被卸掉"
 );
 
 /* ================= 早期退出型负对照 NC-E1–NC-E4 ================= */
@@ -935,12 +1119,47 @@ record(
   );
 }
 
-/* ================= 收尾：门禁原件没被动过 ================= */
+/* ================= 收尾：档位清单守卫 + 门禁原件没被动过 ================= */
 
 console.log("");
-/* 这是**前置守卫**，不是矩阵里的一档 ⇒ 不进 results。
-   否则报出的「档数」会比下面枚举的档位号（18 注入 + 9 负对照 + 7 覆盖度 = 34）多一个，
-   出现「报 35 档、括号里只列 34 个档位号」的自相矛盾。 */
+/* 前置守卫①：**档位清单**。
+   为什么要有：少跑一档 ⇒ 少证明一件事，而判据集合、出口数、归属数**都没变**
+   ⇒ 矩阵照样全绿 ⇒ "那一档被删了"这件事**自己发现不了**。
+   只有"实际跑过的档位号集合 == 静态清单"才查得出来。
+   ⚠️ 这是**前置守卫**，不进 results ⇒ 报出的档数不会与下面的枚举对不上。 */
+const EXPECTED_SLOTS = [
+  ...Array.from({ length: 23 }, (_, i) => `SP${i}`), // SP0–SP22
+  ...Array.from({ length: 7 }, (_, i) => `NC-RD${i + 1}`), // NC-RD1–NC-RD7
+  ...Array.from({ length: 4 }, (_, i) => `NC-E${i + 1}`), // NC-E1–NC-E4
+  ...["a", "b", "c", "d", "e", "f", "g"].map((x) => `COV2${x}`),
+];
+function slotKeyOf(id) {
+  let m = /^SP\d+/.exec(id);
+  if (m) return m[0];
+  m = /^NC-RD\d+/.exec(id);
+  if (m) return m[0];
+  m = /^NC-E\d+/.exec(id);
+  if (m) return m[0];
+  m = /^COV2[a-g]/.exec(id);
+  if (m) return m[0];
+  return null;
+}
+const actualSlots = results.map((r) => slotKeyOf(r.id));
+const slotSet = new Set(actualSlots);
+const slotsOk =
+  actualSlots.every((x) => x !== null) &&
+  actualSlots.length === EXPECTED_SLOTS.length &&
+  slotSet.size === EXPECTED_SLOTS.length &&
+  EXPECTED_SLOTS.every((s) => slotSet.has(s));
+console.log(
+  `  ${slotsOk ? "✓" : "✗"} 档位清单守卫 —— 实际跑过的 ${actualSlots.length} 档` +
+    `与静态清单 ${EXPECTED_SLOTS.length} 档完全一致`
+);
+
+/* 前置守卫②：门禁原件本轮一字未改。
+   这也是**前置守卫**，不是矩阵里的一档 ⇒ 不进 results。
+   否则报出的「档数」会比下面枚举的档位号（23 注入 + 11 负对照 + 7 覆盖度 = 41）多一个，
+   出现「报 42 档、括号里只列 41 个档位号」的自相矛盾。 */
 const nowSha = sha256(GATE);
 const gateIntact = nowSha === GATE_SHA_AT_START;
 console.log(
@@ -952,12 +1171,18 @@ fs.rmSync(TMP_ROOT, { recursive: true, force: true });
 const bad = results.filter((r) => !r.ok);
 console.log(
   `\n自测矩阵：${results.length} 档里 ${results.length - bad.length} 档按预期触发` +
-    `（SP0–SP17 是注入档；NC-RD1–NC-RD5 与 NC-E1–NC-E4 是判据级负对照；COV2a–COV2g 是覆盖度自证）。\n`
+    `（SP0–SP22 是注入档；NC-RD1–NC-RD7 与 NC-E1–NC-E4 是判据级负对照；COV2a–COV2g 是覆盖度自证）。\n`
 );
-if (bad.length || !gateIntact) {
+if (bad.length || !gateIntact || !slotsOk) {
   console.error(`\n自测失败：${bad.length} 档没有按预期触发。\n`);
   for (const b of bad) console.error(`  ✗ ${b.id}\n${b.detail}\n`);
   if (!gateIntact) console.error("  ✗ 门禁原件 SHA-256 前后不一致\n");
+  if (!slotsOk) {
+    console.error(
+      `  ✗ 档位清单与实际跑过的档位对不上（缺：${EXPECTED_SLOTS.filter((s) => !slotSet.has(s)).join(", ") || "无"}；` +
+        `多：${[...slotSet].filter((s) => !EXPECTED_SLOTS.includes(s)).join(", ") || "无"}）\n`
+    );
+  }
   process.exit(1);
 }
 console.log("自测通过：全部档位按预期触发。\n");

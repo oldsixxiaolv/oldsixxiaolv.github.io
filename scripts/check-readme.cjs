@@ -16,7 +16,7 @@
  *   这三处都是"**事实改了、文档没跟**"，与本仓反复出现的那族病同源：
  *   同一事实的两份副本，其中一份没人看守。
  *
- * 五条判据（编号用独立字母体系 RD*，不与 verify-site.cjs 的数字编号、
+ * 七条判据（编号用独立字母体系 RD*，不与 verify-site.cjs 的数字编号、
  * check-gates-wired.cjs 的 GW*、check-citation-cff.cjs 的 CF* 冲突）：
  *
  *   RD1 **README 里提到的每一个站内路径都必须在产物里真实存在。**
@@ -60,6 +60,27 @@
  *      （README 改了格式、路径形态变了、产物结构变了），
  *      此时"通过"是**空跑**，空跑的门禁等于没有门禁 → 判红。
  *
+ *   RD6 **README 门禁行里列的判据编号，必须与门禁源码里的完全一致。**
+ *      这条抓的是"**判据编号**"这一份副本：每道门禁都有自己的一组编号
+ *      （CS1、IP2、JA3 …），README 的命令表在介绍每道门禁时会顺带列出来。
+ *      门禁加了判据、README 忘了加 —— 文档就落在事实后面。
+ *      实测（2026-10-22）就踩过：`check:css-publish` 的门禁早已有 CS8
+ *      （模式判得出），README 那一行仍停在 CS7，两份副本对不上。
+ *      口径：**README 声明的编号集合 = 门禁源码里的编号集合**（少列、多列都判红）。
+ *      · 只作用于**直接跑门禁**的行（`npm run check:xxx`）。自测行（`-selftest`）
+ *        里写的是"分别卸掉 TD1–TD4"这种**限定语境的子集**，语义上不是全量声明，
+ *        拿相等口径去核只会得到一片假红。
+ *      · 门禁源码里的编号集合**包含注释**：有的判据只在门禁的头部注释里
+ *        被命名（`check-figure-cover.cjs` 的 CV4 就是），剥掉注释会把判据弄丢。
+ *      · 真源是**代码**，所以抄漏了或抄多了都要改 README，不是改门禁。
+ *
+ *   RD7 **对账本身也得自证存活**（两小项，缺一不可）：
+ *      · RD7a：至少从一道门禁源码里解析出过一个**非空**的判据编号集合
+ *        —— 解析器坏了的话，RD6 的结论分不清是"README 写错"还是"我没读懂"；
+ *      · RD7b：RD6 至少真的比对过一组
+ *        —— README 一个判据编号都不列时，RD6 无事可做，"通过"是空跑。
+ *      空跑的门禁等于没有门禁 ⇒ 两项都判红。
+ *
  * ⚠️ 本门禁**只管可机器核对的那部分事实**。以下**不在**它的视野里，
  *    写在这里是为了不让"它绿"被误读成"README 完全正确"：
  *   · README 的**描述文字**是否准确（"左侧原文 + 右侧批注"对不对，只有眼睛能判）；
@@ -80,6 +101,11 @@ const README = process.env.README_PATH
   : path.join(ROOT, "README.md");
 const PKG = path.join(ROOT, "package.json");
 const SITE = process.env.SITE_DIR ? path.resolve(process.env.SITE_DIR) : path.join(ROOT, "_site");
+/* 门禁源码目录可用环境变量改 —— 自测脚本（scripts/test-readme.cjs）要能在**副本**上
+   把「门禁源码指到别处」，用来证明 RD6 真的在读源码、RD7a 的自证真的会红。 */
+const GATES_DIR = process.env.GATES_DIR
+  ? path.resolve(process.env.GATES_DIR)
+  : path.join(ROOT, "scripts");
 
 /* ---------- 读 README 与 package.json ---------- */
 if (!fs.existsSync(README)) {
@@ -398,6 +424,137 @@ if (topLevelExports.length && mentionedOutlets === 0) {
   );
 }
 
+/* ---------- RD6：README 门禁行声明的判据编号 ↔ 门禁源码 ---------- */
+
+/**
+ * 一段文本里的**判据编号**：前缀（1–4 个大写字母）＋数字。
+ * 按前缀分组返回；README 里的区间写法（`CS1–CS7`）会**展开**成 CS1…CS7。
+ *
+ * ⚠️ 区间必须展开：README 的写法是 "CS1–CS7"，中间六个编号**根本没出现**，
+ *    只收单点的话会把 {CS1,CS7} 当成完整声明。
+ * ⚠️ 分隔符只认 en/em dash（`–` / `—`）：README 里所有编号区间都是这两种，
+ *    把 ASCII 连字符也算进去会误吃 "A1-B2" 这类普通写法。
+ */
+const CRIT_RANGE_RE = /(?<![A-Za-z0-9_-])([A-Z][A-Z-]{0,4})(\d{1,3})\s*[–—]\s*(?:[A-Z][A-Z-]{0,4})?(\d{1,3})/g;
+const CRIT_TOKEN_RE = /(?<![A-Za-z0-9_-])([A-Z][A-Z-]{0,4})(\d{1,3})/g;
+
+function criterionIds(text) {
+  const map = new Map();
+  const add = (pre, n) => {
+    if (!map.has(pre)) map.set(pre, new Set());
+    map.get(pre).add(n);
+  };
+  let m;
+  CRIT_RANGE_RE.lastIndex = 0;
+  while ((m = CRIT_RANGE_RE.exec(text)) !== null) {
+    const a = Number(m[2]);
+    const b = Number(m[3]);
+    if (b < a || b - a > 200) continue; // 区间写坏了就当没写，别把整份文档吃进去
+    for (let k = a; k <= b; k++) add(m[1], k);
+  }
+  CRIT_TOKEN_RE.lastIndex = 0;
+  while ((m = CRIT_TOKEN_RE.exec(text)) !== null) add(m[1], Number(m[2]));
+  return map;
+}
+
+/**
+ * 一个 npm script 的命令里**直接跑**的门禁脚本（`scripts/check-*.cjs` / `verify-*.cjs`）。
+ * 自测脚本（`scripts/test-*.cjs`）**不算**门禁 —— README 的自测行里写的
+ * 判据范围是"分别卸掉 TD1–TD4"这种**限定语境的子集**，不是全量声明。
+ */
+function gateScriptsOf(cmd) {
+  const out = [];
+  const re = /scripts\/((?:check|verify)-[A-Za-z0-9._-]+\.cjs)/g;
+  let m;
+  while ((m = re.exec(cmd)) !== null) out.push(m[1]);
+  return out;
+}
+
+/* 门禁源码：按文件读一次并缓存（同一道门禁可能被多个 npm script 引用）。 */
+const gateSrcCache = new Map();
+function gateCriteriaOf(fileName) {
+  if (gateSrcCache.has(fileName)) return gateSrcCache.get(fileName);
+  let out = null;
+  try {
+    out = criterionIds(fs.readFileSync(path.join(GATES_DIR, fileName), "utf8"));
+  } catch (e) {
+    out = null; // 读不到 ⇒ 这一行不参与对账（RD7a / RD7b 会兜住）
+  }
+  gateSrcCache.set(fileName, out);
+  return out;
+}
+
+/* RD7 的两个计数（自证用）。 */
+const gatesRead = new Set(); // 真的读到源码的门禁
+const gatesWithCriteria = new Set(); // 并且解析出非空判据编号集合的门禁
+let comparisons = 0; // 真正比对过的（前缀 × 门禁行）组数
+
+for (const [idx, line] of lines.entries()) {
+  const cell = /^\|\s*`npm run ([^`]+)`\s*\|/.exec(line);
+  if (!cell) continue;
+  const scriptName = cell[1];
+  const cmd = (pkg.scripts || {})[scriptName];
+  if (!cmd) continue;
+  const gates = gateScriptsOf(cmd);
+  if (!gates.length) continue; // 自测行 / 不是门禁的行
+
+  /* 源码侧：这条命令直接跑到的所有门禁的判据编号并集 */
+  const srcUnion = new Map();
+  let rowReadable = true;
+  for (const gf of gates) {
+    const m = gateCriteriaOf(gf);
+    if (!m) {
+      /* 源码**读不到** ⇒ 这一行不判。判据视野不完整时不能装作核过了，
+         但也不能因此判红（"读不到"不是 README 的错）；
+         真源缺失由 check-gates-wired.cjs 负责，这里只让 RD7a 兜住
+         "一道都读不到"的那种整体失效。 */
+      rowReadable = false;
+      break;
+    }
+    gatesRead.add(gf);
+    let any = false;
+    for (const [pre, set] of m) {
+      if (!set.size) continue;
+      any = true;
+      if (!srcUnion.has(pre)) srcUnion.set(pre, new Set());
+      for (const n of set) srcUnion.get(pre).add(n);
+    }
+    if (any) gatesWithCriteria.add(gf);
+  }
+  if (!rowReadable) continue;
+
+  /* README 侧：这一行声明了哪些判据编号 */
+  for (const [pre, set] of criterionIds(line)) {
+    const claimed = [...set].sort((a, b) => a - b);
+    const srcSet = srcUnion.get(pre);
+    const actual = srcSet ? [...srcSet].sort((a, b) => a - b) : [];
+    const detail = actual.length
+      ? `${gates.join(" / ")} 里实际是 ${pre}[${actual.join(",")}]`
+      : `${gates.join(" / ")} 里根本没有 ${pre} 开头的判据编号`;
+    if (actual.length) comparisons++;
+    if (actual.length === claimed.length && actual.every((v, i) => v === claimed[i])) continue;
+    problems.push(
+      `RD6 README 第 ${idx + 1} 行（npm run ${scriptName}）列的判据编号与门禁源码对不上 —— ` +
+        `README 写的是 ${pre}[${claimed.join(",")}]，${detail}。` +
+        `判据编号的真源是**门禁源码**：门禁加了或删了判据，README 这一行必须同步改全。`
+    );
+  }
+}
+
+/* ---------- RD7：对账本身的自证存活 ---------- */
+if (gatesWithCriteria.size === 0) {
+  problems.push(
+    `RD7a 一道门禁源码都没解析出非空的判据编号集合（读到 ${gatesRead.size} 道门禁源码）—— ` +
+      `RD6 的解析器可能已经失效，这时"README 与门禁源码一致"是**空跑**，空跑的门禁等于没有门禁。`
+  );
+}
+if (comparisons === 0) {
+  problems.push(
+    `RD7b RD6 一次都没真的比对过 —— README 的门禁行没有列出任何判据编号，` +
+      `判据编号与门禁源码是否同步就完全没人核。`
+  );
+}
+
 /* ---------- 汇总 ---------- */
 if (problems.length) {
   console.error("README 事实核对门禁未通过：\n");
@@ -411,5 +568,6 @@ console.log(
     `${mentionedOutlets} 个对外出口与现状一致` +
     `（产物路由 ${routes.size} 个、顶层出口 ${topLevelExports.length} 个；` +
     `绝对 URL 认出站内路径 ${absSitePathCount} 条（本站 ${siteOrigin}）；` +
-    `放行占位符路径 ${placeholderSkipped} 条、通配 ${patternSkipped} 条、规划中 ${notImplSkipped} 条）。`
+    `放行占位符路径 ${placeholderSkipped} 条、通配 ${patternSkipped} 条、规划中 ${notImplSkipped} 条；` +
+    `判据编号对账 ${comparisons} 组、读到 ${gatesRead.size} 道门禁源码）。`
 );
