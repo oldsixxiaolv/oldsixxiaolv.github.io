@@ -118,6 +118,7 @@ Cloudflare Pages、Nginx 等任意静态服务。详细运行 / 调试见 `HOW_T
 | `npm run check:figure-cover` | 论文封面图只有一处真源（site.js 的 `publications[].figure`），且正文 `<img>`、og:image、twitter:image、JSON-LD image 四个出口是**同一张图、同一组尺寸**；论文页 front matter 不得留封面副本 |
 | `npm run check:figure-cover-selftest` | 上面那道门禁的本地夹具自测（12 档注入矩阵，证明它能变红；含一档**故意判绿**的边界负对照） |
 | `npm run check:lang` | 语言标记统一 + 编码损坏 |
+| `npm run check:lang-selftest` | 上面那道门禁的本地夹具自测（28 档注入矩阵，在**自造的最小夹具站**上跑，证明 LG1–LG7 每条判据都能变红；含 **8 档判据级负对照**（逐条卸掉 LG1–LG7 后对应注入必须转绿，其中一档叠加注入以证明卸判据是精准的、不是把门禁整个关掉）、**10 档故意判绿**（front matter 整行注释、Nunjucks 注释、HTML 注释、CSS 注释、JS 行注释、数据层目录豁免、OG 品牌图目录豁免、exFAT 资源叉跳过、产物里的非 HTML 文件不扫、内联 script 与 style 块不扫 —— 每条豁免**单独**验一次）、**红因归属纯净性断言**（每档红只许出现自己那一条判据的编号）、一档**覆盖度自证**（判据编号从门禁源码现读，门禁新加判据而本矩阵没补档即判红）） |
 | `npm run check:site-language` | 非 HTML 对外出口（feed / bib / ris / robots / sitemap）全英文；robots 的构建时刻与 feed 的 `lastBuildDate` 同一瞬间；语言门禁的每一条豁免都必须真的豁免到了**会渲染**的中文（中文只写在注释里的豁免判红，因为那是暗门） |
 | `npm run check:site-language-selftest` | 上面那道门禁的本地夹具自测（7 档注入矩阵，证明它能变红；含两档**负对照**：分别卸掉 CJK 判定与「剥掉注释后再判」，证明这两条判据真的在起作用） |
 | `npm run check:feed-discovery` | 订阅与爬虫的**自我描述入口**必须存在，且必须指向本站：每页**恰好一处** RSS 自动发现（`<link rel="alternate" type="application/rss+xml">`，按页面 URL 口径解析后落到本站 `feed.xml`，外域一律判红）；`feed.xml` 必须有 `<atom:link rel="self">` 且等于本站 feed 的规范绝对 URL，频道级 `<title>` / `<link>` / `<description>` 三件套齐备；`robots.txt` 必须**恰好一行** `Sitemap:` 且等于本站 sitemap 的规范绝对地址 |

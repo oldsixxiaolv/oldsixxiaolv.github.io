@@ -90,14 +90,17 @@
 
 **进度（2026-10-21 19:30 实测）**
 - 缺陷清单已到 **D59**（D1 / D2 / D4 / D11 / D13 / D14 / D15 / D16 / D17 / D18 / D19 / D20 / D21 / D22 / D23 / D24 / D25 / D27 / D28 / D29 / D30 / D31 / D33 / D34 / D35 / D36 / D37 / D38 / D39 / D40 / D41 / D42 / D43 / D44 / D45 / D46 / D47 / D48 / D49 / D50 / D51 / D52 / D53 / D54 / D55 / D56 / D58 已修；D3 / D5 / D6 / D9 / D10 / D12 / D26 / D32 / D57 / D59 待修；D7 / D8 不修）。
-- **D59 已做第一、二批**（第一批 2026-10-21 D57 场次；第二批 2026-10-21 D58 场次）：给
-  `check-image-assets` 补了常驻自测 `scripts/test-image-assets.cjs`（**14 档注入矩阵**，跑在自造的
-  最小夹具站上，不依赖 `_site`），给 `check-tool-routes` 补了常驻自测
+- **D59 已做第一、二、三批**（第一批 2026-10-21 D57 场次；第二批 2026-10-21 D58 场次；第三批
+  2026-10-21 D59 场次）：给 `check-image-assets` 补了常驻自测 `scripts/test-image-assets.cjs`
+  （**14 档注入矩阵**，跑在自造的最小夹具站上，不依赖 `_site`），给 `check-tool-routes` 补了常驻自测
   `scripts/test-tool-routes.cjs`（**15 档注入矩阵**，跑在自造的最小夹具站上，不依赖真 `_site`、
-  不需要 git），两者都接进 `npm run build` 与 README 命令表 ⇒ D56 留在 `/tmp` 里那份「矩阵跑完即弃」
-  的证明**已进仓库**；D59 行自己要求「分批做」⇒ **剩 11 道**门禁（`check-artifact-metadata` /
+  不需要 git），给 `check-lang` 补了常驻自测 `scripts/test-lang.cjs`（**28 档注入矩阵**，同样跑在
+  自造的最小夹具站上），三者都接进 `npm run build` 与 README 命令表 ⇒ D56 留在 `/tmp` 里那份
+  「矩阵跑完即弃」的证明**已进仓库**；第三批还顺带给 `check-lang` **编号化**（此前一条编号都没有 ⇒
+  红因无法按编号归属）成 **LG1–LG7**，并补了 3 条**自证存活**判据（源文件层空跑 / `_site` 缺失 /
+  产物层空跑）；D59 行自己要求「分批做」⇒ **剩 10 道**门禁（`check-artifact-metadata` /
   `check-copy-export` / `check-css-braces` / `check-identity-derivation` /
-  `check-identity-handles` / `check-jsonld` / `check-lang` / `check-print-theme` /
+  `check-identity-handles` / `check-jsonld` / `check-print-theme` /
   `check-tracked-refs` / `check-wrapping` / `verify-site`）继续待做。
 - 「构建链与门禁本身的失效点」这一支已补**四条**：
   ① **D13**：窄屏溢出门禁只查「横向溢出」，查不出「正文被挤成窄带」（D11 那一族坏版式当时
@@ -1950,6 +1953,38 @@
      两者都必须判绿 ⇒ 证明 RT9 守的是「**声称的站点路径**」而不是「一切以 `/` 开头的字面量」。
   ⑨ **接线**：`package.json` 加 `check:tool-routes-selftest`，**接在 `check:tool-routes` 之后**
      （GW4）；README 命令表加一行（RD3）；⚠️ **不登记进 `EXEMPT_SELFTEST`**（既接 build 又登记
+     ⇒ 自相矛盾）。
+  ⑩ ⚠️ **本轮没有新增待拍板项**（纯工程补强，不涉审美与内容口径）；**中央台账不动**。
+
+- **D59**（本轮修的是缺陷 **D59**）：这一轮**接着 D58 的尾巴** —— D58 给 `check-tool-routes` 配了
+  常驻自测，但 D59 行自己要求「分批做」，**还有 11 道**门禁仍无 `test-*` 配对。
+  ① **本轮只做 D59 的第三批** ⇒ 只补 `check-lang` 这一道，其余 **10 道**继续挂着待做。
+  ② **落点**：常驻自测 `scripts/test-lang.cjs` —— **28 档注入矩阵**，跑在**自造的最小夹具站**上
+     （自造 `src/` 五种后缀 + `_site/` 页面与 feed，**不依赖真 `_site`、不需要 git**）：
+     LG0 基线绿 / LG1–LG7 每条**至少**一档（LG1、LG2 各两档）/ **10 档故意判绿** /
+     **8 档判据级负对照**。
+  ③ **为什么必须把门禁「复制」到沙箱里跑**：本门禁的仓库根是 `path.join(__dirname, "..")` ——
+     **硬编码，没有环境变量开关** ⇒ 只有把副本放进夹具的 `scripts/` 下，ROOT 才会指向夹具根。
+     ⇒ 夹具因此不需要 git、不需要真产物，也不会和并发场次抢同一个 `_site` 目录。
+  ④ **顺带给门禁本体编号化**：`check-lang` 此前**一条编号都没有**（红因是一句人话 ⇒ 自测没法
+     按编号判定红因归属），本轮改成 **LG1–LG7**（`LG` 全仓此前零占用；`check-lang` 的判据在
+     `docs/` 里**零外部引用** ⇒ 改号无外部影响）。
+  ⑤ **判据按「坏法不同、修法不同」分号**：源文件层中文（LG1）/ 产物层中文（LG2）/ 源文件层
+     U+FFFD（LG3）/ 产物层 U+FFFD（LG4）是**四处不同的坏法**；LG5（源文件层扫到 0 个）、
+     LG6（`_site` 不在场）、LG7（`_site` 在场但扫到 0 个 `.html`）是**三种"空跑"**，
+     修法各不相同 ⇒ 混成一个号会让注入矩阵的红因集合无法区分，红因归属纯净的断言就废了。
+  ⑥ **顺带补上 3 条自证存活判据**（本轮新增的**行为变化**，如实记下）：补之前 `_site` 不存在时
+     本门禁只打一行「产物层未扫描」就**判绿通过**，`SOURCE_EXTS` 一旦被改空也一样是「0 个 ⇒ 绿」
+     ⇒ 补上后，**在没有构建产物的仓库上单独跑 `npm run check:lang` 会判红**；它在 build 链里
+     位于 `eleventy` **之后** ⇒ build 链不受影响（与 `check-jsonld` 的既有做法一致）。
+  ⑦ **红因文案统一带 `门禁 LGn：` 前缀**，自测只从 **stderr** 抽编号；断言用**多重集完全相等**
+     （连红因**行数**也要相等 ⇒ 连「同一条判据报了两次」也算失败）。
+  ⑧ **10 档故意判绿 = 每条豁免单独验一次**：front matter 整行注释、Nunjucks 注释、HTML 注释、
+     CSS 注释、JS 行注释、数据层目录豁免、OG 品牌图目录豁免、exFAT 资源叉跳过、产物里的非 HTML
+     文件不扫、内联 `<script>`/`<style>` 块不扫。少剥一处、豁免多写一条目录，产物里就会多出中文
+     而门禁还是绿的 —— 而这类改动**永远不会让构建失败**。
+  ⑨ **接线**：`package.json` 加 `check:lang-selftest`，**接在 `check:lang` 之后**（GW4）；
+     README 命令表加一行（RD3）；⚠️ **不登记进 `EXEMPT_SELFTEST`**（既接 build 又登记
      ⇒ 自相矛盾）。
   ⑩ ⚠️ **本轮没有新增待拍板项**（纯工程补强，不涉审美与内容口径）；**中央台账不动**。
 
