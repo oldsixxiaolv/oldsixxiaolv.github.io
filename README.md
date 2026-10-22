@@ -105,6 +105,7 @@ Cloudflare Pages、Nginx 等任意静态服务。详细运行 / 调试见 `HOW_T
 | `npm run check:doc-snapshot` | 现状陈述里不许写死每轮都会变的数量（如 build 链的段数）：含缺陷编号的历史块按原样保留，现状块里出现「数字 + 步」就判红 |
 | `npm run check:doc-snapshot-selftest` | 上面那道门禁的本地夹具自测（注入矩阵，证明它能变红，且每档只触发自己那一条判据） |
 | `npm run check:image` | 页面里声明的图与产物里真实存在的图是同一张 |
+| `npm run check:image-selftest` | 上面那道门禁的本地夹具自测（14 档注入矩阵，在**自造的最小夹具站**上跑，证明它能变红；含一档**判据级负对照**（门禁副本卸掉 IA8 判定后对应注入必须转绿，证明那条红确实来自它自己）；**红因归属纯净性断言**（每档红只许出现自己那一条判据的编号，多一条少一条都算失败）；一档**覆盖度自证**（门禁新加判据而本矩阵没补档必须判红）；两档**故意判绿**（`<style>` 块与 HTML 注释里的假 `<img>` 不算图）） |
 | `npm run check:img-srcset` | 响应式图片声明（`srcset` / `imagesrcset`）的**每个候选 URL** 必须落到真实存在的产物文件（按页面 URL 口径解析）；`<img>` 必须留 `src` 兜底；候选列表不得为空；描述符必须合法且**不得混用宽度与密度**（混用会让整条声明被浏览器忽略） |
 | `npm run check:img-srcset-selftest` | 上面那道门禁的本地夹具自测（17 档注入矩阵，证明它能变红；含 **6 档判据级负对照**（卸掉某条判据后对应注入必须转绿）、一档**故意判绿**（把候选改成一个真实存在的新文件必须判绿）、一档**覆盖度自证**（抽掉全部 srcset 必须判红）、一档扫描器 tricky 档） |
 | `npm run check:img-loading` | **每张 `<img>` 都必须显式声明加载策略**：必须写 `loading`，且取值只能是 `eager` / `lazy`（不写 = 落回浏览器默认的 eager，首屏之外的图也抢带宽；写错取值浏览器会**静默忽略**）；`loading="eager"` 必须配 `fetchpriority="high"`（首屏 LCP 候选图的优先级必须显式给出），`fetchpriority="high"` 必须配 `loading="eager"`（两个属性成对，`high` 配 `lazy` 自相矛盾）；`fetchpriority` 取值只能是 `high` / `low` / `auto`（拼错会被静默忽略）；另含**覆盖度自证**与**门禁自己没被卸掉** |
