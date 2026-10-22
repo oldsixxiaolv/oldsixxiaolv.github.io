@@ -193,12 +193,12 @@ Foreground: #f5f2ea   Background: #ff8e4d   Ratio: 2.03:1
 Required:   4.5:1 (normal text)   FAIL
 ```
 
-**根因**：`.home-signal` 是个 high-visibility callout 卡，背景用品牌「暖橙赭石」色 `#ff8e4d`（accent-300 档），文字用 `--text-primary` 即 light mode 的 `#f5f2ea`。Light cream on warm orange = 视觉好看但 **2.03:1 远低于 WCAG AA 4.5:1**。
+**根因**：`.home-signal` 是个 high-visibility callout 卡，背景用品牌「暖橙赭石」色 `#ff8e4d`（**暗色主题的 accent-400 档**；accent-300 的真值是 `#ff9550`），文字用 `--text-primary` 即**暗色主题**的 `#f5f2ea`（light 主题的 `--text-primary` 是 `#0f0d0a`）。暗色主题下的浅色文字压暖橙 = 视觉好看但 **2.03:1 远低于 WCAG AA 4.5:1**。
 
 **修复方案**（将在 Phase 2B.3 处理）：
 
-- 方案 A：文字色改为 `--color-accent-900`（#7a330a，深赭石）on `#ff8e4d` —— 对比度提升到 ≈ 5.5:1 ✓ AA
-- 方案 B：背景色降饱和到 `--color-accent-200`（#f5a575）or `--color-accent-100`（#ffd5b8）—— 视觉暖意保留，cream 文字 4.7:1 ✓ AA
+- 方案 A：文字色改为 `--color-accent-900`（**#260e02**，深暖褐）on `#ff8e4d` —— 对比度提升到 ≈ 5.5:1 ✓ AA（**当时的预估**；按当前 token 真值实算 = 暗色 **8.05:1** / 亮色 **7.23:1**，实际落地值见 `src/assets/css/pages.css` 的 `.home-signal` 段）
+- 方案 B：背景色降饱和到 `--color-accent-200`（**#ffb787**）or `--color-accent-100`（**#ffd9bd**）—— 视觉暖意保留，cream 文字 4.7:1 ✓ AA（**当时的预估**；按当前 token 真值实算 = cream 压 accent-200 只有 **1.52:1**、压 accent-100 只有 **1.18:1**，**并不达标**；该方案未落地，当前落地值见 `src/assets/css/pages.css` 的 `.home-signal` 段）
 - 方案 C：双 token —— `.home-signal { --signal-bg: var(--color-accent-200); --signal-fg: var(--color-accent-900); }` —— dark mode 反相
 
 **注**：这个元素是 homepage 才有的 callout block (`<aside class="home-signal">`)，不进 paper / papers 列表。

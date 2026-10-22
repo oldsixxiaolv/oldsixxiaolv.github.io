@@ -224,16 +224,16 @@ badge--accent (accent on accent-50)            LIGHT    accent-600  accent-50   
 annot-kind--insight (chip v1.1)                LIGHT    accent-600  neutral-100  4.98:1  AA=PASS AAA=FAIL    ← was fail
 annot-filter--insight.is-active                LIGHT    accent-600  neutral-100  4.98:1  AA=PASS AAA=FAIL    ← was fail
 paper-anchor__count (insight)                  LIGHT    accent-600  neutral-50   5.66:1  AA=PASS AAA=FAIL    ← was fail
-body / primary text (dark)                     DARK     neutral-900 neutral-50  16.31:1  AA=PASS AAA=PASS
-body / secondary text (dark)                   DARK     neutral-600 neutral-50   7.32:1  AA=PASS AAA=PASS
-body / muted text (dark)                       DARK     neutral-500 neutral-50   5.49:1  AA=PASS AAA=FAIL    ← was 4.38:1
-link / default (dark)                          DARK     brand-400   neutral-50   6.24:1  AA=PASS AAA=FAIL
-accent on page (dark)                          DARK     accent-500  neutral-50   9.65:1  AA=PASS AAA=PASS
+body / primary text (dark)                     DARK     neutral-900 neutral-0   17.25:1  AA=PASS AAA=PASS
+body / secondary text (dark)                   DARK     neutral-600 neutral-0    7.74:1  AA=PASS AAA=PASS
+body / muted text (dark)                       DARK     neutral-500 neutral-0    5.84:1  AA=PASS AAA=FAIL    ← was 4.38:1 (旧底色 neutral-50 口径) / 4.63:1 (同底色口径)
+link / default (dark)                          DARK     brand-400   neutral-0    6.60:1  AA=PASS AAA=FAIL
+accent on page (dark)                          DARK     accent-500  neutral-0   10.20:1  AA=PASS AAA=PASS
 badge--accent (dark)                           DARK     accent-500  accent-50    9.12:1  AA=PASS AAA=PASS
 text on surface card (light)                   LIGHT    neutral-900 neutral-0   20.30:1  AA=PASS AAA=PASS
 text on surface card (dark)                    DARK     neutral-900 neutral-0   17.40:1  AA=PASS AAA=PASS
 h1 / display heading (light)                   LIGHT    neutral-900 neutral-50  18.30:1  AA=PASS (large) AAA=PASS
-h1 / display heading (dark)                    DARK     neutral-900 neutral-50  16.31:1  AA=PASS (large) AAA=PASS
+h1 / display heading (dark)                    DARK     neutral-900 neutral-0   17.25:1  AA=PASS (large) AAA=PASS
 button on --button-primary-bg (light)          LIGHT    text-on-brand button-primary-bg  6.44:1  AA=PASS AAA=FAIL   ← was 3.48:1 (FAIL)
 button on --button-primary-bg (dark)           DARK     text-on-brand button-primary-bg  5.17:1  AA=PASS AAA=FAIL   ← was 2.88:1 (FAIL)
 skip-link (light)                              LIGHT    text-on-brand button-primary-bg  6.44:1  AA=PASS AAA=FAIL   ← was 3.48:1 (FAIL)
@@ -242,13 +242,29 @@ skip-link (dark)                               DARK     text-on-brand button-pri
 RESULT: 0 fail(s)
 ```
 
-**24 / 24 通过 AA**（其中 13 / 24 同时通过 AAA）。`AAA=FAIL` 的 pair 都还超过 AA 阈值 ≥ 4.5:1 的安全余量（如 muted text 5.38 vs 阈值 4.5 = 1.2 余量），符合"有正常视觉的用户可读、视觉障碍用户至少能用屏幕阅读器"的现实约束。
+**24 / 24 通过 AA**（其中 11 / 24 同时通过 AAA）。`AAA=FAIL` 的 pair 都还超过 AA 阈值 ≥ 4.5:1 的安全余量（如 muted text 5.38 vs 阈值 4.5 = 1.2 余量），符合"有正常视觉的用户可读、视觉障碍用户至少能用屏幕阅读器"的现实约束。
+
+> **口径说明（2026-10-21 订正）**：上表是 **2026-10-01 的快照**，绝大多数数值按**当次脚本口径**记录 ——
+> 当次脚本把暗色「页面底色行」的底色记成 `neutral-50`，而真实暗色 `--bg-page` 是 `neutral-0` `#0f0e0c`
+> （与 D53 查出的旧脚本同一个错）。本轮已把暗色**页面底色行**的底色与数值订正为**当前 token 真值**
+> （AA / AAA 判定均未改变；当前值以 `scripts/contrast_check.py` 的实跑输出为准）。
+> **其余各行仍是当次数值**（含当时旧快照的色值，例如 `accent-600` 那几行、`badge--accent (dark)`、
+> `text on surface card` 两行）—— 历史数值一律不回改。
 
 ### 7.1 附：暗色 `.home-signal` 暖橙面板的 text 配对
 
-首页右上角的橙色 "Monsoon systems in motion" 面板，使用 `color: neutral-900` on `background: accent-400 #ff7e33`：
+首页右上角的橙色 "Monsoon systems in motion" 面板（`.home-signal`）。**当前实现**见
+`src/assets/css/pages.css` 的 `.home-signal` 段：
 
-- ratio = **7.75:1** → AA + AAA pass，无需改动
+- 文字 `--signal-ink: var(--color-accent-900)` = `#260e02`
+- 背景 `var(--color-accent-400)` = 亮色 `#ff7e33` / 暗色 `#ff8e4d`
+- 实测对比度 **亮色 7.23:1 / 暗色 8.05:1**（与 `pages.css` 同段注释一致）→ AA + AAA pass，无需改动
+
+> **订正（2026-10-21）**：原文此处写的是「使用 `color: neutral-900` on `background: accent-400 #ff7e33`，
+> ratio = **7.75:1**」。那一版配色**已不是当前实现**（当时 `--color-neutral-950` 未定义、整条 `color`
+> 声明在计算值阶段作废并回落继承值，见 `pages.css` 同段的说明）；而且它写的 7.75:1 按当前 token
+> **复算不出来** —— 最接近的组合是 light 主题 `neutral-900` `#0f0d0a` 压 `#ff7e33` = 7.65:1，
+> 而暗色 `neutral-900` `#f5f2ea` 压 `#ff7e33` 只有 2.27:1。⇒ 本节改为陈述**当前实现**。
 
 ---
 
