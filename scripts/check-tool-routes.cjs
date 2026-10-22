@@ -16,16 +16,28 @@
  *
  *   与本仓库反复吃过的亏是同一族：「看起来在、其实不生效」。
  *
- * 四条判据：
- *   TR1 产物在场 —— _site/ 必须存在（没有判断对象就判红，不静默放行）。
- *   TR2 规范路由都真实存在 —— 共享路由表里的每一条都能在 _site/ 里找到。
- *   TR3 工具从共享路由表取路由 —— 每个浏览器工具都必须 require
- *       scripts/lib/site-routes.cjs，且必须调用可达性自检
- *       （scripts/lib/page-check.cjs）—— 否则"路由改错了"没人拦。
- *   TR4 工具不得自己写站点路径 —— 工具脚本里**不允许**再出现站点路径字面量
+ * 九条判据（编号 RT1–RT9）：
+ *   RT1 产物在场 —— _site/ 必须存在（没有判断对象就判红，不静默放行）。
+ *   RT2 共享路由表在场 —— scripts/lib/site-routes.cjs 必须存在。
+ *   RT3 共享路由表读得出来 —— require 它不得抛错。
+ *   RT4 共享路由表非空 —— allRoutes() 必须给出非空数组。
+ *   RT5 规范路由都真实存在 —— 共享路由表里的每一条都能在 _site/ 里找到。
+ *   RT6 工具清单非空 —— scripts/ 下必须找得到浏览器工具（清单判据本身不得失效）。
+ *   RT7 工具从共享路由表取路由 —— 每个浏览器工具都必须 require
+ *       scripts/lib/site-routes.cjs。
+ *   RT8 工具必须做可达性自检 —— 每个浏览器工具都必须调用
+ *       scripts/lib/page-check.cjs 的 assertPageOk / assertPagesOk。
+ *   RT9 工具不得自己写站点路径 —— 工具脚本里**不允许**再出现站点路径字面量
  *       （真实存在的本地文件系统路径除外）。
  *
- * TR4 为什么用"排除文件系统路径"而不是"白名单站点路径"：
+ * RT5 为什么与 RT2/RT3/RT4 分开编号：
+ *   这几件事**坏法不同、修法也不同** ——
+ *   RT2/RT3/RT4 是"共享路由表这份**契约**出了问题"（模块没了 / 读崩了 / 是空的），
+ *   RT5 是"路由表好好地列出了路由，但那些路由在产物里不存在"（**产物没重建**
+ *   或**路由改了名**）。混成一个号 ⇒ 自测矩阵里这两种注入的红因集合无法区分
+ *   ⇒ "红因归属纯净"这条断言就废了。分号是为了让每一种坏法**各有各的证据**。
+ *
+ * RT9 为什么用"排除文件系统路径"而不是"白名单站点路径"：
  *   工具里还有 Chrome 路径、输出目录这类**本地文件系统路径**，
  *   它们不是站点路由，却长得像。判据用**存在性**区分：
  *   `fs.existsSync(字面量)` 为真 → 是真实文件系统路径 → 放行；
@@ -36,9 +48,24 @@
  *   配套：本地输出目录请用 path.join(__dirname, ...) 拼，不要写死绝对路径
  *   （写死绝对路径既不可移植，也会让本条判据难判）。
  *
- * 与既有门禁的编号关系：本门禁用独立字母编号 TR*，
+ * ⚠️ 编号前缀为什么从 TR* 改成 RT*（2026-10-21 D58 场次实测）：
+ *   本门禁原来自称"用独立字母编号 TR*，不与其它门禁续接或冲突" ——
+ *   **那句自述本身是错的**：`scripts/check-tracked-refs.cjs` 早就在用
+ *   TR1（引用完整性）/ TR2（自证存活），两个门禁各说各话指两件事。
+ *   （全仓 `docs/` 里的 TR1/TR2 引用**全部**指 check-tracked-refs，
+ *   本门禁的 TR1–TR4 在仓库里零引用 ⇒ 改前缀无外部影响。）
+ *   RT（Route Tool）此前未被任何判据占用 ⇒ 改名后本门禁的编号体系自洽。
+ *
+ * 每条判据都有 `const RTn_ON = true;` 开关：
+ *   自测 scripts/test-tool-routes.cjs 靠**改副本里的开关**做判据级负对照
+ *   （卸掉某条判据 ⇒ 对应注入必须转绿 / 红因里不再出现那个号），
+ *   证明"红因确实来自那一条判据"。开关一律是 true —— 它是给自测一个可卸的把手，
+ *   不是给运行期留后门。
+ *
+ * 与既有门禁的编号关系：本门禁用独立字母编号 RT*，
  * 不与 verify-site.cjs 的数字编号体系、check-a11y.cjs 的 A1–A4、
- * check-wrapping.cjs 的 W1–W3、check-gates-wired.cjs 的 GW* 续接或冲突。
+ * check-wrapping.cjs 的 W1–W3、check-gates-wired.cjs 的 GW*、
+ * check-tracked-refs.cjs 的 TR* 续接或冲突。
  */
 const fs = require("fs");
 const path = require("path");
@@ -54,14 +81,25 @@ const ROUTES_MODULE = path.join(SCRIPTS_DIR, "lib", "site-routes.cjs");
    而文件名判据在这一类脚本上是稳定的。 */
 const TOOL_RE = /^(screenshot.*|lighthouse-runner|slow3g-runner)\.js$/;
 
+/* 判据开关（见文件头）：自测靠改副本里的这个值做判据级负对照。 */
+const RT1_ON = true;
+const RT2_ON = true;
+const RT3_ON = true;
+const RT4_ON = true;
+const RT5_ON = true;
+const RT6_ON = true;
+const RT7_ON = true;
+const RT8_ON = true;
+const RT9_ON = true;
+
 const problems = [];
 const fail = (msg) => problems.push(msg);
 
-/* ---------- TR1：产物在场 ---------- */
-if (!fs.existsSync(SITE)) {
+/* ---------- RT1：产物在场 ---------- */
+if (RT1_ON && !fs.existsSync(SITE)) {
   console.error("工具路由门禁未通过：\n");
   console.error(
-    "  ✗ 找不到 _site/ —— 本门禁要拿构建产物核对路由，没有判断对象，直接判红。\n" +
+    "  ✗ 门禁 RT1：找不到 _site/ —— 本门禁要拿构建产物核对路由，没有判断对象，直接判红。\n" +
     "    请先跑一次 npm run build（本门禁接在 eleventy 之后）。"
   );
   console.error("");
@@ -78,37 +116,43 @@ function existsInSite(route) {
   return true;
 }
 
-/* ---------- TR2：规范路由表里的每条都真实存在 ---------- */
+/* ---------- RT2–RT5：共享路由表与规范路由 ---------- */
 let routes = null;
 if (!fs.existsSync(ROUTES_MODULE)) {
-  fail(
-    "scripts/lib/site-routes.cjs 不存在 —— 共享路由表没了，工具就没有路由来源。"
-  );
+  if (RT2_ON) {
+    fail(
+      "门禁 RT2：scripts/lib/site-routes.cjs 不存在 —— 共享路由表没了，工具就没有路由来源。"
+    );
+  }
 } else {
   try {
     const mod = require(ROUTES_MODULE);
     routes = mod.allRoutes();
     if (!Array.isArray(routes) || routes.length === 0) {
-      fail("共享路由表是空的 —— 没有可核对的路由。");
+      if (RT4_ON) {
+        fail("门禁 RT4：共享路由表是空的 —— 没有可核对的路由。");
+      }
       routes = null;
     }
   } catch (e) {
-    fail(`读 scripts/lib/site-routes.cjs 失败（${e.message}）。`);
+    if (RT3_ON) {
+      fail(`门禁 RT3：读 scripts/lib/site-routes.cjs 失败（${e.message}）。`);
+    }
   }
 }
 
 if (routes) {
   for (const r of routes) {
-    if (!existsInSite(r)) {
+    if (RT5_ON && !existsInSite(r)) {
       fail(
-        `规范路由 ${r} 在构建产物里不存在（_site${r}）—— ` +
+        `门禁 RT5：规范路由 ${r} 在构建产物里不存在（_site${r}）—— ` +
           `要么路由改了名，要么产物没重建。`
       );
     }
   }
 }
 
-/* ---------- TR3 + TR4：逐个检查浏览器工具 ---------- */
+/* ---------- RT6–RT9：逐个检查浏览器工具 ---------- */
 const toolFiles = fs
   .readdirSync(SCRIPTS_DIR, { withFileTypes: true })
   .filter((e) => e.isFile() && TOOL_RE.test(e.name))
@@ -116,10 +160,12 @@ const toolFiles = fs
   .sort();
 
 if (!toolFiles.length) {
-  fail(
-    "scripts/ 下没找到任何浏览器工具（screenshot*.js / lighthouse-runner.js / " +
-      "slow3g-runner.js）—— 工具清单判据本身失效了（也许工具被改名或移走）。"
-  );
+  if (RT6_ON) {
+    fail(
+      "门禁 RT6：scripts/ 下没找到任何浏览器工具（screenshot*.js / lighthouse-runner.js / " +
+        "slow3g-runner.js）—— 工具清单判据本身失效了（也许工具被改名或移走）。"
+    );
+  }
 }
 
 /* 去掉注释后再扫字面量：注释里提到旧路由是**文档**，不是代码行为。 */
@@ -147,37 +193,39 @@ for (const file of toolFiles) {
   const src = fs.readFileSync(full, "utf8");
   const code = stripComments(src);
 
-  /* TR3-a：路由必须来自共享模块 */
-  if (!/require\(\s*["'][^"']*lib\/site-routes\.cjs["']\s*\)/.test(code)) {
+  /* RT7：路由必须来自共享模块 */
+  if (RT7_ON && !/require\(\s*["'][^"']*lib\/site-routes\.cjs["']\s*\)/.test(code)) {
     fail(
-      `scripts/${file} 没有从 scripts/lib/site-routes.cjs 取路由 —— ` +
+      `门禁 RT7：scripts/${file} 没有从 scripts/lib/site-routes.cjs 取路由 —— ` +
         `工具自己写路由字面量，就会有"路由改了名、工具还在测旧路由"的老问题。`
     );
   }
 
-  /* TR3-b：运行前必须做可达性自检 */
-  if (!/assertPages?Ok\s*\(/.test(code)) {
+  /* RT8：运行前必须做可达性自检 */
+  if (RT8_ON && !/assertPages?Ok\s*\(/.test(code)) {
     fail(
-      `scripts/${file} 没有调用可达性自检（assertPageOk / assertPagesOk）—— ` +
+      `门禁 RT8：scripts/${file} 没有调用可达性自检（assertPageOk / assertPagesOk）—— ` +
         `对着错误页测度，产出的分数与真实测过的东西完全同形，事后分辨不出来。`
     );
   }
 
-  /* TR4：不得自己写站点路径。
+  /* RT9：不得自己写站点路径。
      规则只有一条：**以 "/" 开头的字面量，除非是真实存在的本地文件系统路径，
      否则一律判红。**
      这比"是不是站点路由"更严，目的正是**堵住"写个恰好存在的路由绕过共享表"**：
      哪怕写的是 /papers/（真路由、真存在），也该走共享模块 —— 否则
      "工具自己写路由"这件事又回来了，只是碰巧还没写错。 */
-  for (const lit of stringLiterals(code)) {
-    const v = lit.value;
-    if (!v.startsWith("/") || v.length < 2) continue;
-    if (fs.existsSync(v)) continue; // 真实存在的本地文件系统路径（Chrome、输出目录…）
-    fail(
-      `scripts/${file} 里出现了路径字面量 "${v}" —— 它不是本地文件系统路径，` +
-        `所以它是在声称一个站点路径。路由请从 scripts/lib/site-routes.cjs 取` +
-        `（本地输出目录请用 path.join(__dirname, ...) 拼，不要写死绝对路径）。`
-    );
+  if (RT9_ON) {
+    for (const lit of stringLiterals(code)) {
+      const v = lit.value;
+      if (!v.startsWith("/") || v.length < 2) continue;
+      if (fs.existsSync(v)) continue; // 真实存在的本地文件系统路径（Chrome、输出目录…）
+      fail(
+        `门禁 RT9：scripts/${file} 里出现了路径字面量 "${v}" —— 它不是本地文件系统路径，` +
+          `所以它是在声称一个站点路径。路由请从 scripts/lib/site-routes.cjs 取` +
+          `（本地输出目录请用 path.join(__dirname, ...) 拼，不要写死绝对路径）。`
+      );
+    }
   }
 }
 
@@ -190,7 +238,7 @@ if (problems.length) {
 }
 
 console.log(
-  `工具路由门禁通过：${routes.length} 条规范路由在 _site/ 里都真实存在；` +
+  `工具路由门禁通过（门禁 RT1–RT9）：${routes.length} 条规范路由在 _site/ 里都真实存在；` +
     `${toolFiles.length} 个浏览器工具（${toolFiles.join(" / ")}）` +
     `全部从共享路由表取路由、且都在测度前做可达性自检。`
 );

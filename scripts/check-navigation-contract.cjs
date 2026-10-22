@@ -58,7 +58,7 @@
  *
  * 编号：NA1–NA5（Navigation）。不与既有前缀冲突
  *   （check-image-assets 的 IA*、check-blog-frontmatter 的 F*、
- *    check-about-dataset 的 AP*、check-tag-leak 的 T*、check-tool-routes 的 TR*、
+ *    check-about-dataset 的 AP*、check-tag-leak 的 T*、check-tool-routes 的 RT*、
  *    check-gates-wired 的 GW*、check-readme 的 RD* 等均不同名）。
  *
  * 环境变量（自测要在**副本**上注入缺陷，不能改仓库里的真文件）：
