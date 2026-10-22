@@ -45,7 +45,7 @@
  *   它守的是"一处真源"与"四个出口同图同尺寸"。
  *   如果有人把**真源与产物一起**改成另一张图（并同步改 front matter），
  *   本门禁**抓不到** ⇒ 封面图选得对不对仍靠人工核。
- *   这个边界不是注释里的承诺：scripts/test-figure-cover.cjs 的 **CV10 档**
+ *   这个边界不是注释里的承诺：scripts/test-figure-cover.cjs 的 **SP11 档**
  *   就是它的可执行版本（真源与产物一起改错 ⇒ **必须判绿**）。
  *
  * ⚠️ 为什么不并进 check-image-assets.cjs（IA*）：
