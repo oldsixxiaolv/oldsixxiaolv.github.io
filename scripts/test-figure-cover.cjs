@@ -9,7 +9,7 @@
  *   而"注入没生效"（正则没匹配上、正文图那个 <img> 没定位到、归一化写错了）
  *   恰恰是最容易发生、也最不容易看出来的失败模式。
  *
- * ⚠️ **老版自测（CV0–CV11 共 12 档）的四个真实缺口**（本轮修的就是它们）：
+ * ⚠️ **老版自测（CV0–CV11 共 12 档）的四个真实缺口**（D68 那轮修的就是它们）：
  *   ① **零红因归属表** —— 门禁里有 **16 处红因出口**，老版自测只认得
  *      「门禁 CV1」「门禁 CV2」「门禁 CV3」三种**行首带编号**的文案；
  *      而 16 条红因里**只有 7 条行首带编号**，另外 **9 条行首没有编号**
@@ -22,7 +22,8 @@
  *      也是 exit 1，会被当成判红放过；而且"红因条数对不对、是不是只红了我要的那条"
  *      完全看不见（老版 SP 档里 CV7 一档就红 3 条、CV8 红 4 条，老版只查「含 CV3」）。
  *
- * 本版做四件事（**门禁本体 `scripts/check-figure-cover.cjs` 行为一字未改**）：
+ * 本版做五件事（门禁本体只在 **D67 修复**里动过「判红前必须先打印」，
+ *   **判定逻辑一字未改**）：
  *   ① **红因归属表**（`CAUSES` 16 条）：把门禁的 **16 处 `note()` 出口**逐条登记，
  *      每条归属恰好认领**一个**出口点（**区间法**静态绑定），归属片段**互不包含**
  *      且在门禁源码里**只出现一次**。
@@ -35,6 +36,8 @@
  *   ④ **判据级负对照**（NC-CV1–NC-CV4）：在**门禁副本**上把某条判据的收集型出口
  *      全部卸掉（`if (false) ` 前缀，**行数不变**），再跑同一条注入 ⇒
  *      期望红因 = 原集合 − 被卸判据的归属。
+ *   ⑤ **档位清单守卫**（前置守卫，**不算档**）：实际跑过的档位号集合 == 静态清单 ⇒
+ *      **删掉任何一档当场暴露**（否则少跑一档照样全绿 ⇒ SP12 这个 D67 护栏被删掉就没人看守）。
  *
  * 档位（**34 档**）：
  *   SP0–SP22  注入档（23 档）：逐条红因出口都要有档可证
@@ -45,10 +48,11 @@
  *   ⇒ 门禁**抓不到**。这是**已知边界**不是缺陷（写成一档会跑的自测，是为了让这个
  *   边界**可证**，而不是只在注释里说说）。封面图选得对不对仍靠人工核。
  *
- * ⚠️ **SP12 是缺陷 D67 的可执行版本**：真源读不出来时，门禁 `note()` 完就
- *   **立刻 `process.exit(1)`** ⇒ 那条红因**永不被打印**、失败横幅也来不及打
- *   ⇒ 用户只看到"exit 1、零输出"。本档把**当前形状**钉住（exit 1 + 无横幅 + 零红因行），
- *   SP13 用一个**去掉提前 exit 的门禁副本**把那条被吞掉的红因**捞出来**归到 P1。
+ * ⚠️ **SP12 / SP13 是缺陷 D67 的修复护栏**：真源读不出来时，门禁必须**先打印失败横幅
+ *   与那条红因**再退出。早退过一次（收集完就立刻 exit）⇒ 红因被吞、失败横幅也来不及打
+ *   ⇒ 外面只看到"exit 1、零输出"，连"为什么红"都看不到。
+ *   SP12 用「真源文件**不存在**」触发，SP13 用「真源**存在但是语法错的 JS**」触发
+ *   （解析阶段就抛 ⇒ 同一条 catch 路径）⇒ 两档都必须看到横幅 + 红因**恰为** P1。
  *
  * 用法：node scripts/test-figure-cover.cjs
  */
@@ -77,11 +81,13 @@ const CRITERIA = ["CV1", "CV2", "CV3", "CV4"];
  *   owner   —— 这条红因归哪条判据（null = 前置类，不属于任何一条判据）
  *   numbered —— 这条红因**行首**有没有判据号（"门禁 CV1："这种）
  *              ⚠️ 行首有没有编号是**两回事**：CV3 的三条红因里只有一条行首带编号。
- *   site    —— "push" = 走 `note()` 进 problems；"early" = note 完立刻 exit（红因被吞）
+ *   site    —— "push" = 走 `note()` 进 problems；"early" = 收集完立刻 exit（红因被吞）
+ *              ⚠️ D67 修好后门禁里**不应再有** "early" 出口 ⇒ COV3 把它钉成 0
+ *              （真退回旧写法，COV3 立刻转红）。
  *   frag    —— 红因文案里的一段**字面量**（运行时靠它认领；静态靠它绑定出口点）
  */
 const CAUSES = [
-  { id: "P1", owner: null, numbered: false, site: "early", frag: "读不到真源" },
+  { id: "P1", owner: null, numbered: false, site: "push", frag: "读不到真源" },
   { id: "P2", owner: null, numbered: false, site: "push", frag: "没有 slug，算不出论文页路径" },
   { id: "P3", owner: null, numbered: false, site: "push", frag: "论文页产物不存在" },
   { id: "C1a", owner: "CV1", numbered: true, site: "push", frag: "找不到正文成果图" },
@@ -422,31 +428,6 @@ function expectGreen(id, setup, opts) {
   }
 }
 
-/**
- * 一档「**静默判红**」：门禁判了红，但红因被提前 exit 吞掉 ⇒
- *   exit 1 + **没有失败横幅** + **零红因行**（缺陷 D67 的可执行版本）。
- */
-function expectSwallowedRed(id, setup, opts) {
-  const tmp = makeSandbox();
-  try {
-    const p = sbPaths(tmp);
-    if (setup) setup(p);
-    const r = runGate(p, opts || {});
-    const rows = redCauseLines(r.out);
-    const problems = [];
-    if (r.code !== 1) problems.push(`期望 exit 1，实际 exit ${r.code}`);
-    if (r.out.includes(FAIL_BANNER)) problems.push("期望失败横幅**不**出现，但它出现了");
-    if (rows.length) problems.push(`期望零红因行，实际 ${rows.length} 行`);
-    if (problems.length) {
-      record(id, false, problems.join("；"));
-      return;
-    }
-    record(id, true, "静默判红：exit 1、无失败横幅、零红因行（红因被提前 exit 吞掉）");
-  } finally {
-    fs.rmSync(tmp, { recursive: true, force: true });
-  }
-}
-
 /* ---------- 门禁副本：卸掉某条判据的收集型出口 ---------- */
 
 /**
@@ -591,7 +572,12 @@ const INJ_EXTERNAL_OG = (p) =>
 const INJ_NO_OG_W = (p) =>
   editText(p.html, (s) => s.replace(/<meta property="og:image:width" content="[^"]*"\s*\/?>/g, ""));
 
-/* 坏真源：让 `require(SITE_DATA_PATH)` 直接抛（⇒ 门禁走早期退出那条路） */
+/* 坏真源（语法错）：`require` 在**解析阶段**就抛 ⇒ 走的是同一个 catch 分支。
+   整份文件替换成确定无法解析的内容，避免"碰巧还能解析"的注入失效。 */
+const INJ_BAD_SOURCE_JS = (p) =>
+  editText(p.site, () => "module.exports = { url: 'https://example.invalid', <<< 故意写坏 >>> };\n");
+
+/* 坏真源（文件不存在）：让 `require(SITE_DATA_PATH)` 直接抛 ⇒ 门禁走那条 catch 分支 */
 const ENV_BAD_SOURCE = { SITE_DATA_PATH: "/tmp/mh-figcover-no-such-site.js" };
 const ENV_NO_PAPERS_DIR = { PAPERS_DIR: "/tmp/mh-figcover-no-such-papers" };
 const ENV_NO_PKG = { PKG_PATH: "/tmp/mh-figcover-no-such-package.json" };
@@ -612,58 +598,12 @@ expectRed("SP9 真源里 figure.width 漂移", INJ_WIDTH_DRIFT, ["C2b", "C2b"]);
 expectRed("SP10 门禁被卸掉（build 链里摘掉）", INJ_GATE_UNWIRED, ["C4d"]);
 expectGreen("SP11 边界负对照：真源与产物一起改错（必须判绿）", INJ_BOTH);
 
-/* —— 早期退出型：真源读不出来 —— */
-expectSwallowedRed("SP12 真源读不出来 ⇒ 静默判红（红因被提前 exit 吞掉）", null, { env: ENV_BAD_SOURCE });
+/* —— 真源读不出来 ⇒ 必须看得见失败横幅与那条红因（缺陷 D67 的修复护栏）—— */
+expectRed("SP12 真源读不出来 ⇒ 打印失败横幅与红因（P1）", null, ["P1"], { env: ENV_BAD_SOURCE });
 
-/* 同一情形下，把门禁副本里那个提前 exit 去掉 ⇒ 那条被吞掉的红因**就能被看见** */
-{
-  const tmp = makeSandbox();
-  try {
-    const p = sbPaths(tmp);
-    const gatePath = (() => {
-      const src = fs.readFileSync(GATE, "utf8");
-      const regions = noteRegions(src);
-      const p1 = regions.find((r) => {
-        const pos = src.indexOf("读不到真源");
-        return pos >= r.start && pos <= r.end;
-      });
-      if (!p1) {
-        console.error("封面图门禁自测失败：找不到「读不到真源」那个出口点。");
-        process.exit(1);
-      }
-      const code = stripComments(src);
-      const exitPos = code.indexOf("process.exit(1)", p1.callEnd);
-      if (exitPos < 0) {
-        console.error("封面图门禁自测失败：「读不到真源」后面没有找到提前 exit。");
-        process.exit(1);
-      }
-      let out = src.slice(0, exitPos) + src.slice(exitPos + "process.exit(1);".length);
-      const gatePath = path.join(tmp, "gate", "check-figure-cover.cjs");
-      fs.mkdirSync(path.dirname(gatePath), { recursive: true });
-      fs.writeFileSync(gatePath, out);
-      const chk = spawnSync(process.execPath, ["--check", gatePath], { encoding: "utf8" });
-      if (chk.status !== 0) {
-        console.error(`封面图门禁自测失败：门禁副本语法不合法：\n${chk.stderr}`);
-        process.exit(1);
-      }
-      return gatePath;
-    })();
-    const r = runGate(p, { gate: gatePath, env: ENV_BAD_SOURCE });
-    const rows = redCauseLines(r.out);
-    const problems = [];
-    if (r.code !== 1) problems.push(`期望 exit 1，实际 exit ${r.code}`);
-    if (!r.out.includes(FAIL_BANNER)) problems.push("输出里没有门禁的失败横幅");
-    const { ids, impure } = attributeRows(rows);
-    impure.forEach((s) => problems.push("归属不纯：" + s));
-    if (!multisetEq(ids, ["P1", "C4a"])) {
-      problems.push(`红因集合不是「恰为」：期望 [P1,C4a]，实际 [${ids.join(",")}]`);
-    }
-    if (problems.length) record("SP13 去掉提前 exit ⇒ 被吞掉的红因能被看见（P1）", false, problems.join("；"));
-    else record("SP13 去掉提前 exit ⇒ 被吞掉的红因能被看见（P1）", true, "红了，判据归属 = P1+C4a（2 条红因、归属纯净）");
-  } finally {
-    fs.rmSync(tmp, { recursive: true, force: true });
-  }
-}
+/* 另一种触发方式：真源文件**存在**但**语法错** ⇒ require 在解析阶段就抛
+   ⇒ 同一条 catch 路径 ⇒ 同样必须打印横幅 + 那一条红因 */
+expectRed("SP13 真源是语法错的 JS ⇒ 同一条 catch 路径也得打印（P1）", INJ_BAD_SOURCE_JS, ["P1"]);
 
 /* —— 真源/前提侧的其余红因（原本完全无档可证的那些）—— */
 expectRed("SP14 找不到论文页源目录", null, ["C3b", "C3c"], { env: ENV_NO_PAPERS_DIR });
@@ -718,17 +658,17 @@ const REGION_OWNERS = regionOwners(GATE_SRC, REGIONS);
   );
 }
 
-/* COV3：早期退出型出口数 == 归属表里 site:"early" 的条数 */
+/* COV3：门禁里**没有**「收集完立刻 exit」的出口 ⇒ 判红时红因不会被吞（缺陷 D67 回归护栏） */
 {
   const early = REGIONS.filter((r) => isEarlyExit(GATE_SRC, r)).length;
   const declared = CAUSES.filter((c) => c.site === "early").length;
-  const ok = early === declared;
+  const ok = early === 0 && declared === 0;
   record(
-    "COV3 早期退出型出口数 == 归属表里 early 的条数",
+    "COV3 门禁里没有「收集完立刻 exit」的出口（判红时红因不会被吞）",
     ok,
     ok
-      ? `门禁里「note 后立刻 exit」的出口有 ${early} 处，归属表登记了 ${declared} 条`
-      : `门禁里 early 出口 ${early} 处，归属表登记了 ${declared} 条`
+      ? "0 处收集完立刻 exit 的出口 ⇒ 每条红因都会被打印出来"
+      : `门禁里有 ${early} 处收集完立刻 exit（归属表声明了 ${declared} 条 early）⇒ 那条红因会被吞掉`
   );
 }
 
@@ -818,15 +758,46 @@ const REGION_OWNERS = regionOwners(GATE_SRC, REGIONS);
   );
 }
 
-/* ================= 收尾：门禁原件没被动过 ================= */
-/* 注意：这是**前置守卫**，不是矩阵里的一档 ⇒ 不进 results，
-   否则报出的「档数」会比下面枚举的档位号（23 注入 + 4 负对照 + 7 覆盖度 = 34）多一个。 */
+/* ================= 收尾：前置守卫（都不进 results，都不算档） ================= */
+/* 注意：下面这些是**前置守卫**，不是矩阵里的一档 ⇒ 不进 results，
+   否则报出的「档数」会比下面枚举的档位号（23 注入 + 4 负对照 + 7 覆盖度 = 34）对不上。 */
 
 console.log("");
 const nowSha = crypto.createHash("sha256").update(fs.readFileSync(GATE)).digest("hex");
 const gateIntact = nowSha === GATE_SHA_AT_START;
 console.log(
-  `  ${gateIntact ? "✓" : "✗"} 门禁原件 SHA-256 前后一致（本轮一字未改） —— sha256 = ${nowSha.slice(0, 16)}…`
+  `  ${gateIntact ? "✓" : "✗"} 门禁原件 SHA-256 前后一致（自测运行期间未被改动） —— sha256 = ${nowSha.slice(0, 16)}…`
+);
+
+/**
+ * 档位清单守卫：实际跑过的档位号集合 == 静态清单。
+ * ⚠️ 为什么要有它：**删掉任何一档，自测原本照样全绿**（少跑一个注入只是少证明一件事，
+ *   判据集合、出口数、归属数都没变）⇒ 尤其是 SP12 这个 D67 护栏被删掉时，
+ *   "D67 已修"就彻底没人看守了。这道守卫把档位号集合钉死，少一档当场暴露。
+ */
+const EXPECTED_SLOTS = [
+  ...Array.from({ length: 23 }, (_, i) => `SP${i}`),
+  "NC-CV1",
+  "NC-CV2",
+  "NC-CV3",
+  "NC-CV4",
+  "COV1",
+  "COV2",
+  "COV3",
+  "COV4",
+  "COV5",
+  "COV6",
+  "COV7",
+];
+const actualSlots = results.map((r) => (/^(SP\d+|NC-CV\d+|COV\d+)/.exec(r.id) || [])[1]);
+const slotSet = [...new Set(actualSlots.filter(Boolean))].sort();
+const wantSet = [...EXPECTED_SLOTS].sort();
+const slotsOk =
+  actualSlots.length === results.length &&
+  slotSet.length === wantSet.length &&
+  slotSet.every((s, i) => s === wantSet[i]);
+console.log(
+  `  ${slotsOk ? "✓" : "✗"} 档位清单守卫：实际档位号集合 == 静态清单（${wantSet.length} 个档位号）`
 );
 
 const bad = results.filter((r) => !r.ok);
@@ -834,10 +805,15 @@ console.log(
   `\n自测矩阵：${results.length} 档里 ${results.length - bad.length} 档按预期触发` +
     `（SP0–SP22 是注入档；NC-CV1–NC-CV4 是判据级负对照；COV1–COV7 是覆盖度自证）。\n`
 );
-if (bad.length || !gateIntact) {
+if (bad.length || !gateIntact || !slotsOk) {
   console.error(`\n自测失败：${bad.length} 档没有按预期触发。\n`);
   for (const b of bad) console.error(`  ✗ ${b.id}\n${b.detail}\n`);
   if (!gateIntact) console.error("  ✗ 门禁原件 SHA-256 前后不一致\n");
+  if (!slotsOk) {
+    console.error(
+      `  ✗ 档位清单对不上：期望 [${wantSet.join(",")}]，实际 [${slotSet.join(",")}]\n`
+    );
+  }
   process.exit(1);
 }
 console.log("自测通过：全部档位按预期触发。\n");

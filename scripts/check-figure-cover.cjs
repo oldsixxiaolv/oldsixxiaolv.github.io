@@ -79,6 +79,22 @@ const PKG = process.env.PKG_PATH ? path.resolve(process.env.PKG_PATH) : path.joi
 const problems = [];
 const note = (msg) => problems.push(msg);
 
+/* 失败输出的两份文案（两个判红出口共用，避免字面量漂移） */
+const FAIL_TITLE = "论文封面图一致性门禁未通过：";
+const CAUSE_MARK = "  ✗ ";
+
+/**
+ * 打印失败横幅与全部红因。
+ * ⚠️ **判红前必须先调用它**：早退过一次（缺陷 D67）——收集完就立刻退出，
+ * 那条红因永不被打印、失败横幅也来不及打 ⇒ 外面只看到「exit 1、零输出」，
+ * 连「为什么红」都看不到，exit 1 与「门禁自己崩了」也不可区分。
+ */
+function reportFailure() {
+  console.error(`${FAIL_TITLE}\n`);
+  problems.forEach((p) => console.error(`${CAUSE_MARK}${p}`));
+  console.error("");
+}
+
 /* 比过的处数：用来自证判据还活着（CV4） */
 let compared = 0;
 
@@ -88,6 +104,8 @@ try {
   siteData = require(SITE_DATA_PATH);
 } catch (e) {
   note(`读不到真源 ${SITE_DATA_PATH}（${e.message}）——本门禁没有真源可比，直接判红。`);
+  /* ★ 先打印再退出（缺陷 D67）：早退时红因被吞 ⇒ 用户只看到「exit 1、零输出」。 */
+  reportFailure();
   process.exit(1);
 }
 const siteUrl = (siteData && siteData.url) || "";
@@ -330,9 +348,7 @@ if (!fs.existsSync(PKG)) {
 
 /* ---------- 汇总 ---------- */
 if (problems.length) {
-  console.error("论文封面图一致性门禁未通过：\n");
-  problems.forEach((p) => console.error(`  ✗ ${p}`));
-  console.error("");
+  reportFailure();
   process.exit(1);
 }
 
