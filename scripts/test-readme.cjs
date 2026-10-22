@@ -938,14 +938,14 @@ record(
 /* ================= 收尾：门禁原件没被动过 ================= */
 
 console.log("");
-{
-  const now = sha256(GATE);
-  record(
-    "门禁原件 SHA-256 前后一致（本轮一字未改）",
-    now === GATE_SHA_AT_START,
-    `sha256 = ${now.slice(0, 16)}…`
-  );
-}
+/* 这是**前置守卫**，不是矩阵里的一档 ⇒ 不进 results。
+   否则报出的「档数」会比下面枚举的档位号（18 注入 + 9 负对照 + 7 覆盖度 = 34）多一个，
+   出现「报 35 档、括号里只列 34 个档位号」的自相矛盾。 */
+const nowSha = sha256(GATE);
+const gateIntact = nowSha === GATE_SHA_AT_START;
+console.log(
+  `  ${gateIntact ? "✓" : "✗"} 门禁原件 SHA-256 前后一致（本轮一字未改） —— sha256 = ${nowSha.slice(0, 16)}…`
+);
 
 fs.rmSync(TMP_ROOT, { recursive: true, force: true });
 
@@ -954,9 +954,10 @@ console.log(
   `\n自测矩阵：${results.length} 档里 ${results.length - bad.length} 档按预期触发` +
     `（SP0–SP17 是注入档；NC-RD1–NC-RD5 与 NC-E1–NC-E4 是判据级负对照；COV2a–COV2g 是覆盖度自证）。\n`
 );
-if (bad.length) {
+if (bad.length || !gateIntact) {
   console.error(`\n自测失败：${bad.length} 档没有按预期触发。\n`);
   for (const b of bad) console.error(`  ✗ ${b.id}\n${b.detail}\n`);
+  if (!gateIntact) console.error("  ✗ 门禁原件 SHA-256 前后不一致\n");
   process.exit(1);
 }
 console.log("自测通过：全部档位按预期触发。\n");
