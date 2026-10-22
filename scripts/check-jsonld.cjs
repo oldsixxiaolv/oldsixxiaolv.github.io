@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * 门禁 J1–J11：站点实体（WebSite）与页面实体（WebPage / ProfilePage）这一层
+ * 门禁 J0–J12：站点实体（WebSite）与页面实体（WebPage / ProfilePage）这一层
  * 必须存在，并且彼此接得上；实体身份（@id）全站唯一。
  *
  * 为什么要有这个门禁：
@@ -17,17 +17,28 @@
  *   （verify-site 第 2 条查的就是那个）、其它门禁全绿——只有逐个节点读
  *   才知道少了这一层。所以要有机器门禁兜住。
  *
+ * ⚠️ 编号是「红因归属」的唯一坐标（2026-10-22，D59 第十一批）：
+ *   每条红因统一印成「  ✗ 门禁 Jx：…」，可卸开关 `Jx_ON` 真的被 fail() 消费。
+ *   本文件原先的 fail(msg) **没有编号参数**，43 处红因里只有 9 处在正文里
+ *   手写了 "J10" 这样的字样 ⇒ 编号只活在注释与文案里，没有一处是结构化归属；
+ *   而文件头声称 J1–J11，实现里 J3 又与 J4 合并成一段、那两条红因都没标编号
+ *   ⇒ 编号体系与实现对不上。现在 J0（块可解析）与 J3（归属链）补齐，
+ *   并新增 J12（逐比较点覆盖度自证）。
+ *
  * 判据（编号 J*，与 verify-site.cjs 的数字编号、check-a11y.cjs 的 A*、
  *       check-wrapping.cjs 的 W*、check-gates-wired.cjs 的 GW* 都不续接）：
+ *   J0 每个 ld+json 块本身必须是**合法 JSON**（解析失败直接判红，
+ *      不许静默跳过 —— 跳过的话"块坏了"会伪装成"这一页没有实体"，
+ *      报错信息会指向错误的病根）
  *   J1 每个非错误页都声明**恰好一个** WebSite 节点，且：
  *      · @id 恒为 <站点根>/#website
  *      · url 恒为 <站点根>/
- *      · publisher 指向"本人"的 @id
  *   J2 每个非错误页都声明**恰好一个**页面实体（WebPage / ProfilePage），且：
  *      · @id 恒为 <该页 canonical>#webpage
  *      · url **逐字等于**该页 <link rel="canonical"> 的 href
  *   J3 归属链完整：页面实体的 isPartOf → WebSite 的 @id；
  *      WebSite 的 publisher → "本人"的 @id（与该页 Person 节点同一个）
+ *      （"本人"这个 @id 只能有**一个**来源：该页的 Person 声明）
  *   J4 mainEntity 能解析，且指向"这一页真正在讲的东西"：
  *      · 论文页（该页自己声明了 @id == 本页 canonical 的 ScholarlyArticle）
  *        → 必须指向那篇论文
@@ -93,6 +104,17 @@
  *        commit，新写的论文页在 build 时还没进历史，就是"没有"这一档）。
  *        取值与 sitemap 的 lastmod 同一数据源（同一个函数），
  *        浅克隆 / 不在 git 仓库里两边同样取不到 → 两边一致，不判有也不判无。
+ *   J12 **逐比较点覆盖度自证**：静态目录里登记的每一个比较点，
+ *      都必须在"该跑的地方"真的跑到。
+ *      ⚠️ 为什么单列一条：J7 的存活自证是**总数**口径
+ *        （`comparisons < pagesChecked`），而每一页本来就贡献 3–5 处比较
+ *        ⇒ **整段判据被摘掉**时，剩下的比较点照样把总数撑过页数
+ *        ⇒ J7 照样绿 ⇒ "整块被摘"无人看守。J12 改成**逐页逐比较点**：
+ *        每个非错误页都逐个点名它该跑哪些比较点，跑过或前提不在场（豁免）
+ *        都要有记录，缺一个就判红。
+ *      ⚠️ 比较点目录必须**静态登记**：运行时拼出来的键在源码里查不到落点
+ *        ⇒ 整块判据被摘掉时它连同自己的比较点一起消失 ⇒ 自证被自己拆掉。
+ *      ⚠️ 判据被卸掉（开关关）⇒ 它的比较点不算缺失，否则"卸判据"永远转不了绿。
  *
  * 与既有门禁的关系（**刻意不重复**）：
  *   · verify-site 第 2 条查 JSON-LD 能否 JSON.parse → 本门禁不查解析本身，
@@ -122,8 +144,133 @@ const SITE = process.env.SITE_DIR
 const ROOT = path.resolve(__dirname, ".."); // 仓库根：J10 要回源文件核对页面角色
 const problems = [];
 const notes = [];
-const fail = (msg) => problems.push(msg);
+
+/* ---------- 判据编号与可卸开关 ----------
+   编号是「红因归属」的唯一坐标：红因统一印成「门禁 Jx：…」，
+   自测按这个编号断言"哪条判据在说话"（多一条、少一条都算失败）。
+   ⚠️ 2026-10-22（D59 第十一批）实测修：本文件原先的 fail(msg) **没有编号参数**，
+      43 处红因里只有 9 处在正文里手写了"J10"/"J9"这样的字样 ⇒ 编号只活在注释与
+      文案里，没有一处是**结构化归属**。而文件头声称 J1–J11，实现里 J3 又与 J4
+      合并成一段、且那两条红因都没标编号 ⇒ 编号体系与实现对不上。
+   ⚠️ 开关必须**真的被 fail() 消费**：声明了却没人看的开关等于没有开关
+      （那样自测的负对照永远不成立 —— 红还在，"卸掉判据就转绿"证明不了什么）。 */
+const J0_ON = true; // ld+json 块本身必须是合法 JSON
+const J1_ON = true; // 每页恰好一个 WebSite 实体，且 @id / url 口径固定
+const J2_ON = true; // 每页恰好一个页面实体，且与 canonical 对得上
+const J3_ON = true; // 归属链完整（isPartOf → WebSite、publisher → Person）
+const J4_ON = true; // mainEntity 指向本页真正在讲的东西
+const J5_ON = true; // 全站只有一个站点实体
+const J6_ON = true; // 错误页不得声明这三类实体
+const J7_ON = true; // 自证存活
+const J8_ON = true; // 同一个 @id 不得挂在不同的 @type 上
+const J9_ON = true; // 论文 mainEntityOfPage 指向承载它的那一页
+const J10_ON = true; // 页面 @type 与源文件声明的角色一致
+const J11_ON = true; // 论文页 ScholarlyArticle 必须有 image 与 dateModified
+const J12_ON = true; // 逐比较点覆盖度自证
+
+const SWITCH_ON = {
+  J0: J0_ON,
+  J1: J1_ON,
+  J2: J2_ON,
+  J3: J3_ON,
+  J4: J4_ON,
+  J5: J5_ON,
+  J6: J6_ON,
+  J7: J7_ON,
+  J8: J8_ON,
+  J9: J9_ON,
+  J10: J10_ON,
+  J11: J11_ON,
+  J12: J12_ON,
+};
+
+/* 开关关 ⇒ 这条判据不说话（**计算照做**，不短路）——
+   这样"卸掉一条判据"不会连带改变其它判据拿到的输入，负对照才成立。 */
+const fail = (id, msg) => {
+  if (SWITCH_ON[id] === false) return;
+  problems.push(`门禁 ${id}：${msg}`);
+};
 const note = (msg) => notes.push(msg);
+
+/* ---------- 逐比较点覆盖度目录（**静态登记**）----------
+   每个「该被比对过」的位置都记一笔（mark），静态目录里每个比较点都必须被记到。
+
+   ⚠️ 为什么要有这一层（2026-10-22 实测）：
+     本文件原先的 J7 自证是 `comparisons < pagesChecked` —— **总数**口径。
+     每一页本来就贡献 3–5 处比较，所以**整段判据被摘掉**时，剩下的比较点照样把
+     总数撑过页数 ⇒ J7 照样绿 ⇒ "整块被摘"无人看守。总数自证抓不住这一类退化。
+
+   ⚠️ 目录必须**静态登记**：运行时拼出来的键在源码里查不到落点 ⇒ 整块判据被摘掉时
+     它连同自己的比较点一起消失 ⇒ 覆盖度自证反而判绿 ⇒ 自证被自己拆掉。
+
+   everyPage = true 的比较点：**每个非错误页**都必须真的跑到（逐页逐比较点）。
+   min = 该比较点至少要被记到几次（全站级比较点的下限）。 */
+const COVERAGE_POINTS = [
+  { key: "J0.blocks", min: 1 }, // 至少遇到过一个 ld+json 块（遇到就记，不是"解析成功"）
+  { key: "J1.siteEntity", min: 1, everyPage: true }, // 每页都数了 WebSite 实体个数
+  { key: "J1.siteId", min: 1, everyPage: true }, // 每页都比了 WebSite 的 @id
+  { key: "J1.siteUrl", min: 1, everyPage: true }, // 每页都比了 WebSite 的 url
+  { key: "J2.pageEntity", min: 1, everyPage: true }, // 每页都数了页面实体个数
+  { key: "J2.pageUrl", min: 1, everyPage: true }, // 每页都比了页面实体的 url
+  { key: "J2.pageId", min: 1, everyPage: true }, // 每页都比了页面实体的 @id
+  { key: "J3.personEntity", min: 1, everyPage: true }, // 每页都数了 Person 实体个数
+  { key: "J3.isPartOf", min: 1, everyPage: true }, // 每页都比了 isPartOf
+  { key: "J3.publisher", min: 1, everyPage: true }, // 每页都比了 publisher
+  { key: "J4.mainEntity", min: 1, everyPage: true }, // 每页都取了 mainEntity
+  { key: "J4.mainEntityDecl", min: 1 }, // mainEntity 的"空引用"检查至少跑过一次
+  { key: "J5.siteUnique", min: 1 }, // 全站站点唯一性至少判过一次
+  { key: "J6.errorPage", min: 1 }, // 错误页至少判过一次
+  { key: "J7.selfAlive", min: 1 }, // 自证存活段至少判过一次
+  { key: "J8.typedIds", min: 1 }, // 全站 @id→@type 表至少建过一次
+  { key: "J9.mainEntityOfPage", min: 1 }, // 至少比过一个论文的 mainEntityOfPage
+  { key: "J10.sourceMark", min: 1, everyPage: true }, // 每页都读了 source 标注
+  { key: "J10.roleResolve", min: 1, everyPage: true }, // 每页都解析了角色声明
+  { key: "J10.roleType", min: 1, everyPage: true }, // 每页都比了角色与 @type
+  { key: "J11.paperPage", min: 1 }, // 至少有一页论文实体对上了本页 canonical
+  { key: "J11.image", min: 1 }, // 至少逐字比过一次 image 与 og:image
+  { key: "J11.dateModified", min: 1 }, // 至少逐字比过一次 dateModified
+];
+
+/* 逐页记账：页标识 -> 该页真正跑过的比较点。
+   （"*" 是全站级比较点的页标识。） */
+const pageHits = new Map();
+const pageWaived = new Map();
+const globalWaived = new Set();
+const waivedKeys = new Set();
+const hitCount = Object.create(null);
+
+const marksOf = (page) => {
+  let s = pageHits.get(page);
+  if (!s) {
+    s = new Set();
+    pageHits.set(page, s);
+  }
+  return s;
+};
+const waivesOf = (page) => {
+  let s = pageWaived.get(page);
+  if (!s) {
+    s = new Set();
+    pageWaived.set(page, s);
+  }
+  return s;
+};
+/* 记一笔：这一步真的比对过了（结论是红是绿都算"跑过"）。 */
+const mark = (key, page) => {
+  marksOf(page).add(key);
+  hitCount[key] = (hitCount[key] || 0) + 1;
+};
+/* 豁免：这一步的前提不在场（无判断对象），不算"没跑到"。 */
+const waive = (key, page) => {
+  if (page === null || page === undefined) globalWaived.add(key);
+  else waivesOf(page).add(key);
+  waivedKeys.add(key);
+};
+const waivePrefix = (prefix, page) => {
+  for (const p of COVERAGE_POINTS) if (p.key.startsWith(prefix)) waive(p.key, page);
+};
+/* 比较点归哪条判据：key 的第一段就是判据编号（J0./J1./…/J12.）。 */
+const ownerOf = (key) => key.split(".")[0];
 
 /* 站点公开地址（site.url）——@id 口径的唯一基准。
    ⚠️ 读不到就直接判红，**不跳过**：site.url 空了以后下面每一条 @id 判据
@@ -499,8 +646,18 @@ function resolveDeclaredRole(file) {
 let pagesChecked = 0;
 let errorPagesChecked = 0;
 let pageEntitiesFound = 0;
-let comparisons = 0; // 真正比过的判据处数（J7 自证用）
 let j9Compared = 0; // J9 真正比过的论文数
+/* 非错误页清单（逐页逐比较点覆盖度自证用）。 */
+const nonErrorPages = [];
+/* "比较处数"由**逐页命中数**派生，不再单独维护一个总数计数器。
+   ⚠️ 原先那是一个**总数**口径（每页 3–5 处）：整段判据被摘掉时，剩下的比较点
+      照样把总数撑过页数 ⇒ J7 的 `comparisons < pagesChecked` 照样绿
+      ⇒ "整块被摘"无人看守。强自证交给 J12（逐页逐比较点目录）。 */
+const comparisons = () => {
+  let n = 0;
+  for (const s of pageHits.values()) n += s.size;
+  return n;
+};
 let j8Ids = 0; // J8 真正看过的 @id 个数
 let j10Compared = 0; // J10 真正核对过角色的页数
 let j10ProfilePages = 0; // J10 里声明为 ProfilePage 的页数
@@ -527,10 +684,14 @@ for (const file of htmlFiles) {
     /<script[^>]*type\s*=\s*"application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/gi
   )) {
     let parsed = null;
+    mark("J0.blocks", from); // ← 遇到块就记（"这一步执行过"，不是"解析成功"）
     try {
       parsed = JSON.parse(m[1]);
     } catch (e) {
-      fail(`${from}: JSON-LD 块解析失败 —— ${e.message}（解析本身由 verify-site 第 2 条负责，这里直接判红以免被当成"实体缺失"）`);
+      fail(
+        "J0",
+        `${from}: JSON-LD 块解析失败 —— ${e.message}（解析本身由 verify-site 第 2 条负责，这里直接判红以免被当成"实体缺失"）`
+      );
       continue;
     }
     declarations.push(...declarationsOf(parsed));
@@ -547,47 +708,65 @@ for (const file of htmlFiles) {
   /* ---- J6：错误页不得声明这一层 ---- */
   if (isErrorPage) {
     errorPagesChecked++;
+    mark("J6.errorPage", from);
     if (websites.length) {
-      fail(`${from}: 错误页声明了 WebSite 实体 —— 404 页要表达的是"这里没有内容"，它不是一个站点页面`);
+      fail(
+        "J6",
+        `${from}: 错误页声明了 WebSite 实体 —— 404 页要表达的是"这里没有内容"，它不是一个站点页面`
+      );
     }
     if (pageNodes.length) {
       fail(
+        "J6",
         `${from}: 错误页声明了页面实体（${pageNodes
           .map((n) => typesOf(n).join("/"))
           .join(" / ")}）—— 404 页不是"关于某人的页面"`
       );
     }
-    comparisons++;
     continue;
   }
 
   pagesChecked++;
+  nonErrorPages.push(from);
   const canonical = canonicalOf(html);
 
   /* ---- J1：恰好一个 WebSite 节点，且口径固定 ---- */
+  mark("J1.siteEntity", from);
   if (websites.length !== 1) {
     fail(
+      "J1",
       `${from}: WebSite 实体必须**恰好一个**，实际 ${websites.length} 个` +
         `（缺了 = 站点自己从未被声明；多个 = 消费方会把站点读成好几个）`
     );
+    waive("J1.siteId", from);
+    waive("J1.siteUrl", from);
   } else {
     const site = websites[0];
     const id = typeof site["@id"] === "string" ? site["@id"] : "";
     const url = typeof site.url === "string" ? site.url : "";
-    comparisons++;
+    mark("J1.siteId", from);
+    mark("J1.siteUrl", from);
     if (id !== `${SITE_URL}/#website`) {
-      fail(`${from}: WebSite 的 @id 是 ${JSON.stringify(id)}，应为 ${JSON.stringify(`${SITE_URL}/#website`)}`);
+      fail(
+        "J1",
+        `${from}: WebSite 的 @id 是 ${JSON.stringify(id)}，应为 ${JSON.stringify(`${SITE_URL}/#website`)}`
+      );
     }
     if (url !== `${SITE_URL}/`) {
-      fail(`${from}: WebSite 的 url 是 ${JSON.stringify(url)}，应为 ${JSON.stringify(`${SITE_URL}/`)}`);
+      fail(
+        "J1",
+        `${from}: WebSite 的 url 是 ${JSON.stringify(url)}，应为 ${JSON.stringify(`${SITE_URL}/`)}`
+      );
     }
     if (id) websiteIds.add(id);
   }
 
   /* ---- 本人 @id：从该页的 Person 声明里取（不另立一个来源） ---- */
+  mark("J3.personEntity", from);
   let personId = "";
   if (persons.length !== 1) {
     fail(
+      "J3",
       `${from}: Person 实体必须**恰好一个**（本人），实际 ${persons.length} 个 —— ` +
         `publisher / mainEntity 都要指向它，指不准就等于没接上`
     );
@@ -596,28 +775,40 @@ for (const file of htmlFiles) {
   }
 
   /* ---- J2：恰好一个页面实体，且与 canonical 对得上 ---- */
+  mark("J2.pageEntity", from);
   if (pageNodes.length !== 1) {
     fail(
+      "J2",
       `${from}: 页面实体（WebPage / ProfilePage）必须**恰好一个**，实际 ${pageNodes.length} 个` +
         `（缺了 = 消费方拿不到"这一页在讲谁"）`
     );
+    waive("J2.pageUrl", from);
+    waive("J2.pageId", from);
   } else {
     pageEntitiesFound++;
     const page = pageNodes[0];
     const id = typeof page["@id"] === "string" ? page["@id"] : "";
     const url = typeof page.url === "string" ? page.url : "";
-    comparisons++;
     if (!canonical) {
-      fail(`${from}: 取不到 canonical，无法核对页面实体的 url —— 页面实体与 canonical 必须指向同一个地址`);
+      fail(
+        "J2",
+        `${from}: 取不到 canonical，无法核对页面实体的 url —— 页面实体与 canonical 必须指向同一个地址`
+      );
+      waive("J2.pageUrl", from);
+      waive("J2.pageId", from);
     } else {
+      mark("J2.pageUrl", from);
+      mark("J2.pageId", from);
       if (url !== canonical) {
         fail(
+          "J2",
           `${from}: 页面实体的 url 是 ${JSON.stringify(url)}，与该页 canonical ` +
             `${JSON.stringify(canonical)} **不一致** —— 结构化数据说的是另一个地址`
         );
       }
       if (id !== `${canonical}#webpage`) {
         fail(
+          "J2",
           `${from}: 页面实体的 @id 是 ${JSON.stringify(id)}，应为 ${JSON.stringify(`${canonical}#webpage`)}`
         );
       }
@@ -633,24 +824,32 @@ for (const file of htmlFiles) {
     const srcRel = sourceOf(html);
     if (!srcRel) {
       fail(
-        `${from}: 页面里没有 <!-- source: ... --> 源文件标注 —— 门禁 J10 靠它知道` +
+        "J10",
+        `${from}: 页面里没有 <!-- source: ... --> 源文件标注 —— 本条判据靠它知道` +
           `这一页的角色（profilePage），标注没了这条判据就失效了` +
           `（base.njk 里那行 <!-- source: ... --> 不能删）`
       );
+      waivePrefix("J10.role", from);
+      waive("J10.sourceMark", from);
     } else {
+      mark("J10.sourceMark", from);
       const srcPath = path.resolve(ROOT, srcRel);
       if (!fs.existsSync(srcPath)) {
         fail(
+          "J10",
           `${from}: 源文件标注指向 ${JSON.stringify(srcRel)}，但找不到这个文件 —— ` +
             `判据无从核对这一页的角色`
         );
+        waivePrefix("J10.role", from);
       } else {
         j10Compared++;
+        mark("J10.roleResolve", from);
         const role = resolveDeclaredRole(srcPath);
         j10Kinds[role.kind] = (j10Kinds[role.kind] || 0) + 1;
         if (role.error) {
           // 读不出来 → 不猜。猜错就是一条假红。
-          fail(`${from}: 无法确定这一页的角色声明 —— ${role.error}`);
+          fail("J10", `${from}: 无法确定这一页的角色声明 —— ${role.error}`);
+          waive("J10.roleType", from);
         } else if (!role.evaluable) {
           // 声明求不出真假（含模板表达式、语法错、引用了别处）→ 判据**求不出**。
           // 这里**不猜**：猜错会把合法的写法判成"角色不一致"（假红），
@@ -658,17 +857,20 @@ for (const file of htmlFiles) {
           // "没报错"和"没问题"长得一模一样，跳过等于这一页的角色从此无人看守
           // → 明确判红，并说清两条出路。
           fail(
+            "J10",
             `${from}: 这一页的角色声明求不出真假（${role.where} 里写的是 ` +
               `profilePage: ${role.raw}）—— ${role.reason}。` +
-              `J10 对这一页无法核对。请把它写成静态的 true / false，` +
+              `本条判据对这一页无法核对。请把它写成静态的 true / false，` +
               `或同步修改 scripts/check-jsonld.cjs 的角色解析。`
           );
+          waive("J10.roleType", from);
         } else {
           const isProfile = jsTruthy(role.value);
           if (isProfile) j10ProfilePages++;
           if (role.raw !== "") j10Declared++;
           const expected = isProfile ? "ProfilePage" : "WebPage";
           const actual = typesOf(page).filter((t) => t === "WebPage" || t === "ProfilePage");
+          mark("J10.roleType", from);
           if (actual.length !== 1 || actual[0] !== expected) {
             // ⚠️ 红因印**源文件里的原样字面量**，不印算出来的布尔：
             //    布尔是判据的结论，原值是作者写的东西。印布尔会让读者
@@ -677,6 +879,7 @@ for (const file of htmlFiles) {
               ? `写的是 profilePage: ${role.raw}`
               : "**没有 profilePage 这一项**（按约定视为 WebPage）";
             fail(
+              "J10",
               `${from}: 页面实体的 @type 是 ${JSON.stringify(typesOf(page).join(" / ") || "(无)")}，` +
                 `但源文件声明的角色是 ${expected}（${role.where} ${said}）` +
                 `—— 这一页的角色与源文件不一致` +
@@ -686,9 +889,14 @@ for (const file of htmlFiles) {
         }
       }
     }
+  } else {
+    waivePrefix("J10.role", from);
   }
 
-  /* ---- J3 + J4：归属链与 mainEntity ---- */
+  /* ---- J3：归属链完整（isPartOf → WebSite、publisher → 本人） ----
+     ⚠️ 2026-10-22（D59 第十一批）：这一段原先与 J4 合并在同一段里，
+        且两处的红因都没标编号 ⇒ 文件头声称的 J3（归属链）在实现里**没有归属**。
+        现在拆成两段，J3 管归属链、J4 管 mainEntity。 */
   if (pageNodes.length === 1 && websites.length === 1) {
     const page = pageNodes[0];
     const site = websites[0];
@@ -697,45 +905,69 @@ for (const file of htmlFiles) {
       site.publisher && typeof site.publisher === "object" ? site.publisher["@id"] : "";
     const isPartOfId =
       page.isPartOf && typeof page.isPartOf === "object" ? page.isPartOf["@id"] : "";
-    comparisons += 2;
+    mark("J3.isPartOf", from);
 
     if (isPartOfId !== siteId) {
       fail(
+        "J3",
         `${from}: 页面实体的 isPartOf 指向 ${JSON.stringify(isPartOfId)}，` +
           `应是站点实体的 @id ${JSON.stringify(siteId)} —— 页面与站点没接上`
       );
     }
-    if (personId && publisherId !== personId) {
-      fail(
-        `${from}: 站点实体的 publisher 指向 ${JSON.stringify(publisherId)}，` +
-          `应是"本人"的 @id ${JSON.stringify(personId)} —— 站点与作者没接上`
-      );
+    if (personId) {
+      mark("J3.publisher", from);
+      if (publisherId !== personId) {
+        fail(
+          "J3",
+          `${from}: 站点实体的 publisher 指向 ${JSON.stringify(publisherId)}，` +
+            `应是"本人"的 @id ${JSON.stringify(personId)} —— 站点与作者没接上`
+        );
+      }
+    } else {
+      /* 本人 @id 取不到（Person 不唯一）⇒ publisher 无从比较 ⇒ 豁免，
+         不让 J12 的覆盖度自证拿一个不存在的判断对象说事。 */
+      waive("J3.publisher", from);
     }
+  } else {
+    waive("J3.isPartOf", from);
+    waive("J3.publisher", from);
+  }
 
-    /* mainEntity：这一页在讲谁。
-       论文页 = 本页自己声明了 @id 等于本页 canonical 的 ScholarlyArticle；
-       其余页 = 本人的 Person 节点。 */
+  /* ---- J4：mainEntity —— 这一页在讲谁 ----
+     论文页 = 本页自己声明了 @id 等于本页 canonical 的 ScholarlyArticle；
+     其余页 = 本人的 Person 节点。
+     ⚠️ 前提比原先**宽**：原先这一段与 J3 合并 ⇒ 站点实体缺失时整段被跳过；
+        现在 mainEntity 的判定只依赖页面实体，不依赖站点实体 ⇒ 站点出问题也能被看见。 */
+  if (pageNodes.length === 1) {
+    const page = pageNodes[0];
+    mark("J4.mainEntity", from);
     const mainEntityId =
       page.mainEntity && typeof page.mainEntity === "object" ? page.mainEntity["@id"] : "";
-    comparisons++;
     if (!mainEntityId) {
-      fail(`${from}: 页面实体没有 mainEntity —— 消费方拿不到"这一页在讲谁"`);
+      fail("J4", `${from}: 页面实体没有 mainEntity —— 消费方拿不到"这一页在讲谁"`);
+      waive("J4.mainEntityDecl", from);
     } else {
+      mark("J4.mainEntityDecl", from);
       const isPaperPage = articles.some((a) => a["@id"] === canonical);
       const expected = isPaperPage ? canonical : personId;
       if (mainEntityId !== expected) {
         fail(
+          "J4",
           `${from}: 页面实体的 mainEntity 指向 ${JSON.stringify(mainEntityId)}，` +
             `应为 ${JSON.stringify(expected)}（本页是${isPaperPage ? "论文页" : "非论文页"}）`
         );
       }
       if (!declarations.some((d) => d["@id"] === mainEntityId)) {
         fail(
+          "J4",
           `${from}: 页面实体的 mainEntity 指向 ${JSON.stringify(mainEntityId)}，` +
             `但该 @id 在**本页**没有对应声明 —— 是个解析不到的空引用`
         );
       }
     }
+  } else {
+    waive("J4.mainEntity", from);
+    waive("J4.mainEntityDecl", from);
   }
 
   /* ---- J8 的采集：全站口径的 @id → @type 组合表 ----
@@ -757,8 +989,10 @@ for (const file of htmlFiles) {
     if (!m || typeof m !== "object") continue;
     const mid = typeof m["@id"] === "string" ? m["@id"] : "";
     j9Compared++;
+    mark("J9.mainEntityOfPage", from);
     if (!mid) {
       fail(
+        "J9",
         `${from}: 论文实体「${a["@id"] || "(无 @id)"}」的 mainEntityOfPage 没有 @id —— ` +
           `消费方拿不到"这篇论文挂在哪一页"`
       );
@@ -766,6 +1000,7 @@ for (const file of htmlFiles) {
     }
     if (mid === a["@id"]) {
       fail(
+        "J9",
         `${from}: 论文实体「${mid}」的 mainEntityOfPage 指向了**它自己** —— ` +
           `自指等于什么都没说；应指向本页的页面实体 <页面 URL>#webpage`
       );
@@ -773,12 +1008,14 @@ for (const file of htmlFiles) {
     }
     if (canonical && mid !== `${canonical}#webpage`) {
       fail(
+        "J9",
         `${from}: 论文实体的 mainEntityOfPage 指向 ${JSON.stringify(mid)}，` +
           `应为 ${JSON.stringify(`${canonical}#webpage`)}（本页的页面实体）`
       );
     }
     if (!declarations.some((d) => d["@id"] === mid)) {
       fail(
+        "J9",
         `${from}: 论文实体的 mainEntityOfPage 指向 ${JSON.stringify(mid)}，` +
           `但该 @id 在**本页**没有对应声明 —— 是个解析不到的空引用`
       );
@@ -805,24 +1042,31 @@ for (const file of htmlFiles) {
   for (const a of articles) {
     if (!canonical || a["@id"] !== canonical) continue;
     j11Compared++;
+    mark("J11.paperPage", from);
 
     /* —— image —— */
     const ogImage = ogImageOf(html);
     const img = typeof a.image === "string" ? a.image : "";
     if (!img) {
       fail(
+        "J11",
         `${from}: 论文实体「${a["@id"]}」没有 image —— ` +
           `消费方拿到的作品条目是"无图条目"，在图搜与富结果里没有缩略图`
       );
+      waive("J11.image", from);
     } else if (!ogImage) {
       fail(
+        "J11",
         `${from}: 论文实体的 image 是 ${JSON.stringify(img)}，` +
           `但该页**没有 og:image** —— 图与分享卡片对不上`
       );
+      waive("J11.image", from);
     } else {
+      mark("J11.image", from);
       j11ImageCompared++;
       if (img !== ogImage) {
         fail(
+          "J11",
           `${from}: 论文实体的 image 是 ${JSON.stringify(img)}，` +
             `与该页第一个 og:image（${JSON.stringify(ogImage)}）**不是同一个** —— ` +
             `图文不符：机器读到的图与人看到的分享图不是同一张`
@@ -840,33 +1084,44 @@ for (const file of htmlFiles) {
     const modified = typeof a.dateModified === "string" ? a.dateModified : "";
     if (realCommit) {
       j11ModifiedCompared++;
+      mark("J11.dateModified", from);
       if (!modified) {
         fail(
+          "J11",
           `${from}: 论文实体「${a["@id"]}」没有 dateModified —— ` +
             `但这一页的依赖闭包里最晚的提交时间是 ${realCommit}` +
             `（来自 ${fromFile}）：这一页确实改过，机器侧却看不到时效信号`
         );
       } else if (modified !== realCommit) {
         fail(
+          "J11",
           `${from}: 论文实体的 dateModified 是 ${JSON.stringify(modified)}，` +
             `应是这一页依赖闭包里最晚的提交时间 ${JSON.stringify(realCommit)}` +
             `（来自 ${fromFile}）—— 时间戳必须是真的`
         );
       }
-    } else if (modified) {
-      fail(
-        `${from}: 论文实体的 dateModified 是 ${JSON.stringify(modified)}，` +
-          `但它的源文件（${srcRel || "(没标 source)"}）的依赖闭包里查不到提交历史 —— ` +
-          `没有真实数据源却给出了时间戳`
-      );
+    } else {
+      /* 没有可用的 git 历史（浅克隆 / 不在仓库里）⇒ 模板那边同样取不到
+         （同一份判据、同一处降级），两边一致，不判"有"也不判"无"。
+         这条比较点没有判断对象 ⇒ 豁免（不让 J12 拿它说事）。 */
+      waive("J11.dateModified", from);
+      if (modified) {
+        fail(
+          "J11",
+          `${from}: 论文实体的 dateModified 是 ${JSON.stringify(modified)}，` +
+            `但它的源文件（${srcRel || "(没标 source)"}）的依赖闭包里查不到提交历史 —— ` +
+            `没有真实数据源却给出了时间戳`
+        );
+      }
     }
   }
 }
 
 /* ---- J5：全站只有一个站点实体 ---- */
-comparisons++;
+mark("J5.siteUnique", "*");
 if (websiteIds.size > 1) {
   fail(
+    "J5",
     `全站出现 ${websiteIds.size} 个不同的 WebSite @id：` +
       `${[...websiteIds].map((s) => JSON.stringify(s)).join(" / ")} —— ` +
       `全站必须指向同一个站点实体`
@@ -876,6 +1131,7 @@ if (websiteIds.size > 1) {
 /* ---- J8：同一个 @id 不得挂在不同的 @type 上（全站一次性判） ---- */
 {
   let idCount = 0;
+  mark("J8.typedIds", "*");
   for (const [id, m] of siteTypeUse) {
     idCount++;
     if (m.size <= 1) continue;
@@ -883,6 +1139,7 @@ if (websiteIds.size > 1) {
       .map((v) => `"${v.types}"（${[...v.pages].sort().join("、")}）`)
       .join(" / ");
     fail(
+      "J8",
       `同一个 @id「${id}」在全站挂了 ${m.size} 种 @type：${detail} —— ` +
         `实体身份就是 @id：同一个 @id 必须只讲一件事，否则消费方按 @id 归并时` +
         `两套字段会挤在一起，取到哪一套全看遍历顺序。` +
@@ -890,31 +1147,33 @@ if (websiteIds.size > 1) {
     );
   }
   if (!idCount) {
-    fail("全站没有找到任何带 @id 且带 @type 的 JSON-LD 节点 —— J8 从未真正执行过");
+    fail("J8", "全站没有找到任何带 @id 且带 @type 的 JSON-LD 节点 —— 本条判据从未真正执行过");
   }
   j8Ids = idCount;
 }
 
 /* ---- J7：自证存活 ---- */
-comparisons++;
+mark("J7.selfAlive", "*");
 if (pagesChecked === 0) {
-  fail("产物里一个可检查的页面都没有 —— 判据从未被真正执行过");
+  fail("J7", "产物里一个可检查的页面都没有 —— 判据从未被真正执行过");
 }
 if (pageEntitiesFound === 0) {
-  fail("全站没有找到任何页面实体（WebPage / ProfilePage）—— 判据从未被真正执行过");
+  fail("J7", "全站没有找到任何页面实体（WebPage / ProfilePage）—— 判据从未被真正执行过");
 }
-if (comparisons < pagesChecked) {
-  fail(`只比了 ${comparisons} 处，却检查了 ${pagesChecked} 页 —— 判据没有逐页执行`);
+if (comparisons() < pagesChecked) {
+  fail("J7", `只比了 ${comparisons()} 处，却检查了 ${pagesChecked} 页 —— 判据没有逐页执行`);
 }
 if (!j9Compared) {
   fail(
-    "全站没有比到任何一个 mainEntityOfPage —— J9 从未真正执行过" +
+    "J7",
+    "全站没有比到任何一个 mainEntityOfPage —— 本条判据从未真正执行过" +
       "（论文页的 mainEntityOfPage 消失了，判据也就跟着失效了）"
   );
 }
 if (!j10Compared) {
   fail(
-    "全站没有比到任何一页的页面角色 —— J10 从未真正执行过" +
+    "J7",
+    "全站没有比到任何一页的页面角色 —— 本条判据从未真正执行过" +
       "（页面实体与源文件声明的 profilePage 角色从未被核对过）"
   );
 }
@@ -923,12 +1182,14 @@ if (!j10Declared) {
   // 的读法写错），它会"什么都没找到" → 全部按 WebPage 判 → 门禁照样绿，
   // 而首页/关于页其实是 ProfilePage。缺了这一条，那类退化无人看守。
   fail(
+    "J7",
     "全站没有一页找到角色声明 —— J10 的角色解析从未真正取到值" +
       "（解析逻辑坏了：所有页都被当成 WebPage 判，门禁照样绿）"
   );
 }
 if (!j10ProfilePages) {
   fail(
+    "J7",
     "全站没有一页声明 ProfilePage —— 页面角色这一层整个退化了，" +
       "消费方拿不到「这是关于某人的页面」" +
       "（首页与关于页的 profilePage: true 是不是被改名或删掉了？）"
@@ -938,15 +1199,66 @@ if (!j11Compared) {
   // 自证：J11 必须真的在论文页上跑过。否则"论文实体没有 image / dateModified"
   // 这条判据就是空转的（列表页那批论文实体不归它管，@id != canonical）。
   fail(
+    "J7",
     "全站没有核对到任何一页的论文实体 —— J11 从未真正执行过" +
       "（论文页自己的 ScholarlyArticle 消失了，image / dateModified 就无人看守）"
   );
 }
 if (!j11ImageCompared) {
   fail(
+    "J7",
     "J11 没有比到任何一个 image —— 判据从未真正执行过" +
       "（论文页的 ScholarlyArticle 没有 image，或该页没有 og:image 可比）"
   );
+}
+
+/* ---------- J12：逐比较点覆盖度自证 ----------
+   ⚠️ 2026-10-22（D59 第十一批）实测补：J7 的存活自证是**总数**口径
+     （`comparisons < pagesChecked`），抓不住「整段判据被摘掉」——
+     因为每一页本来就贡献 3–5 处比较，摘掉一段后剩下的照样把总数撑过页数。
+     这里改成**逐页逐比较点**：静态目录里每个比较点都必须在该跑的地方真的跑到。
+   ⚠️ 判据被卸掉（开关关）⇒ 它的比较点不算缺失 —— 否则"卸判据"永远转不了绿。 */
+{
+  /* 全站一个错误页都没有 ⇒ J6 没有判断对象 ⇒ 豁免它的比较点。 */
+  if (errorPagesChecked === 0) waive("J6.errorPage", null);
+  const missing = [];
+  for (const p of COVERAGE_POINTS) {
+    const owner = ownerOf(p.key);
+    if (SWITCH_ON[owner] === false) continue; // 判据被卸掉 ⇒ 不算缺失
+    if (globalWaived.has(p.key)) continue; // 前提不在场 ⇒ 豁免
+    if (p.everyPage) {
+      for (const pg of nonErrorPages) {
+        if (waivesOf(pg).has(p.key)) continue; // 该页前提不在场 ⇒ 豁免
+        if (!marksOf(pg).has(p.key)) missing.push(`${p.key} @ ${pg}`);
+      }
+    } else {
+      const n = hitCount[p.key] || 0;
+      if (n >= p.min) continue; // 跑够了
+      if (waivedKeys.has(p.key)) continue; // 前提不在场（每处都豁免了）⇒ 不算缺失
+      missing.push(`${p.key}（记到 ${n} 次，至少要 ${p.min} 次）`);
+    }
+  }
+  if (missing.length) {
+    fail(
+      "J12",
+      `逐比较点覆盖度自证失败：${missing.length} 个比较点没跑到 —— ` +
+        `${missing.slice(0, 6).join("；")}${missing.length > 6 ? " …" : ""}。` +
+        `这说明有判据**没有真正执行**（或者整段被摘掉了）——门禁正在给出一个假的绿。`
+    );
+  }
+  /* 结构自证：每个可卸开关都必须有比较点归属 ——
+     否则"卸掉某条判据"这个动作在覆盖度自证里**根本不可观测**：
+     卸了它，比较点目录里也没有它的点 ⇒ 覆盖度自证照样绿 ⇒ 负对照不成立。 */
+  for (const id of Object.keys(SWITCH_ON)) {
+    if (id === "J12") continue; // J12 自己就是自证，它没有比较点
+    if (!COVERAGE_POINTS.some((p) => ownerOf(p.key) === id)) {
+      fail(
+        "J12",
+        `判据 ${id} 在比较点目录里没有任何落点 —— 卸掉它的开关时覆盖度自证看不出变化，` +
+          `"卸开关转绿"这件事对它不成立。请在 COVERAGE_POINTS 里给它补一个键。`
+      );
+    }
+  }
 }
 
 /* ---------- 汇总 ---------- */
@@ -983,4 +1295,15 @@ note(
       : "")
 );
 notes.forEach((n) => console.log(`· ${n}`));
-console.log("✓ 结构化数据自检通过（门禁 J1–J11）");
+const ranPoints = COVERAGE_POINTS.filter(
+  (p) =>
+    SWITCH_ON[ownerOf(p.key)] !== false &&
+    !globalWaived.has(p.key) &&
+    !waivedKeys.has(p.key)
+).length;
+const waivedPoints = COVERAGE_POINTS.length - ranPoints;
+console.log(
+  `逐比较点覆盖度自证：${ranPoints}/${COVERAGE_POINTS.length} 个比较点都跑过` +
+    `（另有 ${waivedPoints} 个因前提不在场或判据被卸掉而豁免）。`
+);
+console.log("✓ 结构化数据自检通过（门禁 J0–J12）");
