@@ -1,12 +1,30 @@
 # MeteoHub · 信息架构（Information Architecture）
 
-> **📐 设计规划稿（v1.0 · 2026-09-24）** —— 描述的是**设计意图与目标结构**，不是当前实现快照。已实现的部分见 `README.md` / `HOW_TO_RUN.md`。
->
-> **尚未实现**（本文提到但代码里还没有）：`/tags/` 与 `/tags/{tag}/` 标签索引页、`/search/` 站内检索、`/about/cv/` PDF CV、portfolio 的 `cma-meso` 条目、`/blog/2026-08-04-wrf-lessons/`（实际 slug 是 `2026-08-04-wrf-pbl-lessons`）。blog / papers / portfolio 列表页当前用 `size: 100` 一次性渲染，**没有分页**（本文 §4.3 写的「每页 10 篇」未落地）。
->
-> 改动实现时，请回来同步这份文档。
+> **📐 设计规划稿（v1.1 · 2026-10-23）** —— 描述的是**设计意图与目标结构**，不是当前实现快照。
+> 本文提到的路径分两类：**已落地**（代码里真实存在）与**规划中**（下面「落地状态」表点名）。
+> 两类由 `scripts/check-information-architecture.cjs`（判据 IAC1–IAC7）对代码现实自动对账 ——
+> 改了实现就回来改这份文档，门禁会替你核对。
 
-> 文档版本：v1.0 · 2026-09-24  
+## 落地状态
+
+下表点名**当前尚未落地**的路径族。表里没点名的路径，要么已落地，要么本文根本没写过。
+
+| 未落地路径 | 规划意图 | 当前现状 |
+|---|---|---|
+| `/tags/` | 标签索引页 + 单标签筛选 | 没有标签索引路由；按 tag 过滤也未实现 |
+| `/search/` | 站内检索（先轻量客户端方案） | 没有检索页；§1.2 已把它改口为「规划中」 |
+| `/about/cv/` | 关于页的 PDF CV 链接 | 没有 CV 产物，§七 的 PDF 编译步骤尚未执行 |
+| `/cv.pdf` | 编译产物 PDF CV | 同上，未生成 |
+| `/portfolio/` | 作品集整族（列表页 + 条目页） | 没有列表页模板、集合 0 条内容、导航里也没有它 ⇒ 整族未落地 |
+| `/admin/` | Decap CMS 的后台入口 | 后台形态已拍板，但 OAuth App 尚未自建 ⇒ 尚未接入 |
+
+其它已知偏差（**不是路径**，所以不进上表）：
+
+- blog / papers / portfolio 列表页当前一次性渲染全部条目（`size: 100`），**没有分页** —— §4.3 写的「每页 10 篇」未落地；
+- §2.1 / §2.2 里的条目级 slug 都是**示意**：blog 与 portfolio 集合当前 0 条内容，papers 只有 1 条（`trmm-thunderstorm-stages`）；
+- 作品集里的 `cma-meso` 条目至今没有对应内容。
+
+> 文档版本：v1.1 · 2026-10-23  
 > 输出对象：工程师、实现协作者  
 > 设计原则：**短路径、可发现、无冗余**
 
@@ -16,16 +34,16 @@
 
 ### 1.1 设计目标
 
-1. **5 个一级页面**承担全部主交互：Index / Portfolio / Blog / Papers / About
+1. **4 个一级页面**承担全部主交互：Home / Papers / Blog / About（真源：`src/_data/site.js` 的 `nav` 数组）
 2. 每个一级页面**最多两级深**（除论文精读页内的「章节跳转」与「批注」伪深度）
 3. 全站静态生成，URL 不带后端参数，构建期产出 HTML
-4. 中文为主要语言，英文版本留作未来扩展（URL 段用 `/` 不带 `/zh/` 前缀；待国际化时再切）
+4. **全站英文**（中文版不做；待国际化时再议）
 
 ### 1.2 边界
 
 - 不做：用户登录、评论、订阅流、动态推荐、社交关系
-- 不做：管理后台（所有内容通过 PR / Markdown 直接更新）
-- 不做：客户端搜索 / PageFind / Algolia（v1.0 做基础内嵌检索，后续迭代再加）
+- 内容后台形态已拍板为 **Decap CMS**（GitHub OAuth，入口 `/admin/`），**尚未接入**；接入前内容以「改文件 + 提交」的方式更新
+- 站内检索：**规划中**，当前不实现（见 §4.6）
 
 ---
 
@@ -66,7 +84,7 @@ graph TD
     F[*Common · 全站组件] --> F1[Topbar]
     F --> F2[Footer]
     F --> F3[主题切换]
-    F --> F4[站内检索 / search/]
+    F --> F4[站内检索 /search/]
     F --> F5[404 页 /404.html]
     F --> F6[站点地图 /sitemap.xml]
     F --> F7[RSS /feed.xml]
@@ -77,21 +95,21 @@ graph TD
 ```
 MeteoHub
 ├── /                           ← 首页 Index
-├── /portfolio/                 ← 作品集 Portfolio
+├── /portfolio/                 ← 作品集 Portfolio（规划中）
 │   ├── /portfolio/             ← 列表（卡片网格）
 │   └── /portfolio/{slug}/      ← 单项目详情（slugify 项目名）
 ├── /blog/                      ← 博客 Blog
 │   ├── /blog/                  ← 列表（时间倒序）
-│   ├── /blog/{yyyy-mm-dd-slug}/  ← 单篇博客
-│   ├── /tags/                  ← 全部标签索引
-│   └── /tags/{tag}/            ← 单标签筛选
+│   ├── /blog/{slug}/           ← 单篇博客（目录名即 slug）
+│   ├── /tags/                  ← 全部标签索引（规划中）
+│   └── /tags/{tag}/            ← 单标签筛选（规划中）
 ├── /papers/                    ← 论文精读 Papers with annotations
 │   ├── /papers/                ← 列表（按阅读完成度排序）
 │   └── /papers/{slug}/         ← 单篇精读（左原文 / 右批注）
 ├── /about/                     ← 关于 About
 │   ├── /about/                 ← 单页（可锚点分段）
-│   └── /cv/                    ← PDF CV 链接（外链或静态）
-├── /search/                    ← 站内检索
+│   └── /about/cv/              ← PDF CV 链接（外链或静态，规划中）
+├── /search/                    ← 站内检索（规划中）
 ├── /404.html                   ← 错误页
 ├── /feed.xml                   ← RSS 订阅
 └── /sitemap.xml                ← 站点地图
@@ -105,25 +123,28 @@ MeteoHub
 
 | 序号 | 标签 | 路径 | 性质 |
 |---|---|---|---|
-| 1 | 首页 | `/` | 站点门面 |
-| 2 | 作品集 | `/portfolio/` | 项目交付物 |
-| 3 | 博客 | `/blog/` | 长文思考 |
-| 4 | 论文精读 | `/papers/` | 学术核心 |
-| 5 | 关于 | `/about/` | 个人介绍 |
+| 1 | Home | `/` | 站点门面 |
+| 2 | Papers | `/papers/` | 学术核心 |
+| 3 | Blog | `/blog/` | 长文思考 |
+| 4 | About | `/about/` | 个人介绍 |
 
-> Topbar 永远显示，**最多 5 个入口**，避免拥挤。次要入口（订阅、检索、主题切换）放右侧操作区。
+> 权威顺序以 `src/_data/site.js` 的 `nav` 数组为准（本表与它逐项对齐，由门禁 IAC3 守着）。
+> 早期版本有 5 个入口（多一个「作品集」），作品集整族未落地 ⇒ 已从导航里去掉。
 
 ### 3.2 站内交叉入口
 
 | 入口位置 | 跳转到 |
 |---|---|
-| Hero 三个 CTA | `/portfolio/` `/blog/` `/papers/` |
+| Hero 三个 CTA | `/portfolio/`（规划中） `/blog/` `/papers/` |
 | 项目详情页底部「相关文章」 | `/blog/?tag={tag}` `/papers/?tag={tag}` |
-| 博客详情页底部「研究相关」 | `/portfolio/` 含同 tag 项目 |
+| 博客详情页底部「研究相关」 | `/portfolio/`（规划中）含同 tag 项目 |
 | 论文精读详情页右上「下载原文 PDF」 | 外链 PDF |
 | 全站页脚 | `/about/` `/feed.xml` `/sitemap.xml` |
 
 ### 3.3 面包屑规则
+
+**规划中** —— 面包屑是否引入本身还没拍板（见中央「待拍板」台账），当前模板里没有面包屑组件。
+真要引入的话，设想如下：
 
 仅在三处使用：
 
@@ -131,11 +152,13 @@ MeteoHub
 - 博客详情：`首页 / 博客 / {文章标题}`
 - 论文详情：`首页 / 论文精读 / {论文短名}`
 
-> 一级页面（Portfolio / Blog / Papers 列表本身）**不**显示面包屑（与导航重复）。
+> 一级页面（Blog / Papers 列表本身）**不**显示面包屑（与导航重复）。
 
 ---
 
 ## 四、各页面骨架（Page Skeletons）
+
+> 本节是**设计骨架**，不是实现快照；逐条是否已落地，看上面的「落地状态」表与代码。
 
 ### 4.1 `/`（Index）
 
@@ -158,6 +181,8 @@ MeteoHub
 ```
 
 ### 4.2 `/portfolio/`
+
+**规划中** —— 作品集整族尚未落地（见「落地状态」表）。
 
 ```
 H1 作品集
@@ -182,10 +207,10 @@ Hero：项目封面 + 标题 + 起止时间 + 角色
 H1 博客
 侧栏（桌面）：标签云 + 归档月份
 文章卡片：日期 + 标题 + 摘要 + 阅读时长 + 标签
-分页：每页 10 篇，「上一页 / 下一页」
+分页：每页 10 篇，「上一页 / 下一页」（未落地：当前一次性渲染全部条目）
 ```
 
-详情页 `/blog/{yyyy-mm-dd-slug}/`：
+详情页 `/blog/{slug}/`：
 
 ```
 H1 文章
@@ -231,7 +256,10 @@ H1 关于
 
 ### 4.6 `/search/`
 
-由 PageFind（v1.0 可暂用客户端 JSON + fuse.js 简易版）提供：
+**规划中** —— 当前没有检索页。
+
+设想（v1.0 可暂用客户端 JSON + fuse.js 简易版）：
+
 - 单输入框 + 实时结果
 - 命中片段高亮
 - 支持 `/`、`blog`、`papers`、`portfolio` 过滤
@@ -242,17 +270,21 @@ H1 关于
 
 | 类型 | 规则 | 示例 |
 |---|---|---|
-| 项目 | `/portfolio/{slug}/` | `era5-pipeline` |
-| 博客 | `/blog/{yyyy-mm-dd-slug}/` | `2026-09-12-era5-reanalysis-intro` |
-| 论文 | `/papers/{slug}/` | `holton-rollin-1987` |
-| 标签索引 | `/tags/{tag}/` | `data-assimilation` |
+| 论文 | `/papers/{slug}/` | `trmm-thunderstorm-stages` |
+| 博客 | `/blog/{slug}/` | `trmm-stage-lightning` |
+| 标签索引 | `/tags/{tag}/`（规划中） | `data-assimilation` |
 | 静态资源 | `/assets/{path}` | `assets/fonts/Inter-Bold.woff2` |
-| 多语言 | 先不做（`/`） | — |
+| 项目（规划中） | `/portfolio/{slug}/` | `era5-pipeline` |
+| 多语言 | 不做（`/`） | — |
 
-文件名规范：
-- 博客 Markdown：`/content/blog/{yyyy-mm-dd-slug}/index.md`，外加 `cover.png`
-- 论文 Markdown：`/content/papers/{slug}/paper.md` + `annotations.json` + `cover.png`
-- 项目：`/content/portfolio/{slug}/index.md`
+文件名规范（**都以仓库根为起点** —— Eleventy 只采集 `src/` 下面的内容）：
+
+- 博客 Markdown：`src/content/blog/{slug}/index.md`，可选封面 `src/content/blog/{slug}/cover.svg`
+  （封面只认 `cover.svg` / `cover.png` / `cover.jpg` / `cover.jpeg` / `cover.webp`）；
+  **目录名就是 slug**，front matter 里写 `slug:` 不生效。
+- 论文 Markdown：`src/content/papers/{slug}/paper.md`，可选旁挂 `src/content/papers/{slug}/annotations.json`。
+- 单页：`src/content/about.md`。
+- 项目（规划中）：`src/content/portfolio/{slug}/index.md`。
 
 ---
 
@@ -262,32 +294,32 @@ H1 关于
 
 ```yaml
 ---
-title: ERA5 再分析数据入门：选区与下载
-slug: 2026-09-12-era5-reanalysis-intro
+title: ERA5 Reanalysis Basics: Region Selection and Download
 date: 2026-09-12
-author: Yihang Lv
-tags: [reanalysis, era5, data-assimilation]
-cover: cover.png
-excerpt: 一份给大气科学初学者的 ERA5 选区与下载实战笔记。
+excerpt: A hands-on note on picking a region and downloading ERA5 for atmospheric science.
 readingTime: 8
-status: published
+tags: [reanalysis, era5, data-assimilation]
+cover: cover.svg
 ---
 ```
 
+> 可写字段以站内博客写作契约为准（`docs/blog-writing-guide.md` §2）；`layout` / `permalink`
+> 由集合自动注入，**不要在 front matter 里写**。
+
 ### 6.2 Portfolio Front Matter
+
+**规划中** —— 作品集整族尚未落地，下面这份 schema 只是设计意图。
 
 ```yaml
 ---
-title: 西北太平洋台风路径快速可视化工具
-slug: typhoon-track
+title: Rapid visualization of western North Pacific typhoon tracks
 type: tool
 year: 2025
 role: Solo
 stack: [Python, Cartopy, xarray]
-cover: cover.png
+cover: cover.svg
 repo: https://github.com/...
 demo: https://...
-status: shipped
 ---
 ```
 
@@ -295,18 +327,17 @@ status: shipped
 
 ```yaml
 ---
-title: On the role of moist convection in the QBO
-slug: holton-rollin-1987
-authors: Holton, J. R., & Rolin, J.
-journal: J. Atmos. Sci.
-year: 1987
-doi: 10.1175/1520-0469(1987)044<XXXX>...
-pdf: https://...
-tags: [qbo, stratosphere]
-readingStatus: finished   # finished | reading | queued
-totalAnnotations: 14
+pubKey: trmm-stages
+date: 2026-06-01
+description: Stage-dependent relationships between lightning and radar echo structure in TRMM thunderstorms over tropical Africa.
+summary: A K-means classifier on radar echo structure splits 16 years of TRMM storms into Pre-Mature, Mature and Post-Mature stages.
+tags: [lightning, radar, trmm]
 ---
 ```
+
+> 论文的标题 / 作者 / 期刊 / 年份 / DOI / PDF 链接**不在 front matter 里** ——
+> 唯一真源是 `src/_data/site.js` 的 `publications` 数组，页面按 `pubKey` 关联。
+> 照着别处抄 front matter 字段，只会写了不生效。
 
 ---
 
@@ -314,26 +345,26 @@ totalAnnotations: 14
 
 | 来源 | 工具 | 输出 |
 |---|---|---|
-| `content/blog/**` | Hugo / Eleventy（v1.0 推荐 Eleventy，零依赖） | `/blog/...` |
-| `content/papers/**` | 同上 + `annotations.json` 内联 | `/papers/...` |
-| `content/portfolio/**` | 同上 | `/portfolio/...` |
-| `content/about.md` | 同上 | `/about/` |
-| 标签、归档 | Eleventy collection | `/tags/` |
-| RSS、sitemap | Eleventy plugin | `/feed.xml`、`/sitemap.xml` |
-| PDF 编译 | Pandoc / Pandomatic（可选） | `/cv.pdf` |
+| `src/content/blog/**` | Eleventy | `/blog/...` |
+| `src/content/papers/**` | Eleventy | `/papers/...` |
+| `src/content/portfolio/**` | Eleventy（**规划中**） | `/portfolio/...` |
+| `src/content/about.md` | Eleventy | `/about/` |
+| 标签、归档 | Eleventy collection（**规划中**） | `/tags/` |
+| RSS、sitemap | Eleventy | `/feed.xml`、`/sitemap.xml` |
+| robots、引文导出 | Eleventy | `/robots.txt`、`/publications.bib`、`/publications.ris` |
+| PDF 编译 | Pandoc / Pandomatic（可选，**未落地**） | `/cv.pdf` |
 
-> **建议落地**：v1.0 用 **Eleventy (11ty)** + 一个最小的主页 Layout。零 JS 框架，10 分钟能搭起来。
+> 站点已经用 **Eleventy** 构建（零 JS 框架）。改动本文的路径之前，先看「落地状态」表。
 
 ---
 
 ## 八、设计评审清单
 
-- [ ] 五大入口 ≤ 5 个，且语义互斥
-- [ ] 二级页面 slug 与论文 / 项目 / 博客一一对应
-- [ ] 404 页含 Topbar + 返回首页 CTA
-- [ ] 所有页面都有 `<title>` 与 `<meta description>`（SEO）
-- [ ] 所有页面都有 OG/Twitter Card（社交分享，可后续）
-- [ ] RSS /sitemap 可被爬取
+- [x] 一级入口 ≤ 5 个，且语义互斥（当前 4 个：Home / Papers / Blog / About）
+- [ ] 二级页面 slug 与论文 / 项目 / 博客一一对应（blog 与 portfolio 集合当前 0 条内容）
+- [x] 404 页含 Topbar + 返回首页 CTA
+- [x] 所有页面都有 `<title>` 与 `<meta description>`（SEO）
+- [ ] 所有页面都有 OG/Twitter Card（OG 家族已实现；Twitter Card 标签未加）
+- [x] RSS 与 sitemap 可被爬取（`/feed.xml`、`/sitemap.xml`，robots.txt 已声明）
 - [ ] 移动端导航用 Drawer，无横滚
 - [ ] 「关于」可被一页纸 PDF 下载
-

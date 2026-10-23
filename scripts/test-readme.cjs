@@ -707,11 +707,20 @@ function breakAllPaths(readme) {
       throw new Error("SP9 注入锚点不存在：README 里没有「声明了判据编号的门禁行」—— 坏跑");
     }
 
-    const kept = new Set(keep);
+    /* 裁剪规模**跟随门禁自身的下限**走，不写死。
+     * ⚠️ 为什么不能「全保留 keep」：带判据编号的门禁行会随门禁增减而增减，
+     *    保留数一旦 ≥ MIN_SCRIPTS，这一档就永远裁不到下限 ⇒ 变成坏跑。
+     *    （实测：加了第 10 道带判据编号的门禁行之后 keep 从 9 变 10 ⇒ 撞上下限。）
+     *    ⇒ 上限取「下限 - 1」，并且**至少留 1 个**声明了判据编号的门禁行，
+     *       让 RD6 仍能真的比对过、RD7a/RD7b 不连坐。 */
+    const cap = Math.max(1, minScripts - 1);
+    const kept = new Set();
+    for (const name of keep.slice(0, cap)) kept.add(name);
+    /* 再用「README 行里没有判据编号」的那些补到 5 个（补不满也无所谓）。 */
     for (const name of names) {
       if (kept.size >= 5) break;
       const r = rowInfo.get(name);
-      if (r && !r.hasCrit) kept.add(name);
+      if (r && !r.hasCrit && !kept.has(name)) kept.add(name);
     }
     if (kept.size >= minScripts) {
       throw new Error(

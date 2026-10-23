@@ -27758,3 +27758,126 @@ D59 第三批给 `check-lang`、第四批给 `check-print-theme`、第五批给 
 - **M1（内容引擎）**：选题主线本人尚未指定 ⇒ 本轮不代拍。
 - **M4 / M5**：下游于文章（文章还没有）⇒ 排在 M1 之后。
 - 其余待修缺陷（D5 / D6 / D9 / D10 / D12 / D26 / D32 / D57）仍挂本人拍板，本轮不代拍。
+
+## 2026-10-23 · 05:30–06:50 场次（**不占轮次号**）：D84 —— 修掉缺陷 **D83**：信息架构规划稿与代码现实脱节十处，且零门禁看守
+
+### A. 背景
+
+- 上一轮（D83）修的是 `docs/design-system.md` §6 的**最后四节**（§6.3 / §6.7 / §6.8 / §6.9），
+  触发点是**门禁覆盖面**：DCX 门禁的扫描面只到前四节 ⇒ 后四节漂移多少都不会自动变红。
+- 本轮用同一个方法去盘另一份**同样没有门禁看守**的活文档：
+  `docs/information-architecture.md`（信息架构规划稿）。它既不在别的门禁的扫描面里，
+  也没有哪条判据提到它 ⇒ 漂了没人知道。
+- 实测漂移清单（每条都对着 `src/` 与 `src/_data/site.js` 核过，不是推测）：
+  ① §1.1 写「中文为主要语言，英文版本留作未来扩展」—— 与已拍板的**全站英文**直接冲突；
+  ② §1.2 写「不做：管理后台（所有内容通过 PR / Markdown 直接更新）」—— 与已拍板的后台形态
+  （**Decap CMS**）直接冲突；③ §1.2 写「不做：客户端搜索」，§4.6 却整节描述 `/search/` ——
+  同一份文档自相矛盾；④ `/portfolio/` 整块（§2.1 / §2.2 / §3.1 / §3.2 / §4.2 / §五 / §七）
+  都被写成「已经在那儿」，而站内**根本没有 portfolio**：没有列表页模板、集合 0 条内容、
+  导航里也没有它 ⇒ 点开就是 404；⑤ §3.1 导航表列 5 个一级入口，真源 `site.js` 的 nav 只有
+  4 个；⑥ §五 的文件名规范写 `/content/blog/{yyyy-mm-dd-slug}/index.md`、论文配
+  `annotations.json`，真实路径全在 `src/` 下面、slug 就是目录名、真实论文条目里**没有**
+  `annotations.json`；⑦ §6.1 Blog 的 front matter 示例含 `slug` / `author` / `status` ——
+  这三个字段**不生效**（目录名决定 URL，`author` / `status` 压根不存在）；⑧ §6.3 Paper 的
+  front matter 示例写着 `title` / `authors` / `journal` / `year` / `doi` / `pdf` ——
+  论文页这些字段**根本不从 front matter 读**，唯一真源是 `src/_data/site.js` 的
+  `publications[]` ⇒ 照着示例写就是白写；⑨ §七 的静态生成衔接表把来源写成
+  `content/blog/**`，照着建目录会建在仓库根的 `content/` 下，Eleventy **不采集**那个位置
+  ⇒ 建了也没有页面；⑩ §八 评审清单 8 条全未勾，其中 404 页 CTA / title+description /
+  RSS+sitemap 三条其实早已落地。
+- 这族漂移不会让站点变坏，只会让后来的人（包括 agent）照着**不存在的路径**实现、
+  照着**不被消费的字段**写内容，或者照着**建错目录**的规范建目录。
+
+### B. 改动
+
+- **修法不是把规划稿改写成实现快照** —— 那会把「设计意图」也一起抹掉。走三步：
+  ① 文档顶部把「尚未实现」的散文升级为**机器可核对的『落地状态』表**（表头含「未落地路径」
+  一列），把 `/tags/`、`/search/`、`/about/cv/`、`/cv.pdf`、`/portfolio/`、`/admin/`
+  六条尚未落地的路径逐条点名；② 与代码现实直接冲突的**已实现口径就地订正**；
+  ③ 未落地的设计意图**保留并标「规划中」**（不删、不代拍、不实现）。
+- **新增门禁** `scripts/check-information-architecture.cjs`，判据 **IAC1–IAC7**
+  （IAC1 字面路径必须已实现或被『落地状态』表点名 / IAC2 清单不得过期且不得点名根路径 /
+  IAC3 导航表逐项对齐 `site.nav` / IAC4 内容源路径须带 `src/` 且真实存在 /
+  IAC5 front matter 字段与真源一致 + 未实现集合须写「规划中」 /
+  IAC6 已拍板口径（全站英文、Decap 后台）不得被推翻 / IAC7 覆盖度自证），
+  `fail()` 调用点 **21 处** ⇒ 每条红因都能**唯一**归到一条判据。
+- **门禁里的路径不许写死**：真实路由从真源**派生** —— `src/*.njk` 的 permalink ＋
+  集合 `.11tydata.cjs` 的 permalink 家族 ＋ 集合条目数 ＋ `site.nav` ＋ `src/assets`
+  存在性 ⇒ 路由一变门禁自动跟。「已实现集合家族」按「有 ≥1 条内容**或**有对应列表页路由」
+  判定 ⇒ 空的 `blog` 集合因有列表页仍算已实现，`portfolio` 整族因两者皆无判为未实现。
+- **元数据对账走「活文档 / 真实源直接比对」**：Blog 对 `docs/blog-writing-guide.md` §2 那张
+  可写字段表的字段列，Paper 对真实 `paper.md` 的 front matter ∪ 集合自动注入字段
+  ⇒ 不硬编码字段名单；`layout` / `permalink` 作为禁止字段硬编码（覆盖自动注入的值）。
+- **文档改写**（`docs/information-architecture.md`）：§1.1 改成「4 个一级页面 / 全站英文」；
+  §1.2 改成「后台形态已拍板为 Decap CMS（入口 `/admin/`），尚未接入」＋「站内检索：规划中」；
+  §3.1 导航表改成 4 行与 `site.nav` 逐项对齐；§3.3 面包屑、§4.2、§4.6 标「规划中」；
+  §4.3 补「未落地：当前一次性渲染全部条目」；§五 文件名规范改成
+  `src/content/blog/{slug}/index.md` ＋ `cover.svg`、`src/content/papers/{slug}/paper.md`
+  ＋ `annotations.json`、`src/content/about.md`；§6.1 改成 title/date/excerpt/readingTime/
+  tags/cover；§6.2 Portfolio 标「规划中」；§6.3 改成 pubKey/date/description/summary/tags；
+  §七 来源改 `src/content/**` 并补 `/robots.txt`、`/publications.bib`、`/publications.ris`；
+  §八 勾上已核实的 4 条，Twitter Card 与 slug 一一对应两条保持未勾。
+- **新增自测** `scripts/test-information-architecture.cjs`：**22 档注入**（IACR0–IACR21）
+  ＋ **7 档判据级负对照**（NC-IAC1–NC-IAC7）；夹具是**合成式**的（路径名 / 集合名 /
+  字段名都与真实仓库完全不同）⇒ 证明门禁是**真源驱动**而不是把真实名字写死；
+  `scripts/lib/selftest-slots.cjs` 登记 **29** 个编号。
+- **接线**：`package.json` 加 `check:information-architecture` 与
+  `check:information-architecture-selftest` 并**接进 build 链**；README 命令表加两行
+  （门禁行列 **IAC1–IAC7**，与门禁源码对账通过）。
+
+### C. 验证
+
+- 真仓门禁 **exit 0**（站内路径 24 条 · 内容源路径 9 条 · 『落地状态』表 6 条 ·
+  导航 4 项 · 元数据字段 11 个 · 已实现集合家族 2 个）。
+- 自测 **22 档注入 ＋ 7 档负对照全绿**：红因 21/21 至少一档判红、判据 7/7 至少一档判红、
+  仓库真源指纹前后一致（注入全程只在临时副本上做）。
+- **两轮独立反向验证**：
+  ① 修前整份文档（`git show HEAD:docs/information-architecture.md`）⇒ exit 1、红因 **38 条**
+  （IAC1×11 / IAC2×1 / IAC3×2 / IAC4×7 / IAC5×12 / IAC6×4 / IAC7×1）；
+  ② 只把修后锁定的几处改回修前写法（其余一字不动）⇒ 逐档**精确**命中：
+  语言口径改回「中文为主要语言」⇒ {IAC6}、导航表加回第 5 项 ⇒ {IAC3}、
+  §七 来源列去掉 `src/` 前缀 ⇒ {IAC4}、§6.1 加回不生效的 `slug` ⇒ {IAC5}。
+- `npm run build` **exit 0**（含新门禁与新自测）。
+
+### D. 顺手发现（记下来，不在本轮修）
+
+- 门禁自身的三处**真源解析**坑在本轮顺手修掉（属本轮新写门禁的内部正确性）：
+  内容源路径必须先从文本里**挖空**再跑站内路径正则（否则 `/content/papers/{slug}/paper.md`
+  会被切出假路径 `/paper.md`）；`/assets/` 要由 `src/assets` 存在性派生；
+  `eleventyComputed` 的识别要容许缩进。
+- `docs/information-architecture.md` 的 §八 评审清单里，Twitter Card 与 slug 一一对应两条
+  **仍未勾** —— 站内确实没有这两样能力，保持未勾、不代拍。
+
+### E. 文档
+
+- `docs/information-architecture.md`：整体重写（落地状态表 ＋ 与代码现实对齐 ＋ 规划中标注）。
+- `docs/DEFECT-BACKLOG.md`：新增缺陷 **D83** 一行（十处漂移 ＋ 十条验收条件 ＋ 本轮兑现记录）。
+- `docs/ROADMAP.md`：进度行的缺陷清单推进到 **D83**；新增 **D84** 条目。
+- `docs/IMPROVEMENT-LOG.md`：本小节。
+
+### F. 本轮纪律
+
+- 提交只走**私有索引 CAS**，只提交本轮自己改的路径；**不 push**。
+- 并发场次占用的 `scripts/check-identity-handles.cjs` / `scripts/test-gates-selfcheck.cjs`
+  本轮**未触碰、未提交**。
+- 探针与勘察脚本都放在 `/tmp/mh_d84/`（含修前文档副本与反向验证脚本），**不入库**；
+  收尾用 `mavis-trash` 清理。
+- 门禁红了先定位红因，**不为了 build 变绿去放宽判据**。
+- **不代拍**：本轮**没有新增待拍板项**（站内检索 / 面包屑 / Decap 接入都只是**引用**既有
+  待拍板项），中央台账不动。
+- **文档里的每个断言都先实证再写**：路径、导航项、front matter 字段逐条对过 `src/` 与
+  `site.js`；没有靠「文档原本就是这么写的」来背书。
+- 新门禁**纯静态、不联网、不跑构建、不 import 被检查方** ⇒ build 链保持零网络依赖。
+- **修法方向**：先把「文档错了」与「代码错了」分开判 —— 本轮**代码是对的、文档是错的**
+  ⇒ 改文档，不补路由、不补集合、不实现未落地能力。
+
+### 下一轮入口
+
+- **缺陷 D6（线上 3 条 404）**：真正的前置是 **push**（本轮不代拍、不 push）。
+- **信息架构文档的其余规格层**：路径 / 导航 / 字段这三层已被门禁锁住，但「页面骨架段落
+  与模板结构是否一致」还没有门禁（下一步可按本轮做法把 §三 各页面骨架纳入扫描面）。
+- **M3（Decap 后台）**：要先把「bundle 自托管还是走 CDN」定下来，且 OAuth App 必须本人建；
+  接入前文档口径只能是「已拍板、未接入」。
+- **M1（内容引擎）**：选题主线本人尚未指定 ⇒ 本轮不代拍。
+- **M4 / M5**：下游于文章（文章还没有）⇒ 排在 M1 之后。
+- 其余待修缺陷（D5 / D6 / D9 / D10 / D12 / D26 / D32 / D57）仍挂本人拍板，本轮不代拍。
