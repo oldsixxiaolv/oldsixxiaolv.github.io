@@ -107,6 +107,39 @@
  *   另外注意：容器的 scroll-padding 与目标的 scroll-margin 是**相加**的，
  *   两者同时存在会让目标被推得更远。
  *
+ * ⚠️ 为什么测量必须与外网无关（2026-10-22 修缺陷清单 **D74**）：
+ *   此前这个门禁要等页面的 `Page.loadEventFired`，而站点的**三个 render-blocking
+ *   字体样式表**（base.njk 里 fonts.googleapis.com 的 Inter / Source Serif 4 /
+ *   JetBrains Mono）是**外网资源** ⇒ 外网不可达时，那几个请求会**一直挂着**，
+ *   load 事件**永远不来** ⇒ 门禁必然 20s 超时判红。
+ *   也就是说：**门禁的结论会随「这台机器当时能不能出网」而变** ——
+ *   同一份产物，在联网的机器上是绿的，在离线的机器上是红的，
+ *   而这两份结论**都说自己在量横向溢出**。
+ *   实测（2026-10-22，本机外网整体不可达）：`npm run build` 的第 77 环
+ *   就是这么红的，红因只有一句「等待 Page.loadEventFired 超时」——
+ *   看不出是外网的问题，更看不出测量的前提是什么。
+ *
+ *   修法（**不动产品代码**，只动测量方式）：
+ *   ① 用 CDP 的 `Network.setBlockedURLs` 在**浏览器层**把外部字体请求**确定性拦掉**
+ *      ⇒ 那些请求立刻失败（不是挂住）⇒ load 事件照常来 ⇒ 测量离线可跑、结果可复现。
+ *      ⚠️ 走过弯路：先试的是 Chrome 的 `--host-resolver-rules=MAP … ~NOTFOUND`，
+ *        **实测在 macOS 上根本不生效** —— 直连字体域仍然是 `ERR_TIMED_OUT`
+ *        （而不是 `ERR_NAME_NOT_RESOLVED`），说明规则没被采纳；
+ *        改成浏览器层的 `Network.setBlockedURLs` 才拿到确定性的快速失败。
+ *        （这一条要记住：**别再回到那条路上**。）
+ *   ② 等待条件、判据阈值、判定逻辑**一个字都没改** —— 只是把「外网能不能出」
+ *      从测量前提里**拿掉**。
+ *   ③ 加**两道自证**，防止「阻断」这一步自己被卸掉：
+ *      · 外部字体探针：页面内 `fetch` 一次外部字体域，**必须快速失败**。
+ *        阻断生效 ⇒ 毫秒级拒绝；阻断没生效 ⇒ 要么取到内容、要么挂住，
+ *        两种都判红（实测两者的区别是 0ms 与 5s 超时，判别力足够）。
+ *      · 密闭性：测量期间**除本机产物服务外**，任何请求拿到响应都判红 ——
+ *        测量结果不该依赖产物之外的任何东西。
+ *   ⚠️ **诚实边界**：阻断之后页面用的是**系统回退字体**，不是 webfont。
+ *      本门禁量的是**盒子宽度**（正文列宽、触点尺寸、遮挡面积、横向滚动），
+ *      这些量的是布局盒，**不随字宽改变**；只有「断词导致的横向溢出」这一类
+ *      可能因字体不同而有细微差别 —— 这一点在文末的通过文案里如实写出来。
+ *
  * 用法：
  *   node scripts/check-overflow.cjs                # 全部默认档位
  *   node scripts/check-overflow.cjs --width 320    # 只测某一档（调试用）
@@ -124,6 +157,32 @@ const os = require("os");
 const SITE = process.env.SITE_DIR
   ? path.resolve(process.env.SITE_DIR)
   : path.resolve(__dirname, "../_site");
+
+/* ---------- 外部字体：测量与外网无关（2026-10-22 修缺陷清单 D74） ----------
+ *
+ * 这些是站点唯一的外域子资源（scripts/check-third-party.cjs 守着这条口径）。
+ * 测量时把它们**在浏览器层拦掉**，测量结果就不再依赖「这台机器能不能出网」。
+ */
+const EXTERNAL_FONT_HOSTS = ["fonts.googleapis.com", "fonts.gstatic.com"];
+/** 交给 CDP `Network.setBlockedURLs` 的通配规则（`*` 匹配任意前缀/后缀）。 */
+const BLOCKED_URL_PATTERNS = EXTERNAL_FONT_HOSTS.map((h) => `*${h}*`);
+/** 探针打的那个域（必须是上面被拦的域之一，否则探针证明不了任何事）。 */
+const FONT_PROBE_HOST = EXTERNAL_FONT_HOSTS[0];
+/** 探针自己的等待上限：挂住这么久就判定「没被阻断」。 */
+const FONT_PROBE_TIMEOUT_MS = 6000;
+/** 「快速失败」的门槛：被阻断的请求应当是毫秒级失败。 */
+const FONT_PROBE_FAST_FAIL_MS = 1500;
+/** 探针在页面里跑的脚本：结果只有三种 —— 取到内容 / 快速失败 / 挂住。 */
+const FONT_PROBE_SCRIPT = `(async () => {
+  const t0 = Date.now();
+  const outcome = await Promise.race([
+    fetch('https://${FONT_PROBE_HOST}/__overflow_gate_probe.css', { mode: 'no-cors', cache: 'no-store' })
+      .then(() => ({ kind: 'resolved' }))
+      .catch(() => ({ kind: 'rejected' })),
+    new Promise((r) => setTimeout(() => r({ kind: 'hung' }), ${FONT_PROBE_TIMEOUT_MS})),
+  ]);
+  return { kind: outcome.kind, ms: Date.now() - t0 };
+})()`;
 
 /* ---------- 找 Chrome ----------
  *
@@ -460,6 +519,9 @@ class CDP {
     this.id = 0;
     this.pending = new Map();
     this.listeners = [];
+    /* 通用事件钩子：门禁自己要观测的域事件（Network.*）走这里，
+       不与 once() 的「等某个方法」机制混在一起。 */
+    this.onAny = null;
     ws.addEventListener("message", (ev) => {
       const msg = JSON.parse(ev.data);
       if (msg.id && this.pending.has(msg.id)) {
@@ -467,6 +529,7 @@ class CDP {
         this.pending.delete(msg.id);
         msg.error ? reject(new Error(msg.error.message)) : resolve(msg.result);
       } else if (msg.method) {
+        if (this.onAny) this.onAny(msg);
         this.listeners.forEach((fn) => fn(msg));
       }
     });
@@ -771,6 +834,45 @@ const measureScript = (contentSelector) => `(() => {
   const { sessionId } = await cdp.send("Target.attachToTarget", { targetId, flatten: true });
   await cdp.send("Page.enable", {}, sessionId);
   await cdp.send("Runtime.enable", {}, sessionId);
+  /* 观测域事件用（密闭性自证要看到「哪些请求拿到了响应」）。 */
+  await cdp.send("Network.enable", {}, sessionId);
+
+  /* ⚠️ 阻断外部字体请求（2026-10-22 修缺陷清单 D74）——
+     这一行是**测量与外网解耦**的全部依赖：它让外部字体请求**立刻失败**
+     而不是挂住，页面 load 事件照常来，测量结果不再随外网状态漂移。
+     ⚠️ 这一行**不许被摘掉**：摘掉之后下面的「外部字体探针」会当场判红
+     （见 scripts/test-overflow-widths.cjs 里的对应负对照档）。
+     ⚠️ 别改成 Chrome 的 `--host-resolver-rules` —— 实测在 macOS 上不生效。 */
+  await cdp.send("Network.setBlockedURLs", { urls: BLOCKED_URL_PATTERNS }, sessionId);
+
+  /* ---------- 密闭性观测：哪些请求拿到了响应 ---------- */
+  const localOrigin = `http://127.0.0.1:${port}`;
+  /** 是不是「本机产物服务提供的资源」。
+   *  ⚠️ 必须比 **origin** 而不是比字符串前缀：`http://127.0.0.1:3918` 是
+   *    `http://127.0.0.1:39187/…` 的前缀 ⇒ 用 startsWith 会把另一个端口
+   *    （也就是「产物之外的东西」）误判成本机资源。 */
+  const isLocalResource = (url) => {
+    try {
+      return new URL(url).origin === localOrigin;
+    } catch {
+      return false;
+    }
+  };
+  const requestUrls = new Map();       // requestId → url
+  const externalResponded = new Map(); // url → HTTP 状态码（只记「不是本机产物服务」的）
+  cdp.onAny = (msg) => {
+    if (msg.method === "Network.requestWillBeSent") {
+      const r = msg.params.request;
+      if (r && r.url) requestUrls.set(msg.params.requestId, r.url);
+      return;
+    }
+    if (msg.method === "Network.responseReceived") {
+      const url = requestUrls.get(msg.params.requestId);
+      if (!url) return;
+      if (isLocalResource(url)) return; // 本机产物服务提供的资源 ⇒ 允许
+      externalResponded.set(url, msg.params.response.status);
+    }
+  };
 
   let bad = 0;
   let measured = 0;
@@ -792,6 +894,7 @@ const measureScript = (contentSelector) => `(() => {
   let tocMeasured = 0;       // 其中被量到的目录目标数
   let occluderSeen = 0;      // 量到过吸顶顶栏的（页 × 档）次数（自证用）
   let topAnchoredSeen = 0;   // 存在「钉在文档顶的吸顶元素」的（页 × 档）次数（AN2 ③ 的独立信号）
+  let probe = null;          // 外部字体探针的结果（只跑一次，见 D74 修法）
 
   for (const width of WIDTHS) {
     /* ⚠️ 每一档都要**重新设置**设备尺寸 —— 只设一次的话，
@@ -817,6 +920,18 @@ const measureScript = (contentSelector) => `(() => {
       const m = res.result.value;
       measured++;
       perWidth.set(width, (perWidth.get(width) || 0) + 1);
+
+      /* 外部字体探针：**只跑一次**（在第一个被测页面上）。
+         它证明的是「阻断生效了没有」，与具体哪一页无关 ⇒ 没必要每页每档都跑。
+         判据见文件头：被阻断 ⇒ 毫秒级失败；没被阻断 ⇒ 要么取到内容、要么挂住。 */
+      if (probe === null) {
+        const pr = await cdp.send(
+          "Runtime.evaluate",
+          { expression: FONT_PROBE_SCRIPT, awaitPromise: true, returnByValue: true },
+          sessionId
+        );
+        probe = pr.result && pr.result.value ? pr.result.value : null;
+      }
 
       /* ⚠️ 量到的布局视口宽度必须等于请求的宽度 —— 不等就说明**这一档根本没被
          模拟成那个宽度**（典型成因：页面没有 viewport meta，mobile 模拟会退回
@@ -1029,6 +1144,45 @@ const measureScript = (contentSelector) => `(() => {
     );
   }
 
+  /* ---------- D74 修法带来的两道自证 ---------- */
+  /* ① 外部字体探针：阻断必须**真的生效**。
+     探针在页面里 fetch 一次外部字体域：
+       · 阻断生效 ⇒ 毫秒级失败（kind = rejected）；
+       · 阻断没生效且外网通 ⇒ 取到内容（kind = resolved）⇒ 判红；
+       · 阻断没生效且外网不通 ⇒ 请求挂住（kind = hung）⇒ 判红。
+     后两种都说明「测量结论会随这台机器能不能出网而变」⇒ 必须判红。
+     ⚠️ 探针一次都没跑起来（没有可测的页面）时，这道自证等于**空跑**，
+        空跑的门禁等于没有门禁 ⇒ 判红。 */
+  if (routes.length > 0 && !probe) {
+    problems.push(
+      `外部字体探针根本没跑起来 —— 这道自证此刻等于**空跑**，空跑的门禁等于没有门禁，所以判红。`
+    );
+  } else if (probe && probe.kind === "resolved") {
+    problems.push(
+      `外部字体域 ${FONT_PROBE_HOST} 在测量浏览器里**取到了内容** —— ` +
+        `外部字体请求没有被阻断，测量结论会随这台机器能不能出网而变。`
+    );
+  } else if (probe && probe.kind === "hung") {
+    problems.push(
+      `外部字体域 ${FONT_PROBE_HOST} 在测量浏览器里**挂住了**（${probe.ms}ms 都没失败）—— ` +
+        `外部字体请求没有被阻断，测量结论会随这台机器能不能出网而变。`
+    );
+  } else if (probe && probe.ms > FONT_PROBE_FAST_FAIL_MS) {
+    problems.push(
+      `外部字体域 ${FONT_PROBE_HOST} 失败得太慢（${probe.ms}ms，门槛 ${FONT_PROBE_FAST_FAIL_MS}ms）—— ` +
+        `阻断可能没生效，测量结论会随这台机器能不能出网而变。`
+    );
+  }
+  /* ② 密闭性：测量期间**除本机产物服务外**，任何请求拿到响应都判红 ——
+     测量结果不该依赖产物之外的任何东西（外网、别的服务……）。 */
+  if (externalResponded.size > 0) {
+    problems.push(
+      `测量期间有 ${externalResponded.size} 个**不是本机产物服务**的请求拿到了响应 —— ` +
+        `测量结果会依赖产物之外的东西：` +
+        [...externalResponded.entries()].map(([u, s]) => `${u}（HTTP ${s}）`).join("、")
+    );
+  }
+
   ws.close();
   chrome.proc.kill();
   server.close();
@@ -1115,7 +1269,9 @@ const measureScript = (contentSelector) => `(() => {
       `（共 ${measured} 次测量，${routes.length} 个页面；` +
       `量到触点 ${targetCount} 个，其中 ${inlineExempt} 个按**行内例外**豁免；` +
       `量到滚动定位目标 ${anchorCount} 个（其中目录目标 ${tocMeasured} 个），` +
-      `识别到吸顶顶栏 ${occluderSeen} 次）`
+      `识别到吸顶顶栏 ${occluderSeen} 次）` +
+      `；本次测量在**外部字体不可用**的前提下进行（页面用的是系统回退字体，不是 webfont —— ` +
+      `门禁量的是布局盒宽度，不随字宽改变，只有断词类横向溢出可能有细微差别）`
   );
   process.exit(0);
 })().catch((e) => {

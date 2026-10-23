@@ -10,7 +10,7 @@
  *   ⇒ 必须有一个**独立于门禁本体**的证据：每一档都被真的测了，
  *     且每一档都能抓到溢出。
  *
- * 四档断言：
+ * 档位断言：
  *   M0 基线   —— 干净页面在**每一档**都判绿（不误报）
  *   M1 溢出   —— 注入一个超宽元素的页面在**每一档**都判红（判据有牙齿，且逐档生效）
  *   M2 宽度   —— 门禁实际跑过的档位集合 = 它自己的默认档位集合（没被悄悄少跑）
@@ -22,11 +22,16 @@
  *   M6 分支   —— 窄屏用**比例**判（≤1024px 的 85%），宽屏用**绝对值**判（480px）：
  *                一个「占视口一半」的正文列在窄屏判红、在 1440px 判绿
  *                （若宽屏也按 85% 判，1440px 那行就会红 ⇒ 这一行断言能钉住分支）
+ *   M7 阻断   —— 门禁里「把外部字体请求在浏览器层拦掉」那一步**被摘掉**时，
+ *                门禁必须**当场判红**，且红因点名「外部字体域 / 没有被阻断」，
+ *                **不是**「load 事件等不到」那种超时（缺陷清单 D74 的配套负对照）
+ *   M8 密闭   —— 测量期间从「产物之外」拿到响应时，门禁必须**当场判红**，
+ *                红因点名「不是本机产物服务」并带上那个资源的地址（D74 的配套负对照）
  *
  * 用法：node scripts/test-overflow-widths.cjs
  *   （已接进 npm run build，见 package.json 的 check:overflow-selftest）
  */
-const { spawnSync } = require("child_process");
+const { spawn, spawnSync } = require("child_process");
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
@@ -89,6 +94,14 @@ ${body}
 }
 
 /**
+ * 在 <head> 里多塞一点东西的夹具页（给 M8 用：要挂一张**来自产物之外**的样式表）。
+ * 用替换而不是改 page() 的签名 —— page() 的形状已经被 M0–M6 依赖着。
+ */
+function pageWithHead(title, body, headExtra) {
+  return page(title, body).replace("</head>", `${headExtra}\n</head>`);
+}
+
+/**
  * 干净页：内容宽度不超过视口 ⇒ 任何档位都不该有横向滚动。
  * ⚠️ 必须带 viewport meta —— mobile 模拟下没有它，布局视口会退回 980px，
  *    那么"请求 360px、量到 980px"就是**量错了宽度**（门禁会判红，那是对的）。
@@ -145,8 +158,49 @@ const HALF_PAPER = page(
 );
 
 /* ---------- 跑门禁 ---------- */
-function runGate(dir, extraArgs) {
-  const r = spawnSync(process.execPath, [GATE, ...(extraArgs || [])], {
+/**
+ * 同步睡一小会儿（毫秒）。
+ *
+ * 为什么需要它：这份自测是**顶层同步**结构（主流程在 try/finally 里），
+ * 而 M8 要等一个**别的进程**（扮演「产物之外的东西」的小服务器）把端口写出来。
+ * 同步等待的办法只有两个：轮询文件 + 阻塞等待。
+ * 用 Atomics.wait 而不是 setTimeout —— 后者要事件循环转起来，
+ * 而事件循环一旦被阻塞，子进程写好的文件就等不到被读。
+ * ⚠️ 阻塞的是**本进程**，子进程是独立进程，照跑不误。
+ */
+function syncSleep(ms) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+/**
+ * 「产物之外」的第二个本机服务器（M8 用）。
+ *
+ * 它扮演的是「测量期间不该被依赖的东西」：门禁自己那个产物服务是
+ * `http://127.0.0.1:<产物端口>`，这台是 `http://127.0.0.1:<另一个端口>` ——
+ * **同机、不同 origin**（端口不同就是不同 origin）⇒ 正好是「产物之外」。
+ * 写成一个独立文件、由子进程跑：门禁跑起来时是 spawnSync（**阻塞事件循环**），
+ * 同一进程里的 http 服务在那段时间里根本没法应答。
+ */
+const EXT_SERVER_SRC = [
+  'const http = require("http");',
+  'const fs = require("fs");',
+  'const readyFile = process.argv[2];',
+  'const server = http.createServer((req, res) => {',
+  '  if (req.url === "/ext.css") {',
+  '    res.writeHead(200, { "Content-Type": "text/css; charset=utf-8" });',
+  '    res.end("/* a stylesheet that does NOT come from the product site */\\n");',
+  '    return;',
+  '  }',
+  '  res.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" });',
+  '  res.end("not found\\n");',
+  '});',
+  'server.listen(0, "127.0.0.1", () => {',
+  '  fs.writeFileSync(readyFile, String(server.address().port));',
+  '});',
+].join("\n");
+
+function runGate(dir, extraArgs, gatePath) {
+  const r = spawnSync(process.execPath, [gatePath || GATE, ...(extraArgs || [])], {
     cwd: ROOT,
     env: { ...process.env, SITE_DIR: dir },
     encoding: "utf8",
@@ -401,6 +455,106 @@ try {
   for (const w of [360, 1024, 1440]) {
     const r = wideOut.rows.find((x) => x.route === "/papers/selftest-wide/" && x.width === w);
     assert(!!r && r.column && r.column.ok, `M5 宽度 ${w}px 宽正文列判绿`, r && r.column ? `正文列 ${r.column.width}px` : "这一档没有测量记录");
+  }
+/* ---------- M7：阻断那一步被摘掉 ⇒ 门禁必须当场判红 ----------
+   *
+   * 这一档是「D74 修法有没有牙齿」的**行为级负对照**。
+   * 做法：把门禁**复制**一份到临时目录，用**同行替换**（行数不变）把
+   *   「把外部字体请求在浏览器层拦掉」那一步换成一行注释，
+   * 然后拿这份副本去跑 —— 它必须判红，且红因必须点名
+   *   「外部字体域」+「没有被阻断」。
+   * ⚠️ 夹具站**刻意不含任何外链资源**：否则副本会先栽在
+   *   「load 事件等不到」上，红因变成超时 ⇒ 归属不纯。
+   *   所以这一档额外断言输出里**不能出现「超时」**——
+   *   这条断言才是本档的 teeth：它区分「探针抓到了被摘掉的阻断」
+   *   与「页面压根没加载完」这两种完全不同的红。
+   */
+  const BLOCK_LINE =
+    '  await cdp.send("Network.setBlockedURLs", { urls: BLOCKED_URL_PATTERNS }, sessionId);';
+  const gateSource = fs.readFileSync(GATE, "utf8");
+  const blockCount = gateSource.split(BLOCK_LINE).length - 1;
+  if (blockCount !== 1) {
+    bad(
+      "M7 门禁源码里「阻断外部字体」那一步**恰好出现一次**（注入点唯一）",
+      `实际出现 ${blockCount} 次 —— 注入点没了，本档跳过（否则红因会串味）`
+    );
+  } else {
+    ok("M7 门禁源码里「阻断外部字体」那一步**恰好出现一次**（注入点唯一）", "");
+    const copyDir = path.join(tmp, "gate-copy");
+    fs.mkdirSync(copyDir);
+    const copyPath = path.join(copyDir, "check-overflow.cjs");
+    fs.writeFileSync(
+      copyPath,
+      gateSource.replace(BLOCK_LINE, "  // [M7 注入] 阻断外部字体的这一步被摘掉了")
+    );
+    const m7 = runGate(cleanDir, [], copyPath);
+    assert(m7.code === 1, "M7 阻断被摘掉后门禁判红", `exit=${m7.code}`);
+    assert(/外部字体域/.test(m7.out), "M7 红因点名「外部字体域」", "");
+    assert(/没有被阻断/.test(m7.out), "M7 红因说明「外部字体请求没有被阻断」", "");
+    assert(!/超时/.test(m7.out), "M7 红因归属纯净：输出里没有「超时」（不是 load 等不到）", "");
+  }
+
+  /* ---------- M8：密闭性自证不是空跑 ----------
+   *
+   * D74 修法有第二道自证：「测量期间除了本机产物服务，任何请求拿到响应都判红」。
+   * 但真站那一路的外域字体**已经被拦掉了**，所以在真站上**永远观测不到**
+   * 「拿到了响应」这件事 ⇒ 这道自证有可能**整场都在空跑**。
+   * 要证明它有牙齿，得**人为造一个「产物之外的东西」**：
+   * 这里用第二个本机服务器（另一个端口 ⇒ 另一个 origin）扮演它，
+   * 夹具页从那儿挂一张样式表 ⇒ 门禁必须判红，且红因点名
+   *   「不是本机产物服务」并带上那个资源的地址。
+   */
+  const extServerPath = path.join(tmp, "ext-server.cjs");
+  const extReadyPath = path.join(tmp, "ext-ready.txt");
+  fs.writeFileSync(extServerPath, EXT_SERVER_SRC);
+  const extChild = spawn(process.execPath, [extServerPath, extReadyPath], { stdio: "ignore" });
+  try {
+    let extPort = null;
+    for (let i = 0; i < 100 && extPort === null; i++) {
+      syncSleep(100);
+      if (fs.existsSync(extReadyPath)) {
+        const t = fs.readFileSync(extReadyPath, "utf8").trim();
+        if (/^\d+$/.test(t)) extPort = Number(t);
+      }
+    }
+    if (extPort === null) {
+      bad("M8 「产物之外」的第二个本机服务起来了", "等 10s 也没拿到它的端口");
+    } else {
+      ok("M8 「产物之外」的第二个本机服务起来了", `端口 ${extPort}`);
+      const extDir = path.join(tmp, "ext-site");
+      fs.mkdirSync(extDir);
+      /* ⚠️ 文件名**不能**叫 index.html：路由 "/" 在门禁的正文列规则表里
+         登记的是 `.home-hero`，夹具里没有它 ⇒ 会多出一条「选择器没命中」的红因，
+         把本档的红因搅浑。叫 ext.html 就落到默认规则 `main` 上，干净。 */
+      fs.writeFileSync(
+        path.join(extDir, "ext.html"),
+        pageWithHead(
+          "Overflow selftest — external stylesheet",
+          `<p>This fixture page loads one stylesheet from a second local server, which
+             stands in for anything outside the product site.</p>`,
+          `<link rel="stylesheet" href="http://127.0.0.1:${extPort}/ext.css">`
+        )
+      );
+      const m8 = runGate(extDir);
+      assert(
+        m8.code === 1,
+        "M8 产物之外的资源被加载时门禁判红（密闭性自证不是空跑）",
+        `exit=${m8.code}`
+      );
+      assert(/不是本机产物服务/.test(m8.out), "M8 红因点名「不是本机产物服务」", "");
+      assert(/ext\.css/.test(m8.out), "M8 红因点名那个外部样式表 ext.css", "");
+      assert(
+        !/外部字体域/.test(m8.out),
+        "M8 红因归属纯净：没有混入外部字体探针那一档的红因",
+        ""
+      );
+    }
+  } finally {
+    try {
+      extChild.kill("SIGTERM");
+    } catch {
+      /* 子进程已经退出了，kill 报错不影响判定 */
+    }
   }
 } finally {
   try {
