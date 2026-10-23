@@ -47,6 +47,10 @@ front matter 写的 `tags` 与自动追加的 `"blog"` 会**并成一份**，
 渲染顺序是 `"blog"` 在前、主题标签在后（实测渲染出 `· blog · TRMM · lightning`）。
 ⇒ 主题标签照常写即可，但**不要指望它替换掉** `"blog"`；也**不要**在 front matter 里再写一遍 `"blog"`。
 
+⇒ 这条「合并」由本仓**显式**写死在 `eleventy.config.js`（`setDataDeepMerge(true)`），不靠 Eleventy 的默认值。
+实测（2026-10-23）把它关掉：front matter 写主题标签会把目录级的 `"blog"` **整个覆盖掉**，
+文章随即**掉出 `/blog/` 列表**（`collections.blog` 从 2 条掉到 1 条）⇒ 这条契约靠的是本仓配置，不是上游运气。
+
 ⇒ 这三个字段现在**有门禁拦**：`layout` / `permalink` 写进 front matter ⇒ 判红（判据 F8，见 §2.4）。
 
 ---
@@ -156,7 +160,7 @@ cover: cover.svg          # ✅ 只写文件名，与 index.md 同目录
 - **判红 = "写错了"**（形态 / 类型 / 覆盖了自动注入）；**note = "忘了写"**（契约里标的是"建议"）。
   `excerpt` 缺失归 note 是本轮定的口径，是否升级为判红已登记为待拍板 46。
 - 手动跑：`npm run check:blog-frontmatter`；证明判据本身有牙齿：`npm run check:blog-frontmatter-selftest`
-  （在 /tmp 搭夹具站逐档注入缺陷，20 档 —— 其中 M15–M19 是**封面**这一档）。
+  （在 /tmp 搭夹具站逐档注入缺陷；档位清单见该自测脚本的文件头）。
 - ⚠️ 站内**还没有文章** ⇒ 逐篇判据（F1–F9 / F11 / F13–F15）在真站上**当前未执行**
   （门禁会明说这一点，不写成"通过"）；判据有没有牙齿由上面那个自测的夹具站负责。
 - ⚠️ 封面还有**另一道门禁在产物层**：`scripts/check-image-assets.cjs` 的 IA4 / IA5
@@ -176,7 +180,7 @@ cover: cover.svg          # ✅ 只写文件名，与 index.md 同目录
 | T4 | 列表页的徽章上不得出现集合名，主题标签徽章必须在 | 判红 |
 | T5 | detail 版式的过滤链必须盖住**每一个**用这个版式的集合名 | 判红 |
 
-- 手动跑：`npm run check:tag-leak`；证明判据本身有牙齿：`npm run check:tag-leak-selftest`（7 档注入矩阵）。
+- 手动跑：`npm run check:tag-leak`；证明判据本身有牙齿：`npm run check:tag-leak-selftest`（在 /tmp 搭夹具站逐档注入缺陷；档位清单见该自测脚本的文件头）。
 - ⚠️ 它**不扫产物**：站内 0 篇文章 ⇒ 详情页版式从未被渲染过，产物层永远看不到这个泄漏。
   它改成**用 Nunjucks 直接渲染仓库里真实的那个版式**（只把与标签无关的 `relUrl` / `date` 打了桩），
   所以站内有没有文章都不影响它跑。
@@ -246,7 +250,7 @@ cover: cover.svg          # ✅ 只写文件名，与 index.md 同目录
 
 ```
 □ 目录名是小写连字符，且是永久链接想清楚的那个名字
-□ front matter 没有 layout / permalink / tags（自动注入的，别覆盖）
+□ front matter 没有 layout / permalink（自动注入，别覆盖）；tags 是**合并**、照常写主题标签，但别重复写 "blog"
 □ date 只到日（YYYY-MM-DD），readingTime 是纯数字
 □ excerpt 是一句话，且**不复读标题**
 □ 正文全英文，注释也没有中文
@@ -270,7 +274,7 @@ cover: cover.svg          # ✅ 只写文件名，与 index.md 同目录
 | 现象 | 原因 | 状态 |
 |---|---|---|
 | ~~详情页多一个 `· blog` 标签（实测在 h1 下方的 meta 行顶部）~~ | `layouts/detail.njk` 渲染 `tags` 时没过滤集合名（列表页过滤了） | **已修**（2026-10-20 12:30–13:00 场次）· 版式改用「滤掉集合名的展示用标签」，门禁 `scripts/check-tag-leak.cjs` 守着（见 §2.5） |
-| 封面不显示 | `src/blog.njk` 的 `useCovers = false`（历史文件扩展名骗服务器导致裂图） | 待本人拍板何时开 |
+| 封面不显示 | `src/blog.njk` 的 `useCovers = false`（开关还没到开的时候；那批扩展名骗人的历史文件早就不在仓库里了，见 §2.3） | 待本人拍板何时开 |
 | `/blog/` 是空状态页 | 站内还没有文章 | 随 M1-3 解决 |
 
 ---

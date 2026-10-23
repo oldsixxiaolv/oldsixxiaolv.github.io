@@ -46,7 +46,12 @@
  *   · docs/acceptance-report.md 自带「历史快照（2026-09-26）…不再随代码更新」声明。
  *   · docs/information-architecture.md 与 docs/blog-writing-guide.md 各自另有归属：
  *     前者是设计文档（明确列着「本文提到但代码里还没有」），后者是**契约**
- *     （由 check-blog-frontmatter 那道门禁逐条实现，见 check:blog-frontmatter）。
+ *     （由 check-writing-contract 那道门禁守：它核对契约文档里的判据对照表、
+ *      自动注入字段表与代码现实是不是还是同一批）。
+ *     ⚠️ 2026-10-23（D80 场次）订正：这里原先写的是「后者由 check-blog-frontmatter
+ *     那道门禁逐条实现」—— **那个理由是假的**：check-blog-frontmatter 守的是
+ *     **文章文件**（F1–F15 逐条实现），它**从不看这份文档**；
+ *     「文档里的判据表与门禁源码里的判据是不是同一批」当时**没有任何门禁在看**。
  *   · implementation-notes.md 是**唯一**自称含「就地现状标注」的活文档 ⇒ 只有它需要
  *     这道门禁；别的文档的现状陈述要么是设计意图，要么由各自的门禁守。
  *

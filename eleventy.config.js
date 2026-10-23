@@ -108,6 +108,23 @@ module.exports = function (eleventyConfig) {
     process.argv.includes("--serve") && process.env.NODE_ENV !== "production";
   const isProductionBuild = !isDevServer;
 
+  /* ---------- 0.5. 数据级联：显式开启 deep merge ----------
+     为什么显式写：Eleventy 3.x 的 deep merge **默认就是开的**
+     （node_modules/@11ty/eleventy/src/UserConfig.js 里 `this.dataDeepMerge = true`），
+     但那是**上游的默认值**，不是本仓自己的约定 ——
+     一旦上游改默认值、或将来换构建工具，本仓「front matter 的 tags 与
+     目录级 tags 是合并、不是覆盖」这条契约就会**悄悄变假**，而
+     docs/blog-writing-guide.md 的 §2.2 与 §4 都把「合并」写进了写作契约。
+     ⇒ 显式写死，把「偶然为真」变成「保证为真」。
+     ⚠️ 显式写 true **不改变任何现有行为**（默认值本来就是 true）。
+        实测（2026-10-23，D80 场次）用同版本 Eleventy 3.1.6 在 /tmp 搭最小站验证：
+        目录级 `tags: ["blog"]` ＋ front matter `tags: ["my-topic"]`
+        ⇒ 合并后的 data.tags = ["blog","my-topic"]（目录级在前、front matter 在后），
+        `/blog/` 列表卡靠 reject("equalto","blog") 把集合名剥离，只留主题标签。
+     另外 #dataDeepMergeModified 这个标志只被 Upgrade Helper 插件读，
+     本仓没装那个插件 ⇒ 显式写不影响任何别的行为。 */
+  eleventyConfig.setDataDeepMerge(true);
+
   /* ---------- 1. passthrough copy ---------- */
   // 整个 assets/ 目录：CSS / JS / fonts / 项目封面图 全部直拷
   // macOS 上 cp -R 会附带 ._<name> 资源叉备份（每个文件多出 256KB xattr），

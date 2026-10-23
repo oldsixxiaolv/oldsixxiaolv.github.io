@@ -325,6 +325,12 @@ const SLOTS = {
     "W1c", "W2a", "W2b", "W2c", "W2d", "W2e", "W3", "W4a",
     "W4b", "N-W1", "N-W2", "N-W3", "N-W4", "P-W4", "COV-A", "COV-B"
   ],
+  "test-writing-contract.cjs": [
+    "WCR0", "WCR1a", "WCR1b", "WCR1c", "WCR2a", "WCR2b", "WCR3",
+    "WCR4a", "WCR4b", "WCR5", "WCR6", "WCR7a", "WCR7b", "WCR7c",
+    "WCR7d", "WCR7e", "WCR7f", "NC-WC1", "NC-WC2", "NC-WC3", "NC-WC4",
+    "NC-WC5", "NC-WC6", "NC-WC7"
+  ],
 };
 
 /**
