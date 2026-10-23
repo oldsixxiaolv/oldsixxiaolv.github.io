@@ -125,6 +125,9 @@ const SLOTS = {
     "DT0", "DT1", "DT2", "DT3", "DT4", "DT5", "DT6", "DT7",
     "DT8", "DT9", "DT10"
   ],
+  "test-deploy-target.cjs": [
+    "N0", "N1", "N2", "N3", "N4", "N5", "N6", "N7", "N8", "N9"
+  ],
   "test-doc-snapshot.cjs": [
     "SP0", "SP1", "SP2", "SP3", "SP4", "SP5", "SP6", "SP7",
     "SP8", "SP9", "SP10", "SP11", "NC-DS1", "NC-DS2", "NC-DS3", "NC-DS4",

@@ -113,6 +113,8 @@ Cloudflare Pages、Nginx 等任意静态服务。详细运行 / 调试见 `HOW_T
 | `npm run check:404-depth-selftest` | 上面那道门禁的本地夹具自测（注入矩阵，证明它能变红） |
 | `npm run check:mount-contract` | 文档与代码口径一致：凡是承诺产物可整体搬迁到任意部署位置的行，都必须带例外限定；README 要讲清 404 页这个例外，`relUrl` 的 404 特判也得在位 |
 | `npm run check:mount-contract-selftest` | 上面那道门禁的本地夹具自测（注入矩阵，证明它能变红） |
+| `npm run check:deploy-target` | **发布落点必须对得上**：文档里的发布命令（只认**代码块里**那一行）用的远端必须在 `git remote -v` 里真实存在（DP1）、该远端必须指向文档声明的发布仓库（DP2 —— 命令说推 A、声明说落点是 B 时就靠这条抓住）、推的分支必须在部署工作流的触发分支里（DP3 —— 推到不触发的分支**不报错也不部署**，最难发现）；另含覆盖度自证（DP4：一条发布命令 / 一个远端 / 一处发布仓库声明 / 要扫的活文档都得在，缺一即判红，防「改空了通过」） |
+| `npm run check:deploy-target-selftest` | 上面那道门禁的本地夹具自测（注入矩阵，在**临时 git 仓副本**上跑，证明它能变红；含**判据级负对照**：复制门禁源码到 tmp 再同行替换掉某条判据 ⇒ 同一夹具**转绿**，证明那条红确实是它判出来的；**红因归属纯净性断言**（每档红只许出现自己那一条判据的编号）；**覆盖度自证**（每条红因至少有一档能证明它会变红）） |
 | `npm run check:design-contract` | 设计系统文档与代码一致：徽标类名族、token、partial 清单、dev/prod 判定都必须与 `src/assets/css` / `eleventy.config.js` 对得上 |
 | `npm run check:design-contract-selftest` | 上面那道门禁的本地夹具自测（注入矩阵，证明它能变红） |
 | `npm run check:doc-snapshot` | 现状陈述里不许写死每轮都会变的数量（如 build 链的段数）：含缺陷编号的历史块按原样保留，现状块里出现「数字 + 步」就判红 |
@@ -205,6 +207,11 @@ Cloudflare Pages、Nginx 等任意静态服务。详细运行 / 调试见 `HOW_T
 2. **不要**硬编码 `/assets/...`，全部用 `{{ '/assets/css/pages.css' | relUrl }}` 过滤器渲染成相对路径（`assets/...` / `../assets/...`）。相对路径与挂载点无关，`_site/` 整个文件夹扔到哪都能跑；**唯一例外是 404 页**——GitHub Pages 会把 `/404.html` 的内容送到任意未匹配路径，而浏览器地址栏仍停在请求路径上，相对 URL 在那里没有正确解，所以 404 页的站内 URL 一律**根绝对**（`/assets/...`），普通页面仍照旧相对。
 3. 仓库 **Settings → Pages → Source → `GitHub Actions`**，Custom domain 填 `github.lvyihang.xyz`。
 4. dev server 验证：`npm run serve`，开 `http://127.0.0.1:8080/`，与线上结构一致。
+5. 发布：把内容推到 `origin` 的 `main` 分支 —— 部署工作流监听这个分支，推上去即部署：
+
+   ```bash
+   git push origin main
+   ```
 
 详细方案、验证步骤见 **`docs/DEPLOY.md`**。
 

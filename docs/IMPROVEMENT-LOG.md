@@ -26926,3 +26926,99 @@ D59 第三批给 `check-lang`、第四批给 `check-print-theme`、第五批给 
   会被报成「少了 N 条」而不是「指针对不上」⇒ 归因不够细。要更准的话得改成按 `@type` + 指针配对，
   那是下一个可做的小补强。
 - 其余待修缺陷（D5 / D6 / D9 / D10 / D12 / D26 / D32 / D57）仍挂本人拍板，本轮不代拍。
+
+## 2026-10-22 · 22:00–22:55 场次（**不占轮次号**）：D78 —— 修掉缺陷 **D77**：文档里的发布命令指向一个**已失效**的远端，站点累计的提交一直发不出去
+
+### A. 背景
+
+- 上一轮（D77）实跑线上核查门禁、顺手查远端拓扑时才发现这一条：
+  `docs/DEPLOY.md` 的「日常发布」写的是 `git push oldsixxiaolv main`，
+  而那个远端指向 `oldsixxiaolv/MeteoHub.git` —— **`git ls-remote` 实测报 `Repository not found`**
+  （SSH 认证就是 `oldsixxiaolv` 本人账号，所以不是权限问题，是那个仓库**真的没了**）。
+- 后果：**照文档操作必然失败**，站点累计的提交一直发不出去 ——
+  缺陷 **D6**（线上旧部署）之所以一直修不掉，正是因为真正卡住的是**发布命令本身**，不是站点代码；
+  本轮实测本地领先远端 **232** 个提交。
+- 更要紧的是**同一份文档内部自相矛盾**：另有两处声明「本仓库本身就是用户站仓库
+  `oldsixxiaolv.github.io`」⇒ 命令说推 A，声明说落点是 B。
+- 根因比「一处写错」更深：**「发布命令到底指向哪里」从来没有被机器核对过** ——
+  门禁链里没有一道门禁读「文档命令 ↔ 本地 git 远端配置 ↔ 文档声明」三者是否一致，
+  于是「照文档操作会失败」只能靠人偶然点一次命令才发现。
+- ⇒ 登记为缺陷 **D77**，本轮修它（纯工程补强，不新增待拍板项）。
+
+### B. 改动
+
+- **判定依据用实测而非推测**：SSH 认证是 `oldsixxiaolv` 本人账号；旧远端 `git ls-remote` 报
+  `Repository not found`；`origin` 可达且含源码与 `deploy.yml`；`origin/main` 是 HEAD 的祖先
+  （本地领先 **232**）；线上确实部署在域名根（`/assets/css/a11y.css` 200，
+  `/MeteoHub/assets/css/a11y.css` 404）⇒ **发布落点唯一且明确** ＝ `origin`
+  （用户站仓库 `oldsixxiaolv/oldsixxiaolv.github.io`）。
+- `docs/DEPLOY.md` §二改写：发布命令改为 `git push origin main`（写在**代码块围栏**内），
+  补「`origin` 就是发布落点」的说明与远端拓扑，并加一块警示：旧远端指向的仓库已不存在、
+  已从本地删除、跟踪分支改指 `origin/main`。
+  ⚠️ 警示文案**刻意不写旧的 push 字面量** —— 正文里提及旧写法是在**解释**，不是发布，
+  混进发布命令集合里会出假红。
+- `README.md`：命令表补两行（门禁行列出 DP1–DP4；自测行写定性描述，不写会漂的档数）；
+  部署段补第 5 步与同一份发布命令（README 也在门禁扫描面内，两处口径必须一致）。
+- `scripts/check-deploy-target.cjs`（**新增门禁**，判据 **DP1–DP4**，全静态、**不联网**）：
+  DP1 远端存在、DP2 远端指向文档声明的发布仓库、DP3 分支在部署工作流的触发分支里、
+  DP4 覆盖度自证（命令 / 远端 / 声明 / 活文档四项缺一即红，防「改空了通过」）。
+  三条口径是踩出来的：发布命令**只认代码块里那一行**；发布仓库声明取「含标记短语的段落里的
+  反引号仓库名」且**只认 `*.github.io` 用户站形态**（宁可响亮判红，也不让声明集合被正文 token
+  污染后**静默**放行真正指错的远端）；远端 URL 解析不出仓库名时**不判**（判不了不等于有问题）。
+- `scripts/test-deploy-target.cjs`（**新增自测**，档位 **N0–N9**）：每条红因都有专属夹具
+  （DP3b / DP4b / DP4c / DP4d 各一档）；判据级负对照用**复制门禁源码到 tmp 再同行替换**
+  （**不给生产门禁加可卸开关** —— 加开关等于在生产环境留一个能悄悄关掉判据的入口），
+  仓库原件 sha256 前后一致。
+- `scripts/lib/selftest-slots.cjs`：静态清单登记 N0–N9。
+- `package.json`：新增 `check:deploy-target` 与 `check:deploy-target-selftest`，两者都接进 build 链。
+- **顺带修正本地 git 配置**（属本轮范围内的状态修正，**不是 push**）：
+  `git remote rm oldsixxiaolv`（该远端指向已不存在的仓库）＋
+  `git branch --set-upstream-to=origin/main main` ⇒ `git remote -v` 现在只剩 `origin`，
+  `git status -sb` 为 `main...origin/main [ahead 232]`。
+
+### C. 验证
+
+- **独立反向验证（关键一条）**：门禁在**修文档之前**真仓实跑 **exit 1**，红因准确点名
+  「发布命令用的远端 `oldsixxiaolv`（`git@github.com:oldsixxiaolv/MeteoHub.git`）指向的仓库是
+  `MeteoHub`，与文档声明的发布仓库对不上 —— 文档声明的是 oldsixxiaolv.github.io」；
+  修文档后 **exit 0**（检出 2 条发布命令、1 个远端、1 处发布仓库声明，工作流触发分支 `[main]`）。
+- 自测 **N0–N9 全绿**（8 条红因逐条可证、4 条判据逐条可证，判据级负对照转绿）。
+- 7 道元门禁全 exit 0；`npm run build` **exit 0**。
+- 线上巡检如实记录：**不是全 200** —— `/`、`/blog/`、`/about/`、`/sitemap.xml` 200；
+  `/papers/`、`/publications.bib`、`/feed.xml` 三条 **404** —— 这三条属缺陷 **D6**（旧部署，
+  **由 push 触发**），本轮**不代拍**。
+
+### D. 顺手发现（记下来，不在本轮修）
+
+- **线上仍是旧部署**（资源与 canonical 都带已下线的 `/MeteoHub/` 前缀）；
+  但本地产物 `index.html` 的资源引用实测**相对 11 处、根绝对 0 处** ⇒ push 本身**不会**因路径前缀坏掉，
+  D6 纯粹是「还没 push」。
+- `scripts/lib/identity.cjs` **没有任何 require** ⇒ CI 的 `verify-live` 作业不跑 `npm ci` 是安全的（核实过）。
+- 那个常被误传的假 ORCID `0000-0003-1710-892X` 只出现在
+  `scripts/check-identity-handles.cjs` 的注释里，产物里 0 处。
+- **M3（Decap 后台）本轮评估后放弃**：bundle 是 4.6 MB 的第三方 blob、与 TD1 门禁冲突、
+  `/admin/` 进产物会触发十余道门禁、OAuth App 必须本人建、登录流程无法自测 ⇒ 本轮不做。
+
+### E. 文档
+
+- `docs/DEFECT-BACKLOG.md`：登记 **D77**（已修），含验收条件逐条兑现、验证方式与诚实边界。
+- `docs/ROADMAP.md`：§1 进度时间戳与缺陷清单摘要更新（**D77 列入已修**）、末尾追加 D78 场次条目。
+- `docs/IMPROVEMENT-LOG.md`：本小节；中央「待决策」台账**不新增**待拍板项（本轮是纯工程补强）。
+
+### F. 本轮纪律
+
+- 提交只走**私有索引 CAS**，只提交本轮自己改的路径；**不 push**。
+- 并发场次占用的 `scripts/check-identity-handles.cjs` / `scripts/test-gates-selfcheck.cjs`
+  本轮**未触碰、未提交**。
+- 探针与勘察脚本都放在 `/tmp/mh_d78/`，**不入库**；收尾用 `mavis-trash` 清理。
+- 门禁红了先定位红因，**不为了 build 变绿去放宽判据**。
+- 新门禁**纯静态、不联网** ⇒ 与 D74–D76「不依赖外网」的原则一致；
+  「远端在 GitHub 上被删」这件事**只能人工查**（本轮已查并写进诚实边界，不装作能查）。
+
+### 下一轮入口
+
+- **缺陷 D6（线上 3 条 404）**：真正的前置是 **push**（本轮不代拍、不 push）。
+- **M3（Decap 后台）**：要先把「bundle 自托管还是走 CDN」定下来，且 OAuth App 必须本人建 ⇒ 本轮不代拍。
+- **M1（内容引擎）**：选题主线本人尚未指定 ⇒ 本轮不代拍。
+- **M4 / M5**：下游于文章（文章还没有）⇒ 排在 M1 之后。
+- 其余待修缺陷（D5 / D6 / D9 / D10 / D12 / D26 / D32 / D57）仍挂本人拍板，本轮不代拍。

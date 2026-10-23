@@ -80,11 +80,23 @@ Settings → Actions → General 把 "Read and write permissions" 打开。
 ## 二、日常发布
 
 ```bash
-git push oldsixxiaolv main
+git push origin main
 ```
 
-然后看仓库 **Actions** 标签页 → `Deploy MeteoHub to GitHub Pages` → 绿勾即成功。
+**`origin` 就是发布落点**：它指向 `git@github.com:oldsixxiaolv/oldsixxiaolv.github.io.git`，
+也就是上面那个**用户站仓库**（内容铺在域名根 `/`）。
+
+推完看仓库 **Actions** 标签页 → `Deploy MeteoHub to GitHub Pages` → 绿勾即成功。
 绿色后等 1–3 分钟让 CDN 生效（首次部署可能更久）。
+
+> ⚠️ **别再用指向 `oldsixxiaolv/MeteoHub.git` 的那个旧远端**（2026-10-22 实测）：
+> 该仓库**已不存在**（`git ls-remote` 报 `Repository not found`）⇒ 照旧文档操作必然失败，
+> 站点累计的提交因此一直发不出去。那个失效远端已从本地删除，`main` 的跟踪分支也已改指
+> `origin/main` —— 现在 `git status` 会如实显示自己领先多少个提交。
+>
+> 这条线由门禁 `scripts/check-deploy-target.cjs` 守着（判据 DP1–DP4）：文档里那条发布命令的
+> 远端必须真实存在、必须指向文档声明的发布仓库、推的分支必须在部署工作流的触发分支里；
+> 再加一条覆盖度自证，防「把发布命令删光了照样通过」。
 
 ---
 
