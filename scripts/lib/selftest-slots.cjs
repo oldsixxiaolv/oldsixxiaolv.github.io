@@ -238,6 +238,11 @@ const SLOTS = {
     "M0", "M1", "M2", "M3", "M4", "M5", "M6",
     "M7", "M7b", "M8", "M8b"
   ],
+  "test-markdown-tables.cjs": [
+    "TBLR0", "TBLR1", "TBLR2", "TBLR3", "TBLR4", "TBLR5", "TBLR6",
+    "TBLR7", "TBLR8", "TBLR9", "TBLR10", "TBLR11", "TBLR12", "TBLR13",
+    "TBLR14", "TBLR15", "TBLR16"
+  ],
   "test-mount-contract.cjs": [
     "MT0", "MT0r", "MT1", "MT2", "MT3", "MT4", "MT5", "MT6",
     "MT7", "MT8", "MT9", "MT10", "MT11", "NC1", "NC2", "NC3",
