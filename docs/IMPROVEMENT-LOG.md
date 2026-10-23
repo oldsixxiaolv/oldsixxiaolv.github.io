@@ -27881,3 +27881,142 @@ D59 第三批给 `check-lang`、第四批给 `check-print-theme`、第五批给 
 - **M1（内容引擎）**：选题主线本人尚未指定 ⇒ 本轮不代拍。
 - **M4 / M5**：下游于文章（文章还没有）⇒ 排在 M1 之后。
 - 其余待修缺陷（D5 / D6 / D9 / D10 / D12 / D26 / D32 / D57）仍挂本人拍板，本轮不代拍。
+
+## 2026-10-23 · 06:55–07:45 场次（**不占轮次号**）：D85 —— 修掉缺陷 **D84**：信息架构规划稿 §四「各页面骨架」与页面模板现实脱节四处，且零门禁看守
+
+### A. 背景
+
+上一场（D84）给信息架构规划稿补上了第一道门禁，但那道门禁判的是**路径 / 导航 / 字段**这三层 ——
+**从不看** §四「各页面骨架」。而 §四 恰恰是这份文档里唯一描述「页面长什么样」的部分 ⇒
+页面结构漂了没人知道。
+
+D84 场次留下的「下一轮入口」第二条写得很明确：
+
+> 信息架构文档的其余规格层：路径 / 导航 / 字段这三层已被门禁锁住，但「页面骨架段落
+> 与模板结构是否一致」还没有门禁（下一步可按本轮做法把 §三 各页面骨架纳入扫描面）。
+
+本轮就做这一步。**不代拍**：待修缺陷仍是 D5 / D6 / D9 / D10 / D12 / D26 / D32 / D57 八条，
+全挂本人拍板或 push，本轮**新开缺陷 D84**。
+
+### B. 改动
+
+- **先把漂移逐条实证**（每条都对着 `src/` 真源核过，不是推测）：
+
+  | 小节 | 文档写的 | 模板现实 |
+  | --- | --- | --- |
+  | §4.1 `/` | 3 个 CTA ＋ 三个 Bento Grid ＋ h1『以大气之名』 | hero ＋ publications ＋ `.home-intro` ＋ extreme-precip 图；**2 个 CTA**（About me / Technical notes）；h1 = "Thunderstorms / Lightning / Extreme precipitation"；另有 `.home-signal`、`.home-portrait` |
+  | §4.3 `/blog/` | H1 博客 ＋ 侧栏 | `<h1>Technical notes</h1>` ＋ lede；**没有侧栏**；另有 `.list-empty` 空状态块 |
+  | §4.4 `/papers/` | H1 论文精读 ＋ 左原文右批注 ＋ 状态徽章 精读中 / 已完成 / 待整理 | `<h1>Publications</h1>` ＋ lede ＋ **Download BibTeX / Download RIS**；**没有左右分栏**；状态角标 = Published / In press / Under review / In revision |
+  | §4.5 `/about/` | 锚点侧栏 ＋ 工作经历 ＋ 致谢 | 纵向堆叠：`.about-hero` / `.about-blocks` / education / skills / output / `.about-contact-section` / `.about-prose`；**没有锚点侧栏、没有工作经历、没有致谢** |
+
+- **修法不是把规划稿改写成实现快照**（那会把「设计意图」也一起抹掉）—— 三步：
+  文档 §四 改写成**真实骨架**（框图按模板现状画）；每个**已落地**页面加一行
+  **机器可核对的「区块锚点」**；门禁拿文档这行与模板真源**双向比对**。
+
+- **「区块锚点」口径定死并写进文档**：页面容器（最外层元素）的**直接子级** ＋ 所有
+  `{% include %}` 的 partial 名；元素锚点优先级 `id` ＞ `class`（完整 class 点连）＞
+  `aria-labelledby`；**不递归进 partial 内部**。
+  ⇒ 四个页面的锚点集：`/` 四个（`.home-intro` / `partials/extreme-precip.njk` /
+  `partials/hero.njk` / `partials/publications.njk`）、/blog/ 三个（`.list-empty` /
+  `.list-page__head` / `.list.list--cards`）、/papers/ 两个（`.list-page__head` /
+  `partials/publications.njk`）、/about/ 七个（`#about-edu-title` / `#about-output-title` /
+  `#about-skills-title` / `.about-blocks` / `.about-contact-section` / `.about-hero` /
+  `.about-prose.prose`）。
+
+- **锚点行不许由文档声明模板文件名** —— 模板由门禁从「小节标题里的路由 → 真源模板」
+  **反查**（`src/` 根一层 `.njk`，permalink 优先，否则 index ⇒ `/`、其余 ⇒ `/{name}/`）
+  ⇒ 文档不点名模板，就不会变成「自己给自己作证」。
+
+- **扩门禁** `scripts/check-information-architecture.cjs`，判据 **IAC1 → IAC1–IAC10**：
+  - **IAC8**：文档多写了不存在的区块 ⇒ 判红；
+  - **IAC9**：缺整行「区块锚点」行 **或** 漏写某个锚点 ⇒ 判红（两路，2 处 `fail()`）；
+  - **IAC10**：未落地的小节漏标「**规划中**」⇒ 判红。
+  `fail()` 调用点 21 → **25** 处（IAC8×1 / IAC9×2 / IAC10×1）⇒ 每条红因都能**唯一**归到一条判据。
+
+- **覆盖度自证**（IAC7 扩两项）：核对过的**页面骨架小节数**与**页面区块锚点数**都不得低于
+  门槛 ⇒ 「把 §四 改空了」「把小节标题改名让门禁看不见」都会被抓住。
+
+- **文档改写**（`docs/information-architecture.md`）：§四 旧块 110 行 → 新块 163 行，文档
+  371 → **424 行**；文档头升级为「信息架构规划稿（v1.2 · 2026-10-23）」，明写
+  「§一–§三 / §五–§八 是设计意图，§四 是真实骨架」；§4.2 `/portfolio/` 与 §4.6 `/search/`
+  保留「**规划中**」＋ 设想框图（未落地的设计意图不删、不实现）。
+
+- **扩自测** `scripts/test-information-architecture.cjs`：**26 档注入**（IACR0–IACR25）
+  ＋ **10 档判据级负对照**（NC-IAC1–NC-IAC10）；红因归属表 21 → **25** 条
+  （**文案片段互不包含** ⇒ 归属纯净）、25 个 `fail()` 调用点与归属表**双向对齐**、
+  门禁解析出的判据集合恰为 IAC1–IAC10；夹具改成带结构的合成模板（`src/` 根四个页面模板
+  ＋ 两个 partial ⇒ 合成锚点集 9 个）。
+
+- **接线**：`scripts/lib/selftest-slots.cjs` 登记 29 → **36** 个编号；README 命令表的门禁行
+  改成 IAC1–IAC10（RD6 编号对账通过）；门禁与自测本轮**已在本仓 build 链里**，无需再动
+  `package.json`。
+
+### C. 验证
+
+- **正向**：真仓门禁 **exit 0** —— 「站内路径 24 条 · 内容源路径 9 条 · 『落地状态』表 6 条 ·
+  导航 4 项 · 元数据字段 11 个 · 页面骨架 4 个 · 页面区块锚点 16 个 · 已实现集合家族 2 个」。
+  自测 **exit 0** —— 25 条红因归属互不包含、25 个 `fail()` 调用点双向对齐、判据集合恰为
+  IAC1–IAC10、26 档注入全绿（每档判据集合恰为预期）、10 档判据级负对照全绿
+  （行数不变、差异行数 == 该判据 `fail()` 数、夹具转绿）、红因 25/25 判红、判据 10/10 判红、
+  真源指纹前后一致。
+
+- **两轮独立反向验证**：
+  ① **修前整份文档**喂进门禁 ⇒ exit 1、红因恰 **4 条**、判据集合恰为 {IAC9}
+  （`/`、`/blog/`、`/papers/`、`/about/` 各一条「没有『区块锚点』行」）⇒ 证明旧状态会被抓住；
+  ② **只把修后锁定的五处逐个改坏**（其余一字不动，每处一份独立副本）⇒ 每次恰 1 条红因、
+  判据**精确**命中：§4.1 多写 `.not-a-real-block` ⇒ {IAC8}；§4.3 删整行 ⇒ {IAC9}；
+  §4.5 漏 `#about-skills-title` ⇒ {IAC9}；§4.2 删「规划中」⇒ {IAC10}；§4.1 删整行 ⇒ {IAC9}
+  ⇒ 证明这些数字**真的被门禁锁住了**，而不是「文档改了、门禁也就没话说」。
+
+- **受影响门禁复跑**：`check:information-architecture`、`check:information-architecture-selftest`、
+  `check:log-sections`、`check:decision-ids`、`check:doc-snapshot`、`check:mount-contract`、
+  `check:design-components`、`check:design-contract`、`check:readme`、`check:gates`、
+  `check:selftest-guard` ⇒ **11 道全绿**。
+  `npm run build` **exit 0**。
+
+- **线上巡检**（外网需经本机代理才通）：`/` 200、`/papers/` 404、`/blog/` 200、`/about/` 200、
+  `/publications.bib` 404、`/feed.xml` 404、`/sitemap.xml` 200 ⇒ 与上轮一致，三条 404 属缺陷
+  **D6**（**由 push 触发**），本轮不代拍、不 push。
+
+### D. 顺手发现（记下来，不在本轮修）
+
+- **front matter 必须先剥**：`src/blog.njk` 的 YAML 注释里有 `<title>`，不剥 front matter 会把
+  根容器**顶深一层** ⇒ 深度 1 取到的就不是页面区块了。（本轮写探针时当场踩到。）
+- **锚点计数记真源派生数**：必须**先**累加 `anchorsChecked += derived.length`，**再**判缺行
+  ⇒ 否则「删一行区块锚点」会连坐 IAC7（覆盖度自证）变成两条红因，归属不纯净。
+- 详情页 layout（`src/_includes/layouts/detail.njk`、`paper.njk`）**不在** `src/` 根，
+  ⇒ 本轮的门禁**只覆盖已落地的列表页**；论文页那套「左 TOC / 中正文 / 右批注」交互在
+  `docs/papers-interaction.md` 的 PI1–PI7 里已被另一道门禁锁着，本轮不重复造。
+
+### E. 文档
+
+- `docs/information-architecture.md`：§四 整节改写（真实骨架 ＋ 每页一行「区块锚点」＋
+  未落地小节标「规划中」），文档头升到 v1.2。
+- `docs/DEFECT-BACKLOG.md`：新增缺陷 **D84** 一行（四处漂移 ＋ 十条验收条件 ＋ 本轮兑现记录）。
+- `docs/ROADMAP.md`：进度行的缺陷清单推进到 **D84**；新增 **D85** 条目。
+- `docs/IMPROVEMENT-LOG.md`：本小节。
+
+### F. 本轮纪律
+
+- 提交只走**私有索引 CAS**，只提交本轮自己改的路径；**不 push**。
+- 并发场次占用的 `scripts/check-identity-handles.cjs` / `scripts/test-gates-selfcheck.cjs`
+  本轮**未触碰、未提交**。
+- 探针与勘察脚本都放在 `/tmp/mh_d85/`（含修前文档副本与反向验证脚本），**不入库**；
+  收尾用 `mavis-trash` 清理。
+- 门禁红了先定位红因，**不为了 build 变绿去放宽判据**。
+- **不代拍**：本轮**没有新增待拍板项**（面包屑 / 站内检索 / Decap 接入都只是**引用**既有
+  待拍板项），中央台账不动。
+- **文档里的每个断言都先实证再写**：四处漂移逐条对着 `src/` 核过，锚点集由探针在真实模板上
+  跑出来后才写进文档；没有靠「文档原本就是这么写的」来背书。
+- 新门禁**纯静态、不联网、不跑构建、不 import 被检查方** ⇒ build 链保持零网络依赖。
+
+### 下一轮入口
+
+- **缺陷 D6（线上 3 条 404）**：真正的前置是 **push**（本轮不代拍、不 push）。
+- **详情页骨架**：本轮的门禁只覆盖 `src/` 根的列表页；`detail.njk` / `paper.njk` 这两套
+  layout 的区块契约还没有同类门禁（下一步可按本轮口径给它们也补一行「区块锚点」）。
+- **M3（Decap 后台）**：要先把「bundle 自托管还是走 CDN」定下来，且 OAuth App 必须本人建；
+  接入前文档口径只能是「已拍板、未接入」。
+- **M1（内容引擎）**：选题主线本人尚未指定 ⇒ 本轮不代拍。
+- **M4 / M5**：下游于文章（文章还没有）⇒ 排在 M1 之后。
+- 其余待修缺陷（D5 / D6 / D9 / D10 / D12 / D26 / D32 / D57）仍挂本人拍板，本轮不代拍。

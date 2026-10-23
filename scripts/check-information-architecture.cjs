@@ -47,8 +47,15 @@
  *   IAC6 已拍板的口径不得被推翻 —— 文档必须写明「全站英文」且不得再写
  *        「中文为主要语言」；必须写明后台形态是 Decap CMS 且不得再写
  *        「不做：管理后台」。
- *   IAC7 覆盖度自证 —— 扫到的路径数 / 清单条目数 / 导航行数 / 字段数
- *        都不得低于门槛；防止「把文档改空了」「把表头改名让门禁看不见」就能过。
+ *   IAC7 覆盖度自证 —— 扫到的路径数 / 清单条目数 / 导航行数 / 字段数 /
+ *        页面骨架小节数 / 页面区块锚点数都不得低于门槛；
+ *        防止「把文档改空了」「把表头改名让门禁看不见」就能过。
+ *   IAC8 §四 里写下的每个区块锚点，必须在该路由的页面模板里**真实存在**
+ *        —— 文档描述了一个模板里根本没有的区块 ⇒ 这份文档在骗人。
+ *   IAC9 反过来：模板里真实存在的区块，文档必须**逐个**列出来；而且该小节
+ *        必须有「区块锚点」行 —— 一行都没有 = 没承诺，列漏了 = 文档过期。
+ *   IAC10 还没有页面模板的路由（未落地），§四 那一小节必须明写「规划中」
+ *        —— 否则会被当成已经能用的页面骨架。
  *
  * ⚠️ 诚实边界（写清楚才算数）：
  *   · 静态检查，不联网、不跑构建、不依赖产物目录 ⇒ 可以在 build 链的
@@ -60,6 +67,13 @@
  *   · IAC6 判的是**措辞契约**（必须写明已拍板结论、不得复述被推翻的口径），
  *     判不了「换个说法表达同一意思」。
  *   · §八 评审清单是散文，门禁不看它。
+ *   · IAC8 / IAC9 / IAC10 只管**列表页 / 单页**这一层（src 根下的页面模板）；
+ *     详情页（/blog/{slug}/、/papers/{slug}/）的骨架**不在**本门禁范围内
+ *     —— 详情页由集合的 permalink 规则生成，不是 src 根下的页面模板。
+ *   · 同一小节里写了多行「区块锚点」时，门禁把各行的锚点**合起来**与该路由的
+ *     模板对账 ⇒ 一行只写该路由自己的区块，别把详情页的也塞进来。
+ *   · 区块锚点的派生规则是**机械的**（见下面「页面区块锚点」那一段）：
+ *     它能证明「文档说的区块在模板里有」，判不了「这个区块的排版好不好看」。
  *
  * 环境变量（供 scripts/test-information-architecture.cjs 的注入矩阵用）：
  *   IAC_DOC       —— 覆盖信息架构文档路径。
@@ -88,6 +102,10 @@ const MIN_PATHS = 20;
 const MIN_LIST_ENTRIES = 1;
 const MIN_FIELDS = 6;
 const MIN_DOC_LINES = 120;
+/* 页面骨架这一层的覆盖度：真实站点有 4 个已实现页面、16 个区块锚点；
+   门槛只保证「§四 还真的在描述页面骨架」，不保证数量跟得上。 */
+const MIN_SKELETON_PAGES = 4;
+const MIN_BLOCK_ANCHORS = 8;
 
 /* 『落地状态』表第一列允许的表头写法。 */
 const LIST_HEADERS = ["未落地路径", "未实现路径", "待实现路径"];
@@ -147,12 +165,15 @@ function splitCells(line) {
 /* ==================== 真源：站点路由 ==================== */
 
 /**
- * 站点里**真实存在的字面路由**：
- *   · src 根下每个 .njk 的 front matter permalink（没有就按文件名推）；
- *   · index.njk ⇒ /，about.njk ⇒ /about/。
+ * 路由 → 页面模板文件（src 根下的 .njk；front matter 的 permalink 优先，
+ * 没有就按文件名推：index.njk ⇒ /，about.njk ⇒ /about/）。
+ *
+ * 只看 src 根这一层：src/_includes/ 下的 partial 与 layout 不是页面；
+ * src/content/ 下的条目页由集合的 permalink 规则生成，不一张张登记。
+ * 「页面骨架」这一层关心的就是「这个路由对应哪个模板」。
  */
-function literalRoutes() {
-  const out = new Set();
+function pageTemplateMap() {
+  const out = new Map();
   let names = [];
   try {
     names = fs.readdirSync(SRC);
@@ -161,7 +182,8 @@ function literalRoutes() {
   }
   for (const n of names) {
     if (!n.endsWith(".njk") || n.startsWith("._")) continue;
-    const text = fs.readFileSync(path.join(SRC, n), "utf8");
+    const abs = path.join(SRC, n);
+    const text = fs.readFileSync(abs, "utf8");
     const fm = frontMatterOf(text);
     let permalink = null;
     if (fm) {
@@ -175,11 +197,117 @@ function literalRoutes() {
       const base = n.replace(/\.njk$/, "");
       permalink = base === "index" ? "/" : `/${base}/`;
     }
-    out.add(permalink);
+    if (!out.has(permalink)) out.set(permalink, abs);
   }
+  return out;
+}
+
+/**
+ * 站点里**真实存在的字面路由**：页面模板的路由 + 静态资源前缀。
+ */
+function literalRoutes() {
+  const out = new Set(pageTemplateMap().keys());
   // 静态资源前缀：构建配置把 src/assets/** 原样复制到 /assets/ ⇒ 它是真实存在的路径前缀。
   if (fs.existsSync(path.join(SRC, "assets"))) out.add("/assets/");
   return out;
+}
+
+/* ==================== 真源：页面区块锚点 ====================
+ *
+ * HTML 里没有「块」的概念，「页面骨架」要能被逐条对账，就得有一个**机械**的定义。
+ * 规则写死在这里，文档侧只照抄派生的结果 —— 门禁不替文档猜「本该有哪些块」：
+ *   · 先剥掉 front matter（YAML 不是 HTML）、Nunjucks 注释 {# ... #}、
+ *     HTML 注释、<style> 与 <script> 块
+ *     —— 不剥的话，front matter 里一句 YAML 注释「<title> 直接退化成……」
+ *        会被当成真标签，把页面容器顶深一层（实测踩过：blog.njk 就是这样）。
+ *   · 模板里每个 {% include "X" %} 是一个独立的块 ⇒ 锚点就是 X 本身。
+ *   · HTML 标签栈的最外层元素（深度 0）是页面容器，它的**直接子级**（深度 1）
+ *     才是「页面区块」；再往里是区块内部的零件，不进骨架这一层。
+ *   · 深度 1 元素的锚点优先级：id="V" ⇒ #V ；class="A B" ⇒ .A.B ；
+ *     都没有但有 aria-labelledby="V" ⇒ #V ；都没有 ⇒ 不算锚点。
+ */
+const HTML_VOID_TAGS = new Set([
+  "area", "base", "br", "col", "embed", "hr", "img", "input", "link",
+  "meta", "param", "source", "track", "wbr",
+]);
+
+/** 剥掉模板里与「骨架」无关的部分（front matter / 注释 / style / script）。 */
+function stripTemplateNoise(text) {
+  return text
+    .replace(/^---\r?\n[\s\S]*?\r?\n---/, "")
+    .replace(/\{#[\s\S]*?#\}/g, "")
+    .replace(/<!--[\s\S]*?-->/g, "")
+    .replace(/<style[\s\S]*?<\/style>/gi, "")
+    .replace(/<script[\s\S]*?<\/script>/gi, "");
+}
+
+/** 模板里 include 的 partial 名（每个都是一个独立的区块）。 */
+function includeAnchorsOf(text) {
+  const out = [];
+  for (const m of text.matchAll(/\{%-?\s*include\s+"([^"]+)"\s*-?%\}/g)) {
+    if (!out.includes(m[1])) out.push(m[1]);
+  }
+  return out;
+}
+
+/** 标签属性值（只认双引号写法；模板里的属性一律是双引号）。 */
+function attrValueOf(tagText, name) {
+  const m = tagText.match(new RegExp(`\\b${name}\\s*=\\s*"([^"]*)"`));
+  return m ? m[1].trim() : null;
+}
+
+/** 一个元素的区块锚点（按上面写的优先级）。 */
+function anchorOfTag(tagText) {
+  const id = attrValueOf(tagText, "id");
+  if (id) return `#${id}`;
+  const cls = attrValueOf(tagText, "class");
+  if (cls) {
+    const parts = cls.split(/\s+/).filter(Boolean);
+    if (parts.length) return `.${parts.join(".")}`;
+  }
+  const labelled = attrValueOf(tagText, "aria-labelledby");
+  if (labelled) {
+    const first = labelled.split(/\s+/).filter(Boolean)[0];
+    if (first) return `#${first}`;
+  }
+  return null;
+}
+
+/** 一个页面模板的「区块锚点」集合（去重，顺序不保证）。 */
+function blockAnchorsOf(file) {
+  let raw = "";
+  try {
+    raw = fs.readFileSync(file, "utf8");
+  } catch (e) {
+    return [];
+  }
+  const text = stripTemplateNoise(raw);
+  const out = new Set(includeAnchorsOf(text));
+  const stack = [];
+  const re = /<(\/)?([a-zA-Z][a-zA-Z0-9-]*)((?:[^>"']|"[^"]*"|'[^']*')*)>/g;
+  let m;
+  while ((m = re.exec(text))) {
+    const closing = m[1] === "/";
+    const name = m[2].toLowerCase();
+    const rest = m[3] || "";
+    if (closing) {
+      for (let i = stack.length - 1; i >= 0; i--) {
+        if (stack[i] === name) {
+          stack.length = i;
+          break;
+        }
+      }
+      continue;
+    }
+    const selfClosing = /\/\s*$/.test(rest) || HTML_VOID_TAGS.has(name);
+    const depth = stack.length;
+    if (depth === 1) {
+      const a = anchorOfTag(rest);
+      if (a) out.add(a);
+    }
+    if (!selfClosing) stack.push(name);
+  }
+  return [...out];
 }
 
 /**
@@ -389,6 +517,38 @@ function metaSectionOf(sections, name) {
     return s;
   }
   return null;
+}
+
+/**
+ * 小节标题里的路由：反引号包着、以 / 开头的那一个。
+ * 标题里没有这种反引号 ⇒ 这一小节不是「某个路由的骨架」，门禁不管它。
+ */
+function routeOfHeading(heading) {
+  for (const m of heading.matchAll(/`([^`]+)`/g)) {
+    const t = m[1].trim();
+    if (t.startsWith("/")) return t;
+  }
+  return null;
+}
+
+/**
+ * 小节里「区块锚点」行给出的锚点。
+ * 行首是「区块锚点：」，后面是反引号包着的锚点（多个用分隔符隔开）。
+ * 同一小节写了多行 ⇒ 锚点合起来算（没写 = 没承诺，漏写 = 文档过期）。
+ */
+function anchorAnchorsOf(section) {
+  const out = [];
+  let found = false;
+  for (const line of section.lines) {
+    const m = line.match(/^\s*区块锚点[：:]\s*(.+)$/);
+    if (!m) continue;
+    found = true;
+    for (const t of m[1].matchAll(/`([^`]+)`/g)) {
+      const a = t[1].trim();
+      if (a && !out.includes(a)) out.push(a);
+    }
+  }
+  return { found, anchors: out };
 }
 
 /* 内容源路径：以 content/ 结尾的那一段路径（含前面的 src/ 或 /）。 */
@@ -637,6 +797,41 @@ function main() {
     }
   }
 
+  /* --- IAC8 / IAC9 / IAC10：§四 的页面骨架必须与模板现实对得上 --- */
+  const tplMap = pageTemplateMap();
+  let anchorsChecked = 0;
+  let pagesChecked = 0;
+  for (const sec of sections) {
+    const route = routeOfHeading(sec.heading);
+    if (route === null) continue; // 这一小节不是在描述某个路由
+    const tpl = tplMap.get(route);
+    if (!tpl) {
+      // 没有页面模板 ⇒ 这个路由未落地 ⇒ 这一小节必须明写「规划中」。
+      if (!sec.lines.join("\n").includes("规划中")) {
+        fail(`IAC10 文档「${route}」这一节当前没有对应的页面模板，却没有明写「规划中」—— 会被当成已经能用的页面骨架。`);
+      }
+      continue;
+    }
+    pagesChecked++;
+    const derived = blockAnchorsOf(tpl);
+    /* 锚点计数记的是**真源派生出来多少**，不是文档写了多少 ——
+       文档少写由 IAC9 判红；这个计数只保证「真源确实有这么多区块可核对」。 */
+    anchorsChecked += derived.length;
+    const { found, anchors } = anchorAnchorsOf(sec);
+    if (!found) {
+      fail(`IAC9 文档「${route}」这一节没有「区块锚点」行 —— 已实现的页面必须写出它的区块锚点，否则这份文档对页面结构没有任何可核对的承诺。`);
+      continue;
+    }
+    const ghost = anchors.filter((a) => !derived.includes(a));
+    if (ghost.length) {
+      fail(`IAC8 文档「${route}」这一节的区块锚点里写了 ${ghost.join("、")} —— 模板里没有这些区块。`);
+    }
+    const missing = derived.filter((a) => !anchors.includes(a));
+    if (missing.length) {
+      fail(`IAC9 文档「${route}」这一节没有列出 ${missing.join("、")} —— 模板里真实存在的区块必须逐个列出来。`);
+    }
+  }
+
   /* --- IAC7：覆盖度自证 --- */
   const short = [];
   if (paths.length < MIN_PATHS) short.push(`扫到的站内路径 ${paths.length} 个 < ${MIN_PATHS}`);
@@ -645,6 +840,12 @@ function main() {
   }
   if (fieldsChecked < MIN_FIELDS) short.push(`核对过的元数据字段 ${fieldsChecked} 个 < ${MIN_FIELDS}`);
   if (docLines.length < MIN_DOC_LINES) short.push(`文档行数 ${docLines.length} < ${MIN_DOC_LINES}`);
+  if (pagesChecked < MIN_SKELETON_PAGES) {
+    short.push(`核对过的页面骨架小节 ${pagesChecked} 个 < ${MIN_SKELETON_PAGES}`);
+  }
+  if (anchorsChecked < MIN_BLOCK_ANCHORS) {
+    short.push(`已实现页面的区块锚点 ${anchorsChecked} 个 < ${MIN_BLOCK_ANCHORS}`);
+  }
   if (short.length) fail(`IAC7 覆盖度自证不足：${short.join("；")}`);
 
   if (problems.length) {
@@ -655,6 +856,7 @@ function main() {
   console.log(
     `信息架构契约门禁通过（站内路径 ${paths.length} 条 · 内容源路径 ${contentPaths.length} 条 · ` +
       `『落地状态』表 ${listEntries.length} 条 · 导航 ${navHrefs.length} 项 · 元数据字段 ${fieldsChecked} 个 · ` +
+      `页面骨架 ${pagesChecked} 个 · 页面区块锚点 ${anchorsChecked} 个 · ` +
       `已实现集合家族 ${implementedFamilies.length} 个）`
   );
 }

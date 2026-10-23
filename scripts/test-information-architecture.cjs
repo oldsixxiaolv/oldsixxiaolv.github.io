@@ -50,9 +50,13 @@ const CAUSES = [
   { id: "IAC6a", crit: "IAC6", frag: "与已拍板结论冲突的表述" },
   { id: "IAC6b", crit: "IAC6", frag: "没有写明已拍板结论" },
   { id: "IAC7a", crit: "IAC7", frag: "覆盖度自证不足" },
+  { id: "IAC8a", crit: "IAC8", frag: "模板里没有这些区块" },
+  { id: "IAC9a", crit: "IAC9", frag: "没有「区块锚点」行" },
+  { id: "IAC9b", crit: "IAC9", frag: "没有列出" },
+  { id: "IAC10a", crit: "IAC10", frag: "却没有明写「规划中」" },
 ];
 /** 静态判据清单（门禁里应当且仅应当有这些判据）。 */
-const CRITERIA = ["IAC1", "IAC2", "IAC3", "IAC4", "IAC5", "IAC6", "IAC7"];
+const CRITERIA = ["IAC1", "IAC2", "IAC3", "IAC4", "IAC5", "IAC6", "IAC7", "IAC8", "IAC9", "IAC10"];
 
 /* ========== 工具 ========== */
 
@@ -115,23 +119,15 @@ const DOC_LINES = [
   "| `/fx-cv/` | 关于页的 CV 链接 | 没有产物 |",
   "| `/fx-cv.pdf` | CV 编译产物 | 未生成 |",
   "| `/fx-admin/` | 后台入口 | 后台形态已拍板，但尚未接入 |",
-  "| `/fx-plan-1/` | 占位规划路径 | 未实现 |",
-  "| `/fx-plan-2/` | 占位规划路径 | 未实现 |",
-  "| `/fx-plan-3/` | 占位规划路径 | 未实现 |",
-  "| `/fx-plan-4/` | 占位规划路径 | 未实现 |",
-  "| `/fx-plan-5/` | 占位规划路径 | 未实现 |",
-  "| `/fx-plan-6/` | 占位规划路径 | 未实现 |",
-  "| `/fx-plan-7/` | 占位规划路径 | 未实现 |",
-  "| `/fx-plan-8/` | 占位规划路径 | 未实现 |",
+  "| `/fx-plan` | 规划路径族（逐条列在 §一） | 整族未实现 |",
   "",
   "## 一、设计目标与边界",
   "",
-  "1. **4 个一级页面**承担全部主交互：Home / Papers / Blog / About",
-  "2. 每个一级页面**最多两级深**",
-  "3. 全站静态生成，构建期产出 HTML",
-  "4. **全站英文**（中文版不做）",
+  "1. **全站英文**（中文版不做）",
   "",
   "边界：不做用户登录与评论；内容后台形态已拍板为 **Decap CMS**，**尚未接入**；站内检索：**规划中**。",
+  "",
+  "规划中的路径族（整族被上表里的 `/fx-plan` 点名）：`/fx-plan-1/`、`/fx-plan-2/`、`/fx-plan-3/`、`/fx-plan-4/`、`/fx-plan-5/`、`/fx-plan-6/`、`/fx-plan-7/`、`/fx-plan-8/`。",
   "",
   "## 二、导航层级",
   "",
@@ -144,8 +140,16 @@ const DOC_LINES = [
   "",
   "## 三、各页面骨架",
   "",
-  "骨架示意：`/`（首页）、`/blog/`（列表）、`/papers/`（列表）、`/about/`（单页）、",
-  "`/fx-works/`（作品集，尚未落地）。",
+  "### 3.1 `/`",
+  "区块锚点：`partials/fx-hero.njk` · `.fx-intro` · `#fx-home-focus-title`",
+  "### 3.2 `/blog/`",
+  "区块锚点：`.fx-blog__head` · `.fx-blog__list`",
+  "### 3.3 `/papers/`",
+  "区块锚点：`.fx-papers__head` · `partials/fx-pubs.njk`",
+  "### 3.4 `/about/`",
+  "区块锚点：`.fx-about__head` · `#fx-about-edu-title`",
+  "### 3.5 `/fx-works/`",
+  "**规划中** —— 合成作品集整族尚未落地。",
   "",
   "## 四、URL / 命名规范",
   "",
@@ -210,13 +214,15 @@ const DOC_LINES = [
   "| RSS、sitemap | Eleventy | `/feed.xml`、`/sitemap.xml` |",
 ];
 
-/** 填充行：给覆盖度门槛留余量，缩档用例整段删掉它。 */
+/** 填充行：给覆盖度门槛留余量，缩档用例整段删掉它。
+ *  首尾两行由数组自己算出来，不写死编号 —— 改了条数也不会对不上。 */
+const FILLER_COUNT = 18;
 const FILLER_LINES = [];
-for (let i = 1; i <= 40; i++) {
+for (let i = 1; i <= FILLER_COUNT; i++) {
   FILLER_LINES.push(`合成填充行 ${String(i).padStart(2, "0")}`);
 }
-const FILLER_START = "合成填充行 01";
-const FILLER_END = "合成填充行 40";
+const FILLER_START = FILLER_LINES[0];
+const FILLER_END = FILLER_LINES[FILLER_LINES.length - 1];
 
 const DOC_BASE = [...DOC_LINES.slice(0, DOC_LINES.length - 1), ...FILLER_LINES, ""].join("\n");
 
@@ -252,13 +258,74 @@ const FIX_GUIDE = [
 
 /** 合成真源：站点源码树（模板 / 内容 / 集合数据文件）。 */
 const FIX_FILES = {
-  "src/index.njk": ["---", "layout: layouts/base.njk", "---", "", "合成首页模板。", ""].join("\n"),
-  "src/about.njk": ["---", "layout: layouts/base.njk", "---", "", "合成关于页模板。", ""].join("\n"),
-  "src/blog.njk": ["---", "permalink: \"/blog/\"", "---", "", "合成博客列表页。", ""].join("\n"),
-  "src/papers.njk": ["---", "permalink: \"/papers/\"", "---", "", "合成论文列表页。", ""].join("\n"),
+  "src/index.njk": [
+    "---",
+    "layout: layouts/base.njk",
+    "---",
+    '<article class="fx-home">',
+    '  {% include "partials/fx-hero.njk" %}',
+    '  <section class="fx-intro">',
+    "    <p>合成介绍段。</p>",
+    "  </section>",
+    '  <h2 id="fx-home-focus-title">合成焦点标题</h2>',
+    "</article>",
+    "",
+  ].join("\n"),
+  "src/about.njk": [
+    "---",
+    "layout: layouts/base.njk",
+    "---",
+    '<article class="fx-about">',
+    '  <header class="fx-about__head">',
+    "    <h1>合成关于页</h1>",
+    "  </header>",
+    '  <section aria-labelledby="fx-about-edu-title">',
+    '    <h2 id="fx-about-edu-title">合成教育经历</h2>',
+    "  </section>",
+    "</article>",
+    "",
+  ].join("\n"),
+  "src/blog.njk": [
+    "---",
+    'permalink: "/blog/"',
+    "---",
+    '<article class="fx-blog">',
+    '  <header class="fx-blog__head">',
+    "    <h1>合成随笔列表</h1>",
+    "  </header>",
+    '  <ul class="fx-blog__list">',
+    '    <li class="fx-blog__item">合成条目</li>',
+    "  </ul>",
+    "</article>",
+    "",
+  ].join("\n"),
+  "src/papers.njk": [
+    "---",
+    'permalink: "/papers/"',
+    "---",
+    '<article class="fx-papers">',
+    '  <header class="fx-papers__head">',
+    "    <h1>合成论文列表</h1>",
+    "  </header>",
+    '  {% include "partials/fx-pubs.njk" %}',
+    "</article>",
+    "",
+  ].join("\n"),
   "src/feed.njk": ["---", "permalink: \"/feed.xml\"", "---", "", "合成订阅源。", ""].join("\n"),
   "src/sitemap.njk": ["---", "permalink: \"/sitemap.xml\"", "---", "", "合成站点地图。", ""].join("\n"),
   "src/404.njk": ["---", "permalink: /404.html", "---", "", "合成错误页。", ""].join("\n"),
+  "src/_includes/partials/fx-hero.njk": [
+    '<section class="fx-hero">',
+    "  <h1>合成首页英雄区</h1>",
+    "</section>",
+    "",
+  ].join("\n"),
+  "src/_includes/partials/fx-pubs.njk": [
+    '<ul class="fx-pubs">',
+    '  <li class="fx-pubs__item">合成论文条目</li>',
+    "</ul>",
+    "",
+  ].join("\n"),
   "src/assets/app.css": ["/* 合成静态资源 */", ".fx { color: #333; }", ""].join("\n"),
   "src/_data/site.js": FIX_SITE_JS,
   "src/content/about.md": ["---", "title: Synthetic about", "---", "", "合成单页。", ""].join("\n"),
@@ -421,7 +488,7 @@ const MUT = {
   },
   /** 不写明已拍板的语言口径 ⇒ IAC6。 */
   docDropEnglish: (s) => {
-    s.doc = replaceOnce(s.doc, "4. **全站英文**（中文版不做）", "4. 英文为主");
+    s.doc = replaceOnce(s.doc, "1. **全站英文**（中文版不做）", "1. 英文为主");
   },
   /** 文档被删到覆盖度门槛以下（只删填充行，路径与字段不动）⇒ IAC7。 */
   docShrink: (s) => {
@@ -506,6 +573,38 @@ const MUT = {
       "### 5.3 合成论文 Front Matter"
     );
   },
+  /** 已实现的小节多写一个模板里根本不存在的区块 ⇒ IAC8。 */
+  docGhostAnchor: (s) => {
+    s.doc = replaceOnce(
+      s.doc,
+      "区块锚点：`partials/fx-hero.njk` · `.fx-intro` · `#fx-home-focus-title`",
+      "区块锚点：`partials/fx-hero.njk` · `.fx-intro` · `#fx-home-focus-title` · `.fx-ghost`"
+    );
+  },
+  /** 已实现的小节整行没有「区块锚点」⇒ IAC9（缺行这一路）。 */
+  docNoAnchorLine: (s) => {
+    s.doc = replaceOnce(
+      s.doc,
+      "### 3.2 `/blog/`\n区块锚点：`.fx-blog__head` · `.fx-blog__list`\n",
+      "### 3.2 `/blog/`\n"
+    );
+  },
+  /** 已实现的小节漏列一个模板里真实存在的区块 ⇒ IAC9（漏列这一路）。 */
+  docMissingAnchor: (s) => {
+    s.doc = replaceOnce(
+      s.doc,
+      "区块锚点：`partials/fx-hero.njk` · `.fx-intro` · `#fx-home-focus-title`",
+      "区块锚点：`partials/fx-hero.njk` · `#fx-home-focus-title`"
+    );
+  },
+  /** 还没落地的小节不写「规划中」⇒ IAC10。 */
+  docPlannedMissing: (s) => {
+    s.doc = replaceOnce(
+      s.doc,
+      "**规划中** —— 合成作品集整族尚未落地。",
+      "合成作品集整族尚未落地。"
+    );
+  },
 };
 
 /** 注入档：expect=null 表示期望判绿，否则期望判红且判据集合**恰为** expect。 */
@@ -532,6 +631,10 @@ const CASES = [
   { id: "IACR19", label: "Blog 的 front matter 里写了 layout", mutate: MUT.docBlogYamlLayout, expect: ["IAC5"] },
   { id: "IACR20", label: "Paper 的 front matter 小节不见了", mutate: MUT.docPaperSectionMissing, expect: ["IAC5"] },
   { id: "IACR21", label: "导航表里有一个入口被换成了另一个", mutate: MUT.docNavHrefSwapped, expect: ["IAC3"] },
+  { id: "IACR22", label: "页面骨架多写一个模板里没有的区块", mutate: MUT.docGhostAnchor, expect: ["IAC8"] },
+  { id: "IACR23", label: "页面骨架整行没有「区块锚点」", mutate: MUT.docNoAnchorLine, expect: ["IAC9"] },
+  { id: "IACR24", label: "页面骨架漏列一个模板里真实存在的区块", mutate: MUT.docMissingAnchor, expect: ["IAC9"] },
+  { id: "IACR25", label: "未落地的小节没写「规划中」", mutate: MUT.docPlannedMissing, expect: ["IAC10"] },
 ];
 
 /** 在门禁副本里卸掉某条判据：给它每一条 fail() 调用**同行**加 `if (false) ` 前缀。 */
@@ -553,6 +656,9 @@ const NEG_CASES = [
   { id: "NC-IAC5", crit: "IAC5", case: "IACR6", label: "卸掉 IAC5" },
   { id: "NC-IAC6", crit: "IAC6", case: "IACR9", label: "卸掉 IAC6" },
   { id: "NC-IAC7", crit: "IAC7", case: "IACR11", label: "卸掉 IAC7" },
+  { id: "NC-IAC8", crit: "IAC8", case: "IACR22", label: "卸掉 IAC8" },
+  { id: "NC-IAC9", crit: "IAC9", case: "IACR23", label: "卸掉 IAC9" },
+  { id: "NC-IAC10", crit: "IAC10", case: "IACR25", label: "卸掉 IAC10" },
 ];
 
 /* ========== 执行 ========== */
