@@ -111,14 +111,29 @@
 
 ### 3.4 批注类型（kind）
 
-| kind | 颜色 token | 图标 | 用途 |
+| kind | edge token | ink token | 用途 |
 |---|---|---|---|
-| `question` | `--color-brand-400` | `help-circle` | 没想通，准备继续查 |
-| `insight` | `--color-accent-400` | `lightbulb` | 心得、灵感 |
-| `critique` | `--color-warning` | `alert-triangle` | 方法学质疑 |
-| `link` | `--color-sage-500` | `link` | 外链补充阅读 |
-| `figure` | `--color-sage-700` | `image` | 配合插图说明 |
-| `typo` | `--color-danger` | `edit-3` | 待勘误 |
+| `question` | `--kind-question-edge` | `--kind-question-ink` | 没想通，准备继续查 |
+| `insight` | `--kind-insight-edge` | `--kind-insight-ink` | 心得、灵感 |
+| `critique` | `--kind-critique-edge` | `--kind-critique-ink` | 方法学质疑 |
+| `link` | `--kind-link-edge` | `--kind-link-ink` | 外链补充阅读 |
+| `figure` | `--kind-figure-edge` | `--kind-figure-ink` | 配合插图说明 |
+| `typo` | `--kind-typo-edge` | `--kind-typo-ink` | 待勘误 |
+
+> **色值不在这里写**：这 12 个 token（每 kind 一条 edge + 一条 ink）的定义在
+> `src/assets/css/components/_paper.css` 的「kind 调色板（6 种批注类型的唯一真源）」段 ——
+> 那是**唯一真源**。本表只列 token 名：取值变了改那一处即可，文档不必跟改
+> （`scripts/check-paper-interaction.cjs` 的 PI4 守着这条：表里出现色值 token 即判红）。
+>
+> - **edge** = 状态边条 / 计数徽章（non-text 图形，AA 需 ≥3:1）；
+>   **ink** = kind 标签文字 / 筛选激活态文字（正文级小字，AA 需 ≥4.5:1）。
+>   两者的具体取值（含为凑对比度做的压暗混色）都在真源那一段里。
+> - **图标**：每 kind 一枚**内联 SVG**，路径写在
+>   `src/assets/js/paper-reader/annotations.js` 的 `KIND_ICONS` 里 ——
+>   站上没有图标字体，别去 CSS 里找图标类名。
+> - **kind → 颜色的接线**共三处，都消费上面那 12 个 token：
+>   批注卡 `.annot-card[data-kind="…"]`、筛选 chip `.annot-filter[data-kind="…"]`、
+>   段落锚点 `.paper-anchor--{kind}`。详见 §5.2。
 
 ---
 
@@ -254,38 +269,52 @@ document.querySelectorAll('[data-anchor-id]').forEach(p => {
 ### 5.2 关键样式（与 `design-system.md` 联动）
 
 ```css
+/* 侧栏容器（完整取值见 paper-reader.css 的 .annot-pane） */
 .annot-pane {
   position: sticky;
   top: 88px;
   align-self: start;
   width: 100%;
-  max-height: calc(100vh - 104px);
   overflow-y: auto;
-  padding: var(--space-4);
-  background: var(--bg-surface);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-lg);
 }
 
+/* kind → 颜色的三处接线：批注卡与筛选 chip 由 data-kind 属性驱动，
+   段落锚点由 class 驱动（类名形如 .paper-anchor--<kind>，在 paper-reader.css 里接线）。
+   三者消费同一批 --kind-* token（取值见 _paper.css 的 kind 调色板段）。 */
+.annot-card[data-kind="question"] {
+  --kind-edge: var(--kind-question-edge);
+  --kind-ink: var(--kind-question-ink);
+}
+.annot-filter[data-kind="question"] {
+  --kind-edge: var(--kind-question-edge);
+  --kind-ink: var(--kind-question-ink);
+}
+
+/* 批注卡头部的 kind 边条：粗细、线型、颜色都来自 --kind-*，
+   勘误（typo）因此拿到一条虚线边条（颜色之外的第二条冗余通道）。 */
+.annot-card__head {
+  border-inline-start: 2px var(--kind-edge-style, solid) var(--kind-edge);
+}
+
+/* .annot-item 是批注卡头部的内层 <button>：
+   它只是 JS 契约类（highlight.js 用 .annot-item.is-active 清掉上一个激活卡），
+   外观一律在 .annot-card / .annot-card__head 上，这里只留通用行为。 */
 .annot-item {
   position: relative;
-  padding: var(--space-3);
-  border-radius: var(--radius-md);
-  border-inline-start: 3px solid var(--color-brand-400);
   background: transparent;
   cursor: pointer;
   transition: background-color var(--dur-base) var(--ease-out);
 }
-.annot-item:hover,
-.annot-item.is-active {
-  background: var(--bg-subtle);
-  border-inline-start-width: 4px;
-}
-.annot-item[data-kind="insight"]  { border-inline-start-color: var(--color-accent-400); }
-.annot-item[data-kind="critique"] { border-inline-start-color: var(--color-warning); }
-.annot-item[data-kind="link"]     { border-inline-start-color: var(--color-sage-500); }
-.annot-item[data-kind="typo"]     { border-inline-start-color: var(--color-danger); }
 ```
+
+> ⚠️ **`.annot-item[data-kind="…"]` 那 6 条从来没匹配上** —— `annotations.js` 把 `data-kind`
+> 写在 `<article class="annot-card">` 上，带 `annot-item` 的是内层 `<button>`，
+> 它只有 `data-annotation-id`。照旧写法加规则会静默失效
+> （`scripts/check-paper-interaction.cjs` 的 PI6 守着这条：带 `data-kind` 的选择器
+> 只能用真正承载该属性的类）。
+>
+> 上面这段只写**接线形状**（谁消费哪个 token），不复制色值与像素值；
+> 完整取值在 `src/assets/css/components/_paper.css` 与 `src/assets/css/paper-reader.css`。
 
 ---
 
@@ -451,29 +480,44 @@ items.sort((a, b) => {
 
 ## 附录 B：CSS 类一览
 
+> 下面列的是**当前真实存在**的类（可在 `src/assets/css/` 与
+> `src/assets/js/paper-reader/` 里查到）。移动端 Tab Bar 三件套
+> （`.paper-tabs` / `.tab` / `.tab-panel`）在 D54 场次已作为死类删除，
+> **不在此列** —— 它是 §7 的规划，不是现状。
+
 | 类 | 作用 |
 |---|---|
 | `.annot-pane` | 整个侧栏容器 |
 | `.annot-pane__head` | 标题 + 搜索 |
-| `.annot-filter` | 类型筛选条 |
+| `.annot-pane__filter` | 侧栏内的筛选条容器 |
+| `.annot-filter` | 类型筛选 chip（带 `data-kind`） |
 | `.annot-list` | 列表容器 |
-| `.annot-item` | 单条批注 |
+| `.annot-item-wrap` | 单条批注的外层包裹 |
+| `.annot-card` | **单条批注**（`annotations.js` 生成，带 `data-kind`） |
+| `.annot-card--{kind}` | 单条批注的 kind 变体 |
+| `.annot-card__head` | 批注卡头部（内层 `<button>`；kind 边条在这里） |
+| `.annot-card__body` | 批注卡展开区 |
+| `.annot-item` | 批注卡头部的**内层按钮**（JS 契约类，外观在 `.annot-card__head` 上） |
 | `.annot-item.is-active` | 当前选中态 |
-| `.annot-meta` / `.annot-title` / `.annot-body` / `.annot-links` | 内部元素 |
-| `.annot-kind--{kind}` | 类型色条 |
+| `.annot-meta` / `.annot-title` / `.annot-body` / `.annot-links` | 批注内部元素 |
+| `.annot-kind` / `.annot-kind--{kind}` | 类型标签 |
+| `.annot-filters` / `.annot-tag` / `.annot-tags` | 筛选与标签 |
 | `.annotating` | 正文中被批注的段（背景高亮） |
 | `.annot-inline` | 移动端段落下方内联手风琴 |
-| `.paper-tabs` / `.tab` | 移动端 Tab Bar |
+| `.paper-anchor` / `.paper-anchor--{kind}` | 正文里的段落锚点（class 驱动） |
 
 ---
 
-## 附录 C：v1.1 kind→color 增补条款（Stage 1 · 2026-09-24）
+## 附录 C：v1.1 kind→color 增补条款（Stage 1 · 2026-09-24）—— **历史提案，从未落地**
 
-> v1.1 在 v1.0 `§3.4` 的基础上**修订一处**（`figure` 由 sage-700 → brand-300）和**新增一类**（`typo`）。
-> 此前的 components.css 里的 `.annot-item[data-kind="figure"]` 仍按 sage-700 渲染，本附录生效后
-> Stage 2 接入应改读 `paper-reader.css`（用本附录色映射）。
+> ⚠️ **本附录是历史记录，不是当前契约**。2026-09-24 提出的 v1.1 配色条款**从未落地**，
+> 后来被 `src/assets/css/components/_paper.css` 的 kind 调色板整体取代。
+> 当前契约见 **§3.4**（只列 token 名，指向真源）。
+>
+> 下面 C.1 / C.2 / C.3 原样保留提案内容，供追溯「历史上走过这一段」；
+> 凡与现状不一致之处，均已在原文之后就地标注（标注日期 2026-10-23）。
 
-### C.1 kind→token 表（最终版）
+### C.1 历史提案的 kind→token 表（未落地）
 
 | kind | light token | light 实测 HEX | dark token | dark 实测 HEX | 语义 | 图标 |
 |---|---|---|---|---|---|---|
@@ -487,10 +531,21 @@ items.sort((a, b) => {
 > 实测 HEX 取自 `src/assets/css/tokens.css` 的 `:root` 块 + `@media (prefers-color-scheme: dark)` 块。
 > dark 模式未单独覆盖 brand-300/sage-500/danger 时，会自动跟随 tokens.css 中已有的 `body` 文本提亮规则；
 > 因次级色阶在 dark 下仍可用 `color-mix` 与 bg-subtle 拉开对比。
+>
+> **与现状的差异（2026-10-23 实测订正）**：上表**六行里有四行**与当前实现不同 ——
+> 现在的 `critique` 是砖红（danger 系）、`figure` 是鼠尾草绿（sage 系）、`link` 是中性灰
+> （neutral 系，**刻意**的：外链是结构性引用、不是观点，不该抢注意力）、`typo` 是琥珀
+> （warning 系）＋**虚线**边条（颜色之外的第二条冗余通道）。
+> 表里的「图标」列写的是 Feather 图标名，但站上从来没有图标字体 —— 现在每 kind 一枚内联 SVG，
+> 路径在 `annotations.js` 的 `KIND_ICONS` 里。
+>
+> **本提案既没有落地，也没有留在待拍板清单里**（2026-10-23 实测：中央台账里查无此项）——
+> 它的**存在理由已经消失**，理由见 C.2 的订正。**若日后要让 `figure` 脱离 sage 族**，
+> 唯一的改动点是 `src/assets/css/components/_paper.css` 里的 `--kind-figure-edge` 与
+> `--kind-figure-ink` 两条 token（其余文件一律消费 `var(--kind-*)`，改这两处即全站生效）。
+> 本条**不代拍**，只是把改动点写清楚。
 
-> **⚠️ 与代码现状的差异（未收敛）**：上表是 v1.1 提案，但 `src/assets/css/components/_paper.css` 目前仍按 **v1.0** 渲染 —— `figure` 走 `--color-sage-700`、`link` 走 `--color-sage-500`，尚未改成 brand-300。也就是说 `figure` 与 `link` 目前在视觉上区分度不足，正是 C.2 想解决的问题。要落地 v1.1 就改 `_paper.css` 的 `.annot-item[data-kind="figure"]` 与 `.annot-kind--figure`；不改就把本表回退成 sage-700。**这一处需要 owner 拍板。**
-
-### C.2 为何 `figure` 由 sage-700 改为 brand-300
+### C.2 为何 `figure` 由 sage-700 改为 brand-300（**前提已失效**）
 
 - v1.0 用 sage-700 在视觉上和 `link`（sage-500）太接近，肉眼分辨困难；
 - figure 的语义是「配合插图说明」，用浅一档的流场蓝（brand-300）能与 question
@@ -498,11 +553,23 @@ items.sort((a, b) => {
 - 旧 `.annot-item[data-kind="figure"]` 的 sage-700 规则保留兼容，但 **v1.1+ 新组件**
   必须按本附录用 brand-300。
 
-### C.3 typo 的引入
+> **订正（2026-10-23）**：本条提案的**存在理由已经消失** —— 它要解决的是
+> 「figure 与 link 区分度不足」，而现在的 `link` 是**中性灰**（不再与 figure 同族），
+> 那个问题早就不存在了。取而代之的是一次按**语义族**重做的整体分配
+> （配图 = 鼠尾草绿 = 数据/观测），理由写在 `_paper.css` 的 kind 调色板注释里。
+> 换句话说：不是「figure 还没改成 brand-300」，而是**这一版提案整体已被另一套方案取代**。
+
+### C.3 typo 的引入（**落地了，但配色不是提案里那一套**）
 
 - 旧 schema 没有 typo，作者在长期精读中会遇到「原文编辑错漏」想标注但不归入 critique；
 - 用 danger 红与所有其他 kind（蓝/橙/黄/绿）形成最大色距；
 - 仅用于「我读了觉得是错字」这种编辑级批注，不替代 critique（critique 仍指方法学质疑）。
+
+> **订正（2026-10-23）**：typo 这一类**落地了**，但**不是按本条提案的配色** ——
+> 现在 typo 是**琥珀（warning 系）+ 虚线边条**，而 danger 红归了 `critique`。
+> 理由写在 `_paper.css` 的注释里：暖色族里琥珀与橙/红只差 15~17°，
+> 所以给勘误补一条**虚线**作为颜色之外的第二条冗余通道（色觉障碍与灰度打印下也能分辨）。
+> 本条「用 danger 红与其他 kind 形成最大色距」的推理，在 danger 红归 critique 之后已不成立。
 
 ---
 
@@ -529,6 +596,10 @@ items.sort((a, b) => {
 ### D.3 figure 用 brand-300 而非 sage-700
 
 见 **附录 C.2**。
+
+> **订正（2026-10-23）**：本条记录的是 v1.1 提案里的一个**决定**，而该提案**从未落地**，
+> 也已被后来的 kind 调色板整体取代 —— 现在 `figure` 是鼠尾草绿（sage 系）。
+> 详见附录 C 的历史声明与 C.2 的订正。
 
 ### D.4 闪烁动画时长（1.4s）
 

@@ -23,16 +23,18 @@ Eleventy 11ty 从 Markdown 源构建出纯静态站点，零后端、零数据�
 论文详情页左半部分渲染论文原文，右半部分是批注侧栏。
 每个批注按 `kind` 分类，配色走设计系统的设计 token（不写死 HEX）：
 
-| kind | 颜色 token | 含义 |
+| kind | 调色板 token | 含义 |
 | --- | --- | --- |
-| `question` | `--color-brand-400` | 疑问 / 待查 |
-| `insight` | `--color-accent-400` | 心得 / 灵感 |
-| `critique` | `--color-warning` | 方法学质疑 |
-| `figure` | `--color-sage-700` | 配合插图说明 |
-| `link` | `--color-sage-500` | 外链补充阅读 |
-| `typo` | `--color-danger` | 待勘误 |
+| `question` | `--kind-question-edge` / `--kind-question-ink` | 疑问 / 待查 |
+| `insight` | `--kind-insight-edge` / `--kind-insight-ink` | 心得 / 灵感 |
+| `critique` | `--kind-critique-edge` / `--kind-critique-ink` | 方法学质疑 |
+| `figure` | `--kind-figure-edge` / `--kind-figure-ink` | 配合插图说明 |
+| `link` | `--kind-link-edge` / `--kind-link-ink` | 外链补充阅读 |
+| `typo` | `--kind-typo-edge` / `--kind-typo-ink` | 待勘误 |
 
-> 上表与 `src/assets/css/components/_paper.css` 保持一致。`docs/papers-interaction.md` 附录 C 曾提议把 `figure` 改成 `--color-brand-300`，但代码目前仍按 `sage-700` 渲染 —— 要改请同时改两边。
+> 批注各 kind 的配色**唯一真源**是 `src/assets/css/components/_paper.css` 的 kind 调色板段
+> （每 kind 一条 edge + 一条 ink）；上表只列 token 名，不复制色值 ——
+> 色值抄进文档等于多一份会各自漂移的副本。完整规范见 `docs/papers-interaction.md` §3.4。
 
 段落和批注卡双向联动：点段落到批注卡闪烁、点批注卡回滚段落并闪烁、
 滚动正文时 IntersectionObserver 自动高亮侧栏当前批注卡。键盘 ←/→ 在段间切换，
@@ -123,6 +125,8 @@ Cloudflare Pages、Nginx 等任意静态服务。详细运行 / 调试见 `HOW_T
 | `npm run check:doc-reality-selftest` | 上面那道门禁的本地夹具自测（注入矩阵，在**临时副本**上跑，证明它能变红；含**判据级负对照**：复制门禁源码到 tmp 再同行替换掉某条判据 ⇒ 同一夹具**转绿**，证明那条红确实是它判出来的；**红因归属纯净性断言**（每档红只许出现自己那一条判据的编号）；**覆盖度自证**（每条红因至少有一档能证明它会变红）） |
 | `npm run check:writing-contract` | 站内**写作契约**（`docs/blog-writing-guide.md`）必须和代码现实一致：§2.4 的 F 判据对照表与 front matter 门禁源码里真实存在的判据得一一对上（WC1）；§2.5 的 T 判据对照表与集合名门禁源码要对上（WC2）；正文里提及的判据编号得真实存在（WC3）；§1「自动注入的字段」表与目录数据文件实际注入的字段要对上（WC4）；§2 字段表里标为「可写」的字段不许同时出现在 §4 自查清单的「别写」里（WC5）；不许写死「N 档」这种每轮都会变的数字（WC6）；另含覆盖度自证（WC7：活文档 / 两道门禁源码 / 目录数据文件 / §1 注入字段表 / §2 字段表 / §2.4 的 F 表 / §2.5 的 T 表 / §4 自查清单段，九样缺一即判红，防「改空了通过」） |
 | `npm run check:writing-contract-selftest` | 上面那道门禁的本地夹具自测（**合成夹具**注入矩阵，在**临时副本**上跑，证明它能变红；含**判据级负对照**：复制门禁源码到 tmp 再同行替换掉某条判据 ⇒ 同一夹具**转绿**，证明那条红确实是它判出来的；**红因归属纯净性断言**（每档红只许出现自己那一条判据的编号）；**覆盖度自证**（每条红因至少有一档能证明它会变红）） |
+| `npm run check:paper-interaction` | 论文精读交互契约：文档与 README 里的 kind 配色契约必须和代码现实一致 —— §3.4 表与 README 表的 kind 集合必须与批注脚本里的 kind 真源**双向**一致，少列多列都判红（PI1）；代码内部自洽（标签与图标的 kind 键集合相同、调色板的 kind 集合与代码一致、每个 kind 的 edge 与 ink 成对齐全，PI2）；文档表里的 kind token 必须在调色板真源里真实定义（PI3）；文档表里不得复制色值真源（PI4 —— kind 配色的唯一真源是样式表里的 kind 调色板段，文档只列 token 名；这一族漂移正是「抄了第二份」造成的）；文档里的批注类名必须真实存在（PI5 —— 普通类名精确命中，模板类按前缀匹配）；文档里带 kind 属性选择器的规则必须用代码里真正承载该属性的类（PI6 —— 挂到别的类上那条规则永远匹配不上）；另含覆盖度自证（PI7：kind 真源脚本 / 调色板真源样式表 / §3.4 表 / README 表 / 附录 B 表 / §5.2 代码块，六样缺一即判红，防「改空了通过」） |
+| `npm run check:paper-interaction-selftest` | 上面那道门禁的本地夹具自测（**合成夹具**注入矩阵 —— 夹具里的 kind 与类名都换成另外一套，证明门禁是**真源驱动**而不是把真实 kind 写死；在**临时副本**上跑，证明它能变红；含**判据级负对照**：复制门禁源码到 tmp 再同行替换掉某条判据 ⇒ 同一夹具**转绿**，证明那条红确实是它判出来的；**红因归属纯净性断言**（每档红只许出现自己那一条判据的编号，多一条少一条都算失败）；**覆盖度自证**（每条红因、每条判据都至少有一档能证明它会变红）；另含**前缀唯一性自证**（本门禁的编号前缀不许被别的门禁占用）） |
 | `npm run check:image` | 页面里声明的图与产物里真实存在的图是同一张（**分享图体积上限 ≤ 200 KB**、`og:image:type` 与文件**真实格式**一致，两者都带空跑防护） |
 | `npm run check:image-selftest` | 上面那道门禁的本地夹具自测（注入矩阵，在**自造的最小夹具站**上跑，证明它能变红；含**判据级负对照**（门禁副本分别卸掉 IA8 / IA9 / IA10 判定后对应注入必须转绿，证明那条红确实来自它自己）；**红因归属纯净性断言**（每档红只许出现自己那一条判据的编号，多一条少一条都算失败）；**覆盖度自证**（门禁新加判据而本矩阵没补档必须判红）；**故意判绿**（`<style>` 块与 HTML 注释里的假 `<img>` 不算图）） |
 | `npm run check:img-srcset` | 响应式图片声明（`srcset` / `imagesrcset`）的**每个候选 URL** 必须落到真实存在的产物文件（按页面 URL 口径解析）；`<img>` 必须留 `src` 兜底；候选列表不得为空；描述符必须合法且**不得混用宽度与密度**（混用会让整条声明被浏览器忽略） |

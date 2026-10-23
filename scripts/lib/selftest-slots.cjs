@@ -258,6 +258,12 @@ const SLOTS = {
     "LT0", "LT1", "LT2", "LT3", "LT4", "LT5", "LT6", "LT7",
     "LT7"
   ],
+  "test-paper-interaction.cjs": [
+    "PIR0", "PIR1", "PIR2", "PIR3", "PIR4", "PIR5", "PIR6", "PIR7",
+    "PIR8", "PIR9", "PIR10", "PIR11", "PIR12", "PIR13", "PIR14", "PIR15",
+    "PIR16", "NC-PI1", "NC-PI2", "NC-PI3", "NC-PI4", "NC-PI5", "NC-PI6",
+    "NC-PI7"
+  ],
   "test-print-theme.cjs": [
     "PT0", "PT1", "PT2a", "PT2b", "PT2c", "PT3a", "PT3b", "PT3c",
     "PT3d", "PT4a", "PT4b", "PT5", "PT6a", "PT6b", "PT6c", "PT6d",

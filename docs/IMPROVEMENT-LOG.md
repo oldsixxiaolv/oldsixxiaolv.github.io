@@ -27297,3 +27297,156 @@ D59 第三批给 `check-lang`、第四批给 `check-print-theme`、第五批给 
 - **M1（内容引擎）**：选题主线本人尚未指定 ⇒ 本轮不代拍。
 - **M4 / M5**：下游于文章（文章还没有）⇒ 排在 M1 之后。
 - 其余待修缺陷（D5 / D6 / D9 / D10 / D12 / D26 / D32 / D57）仍挂本人拍板，本轮不代拍。
+
+## 2026-10-23 · 01:35–02:35 场次（**不占轮次号**）：D81 —— 修掉缺陷 **D80**：站内唯一的论文精读交互契约与代码现实脱节（六处），且零门禁看守
+
+### A. 背景
+
+- 上一轮（D80）修的是 `docs/blog-writing-guide.md`（博客写作契约）。本轮用同一个方法去盘
+  `docs/papers-interaction.md`（论文精读交互契约）—— 结果发现它比博客那份更严重：
+  **全仓唯一没有任何门禁读它的活文档**（附录 B 里那些类名只是被字符串匹配命中，不是真读），
+  而且漂了**六处**。
+- 触发点是设计系统文档里的一句话：`docs/design-system.md` §6.7 把
+  `docs/papers-interaction.md` 的**附录 C** 当作 kind 配色映射的出处。
+  顺着查下去发现附录 C 本身是**从未落地的历史提案**，而真正在跑的 kind 配色真源
+  （`src/assets/css/components/_paper.css` 的 kind 调色板段）**文档里一处都没写对**。
+- 实测漂移清单（不是推测，每条都对着代码核过）：
+  ① §3.4 的 kind↔颜色表 6 个 kind 里 **5 个对不上** —— `critique` 与 `typo` **正好互换**
+     （文档写 warning / danger，真源是 danger / warning 压暗）、`link` 差了一整个色系
+     （文档 sage-500，真源 neutral-500/600，且代码注释写明那是**故意**改的）、
+     `figure` 实为「edge 混色 ＋ ink=sage-700」两档（文档只写了一个 sage-700）、
+     `insight` 也差一档（文档 accent-400，真源 accent-500 压暗）；
+     同一张表还带一列「图标」写的是 **Feather 图标名**，而站上**从来没有图标字体**
+     （`KIND_ICONS` 存的是内联 SVG path）；
+  ② §5.2「关键样式」给的 `.annot-item[data-kind=…]` 规则**从来没匹配上** ——
+     `annotations.js` 把 `data-kind` 写在 `<article class="annot-card">` 上，
+     带 `annot-item` 的是内层 `<button>`（只有 `data-annotation-id`）；
+     同一节 `.annot-pane` 的 max-height（104 vs 112）、background（surface vs transparent）、
+     border-radius（radius-lg vs 0）与 `.annot-item` 的 padding / border-radius / 3px 边条
+     也全部对不上（那三项已搬到 `.annot-card__head`，真实边条是 2px）；
+  ③ 附录 C 自称「最终版」的表与代码不符；
+  ④ 附录 C 末段三处现状陈述说错（说「代码仍按 v1.0 渲染」「link 走 sage-500」
+     「要落地 v1.1 就改 `.annot-item[data-kind="figure"]`」），并写着「需要 owner 拍板」；
+  ⑤ C.2 / C.3 的语义推理与代码现状**相反**（C.2 的理由「figure 与 link 太接近」在代码里
+     已不成立 —— link 早就改成中性灰了；C.3 说 typo 用 danger 红「与其他 kind 形成最大色距」
+     —— 代码里 typo 是琥珀 ＋ 虚线边条，danger 红是 critique）；
+  ⑥ 附录 B 列着 `.paper-tabs` / `.tab` —— 这两个类**早在 D54 场次就被当死类删掉了**
+     （`_paper.css` 里还留着说明这件事的注释），附录 B 还把它们当在用的类写着；
+     同一张表里 `.annot-item` 的语义也**反了**（它其实是批注卡头部的内层按钮，
+     真正的「单条批注」是 `.annot-card`），且漏列了 JS 实际生成的一批核心类。
+- 连带：`README.md` 的 kind 配色表是**同一张错表**，还自称「上表与 `_paper.css` 保持一致」；
+  `docs/design-system.md` §6.7 把附录 C 当作 kind 配色映射的出处。
+
+### B. 改动
+
+- **新门禁 `scripts/check-paper-interaction.cjs`**（判据 **PI1–PI7**，**16 处 `fail()` 调用点**：
+  PI1×3、PI2×3、PI3×1、PI4×1、PI5×1、PI6×1、PI7×6）。全静态、**不联网**、
+  **不 import 被检查方**、不跑构建；环境变量 `PI_ROOT` 供自测注入。
+  - PI1 文档两张 kind 表（docs §3.4 与 README）的 kind 集合 ↔ JS 真源 `KIND_LABELS`（**双向**）；
+  - PI2 代码内部自洽：`KIND_LABELS` 与 `KIND_ICONS` 键集合相同、`_paper.css` 的 kind 集合
+    == 代码 kind 集合、每个 kind 的 edge ＋ ink **成对**齐全；
+  - PI3 表里出现的每个 `--kind-*` token 必须在 `_paper.css` 里真实定义；
+  - PI4 两表里**不得出现任何 `--color-*` token**；
+  - PI5 附录 B 与 §5.2 里的类名必须**真实存在**（普通类**精确命中**，`--{kind}` 模板才走前缀匹配）；
+  - PI6 文档里带 `[data-kind=…]` 的选择器必须用**代码里真正承载 data-kind 的那个类**
+    —— 真源由 **CSS 规则解析**得出（不硬编码），专治「类名都存在、规则却永远匹配不上」；
+  - PI7 覆盖度自证**六项**（真源 JS / 真源 CSS / docs §3.4 表 / README 表 / 附录 B 表 /
+    §5.2 代码块），缺一即红，防「改空了通过」。
+- **修法是去重，不是逐条改数字**：文档只列 `--kind-<kind>-edge` / `--kind-<kind>-ink` 的
+  **token 名**，指向 `src/assets/css/components/_paper.css` 的 kind 调色板段（唯一真源）；
+  PI4 把「又抄了一份」钉死 ⇒ 以后改配色只改真源一处。
+- **文档修正四处**：
+  - `docs/papers-interaction.md`：§3.4 改成 4 列 token 表 ＋ 真源说明（含 edge / ink 的
+    用途与对比度口径、图标是内联 SVG 而非图标字体）；§5.2 换成**合法**的 CSS 接线形状
+    （`.annot-card[data-kind]` / `.annot-filter[data-kind]` / `.annot-card__head` 的边条）
+    ＋ 一块「`.annot-item[data-kind=…]` 那 6 条从来没匹配上」的警示；附录 B 改成**真实类清单**
+    （并写明 `.paper-tabs` / `.tab` 已在 D54 删除）；附录 C 标成
+    **「历史提案，从未落地」**，C.1/C.2/C.3 与末段就地订正（标注日期）；
+  - `README.md`：kind 表改 token 名，删掉「上表与 `_paper.css` 保持一致」那句假陈述；
+  - `docs/design-system.md`：§6.7 四条全订正，不再把附录 C 当 kind 映射源。
+- **自测 `scripts/test-paper-interaction.cjs`** 四件套：
+  - 红因归属表 **16 条**（PI1a–PI1c / PI2a–PI2c / PI3–PI6 / PI7a–PI7f），
+    **文案片段互不包含** ⇒ 归属纯净；
+  - 覆盖度自证双向：门禁 16 处 `fail()` ↔ 归属表、门禁解析出的判据集合恰为 PI1–PI7，
+    并额外断言门禁源码的判据前缀**只能是 PI 或一位的 D**（多字母前缀会污染 README 的对账）、
+    **PI 前缀全仓唯一**（别人也用 PI 的话 README 的 PI 编号对账会算上别人的门禁）；
+  - 注入档 **PIR0–PIR16**（17 档，每档断言「判红 ＋ 判据集合**恰为**预期」）；
+  - 判据级负对照 **NC-PI1–NC-PI7**：复制门禁源码到 tmp 再**同行替换**
+    （**不给生产门禁加可卸开关**），断言行数不变、差异行数 == 该判据 `fail()` 数、
+    对应夹具**转绿**、仓库原件 sha256 前后一致。
+  - 夹具是**合成式**：kind 叫 alpha / beta / gamma、类名带 `fx-` 前缀，
+    **刻意与真实仓库不同** ⇒ 证明门禁是**真源驱动**而不是把真实 kind 写死。
+- **接线**：`scripts/lib/selftest-slots.cjs` 登记 **24** 个编号（PIR0–PIR16 ＋ NC-PI1–NC-PI7）；
+  `package.json` 加 `check:paper-interaction` 与 `check:paper-interaction-selftest`，
+  两者都接进 build 链（排在 writing-contract-selftest 之后、blog-frontmatter 之前）；
+  `README.md` 命令表补两行（门禁行只列 PI1–PI7，**不带缺陷编号**、不带别的门禁前缀 token）。
+
+### C. 验证
+
+- **独立反向验证（关键一条）**：把 **HEAD 的原始文档**（整份）连同真源复制到
+  `/tmp/mh_d81/rev/` 的临时根、用 `PI_ROOT` 指过去跑（**仓库文件一行不动**）⇒
+  门禁 **exit 1**，红因 **4 条**：
+  - **PI4 ×2** —— docs §3.4 表与 README 表各命中抄进来的 `--color-*` token；
+  - **PI5** —— 附录 B 命中不存在的类 `paper-tabs` / `tab`；
+  - **PI6** —— §5.2 命中 `.annot-item[data-kind=…]`（代码里真正承载 `data-kind`
+    的是 `annot-card` / `annot-filter`）。
+  ⇒ **修文档后**真仓实跑 **exit 0**（kind 6 个、token 12 条成对齐全）。
+- 自测 **PIR0–PIR16 与 NC-PI1–NC-PI7 全绿**（经包装器，24 个编号全部有出处，
+  静态清单与实跑完全一致）。
+- 元门禁（`check-gates-wired` / `check-readme` / `check-selftest-guard`）全 exit 0；
+  `npm run build` **exit 0**。
+- **档位守卫（SF3）当场抓出自测自己的一处措辞问题（本轮唯一一次 build 返红）**：
+  首轮 `npm run build` **exit 1**，红因是 `scripts/test-paper-interaction.cjs` 有一条 ✓ 断言
+  **以 ASCII 单词 `PI` 开头**（「PI 前缀全仓唯一…」），而档位守卫的兜底判据（SF3）要求
+  **每个行首标记行都有出处**（静态清单编号 / 锚点 / 显式非档位）⇒ 该行被判红。
+  处置是**改措辞**（改成中文开头「判据前缀 PI 全仓唯一…」），**不是**放宽守卫、
+  也**不是**往共享静态清单里塞一条 —— 那一行本来就是**收尾自检行、不是编号档**，
+  且同块其余六条断言也都是中文开头（守卫的既定口径：首词不是 ASCII 的行不参与档位比对）。
+  改完复跑：自测 exit 0、`check:selftest-guard` exit 0（24 个编号全部有出处）、全量 build exit 0。
+- 线上巡检如实记录：**不是全 200** —— `/`、`/blog/`、`/about/`、`/sitemap.xml` 200，
+  `/papers/`、`/publications.bib`、`/feed.xml` 三条 **404** —— 这三条属缺陷 **D6**
+  （旧部署，**由 push 触发**），本轮**不代拍**，也没有去动部署相关代码。
+  （本机 ClashX Pro TUN 会劫持 DNS，直连 curl 大量返 000 ⇒ 巡检走
+  `curl -x http://127.0.0.1:7890`。）
+
+### D. 顺手发现（记下来，不在本轮修）
+
+- `docs/papers-interaction.md` 的 §7 仍把移动端 Tab Bar 三件套（`.paper-tabs` / `.tab` /
+  `.tab-panel`）当**规划**写，而这三个类在 D54 场次已被当死类删掉。附录 B 本轮已订正，
+  **§7 本轮没动** —— 它是设计稿、不在本门禁扫描面内（改了会与「保留设计意图」冲突）。
+- 门禁 PI5 只判「类**是否存在**」，**不判「有无落点」** —— 后者是 `check-dead-css` 的活，
+  两道门禁不重叠。
+- 本门禁的类名普查会读 `src/assets/css` 与 `src/assets/js` 全目录（剥注释后），
+  若以后新增大量 JS 字符串类名，PI5 的误报面会变大 —— 本轮实测无误报，如实记下这个上限。
+
+### E. 文档
+
+- `docs/DEFECT-BACKLOG.md`：登记 **D80（已修）**，附验收条件逐条兑现与诚实边界。
+- `docs/ROADMAP.md`：§1 缺陷清单摘要更新（**D80 列入已修**）、末尾追加 D81 场次条目（①–⑨）。
+- `docs/IMPROVEMENT-LOG.md`：本小节；中央「待决策」台账**不新增**待拍板项
+  （本轮是纯工程补强）。
+
+### F. 本轮纪律
+
+- 提交只走**私有索引 CAS**，只提交本轮自己改的路径；**不 push**。
+- 并发场次占用的 `scripts/check-identity-handles.cjs` / `scripts/test-gates-selfcheck.cjs`
+  本轮**未触碰、未提交**。
+- 探针与勘察脚本都放在 `/tmp/mh_d81/`（含反向验证根 `/tmp/mh_d81/rev/`），**不入库**；
+  收尾用 `mavis-trash` 清理。
+- 门禁红了先定位红因，**不为了 build 变绿去放宽判据**。
+- **不代拍**：附录 C 里的「figure 改 brand-300」**从未登记为待拍板项**（查过中央台账，
+  全仓 `brand-300` 只命中 D57 那条同名不同事）⇒ 本轮只把它标成「历史提案，从未落地」，
+  不新增待拍板号、不动配色。
+- **文档里的每个断言都先实证再写**：kind↔token 的对应关系逐条对过 `_paper.css`；
+  附录 C 的定性先查中央台账再落笔；没有靠「文档原本就是这么写的」来背书。
+- 新门禁**纯静态、不联网、不 import 被检查方** ⇒ build 链保持零网络依赖。
+
+### 下一轮入口
+
+- **缺陷 D6（线上 3 条 404）**：真正的前置是 **push**（本轮不代拍、不 push）。
+- **M3（Decap 后台）**：要先把「bundle 自托管还是走 CDN」定下来，且 OAuth App 必须本人建。
+- **M1（内容引擎）**：选题主线本人尚未指定 ⇒ 本轮不代拍。
+- **M4 / M5**：下游于文章（文章还没有）⇒ 排在 M1 之后。
+- **批注层本身**：`docs/papers-interaction.md` 里 §6 / §7 / §9 仍是**规划**，
+  而 D12（批注子系统整体不可达）挂待拍板 ⇒ 那条线本轮不碰。
+- 其余待修缺陷（D5 / D6 / D9 / D10 / D12 / D26 / D32 / D57）仍挂本人拍板，本轮不代拍。

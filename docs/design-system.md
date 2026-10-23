@@ -541,10 +541,10 @@ CS8：门禁**从产物自身判模式** —— `components.css` 含 `@import ur
 
 ### 6.7 批注侧栏（Annotation Panel · 仅论文精读页用）
 
-- 桌面端右侧 320–360px 固定列
-- 单条批注：左侧 3px 色条 + 标题 + 锚点 + 详情，共 6 种 kind 配色（question / insight / critique / figure / link / typo，映射见 `papers-interaction.md` 附录 C 与 `components/_paper.css`）
-- 选中态：背景 `--bg-subtle`，左色条变 4px
-- 全文折叠时（移动端）切换为 `<details>` 单元素
+- 桌面端右侧是三栏栅格的**第三轨**：`minmax(280px, 1.2fr)`（不是写死的固定列；见 `paper-reader.css`）
+- 单条批注：左侧 **2px** kind 色条 + 标题 + 锚点 + 详情，共 6 种 kind 配色（question / insight / critique / figure / link / typo；**配色的唯一真源**是 `components/_paper.css` 的 kind 调色板段，规范见 `papers-interaction.md` §3.4）
+- 选中态：背景 `--bg-subtle` 再叠一层 kind 色 8% 混色；左色条**不**变粗（仍是 2px）
+- 移动端每条批注折叠为 `<details>` 单元素：**规划中**（样式已备于 `.annot-inline`，交互未接；见 `papers-interaction.md` §7）
 
 ### 6.8 顶部导航（Topbar）
 
