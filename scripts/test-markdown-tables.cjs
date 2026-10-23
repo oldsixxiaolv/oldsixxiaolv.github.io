@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * 自测 TBLR0–TBLR16：给 scripts/check-markdown-tables.cjs 的每条判据找一次「它会红」的证据
+ * 自测 TBLR0–TBLR19：给 scripts/check-markdown-tables.cjs 的每条判据找一次「它会红」的证据
  *
  * 为什么要有这个自测（2026-10-23 的 D86）：
  *   这道门禁守的是「文档里的每一张 Markdown 表格都真的是一张表」。
@@ -25,7 +25,7 @@
  *   ⚠️ 夹具的规模**刚好卡在覆盖度下限上**（3 个 md / 2 张表 / 5 行数据），
  *     所以注入档只红它该红的那条判据，覆盖度判据（TBL3）不会连坐。
  *
- * 档位（8 档注入 ＋ 3 档绿档 ＋ 4 档判据级负对照 ＋ 1 档覆盖度自证 ＋ 1 档基线）：
+ * 档位（9 档注入 ＋ 4 档绿档 ＋ 5 档判据级负对照 ＋ 1 档覆盖度自证 ＋ 1 档基线）：
  *   TBLR0  基线绿
  *   TBLR1  表格被空行截断（空行后还有数据行）                    ⇒ TBL1
  *   TBLR2  行内代码 span 里含裸竖线                              ⇒ TBL2
@@ -43,10 +43,13 @@
  *   TBLR14 负对照：卸掉 TBL3 ⇒ TBLR5–TBLR6 的注入必须全部转绿
  *   TBLR15 负对照：卸掉 TBL4 ⇒ TBLR7 的注入必须转绿
  *   TBLR16 覆盖度自证档：基线上门禁**确实认出**了 ≥2 张表、≥5 行数据
+ *   TBLR17 表头格数 ≠ 分隔行格数（这一块从来就不是一张表）      ⇒ TBL5
+ *   TBLR18 分隔行里有一格没有连字符（同样不是一张表）            ⇒ TBL5
+ *   TBLR19 负对照：卸掉 TBL5 ⇒ TBLR17–TBLR18 的注入必须全部转绿
  *
  * ⚠️ 每档都断言「红因编号集合**完全相等**」，不只是「包含期望的那条」——
  *   一档里出现两条判据的红，红因归属就不可判定了（那是脚本的缺陷，不是产品的缺陷）。
- *   TBLR12–TBLR15 这四档负对照正是「归属纯净」的守门人：
+ *   TBLR12–TBLR15 / TBLR19 这五档负对照正是「归属纯净」的守门人：
  *   卸掉 TBL1 之后 TBLR1 若还红，说明是别的判据越界管了截断 ⇒ 立刻暴露。
  *
  * ⚠️ 负对照**不给门禁加开关**（加了开关就等于在门禁里留一个「可卸闸门」）——
@@ -89,6 +92,28 @@ const DOC_B = [
 ].join("\n");
 
 const DOC_C = ["# 合成夹具 C", "", "这一份文档里没有任何表格。", ""].join("\n");
+
+/* TBL5 的两个子形态夹具：表头与分隔行**配不成一张表** ⇒ GFM 整块渲染成一个段落。
+   ① 表头 3 格 / 分隔行 2 格；② 分隔行中间那格没有连字符。 */
+const DOC_B_CELL_MISMATCH = [
+  "# 合成夹具 B",
+  "",
+  "| 判据 | 内容 | 备注 |",
+  "|---|---|",
+  "| fixture-alpha | 一条 | 备注一 |",
+  "| fixture-beta | 两条 | 备注二 |",
+  "",
+].join("\n");
+
+const DOC_B_SEP_NO_HYPHEN = [
+  "# 合成夹具 B",
+  "",
+  "| 判据 | 内容 | 备注 |",
+  "|---| |---|",
+  "| fixture-alpha | 一条 | 备注一 |",
+  "| fixture-beta | 两条 | 备注二 |",
+  "",
+].join("\n");
 
 /* ================= 沙箱 ================= */
 
@@ -659,6 +684,63 @@ function cleanup(dir) {
     note("判据前缀 TBL 全仓唯一（只有 check-markdown-tables.cjs 在用）");
   }
   cleanup(dir);
+}
+
+/* ================= 注入档 TBLR17–TBLR18：TBL5（这一块从来就不是一张表） ================= */
+
+{
+  const dir = makeSandbox({
+    "a.md": DOC_A,
+    "b.md": DOC_B_CELL_MISMATCH,
+    "c.md": DOC_C,
+  });
+  expectRed(
+    "TBLR17 表头格数与分隔行格数不相等",
+    dir,
+    ["TBL5"],
+    "GFM 认不出这张表 ⇒ 整块退化成带字面竖线的段落"
+  );
+  cleanup(dir);
+}
+
+{
+  const dir = makeSandbox({
+    "a.md": DOC_A,
+    "b.md": DOC_B_SEP_NO_HYPHEN,
+    "c.md": DOC_C,
+  });
+  expectRed(
+    "TBLR18 分隔行有一格没有连字符",
+    dir,
+    ["TBL5"],
+    "分隔行不合法 ⇒ 同样整块不是表"
+  );
+  cleanup(dir);
+}
+
+/* ================= 负对照 TBLR19：卸掉 TBL5 ⇒ TBLR17–TBLR18 必须全部转绿 ================= */
+
+{
+  let changed = 0;
+  let linesOk = true;
+  let allGreen = true;
+  for (const b of [DOC_B_CELL_MISMATCH, DOC_B_SEP_NO_HYPHEN]) {
+    const dir = makeSandbox({ "a.md": DOC_A, "b.md": b, "c.md": DOC_C });
+    const info = disableCriterion(dir, "TBL5");
+    changed = info.changed;
+    if (info.linesBefore !== info.linesAfter) linesOk = false;
+    const r = runGate(dir);
+    if (r.code !== 0 || redIds(r.out).size !== 0) allGreen = false;
+    cleanup(dir);
+  }
+  const ok = changed === 2 && linesOk && allGreen;
+  record(
+    "TBLR19 负对照：卸掉 TBL5",
+    ok,
+    ok
+      ? `改了 ${changed} 行（行数不变），两档注入全部转绿 ⇒ 那两条红确实是 TBL5 判出来的`
+      : `卸掉 TBL5 之后仍有夹具红（改动 ${changed} 行，应为 2 / 行数不变 ${linesOk} / 全绿 ${allGreen}）`
+  );
 }
 
 /* ================= 收尾：真源指纹前后一致 ================= */
