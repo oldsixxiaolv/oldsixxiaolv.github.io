@@ -1,7 +1,10 @@
 /* ===========================================================================
    MeteoHub · Components · index.css (Phase 2B.5)
    ---------------------------------------------------------------------------
-   **partial 顺序的书面声明** —— 浏览器从不加载本文件；它只进仓库、不进产物。
+   **partial 顺序的书面声明** —— **产物里**浏览器从不加载本文件；它只进仓库、
+   不进产物。（仓库里的 docs/papers/reader-demo.html 把它当 @import hub 用：
+   那个 demo 不依赖构建，直接引本文件，让浏览器按下面的 @import 清单去拉那
+   7 个 partial —— 顺序与产物一致。）
 
    dev build 后：eleventy.config.js 的 eleventy.after 钩子生成
    _site/assets/css/components.css（@import hub），它按相对路径

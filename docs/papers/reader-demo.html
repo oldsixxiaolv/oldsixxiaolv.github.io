@@ -12,9 +12,14 @@
   />
   <link rel="stylesheet" href="../../src/assets/css/tokens.css" />
   <link rel="stylesheet" href="../../src/assets/css/base.css" />
-  <link rel="stylesheet" href="../../src/assets/css/components.css" />
+  <!-- components：源码树里**没有** components.css —— 它是构建期产物
+       （dev 是 @import hub，prod 是 7 个 partial 顺序 concat 的单文件）。
+       demo 不依赖构建，所以直接引 index.css 这个 hub，让浏览器按它的
+       @import 清单去拉那 7 个 partial（顺序与产物一致）。 -->
+  <link rel="stylesheet" href="../../src/assets/css/components/index.css" />
   <link rel="stylesheet" href="../../src/assets/css/layout.css" />
   <link rel="stylesheet" href="../../src/assets/css/pages.css" />
+  <link rel="stylesheet" href="../../src/assets/css/a11y.css" />
   <link rel="stylesheet" href="../../src/assets/css/paper-reader.css" />
   <style>
     /* demo 内联最小样式（不依赖构建） */
@@ -40,8 +45,18 @@
     <strong>paper-reader demo</strong>
     <code>Holton & Rolin (1987)</code>
     <span>·</span>
-    <span>点击段 / 卡试试双向联动；← → 上下段；Esc 取消</span>
+    <span>左侧是自动生成的目录（点条目跳段，当前章节会高亮）</span>
+    <span>·</span>
+    <span>段 / 卡双向联动与 ← → 上下段需要批注数据（annotations.json），本仓目前没有</span>
   </header>
+
+  <!-- 运行方式：ES module 在 file:// 下会被 CORS 拦（Chrome 报
+       "Cross origin requests are only supported for protocol schemes: http…"），
+       所以这个 demo 必须用本地静态服务器打开，且**以仓库根为根**
+       （它引用 ../../src/…）：
+         python3 -m http.server 8080      # 在仓库根执行
+       然后访问 http://127.0.0.1:8080/docs/papers/reader-demo.html
+       ⚠️ 这个服务器会把整个仓库（含 .git）挂在本机端口上，只在本地开发时用。 -->
 
   <!-- 8 段 holton-rollin 骨架：每段对应 annotations.json 中的 p-001..p-008 -->
   <article class="paper">
@@ -110,12 +125,18 @@
     </p>
   </article>
 
-  <!-- 启动 paper-reader；annotations 路径相对 docs/papers/ 的相对深度 -->
+  <!-- 启动 paper-reader。
+       ⚠️ 入口是 paper-reader/main.js：Phase 2B.6 把原来的单体 paper-reader.js
+       拆成了 toc / theme / annotations / highlight 五个模块，main.js 是唯一入口
+       （旧的 paper-reader.js 路径早已不存在）。
+       ⚠️ 不传 annotationsUrl：本仓目前**没有**任何 annotations.json —— 批注是作者
+       自己的精读笔记，不能替他编一份假的出来。main.js 见到没有 annotationsUrl
+       就整段跳过批注模块，于是目录与章节高亮照常工作，段 / 卡联动与键盘导航
+       不挂载。 -->
   <script type="module">
-    import { initPaperReader } from "../../src/assets/js/paper-reader.js";
+    import { initPaperReader } from "../../src/assets/js/paper-reader/main.js";
     initPaperReader({
       paperRoot: document.querySelector("article.paper"),
-      annotationsUrl: "../../src/content/papers/holton-rollin-1987/annotations.json",
     });
   </script>
 </body>

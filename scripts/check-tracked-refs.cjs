@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * 门禁 TR1–TR4：已跟踪文件引用的本地文件，必须也已被 git 跟踪。
+ * 门禁 TR1–TR6：已跟踪文件引用的本地文件，必须也已被 git 跟踪。
  *
  * 为什么要有这个门禁（2026-10-19 的 P0 地雷）：
  *   交接复核发现，共享工作树里同时存在两件事：
@@ -33,8 +33,39 @@
  *         门禁会一直绿着，而缺陷照样上线。）
  *   TR3 索引可读 —— TR1/TR2 的前提：git 索引读得到。读不到就**只**报 TR3，
  *       TR1/TR2 整段跳过（没有跟踪集合就无对象可判，不是“没问题”）。
- *   TR4 遮罩自证 —— TR1/TR2 的前提：注释/字符串遮罩是对的。遮罩坏了 ⇒
- *       TR1 的结论不可信 ⇒ 这一轮只报 TR4，TR1/TR2 整段跳过。
+ *   TR4 遮罩自证 —— TR1/TR2/TR5 的前提：注释/字符串遮罩是对的。遮罩坏了 ⇒
+ *       TR1 的结论不可信 ⇒ 这一轮只报 TR4，其余判据整段跳过。
+ *   TR5 HTML 引用完整性 —— 对**每一个已被 git 跟踪的 HTML 文件**，扫出它对
+ *       **本地相对路径**的资源引用（<link>/<img>/<script>/<source>/<video>/
+ *       <audio>/<iframe>/<embed>/<object> 的 href/src/poster/data/srcset，
+ *       以及**内联 module script** 里 import() / from 的字面量路径），
+ *       目标必须满足两条：
+ *         · 磁盘上确实存在（否则这个页面打开就是坏样式 / 坏脚本）；
+ *         · **也已被 git 跟踪**（否则提交后这棵树会断，同 TR1 的道理）。
+ *   TR6 HTML 侧自证存活 —— TR5 自己的前提：扫到 0 个已跟踪的 HTML 文件、
+ *       或一处**仓内**的 HTML 本地引用都没比对过，一律判红。
+ *       （与 TR2 同一件事的 HTML 维度，但**单列一条**而不是并进 TR2 ——
+ *         两条自证各自的失效形态不同，合在一起会让一次改动出两条红因、
+ *         红因归属就没法判定了。）
+ *
+ * ⚠️ TR5 **只判「仓库里的文件」**，不判「站点上的路由」：
+ *   · **根绝对路径**（以 / 开头）= 部署后由站点根解析的**站内 URL**，
+ *     不是仓库里的文件（/portfolio/ 在文件协议下当然"不存在"，
+ *     但它在站点上是活的）⇒ 一律跳过；
+ *   · **协议相对**（//）与**带协议**（http: / mailto: / data: …）= 外链 ⇒ 跳过；
+ *   · **页面链接**（<a href>）= 站内路由，不是资源引用 ⇒ 不扫。
+ *   只有「相对路径的资源引用」才是「这个文件必须躺在仓库里」的意思。
+ *
+ * ⚠️ TR5 **守不了什么**（写清楚，不藏）：
+ *   · HTML 里用**内联脚本**拼出来的路径（字符串拼接、运行时计算）扫不出来；
+ *   · <style> 里 url(...) 指向的图不在 TR5 的视野里（那是样式表内部的引用，
+ *     由样式表自己的门禁负责）；
+ *   · <a href> 指向的站内路由是否存在，本门禁不判。
+ *
+ * ⚠️ TR6 单独一条而不是并进 TR2 的理由：
+ *   TR2 数的是「代码文件里比对过的仓内引用」，TR6 数的是「HTML 里比对过的
+ *   仓内引用」。两者的注入形态不同（一个改 require、一个改 href），
+ *   合成一条会让「只改 HTML」这种改动同时踩到两条判据，红因归属就不纯了。
  *
  * ⚠️ TR2 的口径（2026-10-21 修正）：数的是**真正比对过**的引用（仓内），
  *   不是“扫到的本地引用总数”。旧口径把「指向仓库外的依赖」也算进去 ⇒
@@ -78,7 +109,9 @@ const ROOT = path.resolve(__dirname, "..");
 const TR1_ON = true; // 引用完整性
 const TR2_ON = true; // 自证存活
 const TR3_ON = true; // 索引可读（TR1/TR2 的前提）
-const TR4_ON = true; // 遮罩自证（TR1/TR2 的前提）
+const TR4_ON = true; // 遮罩自证（TR1/TR2/TR5 的前提）
+const TR5_ON = true; // HTML 引用完整性
+const TR6_ON = true; // HTML 侧自证存活
 
 const problems = [];
 function note(id, msg) {
@@ -144,6 +177,68 @@ function maskForScan(text) {
   return out.join("");
 }
 
+/* ---------- HTML 侧：注释遮罩 + 本地资源引用提取 ---------- */
+
+/* HTML 注释整体遮掉：注释里写的 <link href="..."> 是举例，不是引用。 */
+function maskHtmlComments(text) {
+  return text.replace(/<!--[\s\S]*?-->/g, (m) => m.replace(/[^\n]/g, " "));
+}
+
+/* 这些标签的属性值是「资源路径」。
+   ⚠️ <a href> 不在其中 —— 那是**页面链接**（站内路由），不是仓库里的文件。 */
+const HTML_TAG_RE = /<(link|img|script|source|video|audio|iframe|embed|object)\b([^>]*)>/gi;
+const HTML_ATTR_RE = /\b(href|src|poster|data|srcset)\s*=\s*"([^"]*)"/gi;
+/* 内联 module script：import() / from 的字面量路径。
+   ⚠️ 内联脚本的模块 base 是**文档 URL**，所以相对路径按 HTML 文件自身解析。 */
+const HTML_MODULE_SCRIPT_RE = /<script\b[^>]*\btype\s*=\s*["']module["'][^>]*>([\s\S]*?)<\/script>/gi;
+const MODULE_IMPORT_RE = /\bimport\s*\(\s*["']([^"']+)["']\s*\)|\bfrom\s*["']([^"']+)["']/g;
+
+/** 这个值是不是「仓库里的本地相对路径」（站内 URL / 外链 / 锚点都排除）。 */
+function isLocalRelPath(v) {
+  if (!v) return false;
+  if (v.startsWith("/")) return false;                   // 站内 URL（含协议相对）
+  if (v.startsWith("#")) return false;                   // 锚点
+  if (v.startsWith("?")) return false;                   // 纯查询串
+  if (/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(v)) return false; // 带协议（http: / mailto: / data: …）
+  return true;
+}
+
+/** 一个 HTML 文件里的本地相对资源引用。 */
+function htmlLocalRefsOf(html) {
+  const masked = maskHtmlComments(html);
+  const out = [];
+
+  HTML_TAG_RE.lastIndex = 0;
+  let m;
+  while ((m = HTML_TAG_RE.exec(masked)) !== null) {
+    const attrs = m[2] || "";
+    HTML_ATTR_RE.lastIndex = 0;
+    let a;
+    while ((a = HTML_ATTR_RE.exec(attrs)) !== null) {
+      const name = a[1].toLowerCase();
+      const value = a[2];
+      const parts = name === "srcset" ? value.split(",") : [value];
+      for (const p of parts) {
+        const v = p.trim().split(/\s+/)[0];
+        if (isLocalRelPath(v)) out.push({ rel: v, kind: "asset" });
+      }
+    }
+  }
+
+  HTML_MODULE_SCRIPT_RE.lastIndex = 0;
+  while ((m = HTML_MODULE_SCRIPT_RE.exec(masked)) !== null) {
+    const body = m[1] || "";
+    MODULE_IMPORT_RE.lastIndex = 0;
+    let i;
+    while ((i = MODULE_IMPORT_RE.exec(body)) !== null) {
+      const v = i[1] || i[2];
+      if (isLocalRelPath(v)) out.push({ rel: v, kind: "module" });
+    }
+  }
+
+  return out;
+}
+
 /* 静态 require / import 的本地相对路径。
    只认字面量；模板字符串等动态写法扫不出来（这一点在汇总里说明，不假装扫全了）。 */
 const LOCAL_REF_RE = /\brequire\(\s*["'](\.[^"']+)["']\s*\)|(?:\bfrom|\bimport)\s*["'](\.[^"']+)["']/g;
@@ -199,7 +294,32 @@ const maskProofs = MASK_PROOFS.map((p) => {
   const got = countLocalRefs(maskForScan(p.text));
   return { name: p.name, want: p.want, got, ok: got === p.want };
 });
-const maskOk = maskProofs.every((p) => p.ok);
+
+/* HTML 注释遮罩的自证样例：注释里的资源引用不算引用，标签里的仍被认出。 */
+const HTML_MASK_PROOFS = [
+  {
+    name: "HTML 注释里的资源引用不算引用",
+    html: `<!-- <link rel="stylesheet" href="./ghost.css"> -->`,
+    want: 0,
+  },
+  {
+    name: "HTML 标签里的资源引用仍被认出",
+    html: `<link rel="stylesheet" href="./real.css">`,
+    want: 1,
+  },
+  {
+    name: "内联 module 里的 import 路径仍被认出",
+    html: `<script type="module">await import("./main.js");</script>`,
+    want: 1,
+  },
+];
+
+const htmlMaskProofs = HTML_MASK_PROOFS.map((p) => {
+  const got = htmlLocalRefsOf(p.html).length;
+  return { name: p.name, want: p.want, got, ok: got === p.want };
+});
+
+const maskOk = maskProofs.every((p) => p.ok) && htmlMaskProofs.every((p) => p.ok);
 
 if (!maskOk && TR4_ON) {
   for (const p of maskProofs) {
@@ -207,7 +327,16 @@ if (!maskOk && TR4_ON) {
       note(
         "TR4",
         `注释/字符串遮罩自证失败：${p.name} —— 期望 ${p.want} 处本地引用，实际 ${p.got} 处。` +
-          `遮罩坏了 ⇒ TR1 的结论不可信 ⇒ 这一轮 TR1/TR2 整段跳过。`
+          `遮罩坏了 ⇒ TR1 的结论不可信 ⇒ 这一轮其余判据整段跳过。`
+      );
+    }
+  }
+  for (const p of htmlMaskProofs) {
+    if (!p.ok) {
+      note(
+        "TR4",
+        `HTML 注释遮罩自证失败：${p.name} —— 期望 ${p.want} 处本地引用，实际 ${p.got} 处。` +
+          `遮罩坏了 ⇒ TR5 的结论不可信 ⇒ 这一轮其余判据整段跳过。`
       );
     }
   }
@@ -353,6 +482,90 @@ if (!skipScan) {
   }
 }
 
+/* ---------- TR5：HTML 引用完整性 ---------- */
+let htmlFilesScanned = 0;
+let htmlRefsFound = 0; // 扫到的本地引用总数（含指向仓库外的）
+let htmlRefsCompared = 0; // 真正比对过的（仓内）
+let htmlRefsOutsideRepo = 0;
+
+if (!skipScan) {
+  const htmlFiles = [...tracked].filter((f) => path.extname(f).toLowerCase() === ".html");
+
+  for (const file of htmlFiles) {
+    const abs = path.join(ROOT, file);
+    if (!fs.existsSync(abs)) continue; // 已跟踪但本地被删了：不归本门禁管
+    htmlFilesScanned++;
+
+    let text;
+    try {
+      text = fs.readFileSync(abs, "utf8");
+    } catch (e) {
+      continue;
+    }
+
+    for (const ref of htmlLocalRefsOf(text)) {
+      const rel = ref.rel;
+      htmlRefsFound++;
+
+      const clean = rel.split("#")[0].split("?")[0];
+      if (!clean) continue;
+      const target = path.resolve(path.dirname(path.join(ROOT, file)), clean);
+
+      // 引用到仓库外 —— 那是外部资源，不是本仓库的文件，跳过
+      if (!isInsideRepo(target)) {
+        htmlRefsOutsideRepo++;
+        continue;
+      }
+      htmlRefsCompared++;
+
+      if (!fs.existsSync(target)) {
+        if (TR5_ON) {
+          note(
+            "TR5",
+            `${file} 引用了 ${rel}，但磁盘上找不到它 —— ` +
+              `这个页面打开就是坏样式 / 坏脚本（HTML 里的资源引用必须躺在仓库里）。`
+          );
+        }
+        continue;
+      }
+
+      const relExisting = path.relative(ROOT, target);
+      if (!tracked.has(relExisting)) {
+        if (TR5_ON) {
+          note(
+            "TR5",
+            `${file} 引用了 ${rel}（磁盘上是 ${relExisting}），但**它没有被 git 跟踪** —— ` +
+              `提交后这棵树会断：全新克隆里这个页面会少掉样式 / 脚本。` +
+              `请把它和引用方放在同一次提交里。`
+          );
+        }
+      }
+    }
+  }
+}
+
+/* ---------- TR6：HTML 侧自证存活 ---------- */
+if (!skipScan) {
+  if (!htmlFilesScanned) {
+    if (TR6_ON) {
+      note(
+        "TR6",
+        `一个已跟踪的 HTML 文件都没扫到（跟踪集合里没有 .html）—— ` +
+          `TR5 判据从未被真正执行过。`
+      );
+    }
+  } else if (!htmlRefsCompared) {
+    if (TR6_ON) {
+      note(
+        "TR6",
+        `扫了 ${htmlFilesScanned} 个 HTML 文件，却一处**仓内**的本地资源引用都没比对过` +
+          `（扫到的 ${htmlRefsFound} 处里 ${htmlRefsOutsideRepo} 处指向仓库外，已跳过）—— ` +
+          `TR5 没有真的比对过东西（多半是被卸掉了）。`
+      );
+    }
+  }
+}
+
 /* ---------- 出结果 ---------- */
 if (problems.length) {
   console.error("引用完整性门禁未通过：\n");
@@ -366,7 +579,7 @@ if (problems.length) {
 if (skipScan) {
   console.log(
     `引用完整性门禁未执行：前提缺失（${!indexOk ? "读不到 git 索引" : "遮罩自证不通过"}），` +
-      `TR1/TR2 已跳过 —— 这一轮没有判过任何引用。`
+      `其余判据已跳过 —— 这一轮没有判过任何引用。`
   );
   process.exit(0);
 }
@@ -375,5 +588,9 @@ console.log(
   `引用完整性门禁通过：扫了 ${filesScanned} 个已跟踪代码文件、` +
     `比对过 ${refsCompared} 处仓内本地引用` +
     (refsOutsideRepo ? `（另有 ${refsOutsideRepo} 处指向仓库外的依赖，已跳过）` : "") +
-    `，被引用的文件全部也已被 git 跟踪。`
+    `，被引用的文件全部也已被 git 跟踪；` +
+    `另扫了 ${htmlFilesScanned} 个已跟踪 HTML 文件、` +
+    `比对过 ${htmlRefsCompared} 处仓内本地资源引用` +
+    (htmlRefsOutsideRepo ? `（另有 ${htmlRefsOutsideRepo} 处指向仓库外，已跳过）` : "") +
+    `，全部存在且已被 git 跟踪。`
 );

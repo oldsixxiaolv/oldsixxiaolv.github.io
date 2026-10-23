@@ -28477,3 +28477,152 @@ kind 的**配色契约与类名清单**，**根本不管版式与骨架** ——
 - **M1（内容引擎）**：选题主线本人尚未指定 ⇒ 本轮不代拍。
 - **M4 / M5**：下游于文章（文章还没有）⇒ 排在 M1 之后。
 - 其余待修缺陷（D5 / D6 / D9 / D10 / D12 / D26 / D32 / D57）仍挂本人拍板，本轮不代拍。
+
+## 2026-10-23 · 12:45–13:55 场次（**不占轮次号**）：D90 —— 修掉缺陷 **D89**：仓库内论文精读交互 demo 的三处断链，且这一类引用零门禁看守
+
+### A. 背景
+
+上一轮（D89）修的是**信息架构文档 ↔ 代码的契约漂移**（详情页骨架契约）。本轮换到**仓库里那些「不是产物、却是
+给人看的」的页面** —— 上一轮管的是「文档承诺的骨架对不对」，本轮撞见的是「**页面自己引的资源压根不在仓库里，
+而没有任何一道门禁会响**」。
+
+缺陷 **D89** 的病根不是「demo 写错了」，而是**这一整族引用压根没人守**：
+
+- `scripts/check-tracked-refs.cjs` 的语义就是「引用的本地文件必须**磁盘上存在**且**也已被 git 跟踪**」。
+  但它的扫描面只有 `.cjs/.js/.mjs` 的**静态 require / import** ⇒ **HTML 是同一族语义的另一个维度，却整族漏掉**。
+- 于是仓库里那个 `docs/papers/reader-demo.html`（论文精读交互 demo）里的三处断链，**没有任何一道门禁会响** ——
+  不是「门禁没发现」，是**门禁压根没看**。
+
+三处断链（全部实测坐实）：
+
+1. **CSS**：demo L15 引 `../../src/assets/css/components.css`。该文件在源码树里**不存在** ——
+   `components.css` 是 `eleventy.after` 钩子生成的**构建期产物**（dev = @import hub，prod = 7 个 partial 合并成单文件）。
+2. **脚本**：demo L115 引 `../../src/assets/js/paper-reader.js`。**不存在** —— Phase 2B.6 已把它拆成
+   `src/assets/js/paper-reader/{main,toc,theme,annotations,highlight}.js`，入口是 `paper-reader/main.js`。
+3. **批注数据**：demo L118 传 `annotationsUrl: "../../src/content/papers/holton-rollin-1987/annotations.json"`。
+   **不存在** —— 全仓 `find` = **0 个** `annotations.json`（与缺陷 **D12** 同源）。
+
+**实测后果**（修前，本地静态服务器 + headless Chrome）：服务器日志里 `GET /src/assets/css/components.css 404` ＋
+`GET /src/assets/js/paper-reader.js 404`；页面 DOM 里 `paper-toc` **0 次**、没有 `class="paper-ready"` ⇒
+**目录功能完全没挂载、组件样式全失**。
+
+更隐蔽的是**虚假承诺**：demo 顶栏写着「点击段 / 卡试试双向联动；← → 上下段；Esc 取消」，而这些能力在
+`annotationsUrl` 不存在时**根本不会初始化**（`src/assets/js/paper-reader/main.js:45` 的 `if (opts.annotationsUrl)`）
+⇒ demo 在**宣传自己其实没有的功能**。
+
+### B. 改动
+
+（本轮只做 1 个改进点：新开缺陷 **D89**「仓库内 demo 三处断链 ＋ 这一族引用零门禁看守」。）
+
+① **修 demo**（`docs/papers/reader-demo.html`）：
+
+- CSS 改引**真源 hub** `../../src/assets/css/components/index.css`（浏览器按它的 @import 清单拉那 7 个 partial，
+  顺序与产物一致）＋补 `a11y.css`；整段的顺序（tokens → base → components → layout → pages → a11y → paper-reader）
+  与真实页面 `base.njk` / `paper.njk` 的等价。
+- script 改引 `../../src/assets/js/paper-reader/main.js`（真正入口）。
+- `annotationsUrl` 整行**删掉** —— 批注是**作者本人**的精读笔记，代写 = 伪造作者阅读记录 ⇒ **不编造数据**。
+- 顶栏文案改成**真实能力**（目录自动生成 ＋ 当前章节高亮），并写明「段 / 卡双向联动与 ← → 上下段需要批注数据
+  （annotations.json），本仓目前没有」。
+- 运行方式写进页面注释：**ES module 在 `file://` 下被 CORS 拦** ⇒ 必须以仓库根为根起本地静态服务器；
+  并注明该服务器会把整个仓库挂到本机端口、只在本地开发时用。
+
+② **不改 @import 清单**（`src/assets/css/components/index.css` 只改头部注释）：demo 若再列一份 7 个 partial 的清单，
+就成了**第四处**漂移源（CS5 要求「磁盘清单 / index.css 的 @import 清单 / eleventy order 数组」三处同改）⇒
+只改引 hub，清单源仍然只有**一处**；该文件的注释同步成「**产物里**浏览器从不加载本文件……（仓库里的 demo 把它当
+@import hub 用……顺序与产物一致）」⇒ CS5 / CQ1–CQ3 不受影响。
+
+③ **门禁扩到 TR1–TR6**（`scripts/check-tracked-refs.cjs`）：
+
+- **TR5 HTML 引用完整性**：对**每一个已被 git 跟踪的 HTML 文件**，扫出它对**本地相对路径**的资源引用 ——
+  `<link>/<img>/<script>/<source>/<video>/<audio>/<iframe>/<embed>/<object>` 的 `href/src/poster/data/srcset`，
+  以及**内联 module script** 里 `import()` / `from` 的字面量路径；目标必须**磁盘上存在**（否则这个页面打开就是
+  坏样式 / 坏脚本）**且已被 git 跟踪**（否则提交后这棵树会断，同 TR1 的道理）。
+- **TR6 HTML 侧自证存活**：扫到 0 个已跟踪 HTML、或一处**仓内**的 HTML 本地引用都没比对过 ⇒ 判红。
+- **TR4 遮罩自证顺延到 HTML 注释**（新增 3 个合成样例：注释里的引用不算、标签里的仍被认出、内联 module 的 import
+  仍被认出）⇒ **不新增判据编号**，语义自然延伸；遮罩坏 ⇒ 只报 TR4、其余判据整段跳过 ⇒ 归属纯净。
+- 门禁注释里写清 **TR5 的诚实边界**：只判**仓库里的文件**（根绝对站内 URL / 协议相对 / 带协议 / `<a href>` 页面链接
+  一律跳过），**不判站点上的路由**；**守不了**的（内联脚本拼出来的路径、`<style>` 里的 `url(...)`）也写明。
+
+④ **归属纯净的一处取舍**：TR6 **单列一条**而不是并进 TR2 —— TR2 数的是「代码文件里比对过的仓内引用」，TR6 数的是
+「HTML 里比对过的仓内引用」，两者**注入形态不同**（改 require vs 改 href）；合成一条会让「只改 HTML」这种改动同时踩
+两条判据，红因归属就没法判定了。
+
+⑤ **自测扩档**（`scripts/test-tracked-refs.cjs`，18 → **25 档**，全绿）：新增 **T5a**（HTML 引用目标磁盘上不存在 ⇒
+恰为 {TR5}）、**T5b**（目标磁盘上有但**没进索引** ⇒ 恰为 {TR5}）、**T6a**（索引里一个 HTML 都没有 ⇒ 恰为 {TR6}）、
+**G3**（HTML 里的根绝对站内 URL ⇒ 绿）、**G4**（HTML 注释里的资源引用 ⇒ 绿）＋ 两条判据级负对照（**N-TR5** /
+**N-TR6**，同行替换卸判据 ⇒ 对应注入转绿）。夹具新增一份**最小 HTML**（`docs/demo.html` ＋ 它引的 4 个仓内目标 ＋
+1 处仓外引用 ＋ 1 处站内路由链接）。**COV-A 的覆盖度自证改成代码侧与 HTML 侧各算一遍**并与夹具真实数量对账；
+**COV-B** 的判据编号集合随门禁扩到 **TR1–TR6**。
+
+⑥ **接线**：`scripts/lib/selftest-slots.cjs` 登记 25 个档位编号；README 命令表的门禁行补「TR1–TR6」前缀
+（RD6 只比较 README 行里出现的前缀 ⇒ 源码集合 TR1–TR6 与 README 集合相等），自测行的文案同步改成 TR1–TR6；
+`package.json` **无需改动**（两个 script 已在 build 链）。
+
+### C. 验证
+
+① **修前实测**（门禁先于修 demo 落地）：`node scripts/check-tracked-refs.cjs` exit 1，**恰好两条红因、都是 TR5**，
+分别点名 `components.css` 与 `paper-reader.js` ⇒ **红因归属纯净**。
+
+② **修后**：`node scripts/check-tracked-refs.cjs` exit 0，输出「扫了 165 个已跟踪代码文件、比对过 39 处仓内本地引用
+（另有 1 处指向仓库外的依赖，已跳过）……；另扫了 4 个已跟踪 HTML 文件、比对过 15 处仓内本地资源引用，全部存在且已被
+git 跟踪」。另用**独立核对脚本**（不抄门禁逻辑）数出同样 **15** 处（`archive/index.html` 4 ＋
+`archive/qa/browser-harness.html` 2 ＋ `docs/mock/index.html` 1 ＋ `docs/papers/reader-demo.html` 8）。
+
+③ **浏览器前后对照**（headless Chrome ＋ 本地静态服务器，脚本在 `/tmp/mh_d90/`、不入库）：
+
+- **修前**：服务器日志两条 404；DOM 里 `paper-toc` **0 次**、无 `paper-ready` ⇒ 目录与样式全失。
+- **修后**：`paper-toc` 出现、`.paper-ready` 已加、`paper-toc__link` ≥ 3 个、批注残留 **0**、Chrome 日志无 CORS /
+  模块解析错误（只有 macOS 无害的 `CVDisplayLinkCreateWithCGDisplay failed`）；截图目视确认左侧自动目录
+  （CONTENTS ＋ 8 条）、右侧正文排版、代码块边框背景、暗色主题 ⇒ **组件样式真的加载、目录 JS 真的跑通**。
+
+④ **自测**：`npm run check:tracked-refs-selftest` exit 0 —— **25 档里 25 档按预期触发**，新增七档全部**红因归属纯净**；
+COV-B 现读门禁源码，红因出口与可卸开关都恰为 **TR1–TR6**；收尾的原件校验（门禁 SHA-256）一致。
+
+⑤ **档位守卫对账**：`scripts/lib/selftest-slots.cjs` 登记 25 个编号后，`run-selftest.cjs` 报「跑了 25 条编号
+（25 个唯一编号），与静态清单完全一致」。
+
+⑥ **受影响门禁全绿**：`check:tracked-refs` / `check:tracked-refs-selftest` / `check:gates` / `check:readme` /
+`check:doc-snapshot` / `check:mount-contract` / `check:markdown-tables` / `check:log-sections` /
+`check:decision-ids` 全 exit 0；**`npm run build` exit 0**。
+
+⑦ ⚠️ **线上巡检完成**（外网需经本机代理 `http://127.0.0.1:7890` 才通）：7 条 URL 里 **4 条 200、3 条 404**
+（`/papers/`、`/publications.bib`、`/feed.xml`）—— 属缺陷 **D6**，**由 push 触发**，本轮不代拍、不 push。
+
+### D. 顺手发现（记下来，不在本轮修）
+
+- **TR5 的盲区**：只认 HTML **属性**引用与**内联 module** 里的 `import()` / `from` 字面量 ⇒ **对象属性里的路径**
+  （例如 demo 原先那个 `annotationsUrl: "…"`）**扫不到**。本轮那处断链是靠**删掉那一行**消除的，**不是**靠门禁抓到的
+  ⇒ 这条盲区已写进门禁的诚实边界，门禁**不假装扫全了**。
+- **`<style>` 里 `url(...)` 指向的图**不在 TR5 视野内（那是样式表内部的引用，由样式表自己的门禁负责）。
+- **仓库内任何演示页面都需要本地静态服务器**（ES module 在 `file://` 下被 CORS 拦）。本轮只把这条写进了
+  `docs/papers/reader-demo.html` 的注释；**其它仓库内 HTML 没有同样的说明**（本轮不逐个加）。
+- **`docs/mock/index.html` 的 28 条「missing」全是站内根绝对路径** —— 属正常，不是缺陷；但它说明这一族
+  「**看着像断链**」的假阳性很容易误导盘点 ⇒ TR5 明确**跳过根绝对路径**，并由 **G3** 档把这条口径钉住。
+
+### E. 文档
+
+- `docs/DEFECT-BACKLOG.md`：新增缺陷 **D89** 行（现象 / 验收条件 / 已修状态逐条兑现）。
+- `docs/ROADMAP.md`：进度行「缺陷清单已到 **D89**」、已修列表补 D89、M0 里新增 **D90** 条目。
+- `docs/IMPROVEMENT-LOG.md`：本小节；中央「待决策」台账**不新增**待拍板项（本轮是纯工程补强）。
+
+### F. 本轮纪律
+
+- 提交只走**私有索引 CAS**，只提交本轮自己改的路径；**不 push**。
+- 并发场次占用的 `scripts/check-identity-handles.cjs` / `scripts/test-gates-selfcheck.cjs`
+  本轮**未触碰、未提交**。
+- 探针与勘察脚本都放在 `/tmp/mh_d90/`（含夹具、探针、文档拼接脚本），**不入库**；收尾用 `mavis-trash` 清理。
+- 门禁红了先定位红因，**不为了 build 变绿去放宽判据**。
+- 新判据**纯静态、不联网、不 import 被检查方** ⇒ build 链保持零网络依赖。
+- **不编造批注数据**：批注是作者本人的精读笔记，代写等于伪造作者阅读记录 ⇒ demo 退化成「目录 ＋ 章节高亮」预览，
+  顶栏文案据实改写。
+- **demo 引用构建期产物时改引真源 hub**（`components/index.css`），不另列一份 partial 清单 ⇒ 清单源仍然只有一处。
+- 文档里的每个断言都先实证再写：断链、404 日志、DOM 计数、引用条数，都在本轮**实测**过。
+
+### 下一轮入口
+
+- **缺陷 D6（线上 3 条 404）**：真正的前置是 **push**（本轮不代拍、不 push）。
+- **M3（Decap 后台）**：要先把「bundle 自托管还是走 CDN」定下来，且 OAuth App 必须本人建；
+  接入前文档口径只能是「已拍板、未接入」。
+- **M1（内容引擎）**：选题主线本人尚未指定 ⇒ 本轮不代拍。
+- **M4 / M5**：下游于文章（文章还没有）⇒ 排在 M1 之后。
+- 其余待修缺陷（D5 / D6 / D9 / D10 / D12 / D26 / D32 / D57）仍挂本人拍板，本轮不代拍。

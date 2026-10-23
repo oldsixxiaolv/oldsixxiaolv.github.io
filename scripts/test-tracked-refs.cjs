@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * 自测 TR0–TR17：给 scripts/check-tracked-refs.cjs 的每条判据找一次「它会红」的证据
+ * 自测 TR1–TR6：给 scripts/check-tracked-refs.cjs 的每条判据找一次「它会红」的证据
  *
  * 为什么要有这个自测（2026-10-21 的 D59 第八批）：
  *   这道门禁守的是「提交后的那棵树还能不能跑」——
@@ -32,10 +32,21 @@
  *      这样 TR2 的口径才测得到 —— TR2 数的是**比对过**的仓内引用，
  *      仓外那几处只该被「跳过」，不该被算进「比对过」。
  *
- * 档位（3 档绿 + 7 档注入 + 4 档判据级负对照 + 2 档精准性负对照 + 2 档覆盖度自证 = 18 档）：
+ *   夹具还有一份 **HTML**（docs/demo.html ＋ 它引的 styles.css / logo.svg / app.js / mod.js），
+ *   用来测 TR5/TR6 那条 HTML 侧的维度：
+ *     · 4 处**仓内**本地资源引用（link / img / script / 内联 module 的 import）
+ *       —— 目标都在仓里、也都在索引里 ⇒ 基线必须绿；
+ *     · 1 处**仓外**引用（../../outside/remote.png）⇒ 应当被跳过；
+ *     · 1 处**站内路由链接**（<a href="./page.html">）⇒ 那是页面链接，不是资源引用，
+ *       **不能**判红（page.html 磁盘上并不存在）；
+ *     · 根绝对站内 URL 与 HTML 注释里的引用 ⇒ 各自单列一档绿档（G3 / G4）。
+ *
+ * 档位（5 档绿 + 10 档注入 + 6 档判据级负对照 + 2 档精准性负对照 + 2 档覆盖度自证 = 25 档）：
  *   G0    基线绿
  *   G1    注释里写着一个本地 require（指向不存在的文件）⇒ 绿（**补之前是红的**）
  *   G2    字符串里存着一个本地 require 的字样              ⇒ 绿（**补之前是红的**）
+ *   G3    HTML 里写着一条**根绝对**的站内 URL             ⇒ 绿（站内 URL 不是仓库里的文件）
+ *   G4    HTML 注释里写着一个本地资源引用                ⇒ 绿（注释不是引用）
  *   T1a   引用的目标磁盘上不存在                          ⇒ TR1
  *   T1b   引用的目标磁盘上有、但**没有被 git 跟踪**        ⇒ TR1
  *   T2a   索引里一个代码文件都没有                        ⇒ TR2
@@ -43,26 +54,32 @@
  *   T3    索引读不到                                      ⇒ TR3（红因**恰为** {TR3}）
  *   T4a   遮罩被破坏（行注释不再被剥）                    ⇒ TR4
  *   T4b   遮罩被破坏 + 夹具也脏                          ⇒ **恰好** {TR4}（TR1/TR2 整段跳过）
+ *   T5a   HTML 引用的目标磁盘上不存在                    ⇒ TR5
+ *   T5b   HTML 引用的目标磁盘上有、但**没有被 git 跟踪**  ⇒ TR5
+ *   T6a   索引里一个 HTML 文件都没有                      ⇒ TR6
  *   N-TR1 负对照：卸掉 TR1 ⇒ T1a 的注入必须**转绿**
  *   N-TR2 负对照：卸掉 TR2 ⇒ T2a 的注入必须**转绿**
  *   N-TR3 负对照：卸掉 TR3 ⇒ T3 的注入必须**转绿**
  *   N-TR4 负对照：卸掉 TR4 ⇒ T4a 的注入必须**转绿**
+ *   N-TR5 负对照：卸掉 TR5 ⇒ T5a 的注入必须**转绿**
+ *   N-TR6 负对照：卸掉 TR6 ⇒ T6a 的注入必须**转绿**
  *   P-TR4 精准性负对照：卸掉 TR4 + 破坏遮罩 + T1b 注入 ⇒ 必须**恰好**红 TR1
  *   P-TR3 精准性负对照：卸掉 TR3 + 索引坏 + T1b 注入 ⇒ 必须仍然**绿**（前提不在场 ⇒ 整段跳过）
  *   COV-A 覆盖度自证：门禁报出的扫描数量与夹具真实数量一致（不是编的）
- *   COV-B 覆盖度自证：门禁源码里 TR1–TR4 每条都有红因出口与可卸开关（现读源码）
+ *   COV-B 覆盖度自证：门禁源码里 TR1–TR6 每条都有红因出口与可卸开关（现读源码）
  *
  * ⚠️ 每档都断言「红因编号多重集**完全相等**」，不只是「包含期望的那条」——
  *   一档里出现两条判据的红，红因归属就不可判定了（那是脚本的缺陷，不是产品的缺陷）。
- *   N-TR1–N-TR4 / P-TR4 / P-TR3 这六档负对照正是「归属纯净」的守门人。
+ *   N-TR1–N-TR6 / P-TR4 / P-TR3 这八档负对照正是「归属纯净」的守门人。
  *
  * ⚠️ 注入到**门禁副本 / 夹具文件**上的每一处改动，都额外断言「改动行数 = 声明值」：
  *   证明破坏确实打上了，而且只打了声明的那些行（既防「没打上」，也防「顺手多改了一行」）。
  *
- * ⚠️ 本文件源码里**不得出现**字面量的本地 require 语法 ——
+ * ⚠️ 本文件源码里**不得出现**字面量的本地 require / import 语法 ——
  *   门禁 TR1 会扫到**已跟踪的代码文件**（包括本文件），
- *   一旦这里写着一个真的本地 require，提交后门禁会对着自己判红。
- *   所有这类文本都用 `KW.req` 拼出来。
+ *   一旦这里写着一个真的本地 require（或 `from "./x"` / `import("./x")`），
+ *   提交后门禁会对着自己判红。
+ *   所有这类文本都用 `KW.req` / `KWHTML` 拼出来。
  *
  * 收尾：按 SHA-256 校验仓库里的门禁原件没被动过。
  */
@@ -88,6 +105,43 @@ const GATE_SHA_AT_START = sha256(GATE);
 /* 关键字拼出来：本文件源码里不许出现字面量的本地 require（见文件头）。 */
 const KW = { req: "requ" + "ire" };
 const reqText = (p) => `${KW.req}("${p}")`;
+
+/* ---------- HTML 夹具 ----------
+   ⚠️ 同样不许出现字面量的本地 import 语法：本文件是**已跟踪的 .cjs**，
+      门禁 TR1 会扫它 ⇒ 字面量的 `from "./x"` / `import("./x")` 会把本文件
+      当成一处真引用 ⇒ 对着不存在的路径判红。⇒ 关键字与路径都拼出来。 */
+const KWHTML = { imp: "im" + "port", from: "fr" + "om" };
+
+/* HTML 夹具里的四条**仓内**本地资源引用：link / img / script / 内联 module 的 import。
+   目标文件都真实存在、也都会进索引 ⇒ 基线必须是绿的。 */
+const HTML_LOCAL_REFS = ["./styles.css", "./logo.svg", "./app.js", "./mod.js"];
+/* 仓外引用（应当被跳过）、站内路由链接（页面链接，不是资源引用）、
+   根绝对站内 URL、HTML 注释里的引用 —— 各自单列一档。 */
+const HTML_OUTSIDE_REF = "../../outside/remote.png";
+const HTML_ANCHOR_REF = "./page.html";
+const HTML_ROOT_ABS_REF = "/favicon.ico";
+const HTML_COMMENT_REF = "./commented.css";
+
+const HTML_DOC_SRC =
+  [
+    "<!doctype html>",
+    '<html lang="zh">',
+    "<head>",
+    '  <meta charset="utf-8">',
+    `  <link rel="stylesheet" href="${HTML_LOCAL_REFS[0]}">`,
+    "</head>",
+    "<body>",
+    `  <a href="${HTML_ANCHOR_REF}">站内路由链接</a>`,
+    `  <img src="${HTML_LOCAL_REFS[1]}" alt="仓库里的图">`,
+    `  <img src="${HTML_OUTSIDE_REF}" alt="仓库外的图">`,
+    `  <script src="${HTML_LOCAL_REFS[2]}"></script>`,
+    '  <script type="module">',
+    `    ${KWHTML.imp} { init } ${KWHTML.from} "${HTML_LOCAL_REFS[3]}";`,
+    "    init();",
+    "  </script>",
+    "</body>",
+    "</html>",
+  ].join("\n") + "\n";
 
 /* ================= 夹具 ================= */
 
@@ -115,10 +169,18 @@ function makeSandbox() {
   const base = fs.mkdtempSync(path.join(os.tmpdir(), "mh-tracked-refs-"));
   const repo = path.join(base, "repo");
   fs.mkdirSync(path.join(repo, "scripts", "lib"), { recursive: true });
+  fs.mkdirSync(path.join(repo, "docs"), { recursive: true });
   fs.copyFileSync(GATE, path.join(repo, "scripts", "check-tracked-refs.cjs"));
   write(path.join(repo, "scripts", "app.cjs"), APP_SRC);
   write(path.join(repo, "scripts", "lib", "helper.cjs"), HELPER_SRC);
   write(path.join(base, "outside", "x.cjs"), OUTSIDE_SRC);
+  /* HTML 夹具：页面本体 ＋ 它引用的四个仓内目标 ＋ 一个仓外目标（故意不存在也没关系，
+     它在仓外 ⇒ 应当被跳过而不是判红）。 */
+  write(path.join(repo, "docs", "demo.html"), HTML_DOC_SRC);
+  write(path.join(repo, "docs", "styles.css"), "/* fixture */\n");
+  write(path.join(repo, "docs", "logo.svg"), '<svg xmlns="http://www.w3.org/2000/svg"></svg>\n');
+  write(path.join(repo, "docs", "app.js"), 'console.log("fixture app");\n');
+  write(path.join(repo, "docs", "mod.js"), "export function init() {}\n");
   git(repo, ["init", "-q"]);
   git(repo, ["add", "-A"]);
   return { base, repo };
@@ -126,6 +188,7 @@ function makeSandbox() {
 
 /* 夹具里的常用路径 */
 const appOf = (s) => path.join(s.repo, "scripts", "app.cjs");
+const htmlOf = (s) => path.join(s.repo, "docs", "demo.html");
 const gateOf = (s) => path.join(s.repo, "scripts", "check-tracked-refs.cjs");
 
 /* ================= 跑门禁 / 解析红因 ================= */
@@ -282,6 +345,29 @@ function expectGreenBaseline(id, s, note) {
   );
 }
 
+/**
+ * 一档「绿档」：门禁应当 exit 0、一个红因都不许有，**且 HTML 侧比对过的引用数必须不变**。
+ * 为什么要多这一条数字：绿档里塞的「陷阱」（站内 URL / 注释里的引用）如果被门禁
+ * 当成了真引用，要么判红（看得见），要么被当成仓内引用**算进了比对数**（看不见）。
+ * 只断「绿」会漏掉后一种 —— 所以比对数也得钉住。
+ */
+function expectGreenBaselineHtml(id, s, note, wantHtmlCompared) {
+  const r = runGate(s);
+  const got = redIds(r.out);
+  const m = /比对过 (\d+) 处仓内本地资源引用/.exec(r.out);
+  const compared = m ? Number(m[1]) : -1;
+  const ok = r.code === 0 && got.length === 0 && compared === wantHtmlCompared;
+  record(
+    id,
+    ok,
+    ok
+      ? `绿；HTML 侧比对过 ${compared} 处仓内本地资源引用（与基线一致）` +
+        `${note ? "；" + note : ""}`
+      : `期望绿且 HTML 侧比对过 ${wantHtmlCompared} 处，实际 code=${r.code}、` +
+        `红因 ${fmtIds(got)}、比对 ${compared}\n${r.out}`
+  );
+}
+
 /* ================= 注入手法（几档复用） ================= */
 
 /** T1a：仓内引用指向一个磁盘上**不存在**的文件。 */
@@ -303,16 +389,53 @@ function breakIndex(s) {
 
 /** T2a：把脚本目录整个从索引里摘掉（只留一个非代码文件）⇒ 索引里没有代码文件了。
  * ⚠️ 门禁副本被负对照改过之后，它的工作树内容与索引里的不一致 ⇒ git rm 会拒绝，
- *    所以这里必须带 -f（这是一次性的临时夹具，索引随便改）。 */
+ *    所以这里必须带 -f（这是一次性的临时夹具，索引随便改）。
+ * ⚠️ 夹具的 HTML 里还有两个**代码扩展名**的目标（docs/app.js 与 docs/mod.js）——
+ *    它们也必须一起离开索引，否则「索引里没有代码文件」这条前提就不成立。 */
 function untrackScripts(s) {
   git(s.repo, ["rm", "-q", "-r", "-f", "--cached", "scripts"]);
+  git(s.repo, ["rm", "-q", "-f", "--cached", "--", "docs/app.js", "docs/mod.js"]);
   write(path.join(s.repo, "README.md"), "# fixture\n");
   git(s.repo, ["add", "README.md"]);
+}
+
+/**
+ * T2a 的配套手术：让「索引里没有代码文件」这一件事**单独**发生。
+ * 夹具的 HTML 引用了两处代码扩展名的目标（./app.js ＋ 内联 module 的 ./mod.js）；
+ * 那两处在代码文件离开索引后会变成「磁盘上有、没进索引」⇒ TR5 也会红
+ * ⇒ 红因集合就不再是 {TR2}，归属不纯了。
+ * ⇒ 把这两处改指到仍然存在、也仍然在索引里的资源上，让 T2a 只剩 TR2 说话。
+ */
+function repointHtmlCodeRefs(s) {
+  patchFile(htmlOf(s), `src="${HTML_LOCAL_REFS[2]}"`, `src="${HTML_LOCAL_REFS[0]}"`, 1);
+  patchFile(
+    htmlOf(s),
+    `${KWHTML.from} "${HTML_LOCAL_REFS[3]}"`,
+    `${KWHTML.from} "${HTML_LOCAL_REFS[0]}"`,
+    1
+  );
 }
 
 /** T4a/T4b：破坏遮罩（行注释不再被剥）。 */
 function breakMask(s) {
   patchGate(s, 'if (c === "/" && c2 === "/") {', 'if (false && c === "/" && c2 === "/") {', 1);
+}
+
+/** T5a：HTML 引用的目标磁盘上**不存在** ⇒ 这个页面打开就是坏样式 / 坏脚本。 */
+function injectHtmlMissingTarget(s) {
+  patchFile(htmlOf(s), `href="${HTML_LOCAL_REFS[0]}"`, 'href="./missing.css"', 1);
+}
+
+/** T5b：HTML 引用的目标磁盘上有、但**没进索引** ⇒ 提交后这棵树会断。 */
+function injectHtmlUntrackedTarget(s) {
+  write(path.join(s.repo, "docs", "ghost.css"), "/* ghost */\n");
+  patchFile(htmlOf(s), `href="${HTML_LOCAL_REFS[0]}"`, 'href="./ghost.css"', 1);
+}
+
+/** T6a：把 HTML 从索引里摘掉（工作树留着）⇒ 索引里一个 .html 都没有。
+ * ⚠️ 带 -f：夹具里的门禁副本被负对照改过之后工作树与索引不一致 ⇒ git rm 会拒绝。 */
+function untrackHtml(s) {
+  git(s.repo, ["rm", "-q", "-f", "--cached", "--", "docs/demo.html"]);
 }
 
 /* ================= G0：基线（绿） ================= */
@@ -322,7 +445,8 @@ function breakMask(s) {
   expectGreenBaseline(
     "G0 基线（临时 git 仓上）",
     s,
-    "仓内引用已被跟踪、仓外引用被跳过、遮罩自证通过"
+    "仓内引用已被跟踪、仓外引用被跳过、遮罩自证通过；" +
+      "HTML 侧 4 处仓内资源引用也都在，站内路由链接没被当成资源引用"
   );
   fs.rmSync(s.base, { recursive: true, force: true });
 }
@@ -344,6 +468,39 @@ function breakMask(s) {
   const s = makeSandbox();
   appendFile(appOf(s), `const sample = '${reqText("./lib/ghost.cjs")}';\n`, 1);
   expectGreenBaseline("G2 字符串里的本地 require 字样 ⇒ 绿（补之前这一档是红的）", s);
+  fs.rmSync(s.base, { recursive: true, force: true });
+}
+
+/* ================= G3 / G4：HTML 侧的绿档 ================= */
+
+/* G3：根绝对路径（站内 URL）—— 部署后由站点根解析，不是仓库里的文件 ⇒ 不能判红。
+   ⚠️ 夹具是**按行**拼的，追加的行落在 </html> 之后；门禁只做正则扫描，不看标签结构。 */
+{
+  const s = makeSandbox();
+  appendFile(htmlOf(s), `  <img src="${HTML_ROOT_ABS_REF}" alt="站内 URL">\n`, 1);
+  expectGreenBaselineHtml(
+    "G3 HTML 里的根绝对站内 URL ⇒ 绿（站内 URL 不是仓库里的文件）",
+    s,
+    "站内 URL 与仓内文件引用不是一回事",
+    HTML_LOCAL_REFS.length
+  );
+  fs.rmSync(s.base, { recursive: true, force: true });
+}
+
+/* G4：HTML 注释里写着一个本地资源引用 —— 注释不是引用 ⇒ 判绿。 */
+{
+  const s = makeSandbox();
+  appendFile(
+    htmlOf(s),
+    `  <!-- <link rel="stylesheet" href="${HTML_COMMENT_REF}"> -->\n`,
+    1
+  );
+  expectGreenBaselineHtml(
+    "G4 HTML 注释里的资源引用 ⇒ 绿（注释不是引用）",
+    s,
+    "注释里的路径只是举例，不是引用",
+    HTML_LOCAL_REFS.length
+  );
   fs.rmSync(s.base, { recursive: true, force: true });
 }
 
@@ -376,8 +533,10 @@ function breakMask(s) {
 {
   const s = makeSandbox();
   untrackScripts(s);
+  repointHtmlCodeRefs(s);
   expectRed("T2a 索引里一个代码文件都没有 ⇒ TR2", s, ["TR2"], {
     mustContain: "一个已跟踪的代码文件都没扫到",
+    note: "HTML 侧那两处代码目标同时被改指 ⇒ 这一档只让 TR2 说话",
   });
   fs.rmSync(s.base, { recursive: true, force: true });
 }
@@ -434,7 +593,44 @@ function breakMask(s) {
   fs.rmSync(s.base, { recursive: true, force: true });
 }
 
-/* ================= 判据级负对照 N-TR1–N-TR4 ================= */
+/* ================= 注入档 T5a / T5b ================= */
+
+/* T5a：HTML 引用的目标磁盘上不存在 ⇒ 这个页面打开就是坏样式 / 坏脚本。 */
+{
+  const s = makeSandbox();
+  injectHtmlMissingTarget(s);
+  expectRed("T5a HTML 引用的目标磁盘上不存在 ⇒ TR5", s, ["TR5"], {
+    mustContain: "但磁盘上找不到它",
+    note: "这正是门禁要拦的那个断链：页面在仓库里躺着，引用的资源却不在",
+  });
+  fs.rmSync(s.base, { recursive: true, force: true });
+}
+
+/* T5b：HTML 引用的目标磁盘上有、但没进索引 ⇒ 提交后这棵树会断（与 TR1 同一个道理）。 */
+{
+  const s = makeSandbox();
+  injectHtmlUntrackedTarget(s);
+  expectRed("T5b HTML 引用的目标没有被 git 跟踪 ⇒ TR5", s, ["TR5"], {
+    mustContain: "没有被 git 跟踪",
+    note: "引用方进了提交、被引用方没进 ⇒ 全新克隆里这个页面会少掉样式",
+  });
+  fs.rmSync(s.base, { recursive: true, force: true });
+}
+
+/* ================= 注入档 T6a ================= */
+
+/* T6a：索引里一个 HTML 文件都没有 ⇒ TR5 从未被真正执行过 ⇒ 判红。 */
+{
+  const s = makeSandbox();
+  untrackHtml(s);
+  expectRed("T6a 索引里一个 HTML 文件都没有 ⇒ TR6", s, ["TR6"], {
+    mustContain: "一个已跟踪的 HTML 文件都没扫到",
+    note: "HTML 侧的自证存活：没报错和「没问题」长得一模一样",
+  });
+  fs.rmSync(s.base, { recursive: true, force: true });
+}
+
+/* ================= 判据级负对照 N-TR1–N-TR6 ================= */
 
 /* N-TR1：卸掉 TR1 ⇒ T1a 的注入必须转绿 */
 {
@@ -454,6 +650,7 @@ function breakMask(s) {
   const s = makeSandbox();
   patchGate(s, "const TR2_ON = true;", "const TR2_ON = false;", 1);
   untrackScripts(s);
+  repointHtmlCodeRefs(s);
   expectGreen(
     "N-TR2 负对照：卸掉 TR2 判定后，T2a 的注入转绿",
     s,
@@ -484,6 +681,32 @@ function breakMask(s) {
     "N-TR4 负对照：卸掉 TR4 判定后，T4a 的注入转绿",
     s,
     "证明 T4a 那档的红确实来自 TR4 判定本身"
+  );
+  fs.rmSync(s.base, { recursive: true, force: true });
+}
+
+/* N-TR5：卸掉 TR5 ⇒ T5a 的注入必须转绿 */
+{
+  const s = makeSandbox();
+  patchGate(s, "const TR5_ON = true;", "const TR5_ON = false;", 1);
+  injectHtmlMissingTarget(s);
+  expectGreen(
+    "N-TR5 负对照：卸掉 TR5 判定后，T5a 的注入转绿",
+    s,
+    "证明 T5a 那档的红确实来自 TR5 判定本身"
+  );
+  fs.rmSync(s.base, { recursive: true, force: true });
+}
+
+/* N-TR6：卸掉 TR6 ⇒ T6a 的注入必须转绿 */
+{
+  const s = makeSandbox();
+  patchGate(s, "const TR6_ON = true;", "const TR6_ON = false;", 1);
+  untrackHtml(s);
+  expectGreen(
+    "N-TR6 负对照：卸掉 TR6 判定后，T6a 的注入转绿",
+    s,
+    "证明 T6a 那档的红确实来自 TR6 判定本身"
   );
   fs.rmSync(s.base, { recursive: true, force: true });
 }
@@ -523,8 +746,8 @@ function breakMask(s) {
 
 /* ================= COV-A：扫描面数量自证 ================= */
 
-/* 门禁报出的三个数量必须与夹具里真实的数量一致（且 ≥ 1）——
-   证明它真的在数，而不是打印一个凑出来的数字。 */
+/* 门禁报出的数量必须与夹具里真实的数量一致（且 ≥ 1）——
+   证明它真的在数，而不是打印一个凑出来的数字。代码侧与 HTML 侧各算一遍。 */
 {
   const s = makeSandbox();
   const r = runGate(s);
@@ -533,6 +756,11 @@ function breakMask(s) {
   const files = m ? Number(m[1]) : -1;
   const compared = m ? Number(m[2]) : -1;
   const outside = o ? Number(o[1]) : -1;
+  const h = /另扫了 (\d+) 个已跟踪 HTML 文件、比对过 (\d+) 处仓内本地资源引用/.exec(r.out);
+  const ho = /处仓内本地资源引用（另有 (\d+) 处指向仓库外/.exec(r.out);
+  const htmlFiles = h ? Number(h[1]) : -1;
+  const htmlCompared = h ? Number(h[2]) : -1;
+  const htmlOutside = ho ? Number(ho[1]) : -1;
 
   /* 独立算一遍夹具的真实数量（不抄门禁的逻辑） */
   const tracked = execFileSync("git", ["ls-files", "-z"], {
@@ -548,39 +776,56 @@ function breakMask(s) {
   const inRepoReal = (appSrc.match(/"\.\/lib\//g) || []).length;
   const outRepoReal = (appSrc.match(/"\.\.\/\.\.\/outside\//g) || []).length;
 
+  /* HTML 侧同样独立算一遍：数「夹具里那几条路径真的写进了页面」。 */
+  const htmlSrc = fs.readFileSync(htmlOf(s), "utf8");
+  const htmlFilesReal = tracked.filter(
+    (f) => f.toLowerCase().endsWith(".html") && fs.existsSync(path.join(s.repo, f))
+  ).length;
+  const htmlInRepoReal = HTML_LOCAL_REFS.filter((r) => htmlSrc.includes(`"${r}"`)).length;
+  const htmlOutRepoReal = htmlSrc.includes(`"${HTML_OUTSIDE_REF}"`) ? 1 : 0;
+
   const ok =
     r.code === 0 &&
     files === codeReal &&
     compared === inRepoReal &&
     outside === outRepoReal &&
     files >= 1 &&
-    compared >= 1;
+    compared >= 1 &&
+    htmlFiles === htmlFilesReal &&
+    htmlCompared === htmlInRepoReal &&
+    htmlOutside === htmlOutRepoReal &&
+    htmlFiles >= 1 &&
+    htmlCompared >= 1;
   record(
     "COV-A 覆盖度自证：报出的扫描数量与夹具真实数量一致",
     ok,
     ok
-      ? `报出 ${files} 个代码文件 / ${compared} 处仓内引用 / ${outside} 处仓外引用，` +
-        `夹具真实 ${codeReal} / ${inRepoReal} / ${outRepoReal}（不是编的数字）`
-      : `报出 ${files}/${compared}/${outside}，真实 ${codeReal}/${inRepoReal}/${outRepoReal}，code=${r.code}\n${r.out}`
+      ? `代码侧报出 ${files} 个代码文件 / ${compared} 处仓内引用 / ${outside} 处仓外引用，` +
+        `夹具真实 ${codeReal} / ${inRepoReal} / ${outRepoReal}；` +
+        `HTML 侧报出 ${htmlFiles} 个页面 / ${htmlCompared} 处仓内引用 / ${htmlOutside} 处仓外引用，` +
+        `夹具真实 ${htmlFilesReal} / ${htmlInRepoReal} / ${htmlOutRepoReal}（不是编的数字）`
+      : `代码侧报出 ${files}/${compared}/${outside}，真实 ${codeReal}/${inRepoReal}/${outRepoReal}；` +
+        `HTML 侧报出 ${htmlFiles}/${htmlCompared}/${htmlOutside}，` +
+        `真实 ${htmlFilesReal}/${htmlInRepoReal}/${htmlOutRepoReal}，code=${r.code}\n${r.out}`
   );
   fs.rmSync(s.base, { recursive: true, force: true });
 }
 
 /* ================= COV-B：判据覆盖度自证（现读门禁源码） ================= */
 
-/* 门禁源码里 TR1–TR4 每条判据都要有红因出口（note("TRn") 与可卸开关（const TRn_ON = true;）——
+/* 门禁源码里 TR1–TR6 每条判据都要有红因出口（note("TRn") 与可卸开关（const TRn_ON = true;）——
    门禁新加判据而本矩阵没跟上时，这一档会立刻变红。 */
 {
   const s = makeSandbox();
   const src = fs.readFileSync(GATE, "utf8");
   const noteIds = [...new Set([...src.matchAll(/note\(\s*"(TR\d+)"/g)].map((m) => m[1]))].sort();
   const switches = [...src.matchAll(/const (TR\d+)_ON = true;/g)].map((m) => m[1]).sort();
-  const want = ["TR1", "TR2", "TR3", "TR4"];
+  const want = ["TR1", "TR2", "TR3", "TR4", "TR5", "TR6"];
   const ok =
     JSON.stringify(noteIds) === JSON.stringify(want) &&
     JSON.stringify(switches) === JSON.stringify(want);
   record(
-    "COV-B 覆盖度自证：门禁里 TR1–TR4 每条都有红因出口与可卸开关",
+    "COV-B 覆盖度自证：门禁里 TR1–TR6 每条都有红因出口与可卸开关",
     ok,
     ok
       ? `红因出口 ${noteIds.join("/")}，可卸开关 ${switches.join("/")}（现读源码，不是写死的）`
@@ -607,7 +852,7 @@ const bad = results.filter((r) => !r.ok);
 console.log(
   `\n注入矩阵：${results.length} 档里 ${results.length - bad.length} 档按预期触发` +
     `${bad.length ? `，${bad.length} 档未通过` : ""}` +
-    `（N-TR1–N-TR4、P-TR4、P-TR3 是判据级负对照）。`
+    `（N-TR1–N-TR6、P-TR4、P-TR3 是判据级负对照）。`
 );
 if (bad.length) bad.forEach((b) => console.log(`  · 未通过：${b.id}`));
 console.log("  · 原件校验：门禁的 SHA-256 与自测开始时一致。");
