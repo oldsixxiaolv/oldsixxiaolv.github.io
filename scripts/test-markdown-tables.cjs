@@ -14,18 +14,21 @@
  *   拿它当基准会让自测跟着文档抖）：
  *     <tmp>/scripts/check-markdown-tables.cjs  门禁副本（负对照要改它的 fail 调用）
  *     <tmp>/package.json                          build 链里必须有本门禁（TBL4 看这个）
+ *     <tmp>/.gitignore                            声明哪些目录不进版本控制（TBL6 看这个）
  *     <tmp>/docs/a.md                             一张 3 格的正常表
  *     <tmp>/docs/b.md                             一张 2 格的正常表
  *     <tmp>/docs/c.md                             一份没有表格的普通文档
  *   门禁的扫描面用环境变量 TBL_DOC_DIRS 指到 <tmp>/docs；
  *   它的 ROOT 是「自己所在目录的上一级」，所以副本里的它天然指向副本里的文档。
+ *   ⚠️ 要让扫描面够到 <tmp>/ 下的别的目录（如 agent 工作区），就把 TBL_DOC_DIRS
+ *     覆盖成 <tmp> —— 那几档用 extraEnv 走这条路。
  *
  *   ⚠️ 夹具里**不出现任何真实仓库的表格内容**（文件名 / 单元格文字都用 fixture-* 命名）
  *     —— 否则门禁 / 自测源码自己就成了「文档里有这张表」的证据，自证会假绿。
  *   ⚠️ 夹具的规模**刚好卡在覆盖度下限上**（3 个 md / 2 张表 / 5 行数据），
  *     所以注入档只红它该红的那条判据，覆盖度判据（TBL3）不会连坐。
  *
- * 档位（9 档注入 ＋ 4 档绿档 ＋ 5 档判据级负对照 ＋ 1 档覆盖度自证 ＋ 1 档基线）：
+ * 档位（11 档注入 ＋ 5 档绿档 ＋ 7 档判据级负对照 ＋ 1 档覆盖度自证 ＋ 1 档基线）：
  *   TBLR0  基线绿
  *   TBLR1  表格被空行截断（空行后还有数据行）                    ⇒ TBL1
  *   TBLR2  行内代码 span 里含裸竖线                              ⇒ TBL2
@@ -46,10 +49,15 @@
  *   TBLR17 表头格数 ≠ 分隔行格数（这一块从来就不是一张表）      ⇒ TBL5
  *   TBLR18 分隔行里有一格没有连字符（同样不是一张表）            ⇒ TBL5
  *   TBLR19 负对照：卸掉 TBL5 ⇒ TBLR17–TBLR18 的注入必须全部转绿
+ *   TBLR20 绿档：被 .gitignore 忽略的 agent 工作区里有破表 ⇒ 放行（绿）
+ *   TBLR21 .gitignore 声明忽略、却没进 SKIP_DIRS 的目录被扫到了      ⇒ TBL6
+ *   TBLR22 负对照：卸掉 TBL6 ⇒ TBLR21 的注入必须转绿
+ *   TBLR23 负对照：把 .claude 从 SKIP_DIRS 里去掉 ⇒ TBLR20 的夹具必须转红
+ *   TBLR24 .gitignore 读不到 ⇒ fail closed 判红                      ⇒ TBL6
  *
  * ⚠️ 每档都断言「红因编号集合**完全相等**」，不只是「包含期望的那条」——
  *   一档里出现两条判据的红，红因归属就不可判定了（那是脚本的缺陷，不是产品的缺陷）。
- *   TBLR12–TBLR15 / TBLR19 这五档负对照正是「归属纯净」的守门人：
+ *   TBLR12–TBLR15 / TBLR19–TBLR23 这几档负对照正是「归属纯净」的守门人：
  *   卸掉 TBL1 之后 TBLR1 若还红，说明是别的判据越界管了截断 ⇒ 立刻暴露。
  *
  * ⚠️ 负对照**不给门禁加开关**（加了开关就等于在门禁里留一个「可卸闸门」）——
@@ -93,6 +101,20 @@ const DOC_B = [
 
 const DOC_C = ["# 合成夹具 C", "", "这一份文档里没有任何表格。", ""].join("\n");
 
+/* agent 本地工作区里的笔记：**故意是一张破表**（空行把表截断）。
+   它放在被 .gitignore 排除的目录里 ⇒ 门禁**不该**判它（判了就等于拿本机状态
+   冒充仓库状态：本地红、CI 绿）。 */
+const DOC_AGENT_NOTES = [
+  "# agent 本地笔记",
+  "",
+  "| 列一 | 列二 |",
+  "|---|---|",
+  "| fixture-x | 一 |",
+  "",
+  "| fixture-y | 二 |",
+  "",
+].join("\n");
+
 /* TBL5 的两个子形态夹具：表头与分隔行**配不成一张表** ⇒ GFM 整块渲染成一个段落。
    ① 表头 3 格 / 分隔行 2 格；② 分隔行中间那格没有连字符。 */
 const DOC_B_CELL_MISMATCH = [
@@ -122,11 +144,20 @@ function write(file, content) {
   fs.writeFileSync(file, content);
 }
 
-/** 造一个夹具沙箱：门禁副本 + package.json + 三份合成文档。 */
+/** 造一个夹具沙箱：门禁副本 + package.json + .gitignore + 三份合成文档。 */
 function makeSandbox(docs) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mh-tbl-"));
+  /* ⚠️ 必须用 realpath：Node 的 __dirname 走的是 realpath（/private/var/...），
+     而 mkdtemp 给的是符号链接路径（/var/...）—— 两者不一致的话，
+     门禁按 ROOT 算相对路径时会算出 ../../..，判断全部失准。 */
+  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "mh-tbl-")));
   fs.mkdirSync(path.join(dir, "scripts"), { recursive: true });
   fs.copyFileSync(GATE_SRC, path.join(dir, "scripts", GATE_NAME));
+  /* 夹具的 .gitignore：与仓库同构 —— 声明哪些目录**不进版本控制**。
+     TBL6 拿它当「扫描面越界」的唯一真源；没有它，门禁会 fail closed（那是 TBLR24 那一档）。 */
+  write(
+    path.join(dir, ".gitignore"),
+    ["# 夹具用的忽略规则（目录型）", ".claude/", ".agent-workspace/", ""].join("\n")
+  );
   write(
     path.join(dir, "package.json"),
     JSON.stringify(
@@ -151,8 +182,8 @@ function makeSandbox(docs) {
 
 /* ================= 跑门禁 / 解析红因 ================= */
 
-/** 跑副本里的门禁，返回 { code, out }。 */
-function runGate(dir) {
+/** 跑副本里的门禁，返回 { code, out }。extraEnv 用来覆盖环境变量（如扫描面）。 */
+function runGate(dir, extraEnv) {
   try {
     const out = execFileSync(
       process.execPath,
@@ -160,7 +191,12 @@ function runGate(dir) {
       {
         encoding: "utf8",
         stdio: ["ignore", "pipe", "pipe"],
-        env: Object.assign({}, process.env, { TBL_DOC_DIRS: path.join(dir, "docs") }),
+        env: Object.assign(
+          {},
+          process.env,
+          { TBL_DOC_DIRS: path.join(dir, "docs") },
+          extraEnv || {}
+        ),
       }
     );
     return { code: 0, out };
@@ -219,6 +255,21 @@ function disableCriterion(dir, crit) {
   return { changed: targets.size, linesBefore: lines.length, linesAfter: out.length };
 }
 
+/**
+ * 在副本里把一段字面量替换成另一段（**行数不变**）；返回命中处数。
+ * 命中处数不是 1 就中止 —— 负对照的前提是「只动了一处」。
+ */
+function replaceInCopy(dir, from, to) {
+  const file = path.join(dir, "scripts", GATE_NAME);
+  const text = fs.readFileSync(file, "utf8");
+  const count = text.split(from).length - 1;
+  if (count !== 1) {
+    throw new Error(`门禁副本里 ${from} 命中 ${count} 处（应为 1）—— 负对照无法成立，已中止。`);
+  }
+  fs.writeFileSync(file, text.split(from).join(to));
+  return count;
+}
+
 /* ================= 记档 ================= */
 
 const results = [];
@@ -240,8 +291,8 @@ function noteFail(msg) {
 }
 
 /** 一档「注入 ⇒ 应当恰好红这么几条判据」。期望集合必须**完全相等**。 */
-function expectRed(id, dir, want, note) {
-  const r = runGate(dir);
+function expectRed(id, dir, want, note, extraEnv) {
+  const r = runGate(dir, extraEnv);
   const got = redIds(r.out);
   const ok = r.code === 1 && sameSet(got, want);
   record(
@@ -254,8 +305,8 @@ function expectRed(id, dir, want, note) {
 }
 
 /** 一档「应当完全绿，一个红因都不许剩」。 */
-function expectGreen(id, dir, note) {
-  const r = runGate(dir);
+function expectGreen(id, dir, note, extraEnv) {
+  const r = runGate(dir, extraEnv);
   const got = redIds(r.out);
   const ok = r.code === 0 && got.size === 0;
   record(
@@ -741,6 +792,94 @@ function cleanup(dir) {
       ? `改了 ${changed} 行（行数不变），两档注入全部转绿 ⇒ 那两条红确实是 TBL5 判出来的`
       : `卸掉 TBL5 之后仍有夹具红（改动 ${changed} 行，应为 2 / 行数不变 ${linesOk} / 全绿 ${allGreen}）`
   );
+}
+
+/* ================= TBLR20–TBLR24：TBL6（扫描面不得越界） ================= */
+
+/* TBLR20〔绿档·修法级〕：被 .gitignore 忽略的 agent 工作区里放一张**破表** ⇒ 门禁仍绿。
+   这一档守的就是「本地红、CI 绿」那个坑：非仓库内容根本不该进判定。 */
+{
+  const dir = makeSandbox();
+  write(path.join(dir, ".claude", "notes.md"), DOC_AGENT_NOTES);
+  expectGreen(
+    "TBLR20 被忽略的 agent 工作区里有破表",
+    dir,
+    "扫描面不走进非仓库内容 ⇒ 不误报",
+    { TBL_DOC_DIRS: dir }
+  );
+  cleanup(dir);
+}
+
+/* TBLR21〔注入·判据级〕：.gitignore 声明忽略、却没进 SKIP_DIRS 的目录被扫到了 ⇒ TBL6。 */
+{
+  const dir = makeSandbox();
+  write(path.join(dir, ".agent-workspace", "notes.md"), DOC_AGENT_NOTES);
+  expectRed(
+    "TBLR21 扫到了被 .gitignore 排除的目录",
+    dir,
+    ["TBL6"],
+    "非仓库内容不参与判定，只报越界这一条",
+    { TBL_DOC_DIRS: dir }
+  );
+  cleanup(dir);
+}
+
+/* TBLR22〔负对照·判据级〕：卸掉 TBL6 ⇒ TBLR21 的夹具必须转绿。 */
+{
+  const dir = makeSandbox();
+  write(path.join(dir, ".agent-workspace", "notes.md"), DOC_AGENT_NOTES);
+  const info = disableCriterion(dir, "TBL6");
+  const r = runGate(dir, { TBL_DOC_DIRS: dir });
+  const ok =
+    info.changed === 2 &&
+    info.linesBefore === info.linesAfter &&
+    r.code === 0 &&
+    redIds(r.out).size === 0;
+  record(
+    "TBLR22 负对照：卸掉 TBL6",
+    ok,
+    ok
+      ? `改了 ${info.changed} 行（行数不变 ${info.linesBefore} → ${info.linesAfter}），` +
+        `同一夹具转绿 ⇒ 那条红确实是 TBL6 判出来的`
+      : `卸掉 TBL6 之后夹具仍红（改动 ${info.changed} 行，应为 2）\n${r.out}`
+  );
+  cleanup(dir);
+}
+
+/* TBLR23〔负对照·修法级〕：把 .claude 从副本的 SKIP_DIRS 里去掉 ⇒ TBLR20 的夹具必须转红。 */
+{
+  const dir = makeSandbox();
+  write(path.join(dir, ".claude", "notes.md"), DOC_AGENT_NOTES);
+  const file = path.join(dir, "scripts", GATE_NAME);
+  const before = fs.readFileSync(file, "utf8").split("\n").length;
+  const count = replaceInCopy(dir, '".claude"', '"__removed_claude__"');
+  const after = fs.readFileSync(file, "utf8").split("\n").length;
+  const r = runGate(dir, { TBL_DOC_DIRS: dir });
+  const got = redIds(r.out);
+  const ok = count === 1 && before === after && r.code === 1 && sameSet(got, ["TBL6"]);
+  record(
+    "TBLR23 负对照：SKIP_DIRS 里去掉 .claude",
+    ok,
+    ok
+      ? `改了 ${count} 处（行数不变 ${before} → ${after}），同一夹具转红 ⇒ ` +
+        `SKIP_DIRS 里那条 .claude 规则确实承重`
+      : `去掉 .claude 之后夹具没按预期转红（命中 ${count} 处 / 行数不变 ${before === after} / ` +
+        `红因 ${fmtIds(got)}）\n${r.out}`
+  );
+  cleanup(dir);
+}
+
+/* TBLR24〔注入·判据级〕：.gitignore 读不到 ⇒ fail closed 判红（自证不得静默失效）。 */
+{
+  const dir = makeSandbox();
+  fs.rmSync(path.join(dir, ".gitignore"));
+  expectRed(
+    "TBLR24 .gitignore 读不到",
+    dir,
+    ["TBL6"],
+    "fail closed：无法确认扫描面越不越界，就不给放行"
+  );
+  cleanup(dir);
 }
 
 /* ================= 收尾：真源指纹前后一致 ================= */

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * 门禁 TBL1–TBL5：**仓库里每一张 Markdown 表格都必须真的是一张表**
+ * 门禁 TBL1–TBL6：**仓库里每一张 Markdown 表格都必须真的是一张表**
  *
  * 为什么要有这个门禁（一次实测坐实的看护缺口，不是假想）：
  *   Markdown 的表格是**两段式**语法 —— 一行表头 ＋ 一行分隔行（`|---|---|`）
@@ -42,7 +42,7 @@
  *       没人看**表格本身是不是一张表**。
  *   ⇒ 也就是说：**「文档里的表格塌了」这一族完全没人看守。**
  *
- * 五条判据（编号用独立字母体系 TBL*，**不与既有前缀冲突**：
+ * 六条判据（编号用独立字母体系 TBL*，**不与既有前缀冲突**：
  *   MT*（挂载契约）/ MC* / MD* / DS* / DR* / IAC*（信息架构）等均不同名）：
  *   TBL1 **表格被空行截断** —— 表头 + 分隔行确立的表，中途出现空行，而空行之后
  *      仍有 `|` 开头的**数据行**（不是新表的表头）⇒ 那些行在渲染时会退化成段落。
@@ -64,6 +64,16 @@
  *      表头格数 ≠ 分隔行格数，或分隔行里有一格没有连字符 ⇒ GFM 整张表都不识别。
  *      ⚠️ 与 TBL1 / TBL2 **互斥**：判红后该块的数据行**不再是表格行**，
  *      不参与 TBL2 判定，也不再报「被空行截断」⇒ 同一处改动只会出一条红因。
+ *   TBL6 **扫描面不得越界** —— 本门禁判的是**仓库内容**。仓库自己的 .gitignore
+ *      声明了哪些目录**不进版本控制**（agent 的本地工作区、构建产物、依赖……），
+ *      那些目录里的 markdown **不是仓库内容**：判它们等于「拿本机状态冒充仓库状态」
+ *      —— 本地红、线上绿（CI checkout 出来的仓库里那份文件根本不存在）。
+ *      实测坐实（缺陷清单 D87）：扫描器一路递归进 agent 的本地工作区，
+ *      那里有 15 个 markdown 文件（数量随 agent 活动变动），
+ *      在那里放一张破表就能让门禁**本地红、CI 绿**，两边的红绿彻底脱钩。
+ *      扫到的 md 若落在被忽略的目录下 ⇒ 判红，并且**不判它的表格**
+ *      （非仓库内容不参与判定，红因归属才不会串）。
+ *      .gitignore 读不到 ⇒ **fail closed** 判红：自证不得静默失效。
  *
  * ⚠️ 门禁**守不了什么**（写清楚，不藏）：
  *   · **只认前导竖线的表格**（`| a | b |`）。不带前导竖线的表格写法不扫。
@@ -74,9 +84,11 @@
  *     那种写法不会被当成「表头 + 分隔行」，本门禁也就不会把它当一张表来判。
  *   · **引用块里的表格不扫**（`> | a | b |`）。
  *   · **代码围栏内的内容不扫**（围栏里的表格是示例，不是文档结构）。
+ *   · **不判 .gitignore 的规则本身对不对**（只认其中的**目录型**规则；带通配符的
+ *     目录名规则不解析 —— 宁可漏判也不误判）。
  *
  * 环境变量（自测要在**副本**上注入缺陷，不能改仓库里的真文件）：
- *   TBL_DOC_DIRS —— 扫描目录（冒号分隔，默认仓库根 ＋ docs/）
+ *   TBL_DOC_DIRS —— 扫描目录（冒号分隔，默认仓库根 ＋ docs/），**递归**扫子目录
  *   PKG_PATH    —— package.json 的路径（默认仓库根的 package.json）
  */
 "use strict";
@@ -87,6 +99,7 @@ const path = require("path");
 const ROOT = path.resolve(__dirname, "..");
 const SELF = path.basename(__filename);
 const PKG = process.env.PKG_PATH ? path.resolve(process.env.PKG_PATH) : path.join(ROOT, "package.json");
+const GITIGNORE = path.join(ROOT, ".gitignore");
 const DOC_DIRS = (process.env.TBL_DOC_DIRS || [ROOT, path.join(ROOT, "docs")].join(path.delimiter))
   .split(path.delimiter)
   .filter(Boolean)
@@ -99,6 +112,7 @@ const TBL2_ON = true;
 const TBL3_ON = true;
 const TBL4_ON = true;
 const TBL5_ON = true;
+const TBL6_ON = true;
 
 /* TBL3 的覆盖度下限：只要仓库里还有文档，就至少该扫到几个文件、几张表、几行数据。
    ⚠️ 覆盖度统计的是「**扫描器活动量**」，不是「文档健康度」：
@@ -110,8 +124,19 @@ const MIN_MD_FILES = 3;
 const MIN_TABLES = 2;
 const MIN_ROWS = 4;
 
-/* 扫描时跳过的目录名（不递归）。 */
-const SKIP_DIRS = new Set(["_archive", "node_modules", ".git", "_site", "_site_dev"]);
+/* 扫描时跳过的目录名（不递归）。
+   ⚠️️ 这里必须覆盖 .gitignore 里声明的「会装 markdown 的」那些目录：
+     agent 的本地工作区不在版本控制里，扫它等于拿本机状态冒充仓库状态
+     ⇒ 本地红、CI 绿（线上 checkout 出来的仓库里那份文件根本不存在）。
+     TBL6 是这一条的手写镜像的守门人：镜像漏了，它就判红。 */
+const SKIP_DIRS = new Set([
+  "_archive", // 历史归档（有意排除，不是本项目的当前文档）
+  "node_modules", // 依赖
+  ".git", // 版本库内部
+  "_site", // 构建产物
+  "_site_dev", // dev server 产物
+  ".claude", // agent 本地工作区（.gitignore 已声明忽略）
+]);
 
 const problems = [];
 /** 记一条判红。id 是判据编号（TBLn）—— 自测靠它断言「红因归属纯净」。 */
@@ -200,15 +225,107 @@ function sepCellWithoutHyphen(line) {
   return -1;
 }
 
+/* ================= .gitignore：扫描面的唯一真源 ================= */
+
+/**
+ * 解析仓库自己的 .gitignore，取出**目录型**的忽略规则。
+ *
+ * 只认「以斜杠结尾、非否定、非注释、无通配符」的规则 —— 这类规则语义最确定；
+ * 带通配符的目录名规则不解析（宁可漏判也不误判）。
+ *   · 带斜杠的规则（docs/screenshots/）只认仓库根下的那一条路径；
+ *   · 不带斜杠的规则（.claude/）认任意层级下同名的目录。
+ *
+ * 返回 null = 读不到 .gitignore（⇒ 门禁 fail closed：自证不得静默失效）。
+ */
+function loadIgnoreRules() {
+  let text;
+  try {
+    text = fs.readFileSync(GITIGNORE, "utf8");
+  } catch (e) {
+    return null;
+  }
+  const rules = [];
+  for (const raw of text.split("\n")) {
+    const line = raw.trim();
+    if (!line || line.startsWith("#") || line.startsWith("!")) continue;
+    if (!line.endsWith("/")) continue; // 只认目录型规则
+    if (/[*?[\]]/.test(line)) continue; // 带通配符的不解析
+    const pattern = line.slice(0, -1).replace(/^\/+/, "");
+    if (!pattern) continue;
+    rules.push({ pattern, anchored: pattern.includes("/") });
+  }
+  return rules;
+}
+
+/**
+ * 这个文件是不是落在某个被忽略的目录下？返回 { dir } 或 null。
+ */
+function ignoredAncestor(file, rules) {
+  const rel = path.relative(ROOT, file);
+  if (!rel || rel === ".." || rel.startsWith(".." + path.sep) || path.isAbsolute(rel)) {
+    return null;
+  }
+  const segs = rel.split(path.sep);
+  const ancestors = [];
+  for (let i = 1; i < segs.length; i++) ancestors.push(segs.slice(0, i).join(path.sep));
+  for (const r of rules) {
+    for (const a of ancestors) {
+      if (r.anchored ? a === r.pattern : path.basename(a) === r.pattern) {
+        return { dir: path.join(ROOT, a), pattern: r.pattern };
+      }
+    }
+  }
+  return null;
+}
+
 /* ================= 扫描 ================= */
 
 const seen = new Set();
-const files = [];
+const allFiles = [];
 for (const d of DOC_DIRS) {
   for (const f of listMd(d)) {
     if (seen.has(f)) continue;
     seen.add(f);
-    files.push(f);
+    allFiles.push(f);
+  }
+}
+
+/* ================= TBL6：扫描面不得越界 ================= */
+
+/* 本门禁判的是**仓库内容**。仓库自己的 .gitignore 声明了哪些目录不进版本控制，
+   那些目录里的 markdown 就不是仓库内容 ⇒ 判它们等于拿本机状态冒充仓库状态
+   （本地红、CI 绿 —— 线上 checkout 出来的仓库里那份文件根本不存在）。
+   ⇒ 落在那些目录里的 md 一律**不参与判定**，只报「扫描面越界」这一条红因，
+     红因归属才不会串（非仓库内容里的破表不该由本门禁背锅）。 */
+let files = allFiles;
+if (TBL6_ON) {
+  const rules = loadIgnoreRules();
+  if (!rules) {
+    fail(
+      "TBL6",
+      `读不到 ${path.relative(ROOT, GITIGNORE)} —— 无法确认扫描面是否越界` +
+        `（哪些目录不进版本控制），自证不得静默失效。`
+    );
+  } else {
+    const violations = new Map();
+    const kept = [];
+    for (const f of allFiles) {
+      const hit = ignoredAncestor(f, rules);
+      if (!hit) {
+        kept.push(f);
+        continue;
+      }
+      violations.set(hit.dir, (violations.get(hit.dir) || 0) + 1);
+    }
+    files = kept;
+    for (const [dir, n] of violations) {
+      fail(
+        "TBL6",
+        `${path.relative(ROOT, dir) || dir}/ 下的 ${n} 个 markdown 文件落在被 .gitignore 排除的目录里 —— ` +
+          `它们不是仓库内容（git 不跟踪），判它们等于拿本机状态冒充仓库状态。` +
+          ` 请把该目录名加进 SKIP_DIRS（扫描面不该走进去）。`
+      );
+    }
   }
 }
 
