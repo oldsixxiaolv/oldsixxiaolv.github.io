@@ -6,7 +6,7 @@
  * 而「注入没生效」「改的是副本还是原件」「门禁自己被卸掉了」恰恰是最容易发生、
  * 也最不容易看出来的失败模式。所以自测必须回答四件事：
  *
- *   一、红因归属表 —— 门禁的 13 处 fail() 调用逐条登记判据号与**唯一文案片段**。
+ *   一、红因归属表 —— 门禁的 19 处 fail() 调用逐条登记判据号与**唯一文案片段**。
  *   二、覆盖度自证 —— 门禁的 fail() 调用点与归属表**双向**对齐；
  *      门禁解析出的判据集合与静态清单一致；每条红因、每条判据都至少一档判红。
  *   三、注入档 —— 每一档都断言**判红且判据集合恰为预期**（多一条少一条都算失败）。
@@ -49,9 +49,28 @@ const CAUSES = [
   { id: "DR7a", crit: "DR7", frag: "接入流程文档不在" },
   { id: "DR7b", crit: "DR7", frag: "里检出的仓内路径候选太少" },
   { id: "DR8", crit: "DR8", frag: "接入指南里写死了会变的条目数" },
+  { id: "DR9a", crit: "DR9", frag: "计划文档不在" },
+  { id: "DR9b", crit: "DR9", frag: "改进项小节缺标记" },
+  { id: "DR9c", crit: "DR9", frag: "已知 token 没有被断言" },
+  { id: "DR10", crit: "DR10", frag: "token 不在已知清单内" },
+  { id: "DR11", crit: "DR11", frag: "取值与代码现实不一致" },
+  { id: "DR12", crit: "DR12", frag: "写死了会变的篇幅数" },
 ];
 /** 静态判据清单（门禁里应当且仅应当有这些判据）。 */
-const CRITERIA = ["DR1", "DR2", "DR3", "DR4", "DR5", "DR6", "DR7", "DR8"];
+const CRITERIA = [
+  "DR1",
+  "DR2",
+  "DR3",
+  "DR4",
+  "DR5",
+  "DR6",
+  "DR7",
+  "DR8",
+  "DR9",
+  "DR10",
+  "DR11",
+  "DR12",
+];
 
 /* ========== 工具 ========== */
 
@@ -149,17 +168,53 @@ const RUN_DOC_BASE = [
 /** 夹具里 stub 出来的仓内文件（两份文档点名的路径都指向它们 ⇒ 全部真实存在）。 */
 const STUB_FILES = {
   "src/_data/site.js": "module.exports = { publications: [] };\n",
+  "src/_data/extremePrecip.json": "{}\n",
   "src/eleventy-helpers.cjs": "module.exports = {};\n",
-  "src/_includes/layouts/base.njk": "<html lang=\"en\"></html>\n",
-  "src/_includes/layouts/paper.njk": "<html lang=\"en\"></html>\n",
+  "src/_includes/layouts/base.njk":
+    '<html lang="en">\n  <link rel="stylesheet" href="/assets/css/print.css">\n</html>\n',
+  "src/_includes/layouts/paper.njk":
+    '<html lang="en">\n  <img src="figure.png" width="10" height="10" />\n</html>\n',
   "src/_includes/partials/header.njk": "<header></header>\n",
   "src/assets/js/main.js": "// stub\n",
   "src/assets/js/home-chart.js": "// stub\n",
   "src/assets/js/theme.js": "// stub\n",
   "src/assets/js/paper-reader/main.js": "// stub\n",
   "src/assets/css/tokens.css": ":root {}\n",
+  "src/assets/css/base.css": "p, li, a {\n  overflow-wrap: anywhere;\n}\n",
+  "src/assets/css/print.css": "@media print {\n  body { color: #000; }\n}\n@page {\n  margin: 18mm;\n}\n",
   "src/assets/css/components/index.css": "@import \"../tokens.css\";\n",
 };
+
+/**
+ * 夹具里的「计划文档」：改进项小节 + 当时的证据 + 当前状态 + 现状断言。
+ * 断言的取值必须与夹具里的 stub 文件一致（门禁会拿它们逐条比对），
+ * 因此这里每个 token 都对得上：夹具没有 @media 断点 ⇒ none；
+ * 夹具的 base.css 有 overflow-wrap: anywhere ⇒ yes；
+ * 夹具没有 min-inline-size: 0 ⇒ 0；
+ * 夹具的 paper.njk 里那个 <img> 带 width/height ⇒ yes。
+ */
+const PLAN_DOC_BASE = [
+  "# 夹具 · 改进计划",
+  "",
+  "## 一、改进项",
+  "",
+  "### P1 · 打印样式",
+  "",
+  "**当时的证据（2026-10-19）**：当时全站没有任何打印样式。",
+  "",
+  "**当前状态（夹具实测）**：打印样式已落地并已引入。",
+  "",
+  "- 现状断言：`print-style=present` · `print-media=yes` · `print-imported=yes` · `print-page-rule=yes` · `paper-reader-progress-module=absent`",
+  "",
+  "### P2 · 断点与其它维度",
+  "",
+  "**当时的证据（2026-10-19）**：当时断点散落各处。",
+  "",
+  "**当前状态（夹具实测）**：夹具里没有断点，其余维度都已落地。",
+  "",
+  "- 现状断言：`breakpoints=none` · `overflow-wrap-anywhere=yes` · `min-inline-size-zero=0` · `data-chart-module=present` · `data-chart-data=present` · `img-size-placeholder=yes`",
+  "",
+].join("\n");
 
 /** 夹具里 stub 出来的仓内目录（文档点名的目录路径也得真实存在）。 */
 const STUB_DIRS = ["src/content/blog"];
@@ -199,6 +254,7 @@ function buildFixture(mutate) {
   const state = {
     doc: DOC_BASE,
     runDoc: RUN_DOC_BASE,
+    planDoc: PLAN_DOC_BASE,
     paper: PAPER_MD,
     data: PAPERS_DATA,
     /** 论文目录在、但里面没有论文文件（空目录）。 */
@@ -219,6 +275,9 @@ function buildFixture(mutate) {
   if (state.paper !== null || state.emptyPaperDir) fs.mkdirSync(paperDir, { recursive: true });
   if (state.doc !== null) fs.writeFileSync(path.join(dir, "docs", "implementation-notes.md"), state.doc);
   if (state.runDoc !== null) fs.writeFileSync(path.join(dir, "HOW_TO_RUN.md"), state.runDoc);
+  if (state.planDoc !== null) {
+    fs.writeFileSync(path.join(dir, "docs", "ui-ux-pro-max-improvement-plan.md"), state.planDoc);
+  }
   if (state.paper !== null) fs.writeFileSync(path.join(paperDir, "paper.md"), state.paper);
   if (state.data !== null) {
     fs.writeFileSync(path.join(papersRoot, "papers.11tydata.cjs"), state.data);
@@ -315,6 +374,41 @@ const MUT = {
   hardcodedRunCount: (s) => {
     s.runDoc = s.runDoc + "\n- 站点现在收录 3 篇论文。\n";
   },
+  /** 计划文档缺失 ⇒ DR9（扫描面被收窄，这道门禁就看不见那份逐条自报现状的计划）。 */
+  planDocMissing: (s) => {
+    s.planDoc = null;
+  },
+  /** 改进项小节缺「当前状态」标记 ⇒ DR9（读者分不清哪一半还成立）。 */
+  planMissingCurrentMark: (s) => {
+    s.planDoc = replaceOnce(
+      s.planDoc,
+      "**当前状态（夹具实测）**：打印样式已落地并已引入。",
+      "**现状**：打印样式已落地并已引入。"
+    );
+  },
+  /** 现状断言被删光 ⇒ DR9（覆盖度自证：断言删光 = 这道门禁在这些维度上失效）。 */
+  planAssertsWiped: (s) => {
+    s.planDoc = s.planDoc
+      .split("\n")
+      .filter((l) => !/^\s*[-*]\s*现状断言[：:]/.test(l))
+      .join("\n");
+  },
+  /** 断言里出现未登记的 token ⇒ DR10（拼错的 token 不会被检查，写了等于没写）。 */
+  planUnknownToken: (s) => {
+    s.planDoc = replaceOnce(
+      s.planDoc,
+      "`print-style=present`",
+      "`print-style=present` · `not-a-registered-token=1`"
+    );
+  },
+  /** 断言取值与代码现实不一致 ⇒ DR11（代码变了而本文没跟上）。 */
+  planValueStale: (s) => {
+    s.planDoc = replaceOnce(s.planDoc, "`print-style=present`", "`print-style=absent`");
+  },
+  /** 计划文档里写死了会变的篇幅数 ⇒ DR12（篇幅每改一次样式就变一次）。 */
+  planHardcodedLength: (s) => {
+    s.planDoc = s.planDoc + "\n- 该计划文档目前约 500 行。\n";
+  },
 };
 
 /** 注入档：expect=null 表示期望判绿，否则期望判红且判据集合**恰为** expect。 */
@@ -334,6 +428,12 @@ const CASES = [
   { id: "DCR12", label: "接入流程文档缺失", mutate: MUT.runDocMissing, expect: ["DR7"] },
   { id: "DCR13", label: "接入流程文档里的仓内路径候选太少", mutate: MUT.fewRunPaths, expect: ["DR7"] },
   { id: "DCR14", label: "接入流程文档里写死了会变的条目数", mutate: MUT.hardcodedRunCount, expect: ["DR8"] },
+  { id: "DCR15", label: "计划文档缺失", mutate: MUT.planDocMissing, expect: ["DR9"] },
+  { id: "DCR16", label: "改进项小节缺「当前状态」标记", mutate: MUT.planMissingCurrentMark, expect: ["DR9"] },
+  { id: "DCR17", label: "现状断言被删光", mutate: MUT.planAssertsWiped, expect: ["DR9"] },
+  { id: "DCR18", label: "现状断言里出现未登记的 token", mutate: MUT.planUnknownToken, expect: ["DR10"] },
+  { id: "DCR19", label: "现状断言的取值与代码现实不一致", mutate: MUT.planValueStale, expect: ["DR11"] },
+  { id: "DCR20", label: "计划文档里写死了会变的篇幅数", mutate: MUT.planHardcodedLength, expect: ["DR12"] },
 ];
 
 /* ========== 四、判据级负对照 ========== */
@@ -391,6 +491,30 @@ const NEG_CASES = [
     label: "卸掉 DR7b（路径候选数下限那条）",
   },
   { id: "NC-DR8", crit: "DR8", cause: "DR8", case: "DCR14", label: "卸掉 DR8" },
+  {
+    id: "NC-DR9a",
+    crit: "DR9",
+    cause: "DR9a",
+    case: "DCR15",
+    label: "卸掉 DR9a（计划文档不在那条）",
+  },
+  {
+    id: "NC-DR9b",
+    crit: "DR9",
+    cause: "DR9b",
+    case: "DCR16",
+    label: "卸掉 DR9b（改进项小节缺标记那条）",
+  },
+  {
+    id: "NC-DR9c",
+    crit: "DR9",
+    cause: "DR9c",
+    case: "DCR17",
+    label: "卸掉 DR9c（覆盖度自证那条）",
+  },
+  { id: "NC-DR10", crit: "DR10", cause: "DR10", case: "DCR18", label: "卸掉 DR10" },
+  { id: "NC-DR11", crit: "DR11", cause: "DR11", case: "DCR19", label: "卸掉 DR11" },
+  { id: "NC-DR12", crit: "DR12", cause: "DR12", case: "DCR20", label: "卸掉 DR12" },
 ];
 
 /* ========== 执行 ========== */
@@ -414,6 +538,7 @@ function repoDigest() {
     GATE,
     path.join(ROOT, "docs", "implementation-notes.md"),
     path.join(ROOT, "HOW_TO_RUN.md"),
+    path.join(ROOT, "docs", "ui-ux-pro-max-improvement-plan.md"),
     path.join(ROOT, "src", "content", "papers", "papers.11tydata.cjs"),
     path.join(ROOT, "package.json"),
   ];

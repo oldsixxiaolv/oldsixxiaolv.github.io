@@ -66,6 +66,7 @@
  *      「N 个 partial」那类清点由 DR6 的路径清单守。
  *      口径只管 HOW_TO_RUN.md：它是接入指南，里面的计数全是仓库现状陈述；
  *      docs/implementation-notes.md 的论文篇数由 DR2 管，其余章节是设计取舍记述。
+ *   DR9–DR12 计划/审计类文档的「证据」必须与代码现实对齐（详见下方独立小节）。
  *
  * ⚠️ 为什么只扫这几份活文档（**历史记录不扫**）：
  *   · docs/IMPROVEMENT-LOG.md、docs/DEFECT-BACKLOG.md、docs/ROADMAP.md 是**历史记录** ——
@@ -551,6 +552,294 @@ if (fs.existsSync(runDocPath)) {
   }
 }
 
+/* ---------------- DR9–DR12：计划文档的「证据」必须与代码现实对齐 ---------------- */
+
+/**
+ * 计划/审计类文档（相对仓库根）。
+ *
+ * 2026-10-23（D93 场次）实测：这份文档写于 2026-10-19，每条改进项都带一行「**证据**」——
+ * 那些证据描述的是**当时**的代码状态。几天之后，打印样式、换行规则、数据可视化、
+ * 尺寸占位这四条陆续在代码里落地，那几行证据却还停在写完当时的样子：
+ *   · 打印样式那一条写「@media print 零命中」，而 src/assets/css/print.css 已存在且已引入；
+ *   · 断点那一条写「6 个散落断点 640/720/760/768/820/1024」，720 已不存在、新增 360 与 860；
+ *   · 换行那一条写「base.css 用 overflow-wrap: break-word」，早已换成 anywhere；
+ *   · 数据可视化那一条写「无任何数据图表」，首页的极端降水图已落地；
+ *   · 尺寸占位那一条写「项目无 <img width/height> 占位约定」，模板里每个 <img> 都已带上。
+ * 照着这些证据去改代码，会去改一个已经做完的东西（或者以为站点还缺能力）。
+ * 而这一族文档此前**零门禁看守**：docs/ 下十几份 md 里，它是唯一一份既没有快照声明、
+ * 又通篇由「证据」行驱动、却没有任何判据读它的活文档。
+ *
+ * 修法：让它**每条改进项都必须自报现状**，并且现状必须是**机器可核对**的断言。
+ *   DR9  结构 —— 每个改进项小节都必须同时有「当时的证据」与「当前状态」两个标记；
+ *        「当时的」那一半是历史记录，**不得改写**；缺任一个标记即判红。
+ *        三个红因点：
+ *          （a）计划文档不在 ⇒ 扫描面被收窄；
+ *          （b）某个小节缺标记 ⇒ 判红；
+ *          （c）**已知 token 一个都没被断言** ⇒ 覆盖度自证（防「把断言全删掉就蒙混过关」）。
+ *   DR10 token 必须登记 —— 断言里的 token 必须在门禁的已知清单内；
+ *        拼错或杜撰的 token 一律判红（否则「拼错的 token」会静默地不被检查）。
+ *   DR11 取值必须与现实一致 —— 每个 token 的实测取值与文档里写的取值不一致即判红。
+ *        这条才是真正防漂的那一条：代码改了而本文没跟上 ⇒ 直接红。
+ *   DR12 不许写死会变的篇幅数 —— 本文是活文档，不许出现「数词 + 行」那类存量数。
+ *        ⚠️ 明确标为「当时的」的历史记录行**豁免**（历史不得改写，改了就是伪造历史）。
+ *
+ * ⚠️ 诚实边界：
+ *   · DR9–DR12 只认**语法明确的声明**（标记行 + `token=取值`），
+ *     散文里拐弯的说法它看不见；token 的取值域是门禁里写死的那几个，
+ *     文档若讨论门禁没登记的维度，就不在看守范围内。
+ *   · DR10–DR11 的「现实」是**源码层面**的实测（文件在不在、内容里有没有某个写法），
+ *     不跑构建、不联网；产物层面的事实另有门禁管。
+ *   · DR12 的豁免口径是「该行明确写着「当时的」」——
+ *     历史记录那一半允许出现当时的篇幅数，改它就是伪造历史。
+ */
+const PLAN_REL = "docs/ui-ux-pro-max-improvement-plan.md";
+/** 改进项小节的标题行（### 开头，编号形如 P1 / P2 …）。 */
+const P_SECTION_RE = /^###\s+P(\d+)\b/;
+/** 「现状断言」行的行首（冒号后是若干个 `token=取值`）。 */
+const PLAN_ASSERT_LINE_RE = /^\s*[-*]\s*现状断言[：:]/;
+/** 两个必需标记：历史那一半与当前这一半。 */
+const PLAN_MARK_HISTORY = "当时的证据";
+const PLAN_MARK_CURRENT = "当前状态";
+/** DR12 的历史行豁免标记：明确标为「当时的」的行是历史记录，不得改写。 */
+const PLAN_HISTORY_MARK = "当时的";
+/** DR12 的取值正则：数词 + 「行」（只有篇幅数这一种量词）。 */
+const PLAN_COUNT_RE = new RegExp("([0-9]+|[" + CN_DIGITS + "]+)\\s*行", "g");
+
+/** 读仓库里的一个文件（相对仓库根）；读不到返回 null。 */
+function readRel(rel) {
+  try {
+    return fs.readFileSync(path.join(ROOT, rel), "utf8");
+  } catch (e) {
+    return null;
+  }
+}
+
+/** 仓库里某个路径在不在（相对仓库根）。 */
+function existsRel(rel) {
+  try {
+    fs.statSync(path.join(ROOT, rel));
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
+/** 递归列出目录下的文件（跳过 exFAT 的 ._ 资源叉侧车）。 */
+function listFiles(dir, out) {
+  out = out || [];
+  let names;
+  try {
+    names = fs.readdirSync(dir, { withFileTypes: true });
+  } catch (e) {
+    return out;
+  }
+  for (const d of names) {
+    if (d.name.startsWith("._")) continue;
+    const p = path.join(dir, d.name);
+    if (d.isDirectory()) listFiles(p, out);
+    else if (d.isFile()) out.push(p);
+  }
+  return out;
+}
+
+/** src/ 下指定后缀的文件。 */
+function srcFiles(...exts) {
+  const want = exts.map((e) => e.toLowerCase());
+  return listFiles(path.join(ROOT, "src")).filter((f) =>
+    want.includes(path.extname(f).toLowerCase())
+  );
+}
+
+/** 去掉模板里的注释：Nunjucks {# … #}、HTML <!-- … -->、CSS /* … *\/。 */
+function stripTemplateComments(text) {
+  return text.replace(/\{#[\s\S]*?#\}/g, "").replace(/<!--[\s\S]*?-->/g, "").replace(
+    /\/\*[\s\S]*?\*\//g,
+    ""
+  );
+}
+
+/**
+ * 计划文档的现状断言 → 代码现实里的实测取值（取值是字符串，门禁只比字符串）。
+ * ⚠️ 这张表是**门禁与文档之间的契约**：token 名写在这里，文档里就只准写这些名字。
+ */
+const PLAN_TOKEN_VALUES = {
+  "print-style": () => (existsRel("src/assets/css/print.css") ? "present" : "absent"),
+  "print-media": () => {
+    const t = readRel("src/assets/css/print.css");
+    return t && /@media\s+print/.test(t) ? "yes" : "no";
+  },
+  "print-imported": () => {
+    const t = readRel("src/_includes/layouts/base.njk");
+    return t && t.includes("print.css") ? "yes" : "no";
+  },
+  "print-page-rule": () => {
+    const t = readRel("src/assets/css/print.css");
+    return t && /@page/.test(t) ? "yes" : "no";
+  },
+  "breakpoints": () => {
+    const set = new Set();
+    for (const f of srcFiles(".css", ".njk")) {
+      const t = fs.readFileSync(f, "utf8");
+      const re = /@media[^{]*?\((?:min|max)-width:\s*([0-9.]+)px\)/g;
+      let m;
+      while ((m = re.exec(t)) !== null) set.add(m[1]);
+    }
+    if (!set.size) return "none";
+    return [...set].sort((a, b) => parseFloat(a) - parseFloat(b)).join(",");
+  },
+  "overflow-wrap-anywhere": () => {
+    const t = readRel("src/assets/css/base.css");
+    return t && /overflow-wrap:\s*anywhere/.test(t) ? "yes" : "no";
+  },
+  "min-inline-size-zero": () => {
+    let n = 0;
+    for (const f of srcFiles(".css")) {
+      n += (fs.readFileSync(f, "utf8").match(/min-inline-size:\s*0(?![.\w])/g) || []).length;
+    }
+    return String(n);
+  },
+  "data-chart-module": () => (existsRel("src/assets/js/home-chart.js") ? "present" : "absent"),
+  "data-chart-data": () => (existsRel("src/_data/extremePrecip.json") ? "present" : "absent"),
+  "paper-reader-progress-module": () =>
+    existsRel("src/assets/js/paper-reader/reading-progress.js") ? "present" : "absent",
+  "img-size-placeholder": () => {
+    const imgs = [];
+    for (const f of srcFiles(".njk")) {
+      const t = stripTemplateComments(fs.readFileSync(f, "utf8"));
+      const re = /<img\b[^>]*>/g;
+      let m;
+      while ((m = re.exec(t)) !== null) imgs.push(m[0]);
+    }
+    if (!imgs.length) return "none";
+    return imgs.every((s) => /\bwidth\s*=/.test(s) && /\bheight\s*=/.test(s)) ? "yes" : "no";
+  },
+};
+
+const planAbs = path.join(ROOT, PLAN_REL);
+const planExists = fs.existsSync(planAbs);
+const planLines = planExists ? fs.readFileSync(planAbs, "utf8").split("\n") : [];
+/** 围栏代码块里的内容不查（那是示例，不是现状陈述）。 */
+const planBody = stripFences(planLines);
+
+/* DR9a：计划文档必须在。 */
+if (!planExists) {
+  fail(
+    `DR9 计划文档不在：${PLAN_REL} —— 扫描面被收窄了，` +
+      `这道门禁就看不到那份「逐条自报现状」的改进计划，等于没在检查。`
+  );
+}
+
+/* 改进项小节：从「### P<n>」标题行到下一个 ## / ### 标题之前。 */
+const planSections = [];
+planLines.forEach((line, i) => {
+  const m = P_SECTION_RE.exec(line);
+  if (!m) return;
+  planSections.push({ id: m[1], start: i, end: planLines.length });
+});
+for (const s of planSections) {
+  for (let i = s.start + 1; i < s.end; i++) {
+    if (/^#{2,3}\s/.test(planLines[i])) {
+      s.end = i;
+      break;
+    }
+  }
+}
+
+/* DR9b：每个小节都要有「当时的证据」与「当前状态」两个标记。 */
+if (planExists) {
+  const missing = [];
+  for (const s of planSections) {
+    const body = planLines.slice(s.start, s.end).join("\n");
+    const hasHistory = body.includes(PLAN_MARK_HISTORY);
+    const hasCurrent = body.includes(PLAN_MARK_CURRENT);
+    if (hasHistory && hasCurrent) continue;
+    const lack = [];
+    if (!hasHistory) lack.push(PLAN_MARK_HISTORY);
+    if (!hasCurrent) lack.push(PLAN_MARK_CURRENT);
+    missing.push({ id: s.id, lineNo: s.start + 1, lack: lack.join(" 与 ") });
+  }
+  if (missing.length) {
+    fail(
+      `DR9 改进项小节缺标记（${missing.length} 处）：` +
+        missing.map((m) => `${PLAN_REL}:${m.lineNo}（改进项 ${m.id}）缺「${m.lack}」`).join("；") +
+        ` —— 每个改进项都必须同时写出「当时的证据」（历史记录，不得改写）与「当前状态」（现状陈述），` +
+        `否则读者分不清哪一半还成立。`
+    );
+  }
+}
+
+/* 现状断言：`- 现状断言：`token=value` · `token=value`` */
+const planAsserts = [];
+planBody.forEach((line, i) => {
+  if (!PLAN_ASSERT_LINE_RE.test(line)) return;
+  INLINE_SPAN_RE.lastIndex = 0;
+  let m;
+  while ((m = INLINE_SPAN_RE.exec(line)) !== null) {
+    const raw = m[0].slice(1, -1).trim();
+    const eq = raw.indexOf("=");
+    if (eq <= 0) continue;
+    planAsserts.push({ lineNo: i + 1, token: raw.slice(0, eq).trim(), value: raw.slice(eq + 1).trim() });
+  }
+});
+
+/* DR10：断言里的 token 必须在已知清单内。 */
+const unknownTokens = planAsserts.filter((a) => !(a.token in PLAN_TOKEN_VALUES));
+if (unknownTokens.length) {
+  fail(
+    `DR10 现状断言里的 token 不在已知清单内（${unknownTokens.length} 处）：` +
+      unknownTokens.map((a) => `${PLAN_REL}:${a.lineNo} 的「${a.token}」`).join("；") +
+      ` —— 门禁只认自己登记过的 token（${Object.keys(PLAN_TOKEN_VALUES).join(" / ")}）；` +
+      `没登记的 token 不会被检查，写了等于没写。`
+  );
+}
+
+/* DR11：每个 token 的取值必须与代码现实一致。 */
+const mismatched = [];
+for (const a of planAsserts) {
+  if (!(a.token in PLAN_TOKEN_VALUES)) continue;
+  const real = PLAN_TOKEN_VALUES[a.token]();
+  if (real === a.value) continue;
+  mismatched.push({ lineNo: a.lineNo, token: a.token, value: a.value, real });
+}
+if (mismatched.length) {
+  fail(
+    `DR11 现状断言的取值与代码现实不一致（${mismatched.length} 处）：` +
+      mismatched
+        .map((m) => `${PLAN_REL}:${m.lineNo} 写的是「${m.token}=${m.value}」，实测是「${m.token}=${m.real}」`)
+        .join("；") +
+      ` —— 代码已经变了而本文没跟上：照着本文去改，会去改一个已经做完的东西（或者以为站点还缺能力）。`
+  );
+}
+
+/* DR9c：覆盖度自证 —— 已知的 token 一个都没被断言 ⇒ 这道门禁在这一族维度上失效了。 */
+const assertedTokens = new Set(planAsserts.map((a) => a.token));
+const neverAsserted = Object.keys(PLAN_TOKEN_VALUES).filter((t) => !assertedTokens.has(t));
+if (planExists && neverAsserted.length) {
+  fail(
+    `DR9 已知 token 没有被断言（${neverAsserted.length} 个）：${neverAsserted.join(" / ")} —— ` +
+      `断言被删光就等于这道门禁在这些维度上失效了（覆盖度自证）。`
+  );
+}
+
+/* DR12：计划文档里不许写死会变的篇幅数（明确标为「当时的」的历史行豁免）。 */
+const planCountHits = [];
+planBody.forEach((line, i) => {
+  if (line.includes(PLAN_HISTORY_MARK)) return; // 历史记录行：不得改写
+  PLAN_COUNT_RE.lastIndex = 0;
+  let m;
+  while ((m = PLAN_COUNT_RE.exec(line)) !== null) {
+    if (countValue(m[1]) < 2) continue;
+    planCountHits.push({ lineNo: i + 1, text: m[0] });
+  }
+});
+if (planCountHits.length) {
+  fail(
+    `DR12 计划文档里写死了会变的篇幅数（${planCountHits.length} 处）：` +
+      planCountHits.map((h) => `${PLAN_REL}:${h.lineNo} 的「${h.text}」`).join("；") +
+      ` —— 篇幅每改一次样式就变一次；改成「全文见该文件」这类指向真源的写法。`
+  );
+}
+
 /* ---------------- 汇总 ---------------- */
 
 if (problems.length) {
@@ -559,7 +848,8 @@ if (problems.length) {
   console.error("");
   console.error(
     "  判据出处：docs/DEFECT-BACKLOG.md D78（D79 场次实测：文档的「现状」标注与「接入新论文 checklist」在站点重构后与代码现实脱节）；" +
-      "D90（D91 场次实测：HOW_TO_RUN.md 这份「第二份副本」已漂到点名已删文件，且此前零门禁看守）。"
+      "D90（D91 场次实测：HOW_TO_RUN.md 这份「第二份副本」已漂到点名已删文件，且此前零门禁看守）；" +
+      "D92（D93 场次实测：计划/审计类文档的「证据」行随代码漂移，而这一族此前零门禁看守）。"
   );
   console.error("");
   process.exit(1);
@@ -579,3 +869,7 @@ console.log(
     `（下限 ${MIN_PATH_CANDIDATES} 个）—— 文档用行内反引号点名的仓库根相对路径都真实存在。`
 );
 console.log(`  · 论文元数据的真源是 ${SITE_JS_REL} 的 publications 条目，front matter 只用 pubKey 指回去。`);
+console.log(
+  `  · 计划文档 ${PLAN_REL}：改进项 ${planSections.length} 个、现状断言 ${planAsserts.length} 条` +
+    `（已知 token ${Object.keys(PLAN_TOKEN_VALUES).length} 个）—— 断言的取值已与代码现实逐条比对。`
+);
