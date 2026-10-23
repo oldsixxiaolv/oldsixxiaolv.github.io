@@ -1,9 +1,9 @@
 # MeteoHub · 信息架构（Information Architecture）
 
-> **📐 信息架构规划稿（v1.2 · 2026-10-23）** —— §一–§三、§五–§八 写的是**设计意图与目标结构**；
-> §四「各页面骨架」写的是**已落地页面的真实骨架**（逐条对着页面模板核过）。
+> **📐 信息架构规划稿（v1.3 · 2026-10-23）** —— §一–§三、§五–§八 写的是**设计意图与目标结构**；
+> §四「各页面骨架」写的是**已落地页面的真实骨架**（逐条对着页面模板 / 集合 layout 核过）。
 > 本文提到的路径分两类：**已落地**（代码里真实存在）与**规划中**（下面「落地状态」表点名）。
-> 两类由 `scripts/check-information-architecture.cjs`（判据 IAC1–IAC10）对代码现实自动对账 ——
+> 两类由 `scripts/check-information-architecture.cjs`（判据 IAC1–IAC14）对代码现实自动对账 ——
 > 改了实现就回来改这份文档，门禁会替你核对。
 
 ## 落地状态
@@ -25,7 +25,7 @@
 - §2.1 / §2.2 里的条目级 slug 都是**示意**：blog 与 portfolio 集合当前 0 条内容，papers 只有 1 条（`trmm-thunderstorm-stages`）；
 - 作品集里的 `cma-meso` 条目至今没有对应内容。
 
-> 文档版本：v1.2 · 2026-10-23  
+> 文档版本：v1.3 · 2026-10-23  
 > 输出对象：工程师、实现协作者  
 > 设计原则：**短路径、可发现、无冗余**
 
@@ -167,12 +167,20 @@ MeteoHub
 > 模板里有而文档漏写的区块同样判红（IAC9），还没有页面模板的路由则必须在小节里
 > 明写「规划中」（IAC10）。
 >
-> **「区块锚点」行的口径**：只列**该路由自己的页面模板**里的区块 —— 模板最外层容器的
-> 直接子级元素，加上它 include 进来的 partial 名。框图里的 Topbar / Footer 来自共用布局，
-> 区块内部的标题、按钮、字段等零件不在这一行里。
+> **「区块锚点」行的口径**：只列**该路由自己的页面模板**里的区块 —— 页面容器
+> （最外层的 `<article>` / `<main>`）的直接子级元素，加上它 include 进来的 partial 名。
+> 框图里的 Topbar / Footer 来自共用布局，区块内部的标题、按钮、字段等零件不在这一行里。
 >
-> 详情页布局 `src/_includes/layouts/detail.njk` 与 `src/_includes/layouts/paper.njk`
-> 不是 src 根下的页面模板，本轮不进这道门禁 —— 它们的结构在下面照实描述。
+> **详情页另起小节**：详情页（`/blog/{slug}/`、`/papers/{slug}/`）不是 src 根下的页面模板，
+> 真源是**集合的 layout**（`src/content/<name>/<name>.11tydata.cjs` 里的 `layout:` 字段）。
+> 所以详情页必须**单独写一节**，标题里的路由写成带 `{slug}` 的形态；
+> 门禁拿家族前缀找到那个集合、读出它的 layout、派生区块，再与那一节双向对账
+> （IAC11 判「文档写了 layout 里没有的区块」，IAC12 判「layout 里有而文档漏写」，
+> IAC13 判「这个详情页压根解析不到集合与 layout，却没写『规划中』」，
+> IAC14 判「已经有内容条目的集合，文档却没有为它写详情页骨架」）。
+>
+> ⚠️ 这一层**只管区块在不在**，不管版式（几栏、多宽）—— 版式是 CSS 的事，
+> 写错了要靠人读出来。已知的两处版式口径以 §4.3 / §4.4 的正文为准。
 
 ### 4.1 `/`（Index）
 
@@ -223,7 +231,7 @@ Filter chips：年份 / 类型（科研项目 / 工具 / 比赛）
 卡片：左封面图 + 右标题 + 简介 + 标签
 ```
 
-详情页 `/portfolio/{slug}/` 的设想（若落地，将与 §4.3 共用 `src/_includes/layouts/detail.njk`）：
+详情页 `/portfolio/{slug}/` 的设想（若落地，将与 §4.3.1 共用 `src/_includes/layouts/detail.njk`）：
 
 ```
 Hero：项目封面 + 标题 + 起止时间 + 角色
@@ -254,10 +262,18 @@ Hero：项目封面 + 标题 + 起止时间 + 角色
 
 区块锚点：`.list-page__head` · `.list-empty` · `.list.list--cards`
 
-详情页 `/blog/{slug}/`（布局 `src/_includes/layouts/detail.njk`）：单列正文（最大宽度 640px），
+### 4.3.1 `/blog/{slug}/`
+
+详情页（布局 `src/_includes/layouts/detail.njk`）：单列正文 —— 容器宽度上限取
+`--container-base`（**960px**；真源是 `.detail { max-width: var(--container-base) }`，
+640px 在本站 CSS 里只作**移动端断点**，从来不是正文宽度）。
 结构是 `.detail__head`（h1 + 日期 / 阅读时长 / 主题标签）→ `.detail__body`（正文）→
 `.detail__pager`（有上一篇 / 下一篇时才渲染）→ `.detail__back`（返回列表）。
-**它没有目录、没有批注面板，也没有公式与代码高亮** —— 这三样只属于论文页。
+
+区块锚点：`.detail__head` · `.detail__body` · `.detail__pager` · `.detail__back`
+
+**它没有目录、没有批注面板** —— 这两样是论文页 reader（`src/assets/js/paper-reader/`）的能力；
+公式渲染全站都没有，代码高亮也只有 reader 里有（且要与批注数据一起挂载）。
 
 ### 4.4 `/papers/`
 
@@ -280,9 +296,25 @@ Hero：项目封面 + 标题 + 起止时间 + 角色
 
 区块锚点：`.list-page__head` · `partials/publications.njk`
 
-详情页 `/papers/{slug}/`（布局 `src/_includes/layouts/paper.njk`）：三栏 —— 左目录 / 中正文 / 右批注，
-规则与门禁见 `docs/papers-interaction.md`（判据 PI1–PI7）。与博客详情页不同，这一页**有**目录和批注面板，
-但同样没有公式与代码高亮。
+### 4.4.1 `/papers/{slug}/`
+
+详情页（布局 `src/_includes/layouts/paper.njk`）：**两栏** —— 左目录 / 中正文。
+右侧那一栏是**批注面板**，只有在条目带批注数据（`annotations.json`）时才存在；
+论文条目当前没有批注数据 ⇒ `src/assets/css/paper-reader.css` 里
+`.paper-reader-wrap:not(:has(.annot-pane))` 那条规则生效 ⇒ 实际排版就是两栏
+（那条 CSS 注释里写了理由：硬按三栏排版，右侧会空出整整一列，正文被挤成窄带）。
+
+区块锚点：`.paper-head` · `.paper-keypoints` · `.paper-plain-language` · `.paper-abstract` · `.paper-figure` · `.paper-body` · `.paper-availability` · `.paper-meta-notes` · `.paper-cite` · `.paper-footer`
+
+⚠️ **目录不在上面这一行里** —— 它由 `src/assets/js/paper-reader/toc.js` 在运行时插入
+`<aside class="paper-toc">`，模板里没有 ⇒ 不属于「区块锚点」这一层；
+批注面板同理（运行时渲染，而且当前压根没有批注数据）。
+
+与博客详情页不同，这一页**有**目录；批注面板属于「有批注数据时才有」的那一档。
+规则与门禁见 `docs/papers-interaction.md`（判据 PI1–PI7）—— 但那道门禁管的是
+**批注 kind 的配色契约与类名清单**，**不管版式与骨架**；骨架这一层由上面这行
+「区块锚点」与 IA 门禁守着。公式渲染全站都没有；代码高亮在 reader 里，
+但要等批注数据到位才挂载。
 
 ### 4.5 `/about/`
 

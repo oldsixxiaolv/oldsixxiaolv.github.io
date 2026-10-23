@@ -54,9 +54,17 @@ const CAUSES = [
   { id: "IAC9a", crit: "IAC9", frag: "没有「区块锚点」行" },
   { id: "IAC9b", crit: "IAC9", frag: "没有列出" },
   { id: "IAC10a", crit: "IAC10", frag: "却没有明写「规划中」" },
+  { id: "IAC11a", crit: "IAC11", frag: "该集合的 layout 里没有这些区块" },
+  { id: "IAC12a", crit: "IAC12", frag: "这一节没有写出区块锚点声明" },
+  { id: "IAC12b", crit: "IAC12", frag: "这一节漏列了" },
+  { id: "IAC13a", crit: "IAC13", frag: "解析不到真实的集合与 layout" },
+  { id: "IAC14a", crit: "IAC14", frag: "但文档里没有为它写一节详情页骨架" },
 ];
 /** 静态判据清单（门禁里应当且仅应当有这些判据）。 */
-const CRITERIA = ["IAC1", "IAC2", "IAC3", "IAC4", "IAC5", "IAC6", "IAC7", "IAC8", "IAC9", "IAC10"];
+const CRITERIA = [
+  "IAC1", "IAC2", "IAC3", "IAC4", "IAC5", "IAC6", "IAC7",
+  "IAC8", "IAC9", "IAC10", "IAC11", "IAC12", "IAC13", "IAC14",
+];
 
 /* ========== 工具 ========== */
 
@@ -150,6 +158,10 @@ const DOC_LINES = [
   "区块锚点：`.fx-about__head` · `#fx-about-edu-title`",
   "### 3.5 `/fx-works/`",
   "**规划中** —— 合成作品集整族尚未落地。",
+  "### 3.6 `/blog/{slug}/`",
+  "区块锚点：`.fx-note__head` · `.fx-note__body` · `.fx-note__back`",
+  "### 3.7 `/papers/{slug}/`",
+  "区块锚点：`.fx-paper__head` · `.fx-paper__body` · `.fx-paper__cite`",
   "",
   "## 四、URL / 命名规范",
   "",
@@ -324,6 +336,40 @@ const FIX_FILES = {
     '<ul class="fx-pubs">',
     '  <li class="fx-pubs__item">合成论文条目</li>',
     "</ul>",
+    "",
+  ].join("\n"),
+  /* 集合条目的详情页模板（IAC11–IAC14 的真源）。
+   *  detail.njk：页面容器就是最外层的 <article>。
+   *  paper.njk：外面套一层只做栅格的 <div>，真正的容器是里层的 <article>
+   *            —— 用来验证「页面容器 = 最外层语义容器」这条派生规则。 */
+  "src/_includes/layouts/detail.njk": [
+    '<article class="fx-note">',
+    '  <header class="fx-note__head">',
+    "    <h1>合成随笔详情</h1>",
+    "  </header>",
+    '  <div class="fx-note__body">',
+    "    <p>合成正文。</p>",
+    "  </div>",
+    '  <nav class="fx-note__back">',
+    '    <a href="/blog/">返回列表</a>',
+    "  </nav>",
+    "</article>",
+    "",
+  ].join("\n"),
+  "src/_includes/layouts/paper.njk": [
+    '<div class="fx-reader">',
+    '  <article class="fx-paper">',
+    '    <header class="fx-paper__head">',
+    "      <h1>合成论文详情</h1>",
+    "    </header>",
+    '    <section class="fx-paper__body">',
+    "      <p>合成论文正文。</p>",
+    "    </section>",
+    '    <footer class="fx-paper__cite">',
+    "      <p>合成引用块。</p>",
+    "    </footer>",
+    "  </article>",
+    "</div>",
     "",
   ].join("\n"),
   "src/assets/app.css": ["/* 合成静态资源 */", ".fx { color: #333; }", ""].join("\n"),
@@ -605,6 +651,53 @@ const MUT = {
       "合成作品集整族尚未落地。"
     );
   },
+  /** 详情页小节写了一个 layout 里不存在的区块 ⇒ IAC11。 */
+  docGhostDetailAnchor: (s) => {
+    s.doc = replaceOnce(
+      s.doc,
+      "区块锚点：`.fx-paper__head` · `.fx-paper__body` · `.fx-paper__cite`",
+      "区块锚点：`.fx-paper__head` · `.fx-paper__body` · `.fx-paper__cite` · `.fx-paper__ghost`"
+    );
+  },
+  /** 详情页小节漏列了 layout 里真实存在的区块 ⇒ IAC12（漏列这一路）。 */
+  docMissingDetailAnchor: (s) => {
+    s.doc = replaceOnce(
+      s.doc,
+      "区块锚点：`.fx-paper__head` · `.fx-paper__body` · `.fx-paper__cite`",
+      "区块锚点：`.fx-paper__head` · `.fx-paper__cite`"
+    );
+  },
+  /** 详情页小节整行没有「区块锚点」⇒ IAC12（缺声明行这一路）。 */
+  docNoDetailAnchorLine: (s) => {
+    s.doc = replaceOnce(
+      s.doc,
+      "### 3.7 `/papers/{slug}/`\n区块锚点：`.fx-paper__head` · `.fx-paper__body` · `.fx-paper__cite`\n",
+      "### 3.7 `/papers/{slug}/`\n"
+    );
+  },
+  /** 详情页路由解析不到集合与 layout ⇒ IAC13。
+   *  顺带把 `/fx-nowhere/` 点名进『落地状态』表，免得顺带触发 IAC1
+   *  （红因归属必须纯净：一档只红一条判据）。 */
+  docUnresolvableDetailRoute: (s) => {
+    s.doc = replaceOnce(
+      s.doc,
+      "| `/fx-plan` | 规划路径族（逐条列在 §一） | 整族未实现 |",
+      "| `/fx-plan` | 规划路径族（逐条列在 §一） | 整族未实现 |\n| `/fx-nowhere/` | 合成未落地的详情页家族 | 没有对应的集合与 layout |"
+    );
+    s.doc = replaceOnce(
+      s.doc,
+      "### 3.7 `/papers/{slug}/`\n区块锚点：`.fx-paper__head` · `.fx-paper__body` · `.fx-paper__cite`\n",
+      "### 3.7 `/papers/{slug}/`\n区块锚点：`.fx-paper__head` · `.fx-paper__body` · `.fx-paper__cite`\n### 3.8 `/fx-nowhere/{slug}/`\n"
+    );
+  },
+  /** 有内容条目的集合没有详情页小节 ⇒ IAC14。 */
+  docNoDetailSection: (s) => {
+    s.doc = replaceOnce(
+      s.doc,
+      "### 3.7 `/papers/{slug}/`\n区块锚点：`.fx-paper__head` · `.fx-paper__body` · `.fx-paper__cite`\n",
+      ""
+    );
+  },
 };
 
 /** 注入档：expect=null 表示期望判绿，否则期望判红且判据集合**恰为** expect。 */
@@ -635,6 +728,11 @@ const CASES = [
   { id: "IACR23", label: "页面骨架整行没有「区块锚点」", mutate: MUT.docNoAnchorLine, expect: ["IAC9"] },
   { id: "IACR24", label: "页面骨架漏列一个模板里真实存在的区块", mutate: MUT.docMissingAnchor, expect: ["IAC9"] },
   { id: "IACR25", label: "未落地的小节没写「规划中」", mutate: MUT.docPlannedMissing, expect: ["IAC10"] },
+  { id: "IACR26", label: "详情页骨架多写一个 layout 里没有的区块", mutate: MUT.docGhostDetailAnchor, expect: ["IAC11"] },
+  { id: "IACR27", label: "详情页骨架漏列一个 layout 里真实存在的区块", mutate: MUT.docMissingDetailAnchor, expect: ["IAC12"] },
+  { id: "IACR28", label: "详情页骨架整行没有「区块锚点」", mutate: MUT.docNoDetailAnchorLine, expect: ["IAC12"] },
+  { id: "IACR29", label: "详情页路由解析不到集合与 layout", mutate: MUT.docUnresolvableDetailRoute, expect: ["IAC13"] },
+  { id: "IACR30", label: "有内容条目的集合没有详情页小节", mutate: MUT.docNoDetailSection, expect: ["IAC14"] },
 ];
 
 /** 在门禁副本里卸掉某条判据：给它每一条 fail() 调用**同行**加 `if (false) ` 前缀。 */
@@ -659,6 +757,10 @@ const NEG_CASES = [
   { id: "NC-IAC8", crit: "IAC8", case: "IACR22", label: "卸掉 IAC8" },
   { id: "NC-IAC9", crit: "IAC9", case: "IACR23", label: "卸掉 IAC9" },
   { id: "NC-IAC10", crit: "IAC10", case: "IACR25", label: "卸掉 IAC10" },
+  { id: "NC-IAC11", crit: "IAC11", case: "IACR26", label: "卸掉 IAC11" },
+  { id: "NC-IAC12", crit: "IAC12", case: "IACR27", label: "卸掉 IAC12" },
+  { id: "NC-IAC13", crit: "IAC13", case: "IACR29", label: "卸掉 IAC13" },
+  { id: "NC-IAC14", crit: "IAC14", case: "IACR30", label: "卸掉 IAC14" },
 ];
 
 /* ========== 执行 ========== */

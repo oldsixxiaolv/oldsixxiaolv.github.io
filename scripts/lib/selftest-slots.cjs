@@ -212,9 +212,11 @@ const SLOTS = {
     "IACR0", "IACR1", "IACR2", "IACR3", "IACR4", "IACR5", "IACR6", "IACR7",
     "IACR8", "IACR9", "IACR10", "IACR11", "IACR12", "IACR13", "IACR14",
     "IACR15", "IACR16", "IACR17", "IACR18", "IACR19", "IACR20", "IACR21",
-    "IACR22", "IACR23", "IACR24", "IACR25",
+    "IACR22", "IACR23", "IACR24", "IACR25", "IACR26", "IACR27", "IACR28",
+    "IACR29", "IACR30",
     "NC-IAC1", "NC-IAC2", "NC-IAC3", "NC-IAC4", "NC-IAC5", "NC-IAC6",
-    "NC-IAC7", "NC-IAC8", "NC-IAC9", "NC-IAC10"
+    "NC-IAC7", "NC-IAC8", "NC-IAC9", "NC-IAC10", "NC-IAC11", "NC-IAC12",
+    "NC-IAC13", "NC-IAC14"
   ],
   "test-js-targets.cjs": [
     "JB0", "JB1", "JB2", "JB3", "JB4", "JB5", "JB6", "JB7",

@@ -29,7 +29,7 @@
  *   这族漂移不会让站点变坏，只会让后来的人（包括 agent）照着**不存在的路径**
  *   实现、照着**不被消费的字段**写内容，或者照着**建错目录**的规范建目录。
  *
- * 判据（IAC1–IAC7）：
+ * 判据（IAC1–IAC14）：
  *   IAC1 文档里出现的每一条**字面站内路径**，必须「当前真实存在」或者
  *        「在『落地状态』表里被逐条点名」—— 两样都不是 ⇒ 判红
  *        （这条路径既没实现、也没被承认没实现）。
@@ -56,6 +56,28 @@
  *        必须有「区块锚点」行 —— 一行都没有 = 没承诺，列漏了 = 文档过期。
  *   IAC10 还没有页面模板的路由（未落地），§四 那一小节必须明写「规划中」
  *        —— 否则会被当成已经能用的页面骨架。
+ *   IAC11 **详情页**小节里写下的每个区块锚点，必须在该集合的 layout 里真实存在
+ *        —— 详情页的文档描述了模板里根本没有的区块 ⇒ 同样是在骗人。
+ *   IAC12 反过来：集合 layout 里真实存在的区块，详情页小节必须**逐个**列出来；
+ *        而且该小节必须有「区块锚点」行 —— 一行都没有 = 没承诺，列漏了 = 文档过期。
+ *   IAC13 详情页路由（家族前缀 + {slug}）必须能解析到真实的集合与它的 layout；
+ *        解析不到 ⇒ 这一小节必须明写「规划中」—— 否则会被当成已经能用的详情页。
+ *   IAC14 任何**已经有内容条目**的集合，都必须有一节详情页骨架小节
+ *        —— 条目页已经真实存在，文档却没有对它的承诺 ⇒ 这一层没有契约。
+ *
+ * ⚠️ 为什么详情页这一层要单开判据（一次具体的实测，不是假想）：
+ *   2026-10-23（D89 场次）实测：IA 门禁此前只管 src 根下的页面模板，
+ *   详情页（/blog/{slug}/、/papers/{slug}/）**完全不在范围内** ——
+ *   而文档恰恰用散文写下了详情页骨架（4 个具体类名 + 一处宽度断言 +
+ *   一处版式断言），其中两处与代码真实漂移：
+ *     · 「单列正文（最大宽度 640px）」—— 真源是
+ *       .detail { max-width: var(--container-base) }，而 --container-base
+ *       是 960px；640px 在本站 CSS 里只作**移动端断点**，从来不是正文宽度；
+ *     · 「三栏 —— 左目录 / 中正文 / 右批注」「这一页**有**目录和批注面板」
+ *       —— 论文条目里**没有** annotations.json，paper-reader.css 的
+ *       .paper-reader-wrap:not(:has(.annot-pane)) 规则因此生效 ⇒ 实际是**两栏**，
+ *       批注面板不存在。
+ *   病根不是「文档写得不好」，而是「详情页这一层**根本没有契约、没有门禁**」。
  *
  * ⚠️ 诚实边界（写清楚才算数）：
  *   · 静态检查，不联网、不跑构建、不依赖产物目录 ⇒ 可以在 build 链的
@@ -67,13 +89,23 @@
  *   · IAC6 判的是**措辞契约**（必须写明已拍板结论、不得复述被推翻的口径），
  *     判不了「换个说法表达同一意思」。
  *   · §八 评审清单是散文，门禁不看它。
- *   · IAC8 / IAC9 / IAC10 只管**列表页 / 单页**这一层（src 根下的页面模板）；
- *     详情页（/blog/{slug}/、/papers/{slug}/）的骨架**不在**本门禁范围内
- *     —— 详情页由集合的 permalink 规则生成，不是 src 根下的页面模板。
+ *   · IAC8 / IAC9 / IAC10 管**列表页 / 单页**这一层（src 根下的页面模板）；
+ *     IAC11 / IAC12 / IAC13 / IAC14 管**详情页**这一层（集合的 layout）。
+ *   · 详情页路由的形态是「家族前缀 + {slug}」，例如 /blog/{slug}/：
+ *     门禁拿家族前缀找到那个集合，读它 .11tydata.cjs 里的 layout 字段，
+ *     拿到 layout 文件后派生区块，再与那一节的「区块锚点」行双向对账。
+ *   · 页面容器 = 模板里**最外层的语义容器**（<article> / <main>）；
+ *     它的直接子元素才是「页面区块」。列表页模板的最外层元素本身就是
+ *     语义容器，所以这条规则与旧的「深度 1」规则等价；详情页 layout 常有一层
+ *     只做栅格的包裹层（如 .paper-reader-wrap），规则会自动下沉到里层的
+ *     <article class="paper">，拿到真正的 section 级区块。
  *   · 同一小节里写了多行「区块锚点」时，门禁把各行的锚点**合起来**与该路由的
- *     模板对账 ⇒ 一行只写该路由自己的区块，别把详情页的也塞进来。
+ *     模板对账 ⇒ 详情页必须**另起一小节**（标题里的路由写成 /blog/{slug}/），
+ *     别把详情页的锚点塞进列表页那一节。
  *   · 区块锚点的派生规则是**机械的**（见下面「页面区块锚点」那一段）：
  *     它能证明「文档说的区块在模板里有」，判不了「这个区块的排版好不好看」。
+ *     版式（几栏、多宽）**不在**本门禁范围内 —— 那是 CSS 的事，
+ *     文档里写错版式只能靠人读出来。
  *
  * 环境变量（供 scripts/test-information-architecture.cjs 的注入矩阵用）：
  *   IAC_DOC       —— 覆盖信息架构文档路径。
@@ -221,9 +253,10 @@ function literalRoutes() {
  *     —— 不剥的话，front matter 里一句 YAML 注释「<title> 直接退化成……」
  *        会被当成真标签，把页面容器顶深一层（实测踩过：blog.njk 就是这样）。
  *   · 模板里每个 {% include "X" %} 是一个独立的块 ⇒ 锚点就是 X 本身。
- *   · HTML 标签栈的最外层元素（深度 0）是页面容器，它的**直接子级**（深度 1）
- *     才是「页面区块」；再往里是区块内部的零件，不进骨架这一层。
- *   · 深度 1 元素的锚点优先级：id="V" ⇒ #V ；class="A B" ⇒ .A.B ；
+ *   · HTML 标签栈里的**页面容器**（最外层的 <article> / <main>；一个都没有
+ *     就退回最外层元素）才是页面容器，它的**直接子级**才是「页面区块」；
+ *     再往里是区块内部的零件，不进骨架这一层。
+ *   · 区块元素的锚点优先级：id="V" ⇒ #V ；class="A B" ⇒ .A.B ；
  *     都没有但有 aria-labelledby="V" ⇒ #V ；都没有 ⇒ 不算锚点。
  */
 const HTML_VOID_TAGS = new Set([
@@ -273,16 +306,12 @@ function anchorOfTag(tagText) {
   return null;
 }
 
-/** 一个页面模板的「区块锚点」集合（去重，顺序不保证）。 */
-function blockAnchorsOf(file) {
-  let raw = "";
-  try {
-    raw = fs.readFileSync(file, "utf8");
-  } catch (e) {
-    return [];
-  }
-  const text = stripTemplateNoise(raw);
-  const out = new Set(includeAnchorsOf(text));
+/**
+ * 模板里每一层的元素（深度 0 = 最外层）。
+ * 每层记 {tag, anchor}；anchor 为 null 表示这个元素没有可用的锚点。
+ */
+function templateLevelsOf(text) {
+  const levels = [];
   const stack = [];
   const re = /<(\/)?([a-zA-Z][a-zA-Z0-9-]*)((?:[^>"']|"[^"]*"|'[^']*')*)>/g;
   let m;
@@ -301,11 +330,48 @@ function blockAnchorsOf(file) {
     }
     const selfClosing = /\/\s*$/.test(rest) || HTML_VOID_TAGS.has(name);
     const depth = stack.length;
-    if (depth === 1) {
-      const a = anchorOfTag(rest);
-      if (a) out.add(a);
-    }
+    if (!levels[depth]) levels[depth] = [];
+    levels[depth].push({ tag: name, anchor: anchorOfTag(rest) });
     if (!selfClosing) stack.push(name);
+  }
+  return levels;
+}
+
+/**
+ * 页面容器在第几层 —— **最外层的语义容器**（<article> / <main>）；
+ * 一个都没有就退回最外层元素。
+ *
+ * 为什么不能一律取「最外层元素的直接子级」：详情页 layout 常有一层只做栅格的
+ * 包裹层（paper-reader.css 里 .paper-reader-wrap 就是三栏/两栏网格），
+ * 真正的页面容器是里层的 <article class="paper"> —— 按最外层算只会得到
+ * 一个 .paper，列不出任何 section 级区块。
+ */
+function containerDepthOf(levels) {
+  for (let d = 0; d < levels.length; d++) {
+    for (const el of levels[d] || []) {
+      if (el.tag === "article" || el.tag === "main") return d;
+    }
+  }
+  return 0;
+}
+
+/**
+ * 一个页面模板 / layout 的「区块锚点」集合（去重，顺序不保证）。
+ * 口径：页面容器的直接子级元素，加上它 include 进来的 partial 名。
+ */
+function blockAnchorsOf(file) {
+  let raw = "";
+  try {
+    raw = fs.readFileSync(file, "utf8");
+  } catch (e) {
+    return [];
+  }
+  const text = stripTemplateNoise(raw);
+  const levels = templateLevelsOf(text);
+  const depth = containerDepthOf(levels);
+  const out = new Set(includeAnchorsOf(text));
+  for (const el of levels[depth + 1] || []) {
+    if (el.anchor) out.add(el.anchor);
   }
   return [...out];
 }
@@ -364,11 +430,17 @@ function collections() {
     if (!st.isDirectory()) continue;
     const dataFile = path.join(dir, `${c}.11tydata.cjs`);
     let family = null;
+    let layout = null;
     const injected = new Set();
     if (fs.existsSync(dataFile)) {
       const src = fs.readFileSync(dataFile, "utf8");
       const m = src.match(/permalink:[^\n]*?[`'"]([^`'"]*\/)[`'"](?=[,}\s])/);
       if (m) family = m[1].replace(/\$\{[^}]*\}/g, "").replace(/\/+/g, "/");
+      /* layout 是集合条目页的模板（详情页那一层）：写在导出对象的顶层，
+         缩进两格 —— 与 dataFileKeys 认顶层键的口径一致，
+         免得把 eleventyComputed 里同名的键当成 layout。 */
+      const lm = src.match(/^ {2}layout:\s*["']([^"']+)["']/m);
+      if (lm) layout = lm[1].trim();
       for (const k of dataFileKeys(src)) injected.add(k);
     }
     let items = [];
@@ -379,9 +451,32 @@ function collections() {
     } catch (e) {
       items = [];
     }
-    out.push({ name: c, family, injected, items: items.length });
+    out.push({ name: c, family, layout, injected, items: items.length });
   }
   return out;
+}
+
+/**
+ * 集合的 layout 字段（例：layouts/detail.njk）→ 真实文件路径。
+ * 只认 src/_includes/ 里的文件（Eleventy 的 layout 就在那儿）；
+ * 路径不许跳出 _includes 目录。
+ */
+function layoutFileOf(layoutValue) {
+  if (!layoutValue) return null;
+  const rel = String(layoutValue).replace(/^\.\//, "");
+  const inc = path.resolve(SRC, "_includes");
+  const abs = path.resolve(inc, rel);
+  if (abs !== inc && !abs.startsWith(inc + path.sep)) return null;
+  return fs.existsSync(abs) ? abs : null;
+}
+
+/**
+ * 详情页路由的家族前缀：形如 /blog/{slug}/ ⇒ /blog/。
+ * 不是这个形态就返回 null（那是列表页 / 单页的路由）。
+ */
+function detailFamilyOf(route) {
+  const m = /^\/([a-z0-9][a-z0-9-]*)\/\{[^}]+\}\/?$/.exec(route);
+  return m ? `/${m[1]}/` : null;
 }
 
 /** 真实论文条目的 front matter 字段（论文页的 bibliographic 字段不在这里）。 */
@@ -797,13 +892,50 @@ function main() {
     }
   }
 
-  /* --- IAC8 / IAC9 / IAC10：§四 的页面骨架必须与模板现实对得上 --- */
+  /* --- IAC8 / IAC9 / IAC10：§四 的列表页 / 单页骨架必须与模板现实对得上 --- */
   const tplMap = pageTemplateMap();
   let anchorsChecked = 0;
   let pagesChecked = 0;
+  /* --- IAC11 / IAC12 / IAC13：详情页骨架必须与集合 layout 的现实对得上 --- */
+  let detailAnchorsChecked = 0;
+  let detailPagesChecked = 0;
+  /** 文档里写过详情页小节的家族前缀（用于 IAC14）。 */
+  const detailFamilies = new Set();
   for (const sec of sections) {
     const route = routeOfHeading(sec.heading);
     if (route === null) continue; // 这一小节不是在描述某个路由
+    const family = detailFamilyOf(route);
+    if (family !== null) {
+      /* 详情页（/blog/{slug}/ 这种形态）：真源是那个集合的 layout，
+         不是 src 根下的页面模板 —— 详情页由集合的 permalink 规则生成。 */
+      detailFamilies.add(family);
+      const col = cols.find((c) => c.family === family);
+      const layoutFile = col ? layoutFileOf(col.layout) : null;
+      if (!col || !layoutFile) {
+        // 解析不到集合或 layout ⇒ 这个详情页未落地 ⇒ 这一小节必须明写「规划中」。
+        if (!sec.lines.join("\n").includes("规划中")) {
+          fail(`IAC13 文档「${route}」这一节指向的详情页路由解析不到真实的集合与 layout —— 没有对应的页面模板，必须明写「规划中」。`);
+        }
+        continue;
+      }
+      detailPagesChecked++;
+      const derived = blockAnchorsOf(layoutFile);
+      detailAnchorsChecked += derived.length;
+      const { found, anchors } = anchorAnchorsOf(sec);
+      if (!found) {
+        fail(`IAC12 文档「${route}」这一节没有写出区块锚点声明 —— 详情页的骨架也必须逐条列出来，否则这份文档对详情页结构没有任何可核对的承诺。`);
+        continue;
+      }
+      const ghost = anchors.filter((a) => !derived.includes(a));
+      if (ghost.length) {
+        fail(`IAC11 文档「${route}」这一节的区块锚点里写了 ${ghost.join("、")} —— 该集合的 layout 里没有这些区块。`);
+      }
+      const missing = derived.filter((a) => !anchors.includes(a));
+      if (missing.length) {
+        fail(`IAC12 文档「${route}」这一节漏列了 ${missing.join("、")} —— 该集合的 layout 里真实存在的区块必须逐个列出来。`);
+      }
+      continue;
+    }
     const tpl = tplMap.get(route);
     if (!tpl) {
       // 没有页面模板 ⇒ 这个路由未落地 ⇒ 这一小节必须明写「规划中」。
@@ -832,6 +964,17 @@ function main() {
     }
   }
 
+  /* --- IAC14：已经有内容条目的集合，文档必须为它写一节详情页骨架 --- */
+  for (const c of cols) {
+    if (!c.family || c.items <= 0) continue; // 0 条内容 ⇒ 这一层压根不产出页面
+    if (!layoutFileOf(c.layout)) continue; // 没有 layout ⇒ 没有详情页模板
+    if (detailFamilies.has(c.family)) continue;
+    fail(
+      `IAC14 集合 ${c.name} 当前有 ${c.items} 条内容（详情页已经真实存在），但文档里没有为它写一节详情页骨架` +
+        ` —— 详情页这一层不能没有契约。`
+    );
+  }
+
   /* --- IAC7：覆盖度自证 --- */
   const short = [];
   if (paths.length < MIN_PATHS) short.push(`扫到的站内路径 ${paths.length} 个 < ${MIN_PATHS}`);
@@ -846,6 +989,9 @@ function main() {
   if (anchorsChecked < MIN_BLOCK_ANCHORS) {
     short.push(`已实现页面的区块锚点 ${anchorsChecked} 个 < ${MIN_BLOCK_ANCHORS}`);
   }
+  /* ⚠️ 详情页那一层的覆盖度**不混进**这里的计数：它由 IAC14 单独守
+     （有内容的集合必须有一节详情页骨架）。混进来会让「删掉一节详情页」
+     一次出两条红因（IAC7 + IAC14），红因归属就不纯了。 */
   if (short.length) fail(`IAC7 覆盖度自证不足：${short.join("；")}`);
 
   if (problems.length) {
@@ -857,6 +1003,7 @@ function main() {
     `信息架构契约门禁通过（站内路径 ${paths.length} 条 · 内容源路径 ${contentPaths.length} 条 · ` +
       `『落地状态』表 ${listEntries.length} 条 · 导航 ${navHrefs.length} 项 · 元数据字段 ${fieldsChecked} 个 · ` +
       `页面骨架 ${pagesChecked} 个 · 页面区块锚点 ${anchorsChecked} 个 · ` +
+      `详情页骨架 ${detailPagesChecked} 个 · 详情页区块锚点 ${detailAnchorsChecked} 个 · ` +
       `已实现集合家族 ${implementedFamilies.length} 个）`
   );
 }
