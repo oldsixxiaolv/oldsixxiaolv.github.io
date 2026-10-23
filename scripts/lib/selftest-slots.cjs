@@ -123,7 +123,8 @@ const SLOTS = {
   ],
   "test-design-components.cjs": [
     "DCXR0", "DCXR1", "DCXR2", "DCXR3", "DCXR4", "DCXR5", "DCXR6", "DCXR7",
-    "DCXR8", "NC-DCX1", "NC-DCX2", "NC-DCX3", "NC-DCX4"
+    "DCXR8", "DCXR9", "DCXR10", "DCXR11", "DCXR12", "DCXR13", "DCXR14",
+    "NC-DCX1", "NC-DCX2", "NC-DCX3", "NC-DCX4"
   ],
   "test-design-system-contract.cjs": [
     "DT0", "DT1", "DT2", "DT3", "DT4", "DT5", "DT6", "DT7",

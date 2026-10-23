@@ -32,9 +32,9 @@ const CAUSES = [
   { id: "DCX1", crit: "DCX1", frag: "在 CSS 里没有对应的类选择器" },
   { id: "DCX1b", crit: "DCX1", frag: "这一节在设计系统文档里没有找到" },
   { id: "DCX2", crit: "DCX2", frag: "没有被 var() 引用" },
-  { id: "DCX3a", crit: "DCX3", frag: "的 min-height 写的是" },
-  { id: "DCX3b", crit: "DCX3", frag: "的 min-height 在 CSS 里找不到" },
-  { id: "DCX3c", crit: "DCX3", frag: "的 min-height 在 CSS 里有多处取值" },
+  { id: "DCX3a", crit: "DCX3", frag: "的高度规格写的是" },
+  { id: "DCX3b", crit: "DCX3", frag: "的高度规格在 CSS 里找不到" },
+  { id: "DCX3c", crit: "DCX3", frag: "的高度规格在 CSS 里有多处取值" },
   { id: "DCX4", crit: "DCX4", frag: "覆盖度自证不足" },
 ];
 /** 静态判据清单（门禁里应当且仅应当有这些判据）。 */
@@ -118,7 +118,38 @@ code {
 pre { font-family: var(--code-font); }
 `;
 
-/* --- 合成契约文档（四个被扫描的小节 + 两个不扫描的小节做边界） --- */
+/* 合成夹具：面板 / 顶栏 / 分页 / 表单控件（对应被扫到的 §6.3 / §6.7 / §6.8 / §6.9） */
+const CSS_PANEL = `/* 合成夹具：面板、顶栏、分页与表单控件 */
+.pn__card { display: block; position: relative; }
+.pn__card.is-active { background: var(--pn-active-bg); }
+.pn__head {
+  border-inline-start: 2px solid var(--pn-edge);
+  padding: var(--pn-pad);
+  min-height: 44px;
+}
+.tb {
+  position: sticky;
+  top: 0;
+  height: 56px;
+  background: var(--tb-bg);
+}
+.tb__inner { display: flex; align-items: center; height: 56px; }
+.tb__brand { display: inline-flex; color: var(--tb-ink); }
+.tb__nav { display: flex; gap: var(--pn-gap); }
+.tb__sep { border-inline-start: 1px solid var(--tb-line); }
+.tb__theme { color: var(--tb-ink); }
+.pg { display: grid; grid-template-columns: 1fr 1fr; gap: var(--pn-gap); }
+.pg__title { font-family: var(--pg-font); }
+input[type="text"], select {
+  height: 40px;
+  padding: 0 var(--pn-pad);
+  border-radius: var(--pn-radius);
+}
+textarea { height: auto; min-height: 120px; padding: var(--pn-pad); }
+label { font-size: var(--pn-fs); color: var(--pn-ink); }
+`;
+
+/* --- 合成契约文档（八个被扫描的小节） --- */
 const DOC_BASE = `# 合成设计系统文档
 
 ## 六、组件清单（Component Inventory）
@@ -153,7 +184,24 @@ const DOC_BASE = `# 合成设计系统文档
 
 ### 6.3 表单（Form）
 
-这一节不在本门禁的扫描面里，随便写。
+\`\`\`html
+<label for="q">关键词</label>
+<input type="search" id="q" name="q">
+<textarea id="n" name="n"></textarea>
+\`\`\`
+
+- 单行输入与 \`select\`：高度 40px，padding 0 \`--pn-pad\`，圆角 \`--pn-radius\`
+- \`textarea\` 例外：\`height: auto\` + \`min-height: 120px\`
+- \`label\` 字号 \`--pn-fs\`，字色 \`--pn-ink\`
+
+| 元素 | 用途 | height |
+|---|---|---|
+| \`input\` | 单行输入框 | 40px |
+| \`select\` | 下拉选择 | 40px |
+
+| 元素 | 用途 | min-height |
+|---|---|---|
+| \`textarea\` | 多行输入 | 120px |
 
 ### 6.5 引文（Quote）
 
@@ -175,16 +223,48 @@ const DOC_BASE = `# 合成设计系统文档
 
 ### 6.7 面板（Panel）
 
-这一节也不在扫描面里。
+- 单条面板 \`.pn__card\`，标题行 \`.pn__head\`：左侧 2px 色条（\`--pn-edge\`）、内边距 \`--pn-pad\`
+- 选中态 \`.pn__card.is-active\`：背景 \`--pn-active-bg\`
+
+| 变体 | 用途 | min-height |
+|---|---|---|
+| \`.pn__head\` | 面板标题行 | 44px |
+
+### 6.8 顶栏（Topbar）
+
+- 高度 56px，背景 \`--tb-bg\`
+- 左侧 \`.tb__brand\`，右侧 \`.tb__nav\`；竖线 \`.tb__sep\`；主题按钮 \`.tb__theme\`
+
+| 变体 | 用途 | height |
+|---|---|---|
+| \`.tb\` | 顶栏外层 | 56px |
+| \`.tb__inner\` | 顶栏内层 | 56px |
+
+### 6.9 分页（Pager）
+
+- 面包屑：**规划中** —— 站内没有这个组件
+- 分页 \`.pg\`：两列网格，间距 \`--pn-gap\`
+- 标题 \`.pg__title\` 走 \`--pg-font\`
+
+| 变体 | 用途 |
+|---|---|
+| \`.pg\` | 分页容器 |
+| \`.pg__title\` | 分页标题 |
 `;
 
 /* ========== 夹具装配 ========== */
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "mh-designcomponents-selftest-"));
 
-/** 建一个独立夹具（临时目录 + 合成契约文档 + 三份合成样式表）。 */
+/** 建一个独立夹具（临时目录 + 合成契约文档 + 四份合成样式表）。 */
 function buildFixture(mutate) {
-  const state = { doc: DOC_BASE, cssWidget: CSS_WIDGET, cssBlock: CSS_BLOCK, cssProse: CSS_PROSE };
+  const state = {
+    doc: DOC_BASE,
+    cssWidget: CSS_WIDGET,
+    cssBlock: CSS_BLOCK,
+    cssProse: CSS_PROSE,
+    cssPanel: CSS_PANEL,
+  };
   if (mutate) mutate(state);
   const dir = fs.mkdtempSync(path.join(tmp, "case-"));
   fs.mkdirSync(path.join(dir, "docs"), { recursive: true });
@@ -198,6 +278,9 @@ function buildFixture(mutate) {
   }
   if (state.cssProse !== null) {
     fs.writeFileSync(path.join(dir, "src/assets/css/prose.css"), state.cssProse);
+  }
+  if (state.cssPanel !== null) {
+    fs.writeFileSync(path.join(dir, "src/assets/css/components/_panel.css"), state.cssPanel);
   }
   return dir;
 }
@@ -233,9 +316,13 @@ const MUT = {
     s.cssWidget = replaceOnce(s.cssWidget, "  min-height: 40px;\n", "");
     s.cssWidget = replaceOnce(s.cssWidget, ".wg--mini { min-height: 28px; padding: 0 var(--wg-gap-mini); }", ".wg--mini { padding: 0 var(--wg-gap-mini); }");
   },
-  /** §6.1 尺寸表表头改名 ⇒ DCX4（尺寸表行 0）。 */
+  /** §6.1 尺寸表表头改名 ⇒ DCX4（带高度列的表张数不足）。 */
   docSizeHeaderRenamed: (s) => {
-    s.doc = replaceOnce(s.doc, "| 变体 | 用途 | min-height |", "| 变体 | 用途 | 高度 |");
+    s.doc = replaceOnce(
+      s.doc,
+      "| 变体 | 用途 | min-height |\n|---|---|---|\n| `.wg` | 基础控件 | 40px |",
+      "| 变体 | 用途 | 高度 |\n|---|---|---|\n| `.wg` | 基础控件 | 40px |"
+    );
   },
   /** §6.2 整节清空 ⇒ DCX4（该小节没扫出任何东西 + 类名数不足）。 */
   docSection62Wiped: (s) => {
@@ -253,11 +340,35 @@ const MUT = {
   cssConflictingHeight: (s) => {
     s.cssWidget = replaceOnce(s.cssWidget, ".wg--mini {", ".wg { min-height: 50px; }\n.wg--mini {");
   },
+  /** §6.8 顶栏高度写错 ⇒ DCX3（写的是）。 */
+  docTopbarHeightWrong: (s) => {
+    s.doc = replaceOnce(s.doc, "| `.tb` | 顶栏外层 | 56px |", "| `.tb` | 顶栏外层 | 58px |");
+  },
+  /** §6.3 元素行的 height 写错 ⇒ DCX3（元素名行同样受管）。 */
+  docInputHeightWrong: (s) => {
+    s.doc = replaceOnce(s.doc, "| `input` | 单行输入框 | 40px |", "| `input` | 单行输入框 | 42px |");
+  },
+  /** §6.7 面板标题行的 min-height 写错 ⇒ DCX3。 */
+  docPanelHeadHeightWrong: (s) => {
+    s.doc = replaceOnce(s.doc, "| `.pn__head` | 面板标题行 | 44px |", "| `.pn__head` | 面板标题行 | 40px |");
+  },
+  /** §6.8 点名一个代码里没有的类 ⇒ DCX1。 */
+  docTopbarPhantomClass: (s) => {
+    s.doc = replaceOnce(s.doc, "- 左侧 `.tb__brand`", "- 左侧 `.tb--nope`；`.tb__brand`");
+  },
+  /** §6.3 的 height 表表头改名 ⇒ DCX4（表张数不足，说明门禁被绕开了）。 */
+  docFormHeaderRenamed: (s) => {
+    s.doc = replaceOnce(s.doc, "| 元素 | 用途 | height |", "| 元素 | 用途 | 高 |");
+  },
+  /** §6.9 点名一个代码里没有的类 ⇒ DCX1。 */
+  docPagerPhantomClass: (s) => {
+    s.doc = replaceOnce(s.doc, "- 分页 `.pg`：", "- 分页 `.pg--nope`：");
+  },
 };
 
 /** 注入档：expect=null 表示期望判绿，否则期望判红且判据集合**恰为** expect。 */
 const CASES = [
-  { id: "DCXR0", label: "基线（合成契约文档 + 三份合成样式表）", mutate: null, expect: null },
+  { id: "DCXR0", label: "基线（合成契约文档 + 四份合成样式表）", mutate: null, expect: null },
   { id: "DCXR1", label: "§6.1 正文里多一个代码里没有的类", mutate: MUT.docPhantomClass, expect: ["DCX1"] },
   { id: "DCXR2", label: "§6.1 的规格 token 写成代码里没有的", mutate: MUT.docUnknownToken, expect: ["DCX2"] },
   { id: "DCXR3", label: "§6.1 尺寸表里把紧凑档的 min-height 写错", mutate: MUT.docWrongHeight, expect: ["DCX3"] },
@@ -266,6 +377,12 @@ const CASES = [
   { id: "DCXR6", label: "§6.2 整节清空", mutate: MUT.docSection62Wiped, expect: ["DCX4"] },
   { id: "DCXR7", label: "§6.5 的标题整个不见了", mutate: MUT.docSection65HeadingRemoved, expect: ["DCX1"] },
   { id: "DCXR8", label: "同一个类在 CSS 里有两个不同的 min-height", mutate: MUT.cssConflictingHeight, expect: ["DCX3"] },
+  { id: "DCXR9", label: "§6.8 顶栏高度写错", mutate: MUT.docTopbarHeightWrong, expect: ["DCX3"] },
+  { id: "DCXR10", label: "§6.3 元素行的 height 写错", mutate: MUT.docInputHeightWrong, expect: ["DCX3"] },
+  { id: "DCXR11", label: "§6.7 面板标题行的 min-height 写错", mutate: MUT.docPanelHeadHeightWrong, expect: ["DCX3"] },
+  { id: "DCXR12", label: "§6.8 点名一个代码里没有的类", mutate: MUT.docTopbarPhantomClass, expect: ["DCX1"] },
+  { id: "DCXR13", label: "§6.3 的 height 表表头改名", mutate: MUT.docFormHeaderRenamed, expect: ["DCX4"] },
+  { id: "DCXR14", label: "§6.9 点名一个代码里没有的类", mutate: MUT.docPagerPhantomClass, expect: ["DCX1"] },
 ];
 
 /** 在门禁副本里卸掉某条判据：给它每一条 fail() 调用**同行**加 `if (false) ` 前缀。 */
@@ -300,7 +417,7 @@ const calls = scanFailCalls(gateSrc);
 const seenCauses = new Set();
 const seenCriteria = new Set();
 
-/** 仓库真源（门禁 + 设计系统文档 + 三份相关样式表 + package.json）的整体指纹。 */
+/** 仓库真源（门禁 + 设计系统文档 + 相关样式表 + package.json）的整体指纹。 */
 function repoDigest() {
   const h = crypto.createHash("sha256");
   const paths = [
@@ -308,6 +425,10 @@ function repoDigest() {
     path.join(ROOT, "docs", "design-system.md"),
     path.join(ROOT, "src/assets/css/components/_button.css"),
     path.join(ROOT, "src/assets/css/components/_card.css"),
+    path.join(ROOT, "src/assets/css/components/_nav.css"),
+    path.join(ROOT, "src/assets/css/components/_list.css"),
+    path.join(ROOT, "src/assets/css/components/_paper.css"),
+    path.join(ROOT, "src/assets/css/paper-reader.css"),
     path.join(ROOT, "src/assets/css/base.css"),
     path.join(ROOT, "package.json"),
   ];
@@ -446,7 +567,7 @@ console.log("\n二、覆盖度自证");
     bad(`DCX 前缀不是全仓唯一：${dcxList.join("、") || "（没有）"} —— 别人的门禁也用 DCX 会让 README 对账算错`);
   } else {
     /* 措辞说明：这一行**刻意用中文开头** —— 它是收尾自检行、不是编号档，
-       而行首若是 ASCII 单词（这里是 DCX），档位守卫（SF3）会要求它在静态清单里
+       而行首若是 ASCII 单词（这里是 DCX），档位守卫会要求它在静态清单里
        有出处（编号 / 锚点 / 显式非档位）。同块其余断言都是中文开头，
        这里保持一致，不去改共享静态清单。 */
     ok("判据前缀 DCX 全仓唯一（只有 check-design-components.cjs 在用）");

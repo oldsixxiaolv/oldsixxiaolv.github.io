@@ -497,9 +497,26 @@ hover / `:focus-visible` 时背景 `--bg-subtle`、边框 `--border-default`。
 
 ### 6.3 表单（Form）
 
-- 输入：高度 40px，padding 0 `--space-3`，`--radius-md`
+```html
+<label for="q">关键词</label>
+<input type="search" id="q" name="q" placeholder="搜索论文">
+<textarea id="note" name="note" rows="3"></textarea>
+```
+
+- 单行输入（`input[type=text|email|url|search|password]`）与 `select`：高度 40px，padding 0 `--space-3`，圆角 `--radius-md`，边框 `--border-default`
+- `textarea` 是**例外**：`height: auto` + `min-height: 120px`，padding `--space-2` `--space-3`，`resize: vertical`
 - focus：`--border-default` → `--color-brand-400`，外加 `--shadow-focus`
-- label：放在输入框上方，fs-small，字色 `--text-secondary`，必填项加 `*` 红色非品牌色
+- `label`：放在输入框上方（`display: block`），字号 `--fs-small`，字色 `--text-secondary`，`font-weight: 600`
+- 必填标记（红色 `*`）：**站内目前没有实现** —— 全仓没有任何 `required` 相关样式；要加需要另立一条设计决定
+
+| 元素 | 用途 | height |
+|---|---|---|
+| `input` | 单行输入框（text / email / url / search / password） | 40px |
+| `select` | 下拉选择 | 40px |
+
+| 元素 | 用途 | min-height |
+|---|---|---|
+| `textarea` | 多行输入（高度随内容自适应） | 120px |
 
 ### 6.4 徽章 / 标签（Badge / Tag）
 
@@ -548,21 +565,36 @@ hover / `:focus-visible` 时背景 `--bg-subtle`、边框 `--border-default`。
 ### 6.7 批注侧栏（Annotation Panel · 仅论文精读页用）
 
 - 桌面端右侧是三栏栅格的**第三轨**：`minmax(280px, 1.2fr)`（不是写死的固定列；见 `paper-reader.css`）
-- 单条批注：左侧 **2px** kind 色条 + 标题 + 锚点 + 详情，共 6 种 kind 配色（question / insight / critique / figure / link / typo；**配色的唯一真源**是 `components/_paper.css` 的 kind 调色板段，规范见 `papers-interaction.md` §3.4）
-- 选中态：背景 `--bg-subtle` 再叠一层 kind 色 8% 混色；左色条**不**变粗（仍是 2px）
+- 单条批注是 `.annot-card`，标题行是 `.annot-card__head`：左侧 **2px** kind 色条（`--kind-edge`）、内边距 `--space-3`、最小高度 44px（触摸目标）
+- kind 配色共 6 种（question / insight / critique / figure / link / typo；**配色的唯一真源**是 `components/_paper.css` 的 kind 调色板段，规范见 `papers-interaction.md` §3.4）
+- 选中态 `.annot-card.is-active`：背景 `--bg-subtle` 再叠一层 `--kind-ink` 8% 混色；左色条**不**变粗（仍是 2px）
 - 移动端每条批注折叠为 `<details>` 单元素：**规划中**（样式已备于 `.annot-inline`，交互未接；见 `papers-interaction.md` §7）
+
+| 变体 | 用途 | min-height |
+|---|---|---|
+| `.annot-card__head` | 批注标题行（触摸目标 ≥ 44px） | 44px |
 
 ### 6.8 顶部导航（Topbar）
 
-- 高度 64px，`backdrop-filter: blur(8px)` + `bg-page/85` 实现「学术站常见的纸张感」
-- 左侧：站点 Logo（用 SVG，**不要 emoji**）
-- 右侧：水平导航 5 项 + 主题切换 + 搜索图标（占位即可，后续可接 Pagefind）
-- 桌面端不 sticky，首次滚动后 sticky top-0；移动端始终 sticky
+- 高度 56px，背景 `--bg-page` 90% 混色 + `backdrop-filter: saturate(140%) blur(8px)`，底部一条 `--border-subtle` 细线
+- **始终** `position: sticky; top: 0`（桌面端与移动端一样，不做「滚过一次才吸顶」）
+- 左侧 `.topbar__brand`：内联 SVG 标记 `.topbar__mark`（等压线同心环，不引第三方图标库）+ 文字站名
+- 右侧 `.topbar__nav`：导航项来自 `site.nav`（真源是 `src/_data/site.js` 的 `nav` 数组，条目数由它决定）+ 竖线 `.topbar__sep` + 主题切换按钮 `.topbar__theme`
+- **没有搜索入口**（既无搜索框也无搜索图标；站内还没接全文检索）
+- 窄屏逐级压缩 `.topbar__nav` 的间距与 `.topbar__link` 的字号
+
+| 变体 | 用途 | height |
+|---|---|---|
+| `.topbar` | 顶栏外层（sticky 容器） | 56px |
+| `.topbar__inner` | 顶栏内层（左右两栏布局） | 56px |
 
 ### 6.9 面包屑 / 分页 / 标签云
 
-- 圆点分隔符「·」而非斜杠，更学术
-- 分页：键盘可达，`aria-label`，左右按钮带 SVG
+- 面包屑：**规划中** —— 站内**没有**这个组件（既无 CSS 也无模板）；它是中央台账「待拍板 39」的备选方案，本轮不代拍
+- 分页 `.detail__pager`：两列网格 `1fr 1fr`，列间距 `--space-4`，上下各一条 `--border-subtle` 细线
+- 分页条目 `.detail__pager-link`：字色 `--text-muted`，字号 `--fs-small`；标题 `.detail__pager-title` 走 `--font-serif`
+- 分页方向标记是**字符箭头**（`← Previous` / `Next →`），不是 SVG 图标；容器是 `<nav class="detail__pager" aria-label="Previous / next">` ⇒ 键盘可达
+- 标签云 `.tag-cloud`：flex 换行排列，间距 6px
 
 ---
 
