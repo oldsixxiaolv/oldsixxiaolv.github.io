@@ -18,7 +18,9 @@
  *
  * 六条判据：
  *   L1 线上每个产物路由都返回 200（路由集**由本地 _site 推导**，不是手写清单）
- *   L2 线上 HTML 的 canonical / og:url 与本地**同路径**、且**指向本次部署的 origin**
+ *   L2 线上 HTML 的 canonical / og:url 与本地**同路径**、且**指向本次部署的 origin**；
+ *      另外逐条核对 **og:image** 与 **JSON-LD 里的站内口径**
+ *      （站内口径 ＝ 相对地址，或 origin 是本站的绝对地址；站外地址不比对）
  *   L3 线上 sitemap 里的每个 <loc> 都可达（抓"sitemap 指向 404 / 指向别的站"）
  *   L4 线上 sitemap 的 <loc> **路径集合**与本地一致（抓"sitemap 是旧版"）
  *   L5 线上 HTML 的 JSON-LD 块都能被 JSON.parse 解析（抓"发出去的是坏的"）
@@ -30,6 +32,18 @@
  *     ② origin 不对 → 线上页面在对外声明一个别人家的地址。
  *   而且整串比较在本机夹具自测下**必然假红**（线上 origin 是 127.0.0.1，
  *   本地期望是 site.url）。拆成两段判，两种故障都判得准，自测也不会假红。
+ *
+ * ⚠️ **L2 为什么比对「一组」发出去的口径，而不只是 canonical 与 og:url**（缺陷 D76）：
+ *   2026-10-22 实测线上旧部署：每页的 canonical 与 og:url 都带着已下线的
+ *   /MeteoHub/ 子路径前缀，而**同一批页面里的 og:image（3 条）与 JSON-LD 里的
+ *   站内 URL 口径（url / image / @id …）也带着同一个前缀** —— 其中 og:image 与
+ *   JSON-LD 的 image 指向的地址在线上**真的 404**（社交分享图取不到）。
+ *   那时 L2 只查 canonical 与 og:url ⇒ **门禁只报了 6 类漂移里的 2 类**，
+ *   剩下 4 类没人看守。
+ *   所以 L2 现在守的是**一组**发出去的口径：canonical、og:url、og:image、
+ *   以及 JSON-LD 里的站内口径（按结构指针逐条）。
+ *   ⚠️ JSON-LD 里的**站外**地址（sameAs / doi.org / AGU 落地页 / 单位主页…）
+ *     **一律不比对** —— 它们本来就该指向站外，比对它们只会制造假红。
  *
  * ⚠️ 本门禁**不接进 build 链**（联网的检查放进离线构建里，构建就不复现了；
  *   而且 build 跑在 deploy **之前**，那时线上还是上一次部署）。
@@ -114,6 +128,83 @@ const parseUrl = (u) => {
 const originOf = (u) => (parseUrl(u) || {}).origin || "";
 const pathOf = (u) => (parseUrl(u) || {}).pathname || "";
 
+/* ---------- 站内口径：把「发出去的地址」拆成 路径 + origin ---------- */
+/**
+ * 一个值像不像「地址」。
+ * 刻意**不认裸相对路径**（"assets/x.jpg"）：JSON-LD 里 "Yihang Lyu" 这类普通字符串
+ * 会被 new URL() 解析成一条路径 ⇒ 会被误当成站内口径。
+ */
+const isUrlLike = (v) => typeof v === "string" && (/^https?:\/\//i.test(v) || v.startsWith("/"));
+
+/**
+ * 把一个地址拆成 { path, origin, raw }；相对地址按 base 展开。
+ * path 里带上 hash（"#person" 这类锚点是地址的一部分，只比路径会漏）。
+ */
+function addrOf(v, base) {
+  if (!isUrlLike(v)) return null;
+  if (/^https?:\/\//i.test(v)) {
+    const u = parseUrl(v);
+    return u ? { path: u.pathname + u.hash, origin: u.origin, raw: v } : null;
+  }
+  if (!base) return null;
+  const u = parseUrl(new URL(v, base).href);
+  return u ? { path: u.pathname + u.hash, origin: originOf(base), raw: v } : null;
+}
+
+/** 一页里的 og:image 地址（逐条，文档顺序）。 */
+const ogImagesOf = (html) => {
+  const out = [];
+  for (const tag of html.match(/<meta\b[^>]*>/gi) || []) {
+    const a = attrMap(tag);
+    if ((a.property || "").toLowerCase() === "og:image") out.push(a.content || "");
+  }
+  return out;
+};
+
+/** JSON.parse，坏 JSON 返回 null（坏 JSON 由 L5 报，不在这里重复报）。 */
+const safeJson = (t) => {
+  try {
+    return JSON.parse(t);
+  } catch {
+    return null;
+  }
+};
+
+/** 把一块 JSON-LD 里的字符串值摊平成「结构指针 → 值」。 */
+function flattenStrings(node, prefix, out) {
+  if (typeof node === "string") {
+    out.set(prefix, node);
+    return out;
+  }
+  if (Array.isArray(node)) {
+    node.forEach((v, i) => flattenStrings(v, prefix ? `${prefix}[${i}]` : `[${i}]`, out));
+    return out;
+  }
+  if (node && typeof node === "object") {
+    for (const k of Object.keys(node)) flattenStrings(node[k], prefix ? `${prefix}.${k}` : k, out);
+  }
+  return out;
+}
+
+/**
+ * 一块 JSON-LD 里的**站内口径**：结构指针 → 地址。
+ * 只收站内的（相对地址，或绝对地址且 origin == 本站 origin）；
+ * 站外地址（sameAs / doi.org / AGU 落地页 / 单位主页…）**一律不比对** ——
+ * 它们本来就该指向站外，比对它们只会制造假红。
+ */
+function siteUrlMap(blockText, siteOrigin) {
+  const out = new Map();
+  if (!siteOrigin) return out;
+  const obj = safeJson(blockText);
+  if (!obj) return out;
+  for (const [ptr, v] of flattenStrings(obj, "", new Map())) {
+    const a = addrOf(v, siteOrigin);
+    if (!a || a.origin !== siteOrigin) continue;
+    out.set(ptr, v);
+  }
+  return out;
+}
+
 /* ---------- 收集本地产物 → 期望值 ---------- */
 function collectLocal(dir) {
   const files = [];
@@ -134,7 +225,18 @@ function collectLocal(dir) {
       const html = body.toString("utf8");
       item.canonical = canonicalOf(html);
       item.ogUrl = ogUrlOf(html);
-      item.jsonLdCount = jsonLdBlocks(html).length;
+      item.ogImages = ogImagesOf(html);
+      const blocks = jsonLdBlocks(html);
+      item.jsonLdCount = blocks.length;
+      /* 这一页的「本站 origin」：从 canonical / og:url 取 —— 它们是站内仅有的两处
+         绝对地址基准。站内口径只认「相对地址」或「origin == 本站 origin」的绝对地址。 */
+      const siteOrigin = originOf(item.canonical) || originOf(item.ogUrl);
+      item.jsonLdSite = [];
+      blocks.forEach((b, i) => {
+        for (const [ptr, v] of siteUrlMap(b, siteOrigin)) {
+          item.jsonLdSite.push({ block: i, pointer: ptr, url: v });
+        }
+      });
     }
     if (isXml) item.text = body.toString("utf8");
     return item;
@@ -305,6 +407,96 @@ async function runChecks(base, expectedDir) {
         ...urlDiff({ route: f.route, what: "og:url", local: f.ogUrl, live: go, baseOrigin })
       );
     }
+
+    /* L2（续）：og:image —— 按「地址集合」比，**不按下标比**。
+       旧部署的图片数量与文件名都可能与本地不同（实测：线上 3 张 PNG、本地 1 张 JPEG），
+       按下标配对会错位 ⇒ 报出来的红因是假的。 */
+    const localOgs = f.ogImages || [];
+    if (localOgs.length) {
+      const localOrigin = originOf(f.canonical) || originOf(f.ogUrl);
+      const liveOgs = ogImagesOf(html);
+      if (!liveOgs.length) {
+        problems.push(
+          `L2 线上 ${f.route} 少了 og:image（本地有 ${localOgs.length} 条）—— 发出去的是旧版或被改坏了。`
+        );
+      } else {
+        const localPaths = localOgs.map((v) => (addrOf(v, localOrigin) || {}).path).filter(Boolean);
+        const livePaths = liveOgs.map((v) => (addrOf(v, baseOrigin) || {}).path).filter(Boolean);
+        const localOnly = extraIn(livePaths, localPaths);
+        const liveOnly = extraIn(localPaths, livePaths);
+        if (localOnly.length || liveOnly.length) {
+          problems.push(
+            `L2 线上 ${f.route} 的 og:image 与本地不是同一组：本地有、线上没有 ${localOnly.length} 条` +
+              `${localOnly.length ? "（" + localOnly.slice(0, 3).join(", ") + "）" : ""}；` +
+              `线上有、本地没有 ${liveOnly.length} 条` +
+              `${liveOnly.length ? "（" + liveOnly.slice(0, 3).join(", ") + "）" : ""}。` +
+              `发出去的口径漂了（典型：旧的 /MeteoHub/ 子路径前缀没去掉），线上跑的不是当前代码。`
+          );
+        }
+      }
+      /* origin 维度：og:image 指向别人家的站（路径一样也要报） */
+      for (const v of liveOgs) {
+        if (!/^https?:\/\//i.test(v)) continue;
+        const o = originOf(v);
+        if (o && o !== baseOrigin) {
+          problems.push(
+            `L2 线上 ${f.route} 的 og:image 指向的不是本次部署的站：线上「${o}」/ 本次部署「${baseOrigin}」—— ` +
+              `站点在对外声明一个别人家的地址。`
+          );
+        }
+      }
+    }
+
+    /* L2（续）：JSON-LD 里的站内口径 —— 按「结构指针」逐条比。
+       站外地址（sameAs / doi.org / AGU 落地页…）不参与比对：它们本来就该指向站外。 */
+    if (f.jsonLdSite && f.jsonLdSite.length) {
+      const localOrigin = originOf(f.canonical) || originOf(f.ogUrl);
+      const liveMaps = jsonLdBlocks(html).map((b) => flattenStrings(safeJson(b), "", new Map()));
+      const missing = [];
+      const drifted = [];
+      const foreign = [];
+      for (const e of f.jsonLdSite) {
+        const map = liveMaps[e.block];
+        const v = map ? map.get(e.pointer) : undefined;
+        if (typeof v !== "string") {
+          missing.push(e.pointer);
+          continue;
+        }
+        const la = addrOf(e.url, localOrigin);
+        const ga = addrOf(v, baseOrigin);
+        if (!la || !ga) {
+          drifted.push({ pointer: e.pointer, live: v, local: e.url });
+          continue;
+        }
+        if (ga.origin !== baseOrigin) {
+          foreign.push({ pointer: e.pointer, origin: ga.origin });
+          continue;
+        }
+        if (ga.path !== la.path) {
+          drifted.push({ pointer: e.pointer, live: ga.path, local: la.path });
+        }
+      }
+      if (missing.length) {
+        problems.push(
+          `L2 线上 ${f.route} 的 JSON-LD 少了 ${missing.length} 条站内口径` +
+            `（例：${missing.slice(0, 3).join(", ")}）—— 发出去的是旧版或被改坏了。`
+        );
+      }
+      if (drifted.length) {
+        const d = drifted[0];
+        problems.push(
+          `L2 线上 ${f.route} 的 JSON-LD 站内口径与本地不一致：${drifted.length} 条对不上` +
+            `（例：${d.pointer} 线上「${d.live}」/ 本地「${d.local}」）—— ` +
+            `发出去的口径漂了（典型：旧的 /MeteoHub/ 子路径前缀没去掉），线上跑的不是当前代码。`
+        );
+      }
+      if (foreign.length) {
+        problems.push(
+          `L2 线上 ${f.route} 的 JSON-LD 站内口径 ${foreign[0].pointer} 指向的不是本次部署的站：` +
+            `线上「${foreign[0].origin}」/ 本次部署「${baseOrigin}」。`
+        );
+      }
+    }
   }
 
   /* L3 + L4：线上 sitemap */
@@ -412,6 +604,7 @@ if (require.main === module) {
     console.log(
       `线上核查门禁通过：${base} 上 ${counts.routes} 个产物路由全部 200；` +
         `canonical / og:url 的路径与本地一致且指向本次部署的 origin；` +
+        `og:image 与 JSON-LD 里的站内口径也与本地一致；` +
         `sitemap 与本地同一份且每条可达；JSON-LD 全部可解析；feed 条目链接可达。`
     );
     notes.forEach((n) => console.log(`  · ${n}`));

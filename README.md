@@ -174,8 +174,8 @@ Cloudflare Pages、Nginx 等任意静态服务。详细运行 / 调试见 `HOW_T
 | `npm run check:citation-cff` | 仓库根 `CITATION.cff` 与 `site.js` 逐字节一致 |
 | `npm run gen:citation-cff` | 按 `site.js` **重写** `CITATION.cff`（改过事实后跑这个） |
 | `npm run check:citation-cff-selftest` | 上面那道门禁的本地夹具自测（注入矩阵，证明它能变红） |
-| `npm run check:live` | 线上部署核查（**不在 build 链**，部署后跑） |
-| `npm run check:live-selftest` | 线上核查门禁的本地夹具自测（注入矩阵） |
+| `npm run check:live` | 线上部署核查（**不在 build 链**，部署后跑）：线上每个产物路由都要 200；**发出去的口径**逐条核对 —— canonical、og:url、**og:image**、以及 **JSON-LD 里的站内口径**（站内 ＝ 相对地址，或 origin 是本站的绝对地址；站外的 sameAs、DOI 落地页之类**不比对**）；sitemap 与本地同一份且每条可达；JSON-LD 全部可解析；feed 条目链接可达 |
+| `npm run check:live-selftest` | 线上核查门禁的本地夹具自测（注入矩阵）：少一条路由、canonical 与 og:url 指向旧前缀或别的站、sitemap 指向 404、JSON-LD 坏掉、feed 没有条目、**og:image 指向旧前缀**（M7）、**JSON-LD 里的站内口径漂了**（M8）；另含两档**判据级负对照**（把 og:image 与 JSON-LD 站内口径那两段判据从**门禁副本**里卸掉 ⇒ 同一夹具必须转绿 ⇒ 证明那两条红确实是它们判出来的，不是别的判据的红） |
 | `npm run check:readme` | 本 README 里可机器核对的事实（路由 / Node 下限 / 命令 / 出口）与现状一致 |
 | `npm run check:readme-selftest` | 上面那道门禁的本地夹具自测（注入矩阵，证明它能变红） |
 

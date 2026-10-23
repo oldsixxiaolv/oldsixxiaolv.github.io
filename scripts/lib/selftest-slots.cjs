@@ -215,7 +215,8 @@ const SLOTS = {
     "LG22", "LG23", "LG24", "LG25"
   ],
   "test-live-site.cjs": [
-    "M0", "M1", "M2", "M3", "M4", "M5", "M6"
+    "M0", "M1", "M2", "M3", "M4", "M5", "M6",
+    "M7", "M7b", "M8", "M8b"
   ],
   "test-mount-contract.cjs": [
     "MT0", "MT0r", "MT1", "MT2", "MT3", "MT4", "MT5", "MT6",

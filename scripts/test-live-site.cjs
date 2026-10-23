@@ -45,6 +45,8 @@ const ROOT = path.resolve(__dirname, "..");
 const SITE = process.env.SITE_DIR
   ? path.resolve(process.env.SITE_DIR)
   : path.join(ROOT, "_site");
+/* 门禁源码本体 —— 判据级负对照要复制它、改副本。 */
+const GATE_FILE = path.join(__dirname, "check-live-site.cjs");
 
 /* ---------- 夹具用的极小静态服务器 ---------- */
 function startStaticServer(rootDir) {
@@ -133,6 +135,27 @@ function mutate(file, from, to) {
   console.log(`      · 注入：${path.basename(file)} :: ${(line || "").trim().slice(0, 160)}`);
 }
 
+/**
+ * 把门禁源码复制一份、把某条判据**同行替换**掉，再 require 这份副本。
+ *
+ * 为什么不给门禁加「可卸开关」：
+ *   加了开关就等于在生产环境里留了一个**能悄悄把判据关掉**的入口 ——
+ *   那种开关必须真的被 fail() 消费，否则它就是一条旁路。
+ *   复制一份源码再改，是「让判据当场不存在」而不是「让判据可被关掉」：
+ *   仓库里那份门禁源码一行都没动，改的只是临时副本。
+ *   ⇒ 副本上的判据被卸掉时，同一个夹具必须**转绿** ⇒ 证明那条红确实是它判出来的。
+ */
+function gateCopyDisabled(dir, name, from, to) {
+  const src = fs.readFileSync(GATE_FILE, "utf8");
+  if (!src.includes(from)) throw new Error(`门禁源码里找不到要卸掉的那一行：${from}`);
+  const out = src.replace(from, to);
+  if (out === src) throw new Error(`卸判据没有改变门禁源码：${from}`);
+  const p = path.join(dir, name);
+  fs.writeFileSync(p, out);
+  console.log(`      · 卸判据：${name} :: ${from.trim()} → ${to.trim()}`);
+  return require(p);
+}
+
 async function main() {
   if (!fs.existsSync(SITE)) {
     console.error(`注入矩阵失败：找不到产物目录 ${SITE}，请先运行 npm run build。`);
@@ -190,15 +213,16 @@ async function main() {
    * 起一个夹具站，注入缺陷，跑一遍判据。
    * 顺序：从快照复制 → 起服务（拿到自己的 origin）→ localize → 注入 → 跑判据。
    * 服务器逐请求读盘，所以起服务之后再改文件也照样生效。
+   * checker 缺省用真门禁；判据级负对照会传入一份「卸掉某条判据」的门禁副本。
    */
-  const serve = async (mutateFn, label) => {
+  const serve = async (mutateFn, label, checker) => {
     const dir = path.join(tmp, label);
     copyTree(snap, dir);
     const server = await startStaticServer(dir);
     const origin = `http://127.0.0.1:${server.address().port}`;
     localize(dir, origin, prodOrigin);
     mutateFn(dir, origin);
-    const r = await runChecks(origin, snap);
+    const r = await (checker || runChecks)(origin, snap);
     await new Promise((res) => server.close(res));
     return r;
   };
@@ -289,6 +313,69 @@ async function main() {
     "M6 线上 canonical 指向别的站（origin 维度）",
     m6.problems.some((p) => p.startsWith("L2") && p.includes("指向的不是本次部署的站")),
     m6.problems.join(" | ") || "（无红因）",
+  ]);
+
+  /* M7：og:image 漂移（发出去的口径里少了这一类）。
+     注入只动 og:image 这一处 ⇒ 红因必须**只**是 og:image 的，
+     混进 canonical / og:url / JSON-LD 的红就说明判据串了。 */
+  const m7Inject = (d, o) => {
+    mutate(
+      path.join(d, "index.html"),
+      `<meta property="og:image" content="${o}/assets/img/og/og-1200x630.jpg" />`,
+      `<meta property="og:image" content="${o}/MeteoHub/assets/img/og/og-1200x630.jpg" />`
+    );
+  };
+  const m7 = await serve(m7Inject, "m7");
+  cases.push([
+    "M7 线上 og:image 指向旧前缀（发出去的口径漂了）",
+    m7.problems.some((p) => p.startsWith("L2") && p.includes("og:image")) &&
+      m7.problems.every((p) => !p.includes("canonical") && !p.includes("og:url") && !p.includes("JSON-LD")),
+    m7.problems.join(" | ") || "（无红因）",
+  ]);
+
+  /* M7b：判据级负对照 —— 把 og:image 那段判据从**门禁副本**里卸掉，
+     同一夹具必须转绿 ⇒ 证明 M7 那条红确实是 og:image 判据判出来的。 */
+  const noOg = gateCopyDisabled(
+    tmp,
+    "gate-no-ogimage.cjs",
+    "    if (localOgs.length) {",
+    "    if (false) {"
+  );
+  const m7b = await serve(m7Inject, "m7b", noOg.runChecks);
+  cases.push([
+    "M7b 卸掉 og:image 判据后同一夹具转绿（证明那条红是它判出来的）",
+    m7b.problems.length === 0,
+    m7b.problems.join(" | ") || "全绿",
+  ]);
+
+  /* M8：JSON-LD 里的站内口径漂移（这一类原先完全没人看守）。 */
+  const m8Inject = (d, o) => {
+    mutate(
+      path.join(d, "index.html"),
+      `"url": "${o}/"`,
+      `"url": "${o}/MeteoHub/"`
+    );
+  };
+  const m8 = await serve(m8Inject, "m8");
+  cases.push([
+    "M8 线上 JSON-LD 的站内口径漂了（发出去的口径漂了）",
+    m8.problems.some((p) => p.startsWith("L2") && p.includes("JSON-LD")) &&
+      m8.problems.every((p) => !p.includes("og:image") && !p.includes("canonical") && !p.includes("og:url")),
+    m8.problems.join(" | ") || "（无红因）",
+  ]);
+
+  /* M8b：判据级负对照 —— 卸掉 JSON-LD 站内口径那段判据 ⇒ 同一夹具转绿。 */
+  const noJsonLd = gateCopyDisabled(
+    tmp,
+    "gate-no-jsonld.cjs",
+    "    if (f.jsonLdSite && f.jsonLdSite.length) {",
+    "    if (false) {"
+  );
+  const m8b = await serve(m8Inject, "m8b", noJsonLd.runChecks);
+  cases.push([
+    "M8b 卸掉 JSON-LD 站内口径判据后同一夹具转绿（证明那条红是它判出来的）",
+    m8b.problems.length === 0,
+    m8b.problems.join(" | ") || "全绿",
   ]);
 
   console.log("线上核查门禁 · 本地注入矩阵：\n");
