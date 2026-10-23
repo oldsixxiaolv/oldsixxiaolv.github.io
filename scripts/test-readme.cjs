@@ -356,6 +356,36 @@ function stripCritTokens(text, prefix) {
   return text.replace(re, "该判据");
 }
 
+/**
+ * 把 README **所有 `npm run` 行**里的判据编号全部抹掉（**不看前缀**）。
+ *
+ * 为什么不能写死前缀（这一版就是把写死前缀的那一版换掉）：
+ *   写死前缀成立的前提是"当时只有 JA / IP / CS 三组会参与对账"。
+ *   后来每加一道**带判据编号声明的门禁**（README 里多一行），写死前缀的抹法就漏掉
+ *   新那一组 ⇒「对账无事可做」这个前提被打破 ⇒ 那一档当场假失败
+ *   （实测：加了 `check:selftest-guard` 那一行之后，SP21 的 exit 从 1 变成 0）。
+ *   ⇒ 前缀必须**现读**，不许写死（与本仓「不写死别的门禁的判据编号区间」同源）。
+ *
+ * 只抹 `npm run` 行：RD6 就是按这个形状挑行的（`^\|\s*`npm run X`\s*\|`），
+ * 行外的判据编号 RD6 根本不看，抹了也没用。
+ */
+function stripAllCritTokensInNpmRows(text) {
+  const re = /(?<![A-Za-z0-9_-])([A-Z][A-Z-]{0,4})\d{1,3}/g;
+  let n = 0;
+  const out = text
+    .split("\n")
+    .map((l) => {
+      if (!/^\|\s*`npm run [^`]+`\s*\|/.test(l)) return l;
+      return l.replace(re, () => {
+        n += 1;
+        return "该判据";
+      });
+    })
+    .join("\n");
+  if (!n) throw new Error("注入锚点不存在：README 的 npm run 行里一个判据编号都没有 —— 坏跑");
+  return out;
+}
+
 /** 副本与原件的「改动行数」—— 证明注入确实打上了，且只打了声明的那些行。 */
 function changedLines(a, b) {
   const la = a.split("\n");
@@ -858,12 +888,12 @@ function breakAllPaths(readme) {
 
 /* SP21：README 一个判据编号都不列 ⇒ 对账**无事可做** ⇒ RD7b 判红
  *   这一档证明 RD7b 不是摆设：把 README 里所有判据编号抹掉，
- *   RD6 的"通过"就是**空跑**（没有任何一组被比对过）⇒ 必须判红。 */
+ *   RD6 的"通过"就是**空跑**（没有任何一组被比对过）⇒ 必须判红。
+ *   ⚠️ 抹法必须**不写死前缀**（见 stripAllCritTokensInNpmRows 的注释）：
+ *      写死前缀会漏掉后来新增的判据组 ⇒ 这一档的前提被打破 ⇒ 当场假失败。 */
 {
   const sb = makeSandbox();
-  let text = stripCritTokens(readmeOf(sb), "JA");
-  text = stripCritTokens(text, "IP");
-  text = stripCritTokens(text, "CS");
+  const text = stripAllCritTokensInNpmRows(readmeOf(sb));
   writeReadme(sb, text);
   expectRed("SP21 README 一个判据编号都不列（对账空跑）", sb, ["RD7"], {
     mustContain: "一次都没真的比对过",
