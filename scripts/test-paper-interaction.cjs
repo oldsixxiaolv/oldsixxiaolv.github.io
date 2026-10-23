@@ -10,7 +10,7 @@
  * 「注入没生效」「改的是副本还是原件」「门禁自己被卸掉了」是最容易发生、
  * 也最不容易看出来的失败模式。所以自测必须回答四件事：
  *
- *   一、红因归属表 —— 门禁的 16 处 fail() 调用逐条登记判据号与**唯一文案片段**。
+ *   一、红因归属表 —— 门禁的 23 处 fail() 调用逐条登记判据号与**唯一文案片段**。
  *   二、覆盖度自证 —— fail() 调用点与归属表**双向**对齐；门禁解析出的判据集合与
  *      静态清单一致；每条红因、每条判据都至少一档判红；
  *      门禁源码里的判据编号前缀不得把别的门禁带进来（会污染 README 的对账范围）；
@@ -57,9 +57,16 @@ const CAUSES = [
   { id: "PI7d", crit: "PI7", frag: "§3.4 表没检出" },
   { id: "PI7e", crit: "PI7", frag: "附录 B 表没检出" },
   { id: "PI7f", crit: "PI7", frag: "§5.2 代码块没检出" },
+  { id: "PI8a", crit: "PI8", frag: "论文正文文件一个都没找到" },
+  { id: "PI8b", crit: "PI8", frag: "目录选择器读不出来" },
+  { id: "PI8c", crit: "PI8", frag: "目录选择器的写法变了" },
+  { id: "PI8d", crit: "PI8", frag: "正文小节标题一个都没检出" },
+  { id: "PI8e", crit: "PI8", frag: "的小节标题没有显式 id" },
+  { id: "PI9a", crit: "PI9", frag: "正文 id 一个都没检出" },
+  { id: "PI9b", crit: "PI9", frag: "的 id 重复出现" },
 ];
 /** 静态判据清单（门禁里应当且仅应当有这些判据）。 */
-const CRITERIA = ["PI1", "PI2", "PI3", "PI4", "PI5", "PI6", "PI7"];
+const CRITERIA = ["PI1", "PI2", "PI3", "PI4", "PI5", "PI6", "PI7", "PI8", "PI9"];
 
 /* ========== 工具 ========== */
 
@@ -286,10 +293,46 @@ const JS_RENDER_BASE = [
   "",
 ].join("\n");
 
+/* 目录脚本（夹具版）：标题选择器真源 —— 形状必须与真实 toc.js 一致。 */
+const TOC_BASE = [
+  "/* 夹具 · 目录脚本（标题选择器真源） */",
+  'const HEADING_SELECTOR = "h2[id], h3[id]";',
+  "",
+].join("\n");
+
+/* 论文正文（夹具版）：front matter + 三个**带显式 id** 的小节标题。 */
+const PAPER_BASE = [
+  "---",
+  "title: 夹具论文",
+  "---",
+  "",
+  '<h2 id="p-demo-intro">夹具小节一</h2>',
+  "",
+  "正文一段。",
+  "",
+  '<h2 id="p-demo-method">夹具小节二</h2>',
+  "",
+  "正文两段。",
+  "",
+  '<h2 id="p-demo-data">夹具小节三</h2>',
+  "",
+  "正文三段。",
+  "",
+].join("\n");
+
+/* 论文正文（夹具版）：一个标题都没有 —— 用于「标题检不出来」的覆盖度自证。 */
+const PAPER_NO_HEADINGS = [
+  "---",
+  "title: 夹具论文",
+  "---",
+  "",
+  "只有正文，没有小节标题。",
+  "",
+].join("\n");
+
 /* ========== 副本构造 ========== */
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "mh-paperinteraction-selftest-"));
-
 /** 建一个独立夹具（临时目录 + 合成契约文档 / README / 两份样式表 / 两份脚本）。 */
 function buildFixture(mutate) {
   const state = {
@@ -299,12 +342,15 @@ function buildFixture(mutate) {
     cssFx: CSS_FX_BASE,
     jsAnn: JS_ANN_BASE,
     jsRender: JS_RENDER_BASE,
+    toc: TOC_BASE,
+    paper: PAPER_BASE,
   };
   if (mutate) mutate(state);
   const dir = fs.mkdtempSync(path.join(tmp, "case-"));
   fs.mkdirSync(path.join(dir, "docs"), { recursive: true });
   fs.mkdirSync(path.join(dir, "src", "assets", "css", "components"), { recursive: true });
   fs.mkdirSync(path.join(dir, "src", "assets", "js", "paper-reader"), { recursive: true });
+  fs.mkdirSync(path.join(dir, "src", "content", "papers", "demo-slug"), { recursive: true });
   if (state.doc !== null) {
     fs.writeFileSync(path.join(dir, "docs", "papers-interaction.md"), state.doc);
   }
@@ -320,6 +366,12 @@ function buildFixture(mutate) {
   }
   if (state.jsRender !== null) {
     fs.writeFileSync(path.join(dir, "src/assets/js/paper-reader/render.js"), state.jsRender);
+  }
+  if (state.toc !== null) {
+    fs.writeFileSync(path.join(dir, "src/assets/js/paper-reader/toc.js"), state.toc);
+  }
+  if (state.paper !== null) {
+    fs.writeFileSync(path.join(dir, "src/content/papers/demo-slug/paper.md"), state.paper);
   }
   return dir;
 }
@@ -406,6 +458,30 @@ const MUT = {
   cssPaletteMissing: (s) => {
     s.cssPalette = null;
   },
+  /** 论文正文文件不在 ⇒ PI8（论文正文文件一个都没找到）+ PI9（正文 id 一个都没检出）。 */
+  paperMissing: (s) => {
+    s.paper = null;
+  },
+  /** 论文正文里一个标题都没有 ⇒ PI8（正文小节标题一个都没检出）+ PI9（正文 id 一个都没检出）。 */
+  paperNoHeadings: (s) => {
+    s.paper = PAPER_NO_HEADINGS;
+  },
+  /** 某个小节标题没有显式 id ⇒ PI8（小节标题没有显式 id）。 */
+  paperHeadingWithoutId: (s) => {
+    s.paper = replaceOnce(s.paper, '<h2 id="p-demo-method">', "<h2>");
+  },
+  /** 两个小节标题用了同一个 id ⇒ PI9（id 重复出现）。 */
+  paperDuplicateId: (s) => {
+    s.paper = replaceOnce(s.paper, "p-demo-data", "p-demo-intro");
+  },
+  /** 目录脚本的选择器改了写法 ⇒ PI8（目录选择器的写法变了）。 */
+  tocSelectorChanged: (s) => {
+    s.toc = replaceOnce(s.toc, '"h2[id], h3[id]"', '"h2[id]"');
+  },
+  /** 目录脚本不在 ⇒ PI8（目录选择器读不出来）。 */
+  tocMissing: (s) => {
+    s.toc = null;
+  },
 };
 
 /** 注入档：expect=null 表示期望判绿，否则期望判红且判据集合**恰为** expect。 */
@@ -427,6 +503,12 @@ const CASES = [
   { id: "PIR14", label: "删掉 §5.2 的 css 围栏", mutate: MUT.cssFenceRemoved, expect: ["PI7"] },
   { id: "PIR15", label: "kind 真源 JS 不在", mutate: MUT.jsSourceMissing, expect: ["PI1", "PI2", "PI7"] },
   { id: "PIR16", label: "调色板真源 CSS 不在", mutate: MUT.cssPaletteMissing, expect: ["PI2", "PI3", "PI7"] },
+  { id: "PIR17", label: "论文正文文件不在", mutate: MUT.paperMissing, expect: ["PI8", "PI9"] },
+  { id: "PIR18", label: "论文正文里一个标题都没有", mutate: MUT.paperNoHeadings, expect: ["PI8", "PI9"] },
+  { id: "PIR19", label: "某个小节标题没有显式 id", mutate: MUT.paperHeadingWithoutId, expect: ["PI8"] },
+  { id: "PIR20", label: "两个小节标题用了同一个 id", mutate: MUT.paperDuplicateId, expect: ["PI9"] },
+  { id: "PIR21", label: "目录脚本的选择器改了写法", mutate: MUT.tocSelectorChanged, expect: ["PI8"] },
+  { id: "PIR22", label: "目录脚本不在", mutate: MUT.tocMissing, expect: ["PI8"] },
 ];
 
 /* ========== 四、判据级负对照 ========== */
@@ -450,6 +532,8 @@ const NEG_CASES = [
   { id: "NC-PI5", crit: "PI5", case: "PIR9", label: "卸掉 PI5" },
   { id: "NC-PI6", crit: "PI6", case: "PIR10", label: "卸掉 PI6" },
   { id: "NC-PI7", crit: "PI7", case: "PIR11", label: "卸掉 PI7" },
+  { id: "NC-PI8", crit: "PI8", case: "PIR19", label: "卸掉 PI8" },
+  { id: "NC-PI9", crit: "PI9", case: "PIR20", label: "卸掉 PI9" },
 ];
 
 /* ========== 执行 ========== */
@@ -475,6 +559,8 @@ function repoDigest() {
     path.join(ROOT, "README.md"),
     path.join(ROOT, "src/assets/css/components/_paper.css"),
     path.join(ROOT, "src/assets/js/paper-reader/annotations.js"),
+    path.join(ROOT, "src/assets/js/paper-reader/toc.js"),
+    path.join(ROOT, "src/content/papers/trmm-thunderstorm-stages/paper.md"),
     path.join(ROOT, "package.json"),
   ];
   for (const p of paths) h.update(p).update(fs.existsSync(p) ? fs.readFileSync(p) : "<missing>");

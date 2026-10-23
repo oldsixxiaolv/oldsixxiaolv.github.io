@@ -200,7 +200,7 @@ slug 的提取规则见 `src/eleventy-helpers.cjs` 的 `getSlugFromData`：文�
 
 批注数据（`annotations.json`）的字段规范见 `docs/papers-interaction.md`。
 **当前仓库里没有接入批注数据** —— `src/_includes/layouts/paper.njk` 只有读到批注文件时才会去取它，
-所以现在的论文页是纯阅读模式。段落锚点 id（`<h2 id="p-XXX">` 或 `<a id="p-XXX"></a>`）
+所以现在的论文页是纯阅读模式。锚点 id（小节标题用 `<h2 id="p-XXX">`、段落锚点用 `<a id="p-XXX"></a>`）
 与批注 `anchor.value` 的对应规则同见那份文档。
 
 > `src/content/papers/*/index.md` 会被 `eleventyConfig.ignores` 排除，不参与渲染。放不放都行；

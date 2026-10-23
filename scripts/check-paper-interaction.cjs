@@ -53,12 +53,23 @@
  *      6 条 `.annot-item[data-kind="…"]` 属于这一族。
  *   PI7 覆盖度自证 —— 真源 JS、真源 CSS、docs §3.4 表、README 表、附录 B 表、§5.2 代码块，
  *      六样各一份，缺一即红（防「改空了通过」）。
+ *   PI8 论文正文的**每一个小节标题都必须能被目录选中** —— 目录脚本
+ *      src/assets/js/paper-reader/toc.js 的标题选择器是「h2[id], h3[id]」，
+ *      而 eleventy.config.js 的 markdown-it 只开了 html / linkify / typographer，
+ *      **没有 anchor 插件** ⇒ markdown 裸标题（## 某某）渲染出来**不带 id**
+ *      ⇒ 会被选择器整条排除，论文页目录里就没有论文自己的小节。
+ *      这条判据把选择器**读成真源**再逐个标题对照：选择器覆盖到的级别上的标题，
+ *      都必须**带显式 id**。D91 场次实测：本文四个正文小节当时一个 id 都没有，
+ *      目录只剩版式小节，论文自己的章节一条都进不去。
+ *   PI9 同一份论文正文里的 id **不得重复** —— 重名时页面里的 #id 只解析到第一个
+ *      ⇒ 目录锚点会指到别处；批注锚点同理。
  *
  * ⚠️ 为什么只扫这几处（**不扫整份文档**）：
  *   docs/papers-interaction.md 里 §4.2 / §6.1 / §7 / §9.2 / §11 混着**已实现与规划**内容
  *   （例如 §7 的移动端 Tab Bar 三件套在 D54 已被当死类删掉，但 §7 仍把它当规划写）——
  *   拿整份文档对代码会假红（前序场次因此判过「不宜做」）。
- *   ⇒ 本门禁只扫**被改写成明确契约**的四处：§3.4 表、§5.2 代码块、附录 B 表、README 表。
+ *   ⇒ 本门禁只扫**被改写成明确契约**的几处：§3.4 表、§5.2 代码块、附录 B 表、README 表，
+ *     外加论文正文文件（src/content/papers 下的 paper.md）与目录脚本的标题选择器。
  *     其余段落是设计稿，不受本门禁约束。
  *
  * ⚠️ 诚实边界（不写清楚就成了过度声称）：
@@ -68,6 +79,9 @@
  *   · PI5 的「真实存在」= 在 CSS（**剥掉注释后**）或 JS 的 class 串里出现过。
  *     它**不判断**这个类当前有没有落点（那是 check-dead-css 的活）。
  *   · §十一 那份全未勾选的验收清单、附录 A 的示例 JSON，机器判不了，本门禁也不假装能判。
+ *   · PI8 / PI9 只看**标题与 id 的形式**：判不了标题文字写得好不好，也判不了 id 的语义好不好，
+ *     只判「有没有」与「重不重」。段落级的批注锚点尚未接入（D12），那部分 id 的唯一性
+ *     等批注真源落地后再看。
  *
  * 环境变量（供 scripts/test-paper-interaction.cjs 的注入矩阵用）：
  *   PI_ROOT —— 覆盖仓库根（文档、CSS、JS 都从这里找）。注入必须发生在副本上。
@@ -89,6 +103,10 @@ const JS_REL = "src/assets/js/paper-reader/annotations.js";
 const CSS_DIR_REL = "src/assets/css";
 /** 脚本根目录（相对仓库根）—— 类名普查用。 */
 const JS_DIR_REL = "src/assets/js";
+/** 论文正文目录（相对仓库根）—— 每篇论文的 paper.md 都在这里。 */
+const PAPERS_DIR_REL = "src/content/papers";
+/** 目录脚本（相对仓库根）—— 标题选择器的真源。 */
+const TOC_JS_REL = "src/assets/js/paper-reader/toc.js";
 
 const problems = [];
 const fail = (m) => problems.push(m);
@@ -646,6 +664,176 @@ if (!docCssBlock) {
   );
 }
 
+/* ---------------- PI8 / PI9 论文正文的小节标题与 id ---------------- */
+
+/** 论文正文文件：目录下**恰好**名为 paper.md 的文件（macOS 的 ._ 侧车不算）。 */
+function paperFiles() {
+  return walkFiles(PAPERS_DIR_REL, ".md").filter((f) => path.basename(f) === "paper.md");
+}
+
+/** 去掉 YAML front matter，返回正文（没有 front matter 就原样返回）。 */
+function splitFrontMatter(text) {
+  const m = /^---\r?\n[\s\S]*?\r?\n---\r?\n/.exec(text);
+  return m ? text.slice(m[0].length) : text;
+}
+
+/** 去掉围栏代码块（``` / ~~~）—— 里面的示例标题不是正文标题。 */
+function stripFencedCode(text) {
+  return text.replace(/^[ \t]*(`{3,}|~{3,})[^\n]*\n[\s\S]*?^[ \t]*\1[ \t]*$/gm, "");
+}
+
+/** 一份论文正文里的标题：ATX（## / ###）、setext、以及 HTML 的 h2/h3。 */
+function paperHeadings(body) {
+  const lines = body.split("\n");
+  const out = [];
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    /* ATX：## 或 ###（行首最多 3 个空格）。markdown 裸标题渲染出来没有 id。 */
+    const atx = /^[ \t]{0,3}(#{2,3})[ \t]+(.*?)[ \t]*#*[ \t]*$/.exec(line);
+    if (atx) {
+      out.push({ level: atx[1].length, hasId: false, form: "markdown", text: atx[2] });
+      continue;
+    }
+    /* HTML：<h2 …> / <h3 …>（标题文字可能跨行，这里只取本行的）。 */
+    const html = /^[ \t]{0,3}<h([23])\b([^>]*)>/i.exec(line);
+    if (html) {
+      const rest = line.slice(html[0].length);
+      const text = rest.replace(/<\/h[23]\s*>/i, "").replace(/<[^>]*>/g, "").trim();
+      out.push({
+        level: Number(html[1]),
+        hasId: /(?<![\w-])id\s*=\s*["'][^"']+["']/.test(html[2]),
+        form: "html",
+        text: text || "（标题文字不在本行）",
+      });
+      continue;
+    }
+    /* setext：文字行 + 下一行是 --- 或 ===（CommonMark 里这是 h2/h1）。 */
+    const next = lines[i + 1] || "";
+    if (line.trim() && /^[ \t]{0,3}(?:={2,}|-{2,})[ \t]*$/.test(next)) {
+      out.push({
+        level: next.trim().startsWith("=") ? 1 : 2,
+        hasId: false,
+        form: "setext",
+        text: line.trim(),
+      });
+    }
+  }
+  return out;
+}
+
+/** 正文里出现的所有 id（查重用；data-id / aria-id 这类带前缀的不算）。 */
+function allIds(body) {
+  const out = [];
+  for (const m of body.matchAll(/(?<![\w-])id\s*=\s*["']([^"']+)["']/g)) out.push(m[1]);
+  return out;
+}
+
+/** 目录脚本里的标题选择器解析成 [{level, needId}]；读不到或写法不认识返回 null。 */
+function tocSelectorParts() {
+  const t = readText(TOC_JS_REL);
+  if (!t) return null;
+  const m = /HEADING_SELECTOR\s*=\s*"([^"]*)"/.exec(t);
+  if (!m) return null;
+  const parts = m[1].split(",").map((s) => s.trim()).filter(Boolean);
+  if (!parts.length) return null;
+  const out = [];
+  for (const p of parts) {
+    const mm = /^h([1-6])(?:\[id\])?$/.exec(p);
+    if (!mm) return null;
+    out.push({ level: Number(mm[1]), needId: /\[id\]$/.test(p) });
+  }
+  return out;
+}
+
+/* --- PI8 的前提：目录选择器仍要求 id，且覆盖 h2 与 h3 --- */
+
+const selParts = tocSelectorParts();
+const selDesc = selParts
+  ? selParts.map((s) => "h" + s.level + (s.needId ? "[id]" : "")).join(", ")
+  : "";
+const selLevels = selParts ? [...new Set(selParts.map((s) => s.level))].sort((a, b) => a - b) : [];
+const selNeedsId = selParts ? selParts.every((s) => s.needId) : false;
+
+if (!selParts) {
+  fail(
+    `PI8 覆盖度自证 · 目录选择器读不出来 —— ${TOC_JS_REL} 里读不到 HEADING_SELECTOR，` +
+      `「论文的每一个小节标题都要能被目录选中」这条判据没有基准可比。`
+  );
+} else if (selLevels.join(",") !== "2,3" || !selNeedsId) {
+  fail(
+    `PI8 覆盖度自证 · 目录选择器的写法变了 —— ${TOC_JS_REL} 的选择器现在是「${selDesc}」，` +
+      `不再是「每一部分都是 hN[id] 且覆盖 h2 与 h3」⇒ 这条判据的根据变了，请按新写法更新判据。`
+  );
+}
+
+/* --- PI8 / PI9：逐篇论文正文核对标题与 id --- */
+
+const paperList = paperFiles();
+if (!paperList.length) {
+  fail(
+    `PI8 覆盖度自证 · 论文正文文件一个都没找到 —— ${PAPERS_DIR_REL} 下没有任何名为 paper.md 的文件，` +
+      `「论文的每一个小节标题都要能被目录选中」这条判据没有基准可比。`
+  );
+}
+
+let headingTotal = 0;
+let idTotal = 0;
+
+for (const f of paperList) {
+  const rel = path.relative(ROOT, f);
+  let raw = "";
+  try {
+    raw = fs.readFileSync(f, "utf8");
+  } catch (e) {
+    raw = "";
+  }
+  const body = stripFencedCode(splitFrontMatter(raw));
+  const headings = paperHeadings(body);
+  const ids = allIds(body);
+  headingTotal += headings.length;
+  idTotal += ids.length;
+
+  /* PI8：选择器覆盖到的级别上的标题，都必须能被选择器选中。 */
+  if (selParts) {
+    const uncovered = headings.filter(
+      (h) =>
+        selParts.some((s) => s.level === h.level) &&
+        !selParts.some((s) => s.level === h.level && (!s.needId || h.hasId))
+    );
+    if (uncovered.length) {
+      fail(
+        `PI8 ${rel} 的小节标题没有显式 id —— 「${uncovered.map((h) => h.text).join("」「")}」` +
+          `渲染出来不带 id 属性，目录脚本 ${TOC_JS_REL} 的选择器只挑带 id 的标题 ` +
+          `⇒ 这些小节不会出现在论文页目录里。改成 <h2 id="p-xxx">标题</h2>。`
+      );
+    }
+  }
+
+  /* PI9：同一份正文里的 id 不得重复。 */
+  const counted = new Map();
+  for (const id of ids) counted.set(id, (counted.get(id) || 0) + 1);
+  const dup = [...counted.entries()].filter(([, n]) => n > 1).map(([id]) => id);
+  if (dup.length) {
+    fail(
+      `PI9 ${rel} 的 id 重复出现 —— 「${dup.join("」「")}」在正文里出现了不止一次。` +
+        `重名的 id 在页面里只会解析到第一个 ⇒ 目录锚点会指错地方。改掉重名的那一个。`
+    );
+  }
+}
+
+if (!headingTotal) {
+  fail(
+    `PI8 覆盖度自证 · 正文小节标题一个都没检出 —— 扫到的论文正文里一个标题也没有，` +
+      `「论文的每一个小节标题都要能被目录选中」这条判据没有基准可比。`
+  );
+}
+if (!idTotal) {
+  fail(
+    `PI9 覆盖度自证 · 正文 id 一个都没检出 —— 扫到的论文正文里一个 id 属性也没有，` +
+      `「同一份正文里的 id 不得重复」这条判据没有基准可比。`
+  );
+}
+
 /* ---------------- 汇总 ---------------- */
 
 if (problems.length) {
@@ -668,9 +856,13 @@ console.log(
   `  · kind 真源：${JS_REL}（KIND_LABELS / KIND_ICONS）；调色板真源：${CSS_REL}（kind 调色板段）。`
 );
 console.log(
+  `  · 论文正文 ${paperList.length} 篇、标题 ${headingTotal} 个，全部能被目录选中；` +
+    `正文 id ${idTotal} 个，无重名。标题选择器真源：${TOC_JS_REL}。`
+);
+console.log(
   "  · 本门禁是静态的：不联网、不跑构建、不 require 被检查方，纯读文档与样式表/脚本的文本。"
 );
 console.log(
-  "  · 扫描面只有被改写成明确契约的四处（§3.4 表 / §5.2 代码块 / 附录 B 表 / README 表）；" +
-    "文档里其余混合了规划内容的段落不在扫描面内。"
+  "  · 扫描面只有被改写成明确契约的几处（§3.4 表 / §5.2 代码块 / 附录 B 表 / README 表，" +
+    "外加论文正文文件的标题与 id）；文档里其余混合了规划内容的段落不在扫描面内。"
 );

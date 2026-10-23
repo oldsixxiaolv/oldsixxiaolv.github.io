@@ -26,7 +26,7 @@ summary: "A K-means classifier on radar echo structure splits 16 years of TRMM s
 # 分层）与闪电率、40 dBZ 闪密度的累积分布曲线。图只有一张，alt 却有两套。
 ---
 
-## What this paper does
+<h2 id="p-what-this-paper-does">What this paper does</h2>
 
 TRMM gives you radar and lightning *at the same time*, which is the reason the
 platform is still worth mining two decades after launch. But it is an
@@ -37,7 +37,7 @@ This paper builds the missing piece: a way to say *where in its life cycle a
 snapshot storm is*, so that lightning–structure relationships can be asked as
 a function of storm stage rather than pooled across all of them.
 
-## How the stage classification works
+<h2 id="p-how-the-stage-classification-works">How the stage classification works</h2>
 
 The approach is a machine-learning K-means clustering on radar echo structure,
 applied to 16 years of TRMM observations over tropical Africa — the global
@@ -52,7 +52,7 @@ like a single trend. Resolved by stage, the *correlation coefficients turn
 out to be similar* while the *linear fits differ* — which is the signal for
 stage-specific electrification mechanisms rather than one universal one.
 
-## Why stage-dependence matters for the field
+<h2 id="p-why-stage-dependence-matters-for-the-field">Why stage-dependence matters for the field</h2>
 
 Two findings are worth pulling out, because they are the ones that carry
 consequence beyond this paper:
@@ -73,7 +73,7 @@ written against stage-agnostic relationships. If the relationship is
 genuinely stage-dependent, a single set of coefficients will fit well in
 aggregate and badly in any individual storm.
 
-## The data and the code
+<h2 id="p-the-data-and-the-code">The data and the code</h2>
 
 Everything needed to reproduce the analysis is published and separately
 citable — the dataset, the code, and a packaged capsule that runs the
