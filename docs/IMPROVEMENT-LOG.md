@@ -27022,3 +27022,121 @@ D59 第三批给 `check-lang`、第四批给 `check-print-theme`、第五批给 
 - **M1（内容引擎）**：选题主线本人尚未指定 ⇒ 本轮不代拍。
 - **M4 / M5**：下游于文章（文章还没有）⇒ 排在 M1 之后。
 - 其余待修缺陷（D5 / D6 / D9 / D10 / D12 / D26 / D32 / D57）仍挂本人拍板，本轮不代拍。
+
+## 2026-10-22 · 23:00–23:58 场次（**不占轮次号**）：D79 —— 修掉缺陷 **D78**：文档里的「现状」标注与「接入新论文 checklist」在站点重构后与代码现实脱节，且零门禁看守
+
+### A. 背景
+
+- D78 场次把 `docs/implementation-notes.md` 从头对了一遍，发现两处早已漂了。
+  该文档在开头声明「§3、§6、§9、§11 描述的实现细节已经变了，正文中已就地标注」——
+  也就是说，那几节里的「（现状：…）」是**承诺为当前状态**的，不是历史记述。
+  实测却发现：
+  - §9 写「（现状：已有 3 篇 paper，`papers.11tydata.cjs` 仍未注入 prev/next）」；
+  - §11 写「**现在已有 3 篇**（holton-rollin-1987 / microphysics-zhang / trmm-lyu-2026），
+    下面这套流程已实际跑过多轮，可直接照用」。
+- 而仓库里**只有一篇**真实论文（`src/content/papers/trmm-thunderstorm-stages`）；
+  那三个 slug 是旧站的占位论文，2026-10-15 的站点重构里已被删除。
+  用 git 历史逐个证实：`f47357d`（2026-10-02）写下那两处标注时**确实有**那三篇，
+  `0252580`（2026-10-15）把它们删了，`705d621`（2026-10-19）加进唯一真实论文
+  ⇒ 标注**从写入到今天都没跟着更新**。
+- 更要紧的是 §11「接入新论文 checklist」第 1 步要求 front matter 必填
+  `slug / authors / journal / year / doi / tags` —— **与真实机制相反**：
+  - 标题、作者、期刊、doi 的真源是 `src/_data/site.js` 的 `publications[]` 条目，
+    front matter 只用 `pubKey` 指回去（`paper.njk` 第 36 行 `pubByKey(pubKey)`）；
+  - `slug` 由**目录名**决定（`src/eleventy-helpers.cjs` 的 `getSlugFromData`），
+    它不是 front matter 字段；
+  - `tags` 由目录数据文件自动注入，属本仓「自动注入、不要重复写」那一类
+    （博客那边是同一条口径，见 `check-blog-frontmatter` 的 F8）。
+  ⇒ 照这份 checklist 写出来的论文页**没有标题、作者、期刊**，多写的 `tags`
+  还会跟目录级集合标签打架。
+- 根因比「写错了两处」更深：**「文档里的现状声明是否与代码现实一致」从来没有被机器核对过** ——
+  门禁链里没有一道门禁读「文档现状 ↔ 仓库真实论文与数据层」；
+  已有的 DS1 口径是「数字 ＋ 步」，既管不到「数字 ＋ 篇」，也管不到「点名的论文还在不在」。
+- ⇒ 登记为缺陷 **D78**，本轮修它（纯工程补强，不新增待拍板项）。
+
+### B. 改动
+
+- **`scripts/check-doc-reality.cjs`（新增门禁，判据 DR1–DR5，全静态、不联网、不 import 被检查方）**：
+  - DR1 论文语境段落里点名的论文标识，必须在 `src/content/papers/` 下真实存在；
+  - DR2 现状陈述里不许写死会变的论文篇数（短语级标记：现状 / 现有 / 现在 / 目前 / 已现 /
+    已有 / 一共 / 总共 / 共 ＋ 数字 ＋ 篇）；
+  - DR3 「必填 front matter 字段」清单里的字段，必须真在真实论文的 front matter 里
+    （真站 front matter 键 = `pubKey / date / description / summary`）；
+  - DR4 自动注入的字段（`layout` / `permalink` / `eleventyComputed.slug` / `tags`）
+    不许被列为「必填」；
+  - DR5 覆盖度自证：活文档 / 真实论文 / 目录数据文件 / 必填字段清单 / 论文语境段落，
+    五样缺一即判红（防「改空了通过」）。
+- **刻意不扩 DS1**：DS1 的口径是「数字 ＋ 步」，扩成通用「N 篇」会误伤
+  `docs/information-architecture.md` 的「每页 10 篇」这类**设计规格** ⇒ 单开 DR2，
+  且用**短语级**标记，避开「每页 10 篇」与历史语境里的「只有 1 篇」。
+- **扫描面只取一份活文档**：`docs/implementation-notes.md` 是**唯一**自称含「就地现状标注」的活文档；
+  历史记录（`IMPROVEMENT-LOG` / `DEFECT-BACKLOG` / `ROADMAP`）与历史快照（`acceptance-report`）不扫 ——
+  它们必须原样保留当时的错误写法，**改写历史就是伪造历史**。
+- **`docs/implementation-notes.md`**：
+  - §9 的现状标注改成「论文数量早已不止一篇…论文清单见 `src/content/papers/`」；
+  - §11 开头改成「以 `src/content/papers/` 下的实际目录为准，论文条目本身以
+    `src/_data/site.js` 的 `publications` 为准」，不再列已删除的 slug；
+  - checklist 重排为 9 步：第 1 步先在 `site.js` 加 publications 条目（标题 / 作者 / 期刊 /
+    年份 / DOI / 日期 / 封面图都在那条里）、第 2 步 front matter 必填 `pubKey`
+    （`description` 给 SEO meta、`summary` 给列表页卡片，按需写）、
+    **新增第 3 步**讲清 `slug` 由目录名决定与自动注入字段不要重复写、
+    第 4 步补「没有 `annotations.json` 时页面会整段跳过批注模块，这是设计内的行为，不是坏了」。
+- **`scripts/test-doc-reality.cjs`（新增自测，四件套）**：红因归属表 9 条
+  （DR1 / DR2 / DR3 / DR4 / DR5a–DR5e，**文案片段互不包含** ⇒ 归属纯净）；
+  覆盖度自证双向（门禁 9 处 `fail()` 调用点 ↔ 归属表；门禁解析出的判据集合 ==
+  `["DR1","DR2","DR3","DR4","DR5"]`）；注入档 **DCR0–DCR10**（每档断言「判红 ＋ 判据集合**恰为**预期」）；
+  判据级负对照 **NC-DR1–NC-DR5**（复制门禁源码到 tmp 再同行替换，
+  **不给生产门禁加可卸开关** —— 加开关等于在生产环境留一个能悄悄关掉判据的入口），
+  仓库原件 sha256 前后一致。
+- **`scripts/lib/selftest-slots.cjs`**：静态清单登记 16 个编号。
+- **`package.json`**：新增 `check:doc-reality` 与 `check:doc-reality-selftest`，
+  两者都接进 build 链（排在 `check:doc-snapshot-selftest` 之后）。
+- **`README.md`**：命令表补两行（门禁行只列 DR1–DR5，**不带缺陷编号**；自测行写定性描述）。
+
+### C. 验证
+
+- **独立反向验证（关键一条）**：门禁在**修文档之前**真仓实跑 **exit 1**，红因 **11 条**
+  （DR1×3 过期 slug、DR2×2 写死篇数、DR3×4 假字段、DR4×2 自动注入字段），
+  逐条点名 `docs/implementation-notes.md` 的行号（128 / 113 / 132）；
+  修文档后 **exit 0**（检出 6 个论文语境段落、1 处必填字段清单、真实论文 1 篇、
+  front matter 键 `pubKey / date / description / summary`）。
+- **自测自己抓出了门禁的真缺陷并当场修掉**：初版把「真实论文」数成**目录数** ⇒ 空目录也算数
+  ⇒ 注入档「一篇真实论文都没有」抓不到（该档实跑 exit 0）⇒ 改为「目录里真有带 front matter
+  的 .md 才算真实论文」，并补一档「目录在、但里面没有论文文件」（DCR10）；
+  随后自测 **DCR0–DCR10 与 NC-DR1–NC-DR5 全绿**（经包装器跑，档位清单守卫 16/16 一致）。
+- 7 道元门禁全 exit 0；`npm run build` **exit 0**。
+- 线上巡检如实记录：**不是全 200** —— `/`、`/blog/`、`/about/`、`/sitemap.xml` 200；
+  `/papers/`、`/publications.bib`、`/feed.xml` 三条 **404** —— 这三条属缺陷 **D6**（旧部署，
+  **由 push 触发**），本轮**不代拍**。
+
+### D. 顺手发现（记下来，不在本轮修）
+
+- 论文的 front matter 里有个 `date` 字段，但 `paper.njk` 与列表页**都没有消费它**
+  （论文日期取自 `site.js` 的 `pub.dates`）⇒ 它现在是个**零消费**字段。
+  本轮不删（删字段会影响既有页面行为），只如实记下。
+- `docs/acceptance-report.md` 自带「历史快照（2026-09-26）…不再随代码更新」声明
+  ⇒ 本轮那轮勘察里它一度被误当成活文档，**本轮明确不扫它**（已在门禁的诚实边界里写清）。
+
+### E. 文档
+
+- `docs/DEFECT-BACKLOG.md`：登记 **D78（已修）**，附验收条件逐条兑现与诚实边界。
+- `docs/ROADMAP.md`：§1 进度时间戳更新、缺陷清单摘要更新（**D78 列入已修**）、末尾追加 D79 场次条目。
+- `docs/IMPROVEMENT-LOG.md`：本小节；中央「待决策」台账**不新增**待拍板项（本轮是纯工程补强）。
+
+### F. 本轮纪律
+
+- 提交只走**私有索引 CAS**，只提交本轮自己改的路径；**不 push**。
+- 并发场次占用的 `scripts/check-identity-handles.cjs` / `scripts/test-gates-selfcheck.cjs`
+  本轮**未触碰、未提交**。
+- 探针与勘察脚本都放在 `/tmp/mh_d79/`，**不入库**；收尾用 `mavis-trash` 清理。
+- 门禁红了先定位红因，**不为了 build 变绿去放宽判据**；本轮的门禁红过一次
+  （自测抓到「真实论文按目录数」），处置是**改门禁的实现**、不是改判据。
+- 新门禁**纯静态、不联网、不 import 被检查方** ⇒ 与 D74–D76「不依赖外网」的原则一致。
+
+### 下一轮入口
+
+- **缺陷 D6（线上 3 条 404）**：真正的前置是 **push**（本轮不代拍、不 push）。
+- **M3（Decap 后台）**：要先把「bundle 自托管还是走 CDN」定下来，且 OAuth App 必须本人建 ⇒ 本轮不代拍。
+- **M1（内容引擎）**：选题主线本人尚未指定 ⇒ 本轮不代拍。
+- **M4 / M5**：下游于文章（文章还没有）⇒ 排在 M1 之后。
+- 其余待修缺陷（D5 / D6 / D9 / D10 / D12 / D26 / D32 / D57）仍挂本人拍板，本轮不代拍。

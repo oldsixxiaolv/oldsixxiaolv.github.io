@@ -110,7 +110,7 @@ paper.njk 里的 `<script type="module">` 在 `<article class="paper">` 之后�
 
 - **pagination**：当前 blog / papers / portfolio 列表都是 `size: 100` 一次性渲染所有项。collection > 100 时需要分页。`docs/information-architecture.md §4.3` 提到"每页 10 篇"，Stage 2 没做，等 Stage 3。**（现状：仍未做）**
 - **tags 索引页**（`/tags/` 和 `/tags/{tag}/`）：`docs/information-architecture.md` 的 sitemap 有这一段，但 Stage 2 没做。**（现状：仍未做）**
-- **pagination prev/next for papers**：blog 用 `eleventyComputed` 注入了 prev/next，但 papers 没注入（当时只有 1 篇 paper，没意义）。**（现状：已有 3 篇 paper，`papers.11tydata.cjs` 仍未注入 prev/next）**
+- **pagination prev/next for papers**：blog 用 `eleventyComputed` 注入了 prev/next，但 papers 没注入（当时论文太少，prev/next 没意义）。**（现状：论文数量早已不止一篇，`papers.11tydata.cjs` 仍未注入 prev/next；论文清单见 `src/content/papers/`）**
 - **404 中文化**：当前「这里没东西」是中文，但形式还可以再打磨（视觉与首页保持一致）。**（现状：仍待打磨）**
 - **跨域策略**：`/content/papers/<slug>/annotations.json` 是直接 fetch 的；部署在 GitHub Pages 时跨域 OK（同源）。如果用 CloudFlare Pages + 自定义域名 + 强制 HTTPS，也没问题。
 - **OG image**：Stage 2 当时 og:image 缺失。**（现状：已补齐 —— `src/assets/img/og/` 下 3 组尺寸 × SVG+PNG，见 `docs/og-image-and-a11y-report.md`）**
@@ -125,17 +125,19 @@ paper.njk 里的 `<script type="module">` 在 `<article class="paper">` 之后�
 
 ## 11. 接入新论文 checklist
 
-> 原文标题为「Stage 3 接入 checklist」，写于只有 1 篇 paper 的时候。**现在已有 3 篇**（holton-rollin-1987 / microphysics-zhang / trmm-lyu-2026），下面这套流程已实际跑过多轮，可直接照用。
+> 原文标题为「Stage 3 接入 checklist」，写于只有 1 篇 paper 的时候。**下面这套流程已实际跑过多轮，可直接照用**；当前收录的论文以 `src/content/papers/` 下的实际目录为准，论文条目本身以 `src/_data/site.js` 的 `publications` 为准。
 
 如果新增一篇 paper：
 
-1. 在 `src/content/papers/<slug>/paper.md` 写好 frontmatter + 正文（frontmatter 必须在文件第 1 行；必填 `slug / authors / journal / year / doi / tags`，其余按需）
-2. `src/content/papers/<slug>/annotations.json` 写好批注数据，`anchor.value` 要能命中 paper.md 里的段落 id
-3. **不要**写 `_site/...` 或 `_data/...` 里手动改路径，11ty 自动跑
-4. `papers.11tydata.cjs` 已经统一管 permalink/layout，paper.md 自动用 paper.njk layout + 走 `/papers/<slug>/`
-5. `papers.11tydata.cjs` 已经有 `eleventyComputed.slug`，paper.njk 用 `{{ slug }}` 自动拿到
-6. （可选）给 papers collection 加 prev/next computed，参考 `blog.11tydata.cjs` 的写法
-7. `npm run build` + `npm run serve`，浏览器打开 `/papers/<slug>/` 验证双向联动
+1. 先在 `src/_data/site.js` 的 `publications` 里加一条论文条目（`key` 与下面的 `pubKey` 一致）：标题、作者、期刊、年份、DOI、收稿与发表日期、封面图都在这条里，**论文页与参考文献口径只认这一处**
+2. 在 `src/content/papers/<slug>/paper.md` 写好 frontmatter + 正文（frontmatter 必须在文件第 1 行；必填 `pubKey`，它指回上一步那条 publications 条目；`description` 给 SEO meta、`summary` 给列表页卡片，按需写）
+3. `slug` 由**目录名**决定（`src/eleventy-helpers.cjs` 的 `getSlugFromData`），`layout` / `permalink` / `tags` 由 `papers.11tydata.cjs` 自动注入 —— **不要在 front matter 里重复写这些字段**
+4. `src/content/papers/<slug>/annotations.json` 写好批注数据，`anchor.value` 要能命中 paper.md 里的段落 id（**没有这个文件时页面会整段跳过批注模块**，这是设计内的行为，不是坏了）
+5. **不要**写 `_site/...` 或 `_data/...` 里手动改路径，11ty 自动跑
+6. `papers.11tydata.cjs` 已经统一管 permalink/layout，paper.md 自动用 paper.njk layout + 走 `/papers/<slug>/`
+7. `papers.11tydata.cjs` 已经有 `eleventyComputed.slug`，paper.njk 用 `{{ slug }}` 自动拿到
+8. （可选）给 papers collection 加 prev/next computed，参考 `blog.11tydata.cjs` 的写法
+9. `npm run build` + `npm run serve`，浏览器打开 `/papers/<slug>/` 验证双向联动
 
 新增 blog / portfolio 同理；两者都已有 prev/next。完整字段清单见 `HOW_TO_RUN.md`「编写内容」。
 
