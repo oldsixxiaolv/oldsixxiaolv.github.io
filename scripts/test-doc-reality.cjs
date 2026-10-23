@@ -6,13 +6,19 @@
  * 而「注入没生效」「改的是副本还是原件」「门禁自己被卸掉了」恰恰是最容易发生、
  * 也最不容易看出来的失败模式。所以自测必须回答四件事：
  *
- *   一、红因归属表 —— 门禁的 9 处 fail() 调用逐条登记判据号与**唯一文案片段**。
+ *   一、红因归属表 —— 门禁的 13 处 fail() 调用逐条登记判据号与**唯一文案片段**。
  *   二、覆盖度自证 —— 门禁的 fail() 调用点与归属表**双向**对齐；
  *      门禁解析出的判据集合与静态清单一致；每条红因、每条判据都至少一档判红。
  *   三、注入档 —— 每一档都断言**判红且判据集合恰为预期**（多一条少一条都算失败）。
  *   四、判据级负对照 —— 在门禁**副本**里把某条判据卸掉
  *      （给它那一条 fail() 调用同行加 `if (false) ` 前缀，**行数不变**），
  *      对应夹具必须转绿 ⇒ 证明那条红确实是它判出来的，而不是别的判据顺带报出来的。
+ *
+ * ⚠️ 为什么负对照要能「按红因归属」单独卸一条：
+ *   DR5 有 5 处 fail() 调用（DR5a–e）、DR7 有 2 处（DR7a / DR7b）——
+ *   它们**判据号相同、文案片段不同**。按判据号一次全卸，会把两条红一起卸掉，
+ *   负对照就只证明「这两条红都出自这个判据」，证明不了「这条红出自这一处」。
+ *   ⇒ 归属级负对照（unloadCause）按**文案片段**定位调用点，一次只卸一条。
  *
  * 注入全程只在 /tmp 副本上做；仓库里的文件一个字节都不动（末尾有 sha256 自证）。
  *
@@ -39,9 +45,13 @@ const CAUSES = [
   { id: "DR5c", crit: "DR5", frag: "读不到论文目录数据文件" },
   { id: "DR5d", crit: "DR5", frag: "一处「必填字段清单」都没检出" },
   { id: "DR5e", crit: "DR5", frag: "一个论文语境段落都没检出" },
+  { id: "DR6", crit: "DR6", frag: "活文档点名的仓内路径在仓库里不存在" },
+  { id: "DR7a", crit: "DR7", frag: "接入流程文档不在" },
+  { id: "DR7b", crit: "DR7", frag: "里检出的仓内路径候选太少" },
+  { id: "DR8", crit: "DR8", frag: "接入指南里写死了会变的条目数" },
 ];
 /** 静态判据清单（门禁里应当且仅应当有这些判据）。 */
-const CRITERIA = ["DR1", "DR2", "DR3", "DR4", "DR5"];
+const CRITERIA = ["DR1", "DR2", "DR3", "DR4", "DR5", "DR6", "DR7", "DR8"];
 
 /* ========== 工具 ========== */
 
@@ -99,7 +109,60 @@ const DOC_BASE = [
   "",
   REQUIRED_LINE,
   "",
+  "## 夹具用到的仓内路径",
+  "",
+  "- 站点元数据：`src/_data/site.js`",
+  "- 辅助函数：`src/eleventy-helpers.cjs`",
+  "- 内容页布局：`src/_includes/layouts/paper.njk`",
+  "- 站点脚本：`src/assets/js/main.js`",
+  "- 样式令牌：`src/assets/css/tokens.css`",
+  "",
 ].join("\n");
+
+/**
+ * 夹具里的「接入流程文档」（HOW_TO_RUN.md）。
+ * 两份活文档都要各自点出**足够多**的仓内路径（≥ 5），否则 DR7 的覆盖度自证
+ * 会在基线档就判红 ⇒ 基线就没有意义了。
+ * ⚠️ 这里刻意不写「篇 / 论文」字样：那些字会让 DR1 的「论文语境段落」多出一段，
+ *    而夹具里那些段落的措辞并不该被当成论文现状陈述来判。
+ */
+const RUN_DOC_BASE = [
+  "# 夹具 · HOW TO RUN",
+  "",
+  "## 夹具用到的仓内路径",
+  "",
+  "- 站点元数据：`src/_data/site.js`",
+  "- 辅助函数：`src/eleventy-helpers.cjs`",
+  "- 基础布局：`src/_includes/layouts/base.njk`",
+  "- 内容页布局：`src/_includes/layouts/paper.njk`",
+  "- 页头片段：`src/_includes/partials/header.njk`",
+  "- 站点脚本：`src/assets/js/main.js`",
+  "- 首页图表：`src/assets/js/home-chart.js`",
+  "- 主题脚本：`src/assets/js/theme.js`",
+  "- 阅读器入口：`src/assets/js/paper-reader/main.js`",
+  "- 样式令牌：`src/assets/css/tokens.css`",
+  "- 组件样式：`src/assets/css/components/index.css`",
+  "- 博客内容目录：`src/content/blog/`",
+  "",
+].join("\n");
+
+/** 夹具里 stub 出来的仓内文件（两份文档点名的路径都指向它们 ⇒ 全部真实存在）。 */
+const STUB_FILES = {
+  "src/_data/site.js": "module.exports = { publications: [] };\n",
+  "src/eleventy-helpers.cjs": "module.exports = {};\n",
+  "src/_includes/layouts/base.njk": "<html lang=\"en\"></html>\n",
+  "src/_includes/layouts/paper.njk": "<html lang=\"en\"></html>\n",
+  "src/_includes/partials/header.njk": "<header></header>\n",
+  "src/assets/js/main.js": "// stub\n",
+  "src/assets/js/home-chart.js": "// stub\n",
+  "src/assets/js/theme.js": "// stub\n",
+  "src/assets/js/paper-reader/main.js": "// stub\n",
+  "src/assets/css/tokens.css": ":root {}\n",
+  "src/assets/css/components/index.css": "@import \"../tokens.css\";\n",
+};
+
+/** 夹具里 stub 出来的仓内目录（文档点名的目录路径也得真实存在）。 */
+const STUB_DIRS = ["src/content/blog"];
 
 /** 一篇真实论文（front matter 的键与真站一致：pubKey / date / description / summary）。 */
 const PAPER_MD = [
@@ -135,6 +198,7 @@ const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "mh-docreality-selftest-"));
 function buildFixture(mutate) {
   const state = {
     doc: DOC_BASE,
+    runDoc: RUN_DOC_BASE,
     paper: PAPER_MD,
     data: PAPERS_DATA,
     /** 论文目录在、但里面没有论文文件（空目录）。 */
@@ -146,8 +210,15 @@ function buildFixture(mutate) {
   const paperDir = path.join(papersRoot, "fixture-stages");
   fs.mkdirSync(path.join(dir, "docs"), { recursive: true });
   fs.mkdirSync(papersRoot, { recursive: true });
+  for (const rel of STUB_DIRS) fs.mkdirSync(path.join(dir, rel), { recursive: true });
+  for (const rel of Object.keys(STUB_FILES)) {
+    const abs = path.join(dir, rel);
+    fs.mkdirSync(path.dirname(abs), { recursive: true });
+    fs.writeFileSync(abs, STUB_FILES[rel]);
+  }
   if (state.paper !== null || state.emptyPaperDir) fs.mkdirSync(paperDir, { recursive: true });
   if (state.doc !== null) fs.writeFileSync(path.join(dir, "docs", "implementation-notes.md"), state.doc);
+  if (state.runDoc !== null) fs.writeFileSync(path.join(dir, "HOW_TO_RUN.md"), state.runDoc);
   if (state.paper !== null) fs.writeFileSync(path.join(paperDir, "paper.md"), state.paper);
   if (state.data !== null) {
     fs.writeFileSync(path.join(papersRoot, "papers.11tydata.cjs"), state.data);
@@ -171,7 +242,7 @@ const MUT = {
       s.doc,
       CONTEXT_LINE,
       "> 原文标题为「Stage 3 接入 checklist」，写于只有一篇 paper 的时候。" +
-        "**现在收录的论文（gone-slug-a / gone-slug-b）以实际目录为准。**"
+        "**现在收录的论文（gone-slug-a / gone-slug-b）以 `src/content/papers/` 下的实际目录为准。**"
     );
   },
   /** 现状陈述里写死了论文篇数 ⇒ DR2。 */
@@ -211,14 +282,38 @@ const MUT = {
   },
   /** 论文语境段落全没了 ⇒ DR5。 */
   noPaperContext: (s) => {
-    s.doc = [
-      "# 夹具 · implementation notes",
+    // 只换掉那一行的措辞，保留 `src/content/papers/` 这个反引号路径 ——
+    // 路径候选数得留在 DR7 的下限之上，否则这一档会同时踩到 DR7（判据集合就不纯了）。
+    s.doc = replaceOnce(
+      s.doc,
+      CONTEXT_LINE,
+      "> 原文标题为「Stage 3 接入 checklist」。**集合以 `src/content/papers/` 下的实际目录为准。**"
+    );
+  },
+  /** 接入流程文档点名了仓库里不存在的路径 ⇒ DR6。 */
+  missingRunPath: (s) => {
+    s.runDoc = replaceOnce(
+      s.runDoc,
+      "- 站点脚本：`src/assets/js/main.js`",
+      "- 站点脚本：`src/assets/js/nav-drawer.js`"
+    );
+  },
+  /** 接入流程文档缺失 ⇒ DR7。 */
+  runDocMissing: (s) => {
+    s.runDoc = null;
+  },
+  /** 接入流程文档里的仓内路径候选太少 ⇒ DR7。 */
+  fewRunPaths: (s) => {
+    s.runDoc = [
+      "# 夹具 · HOW TO RUN",
       "",
-      "> 原文标题为「Stage 3 接入 checklist」。**集合以 `src/content/papers/` 下的实际目录为准。**",
-      "",
-      REQUIRED_LINE,
+      "- 站点元数据：`src/_data/site.js`",
       "",
     ].join("\n");
+  },
+  /** 接入流程文档里写死了会变的条目数 ⇒ DR8。 */
+  hardcodedRunCount: (s) => {
+    s.runDoc = s.runDoc + "\n- 站点现在收录 3 篇论文。\n";
   },
 };
 
@@ -235,6 +330,10 @@ const CASES = [
   { id: "DCR8", label: "必填字段清单被删光", mutate: MUT.requiredWiped, expect: ["DR5"] },
   { id: "DCR9", label: "论文语境段落全没了", mutate: MUT.noPaperContext, expect: ["DR5"] },
   { id: "DCR10", label: "论文目录在、但里面没有论文文件", mutate: MUT.emptyPaperDir, expect: ["DR5"] },
+  { id: "DCR11", label: "接入流程文档点名了仓库里不存在的路径", mutate: MUT.missingRunPath, expect: ["DR6"] },
+  { id: "DCR12", label: "接入流程文档缺失", mutate: MUT.runDocMissing, expect: ["DR7"] },
+  { id: "DCR13", label: "接入流程文档里的仓内路径候选太少", mutate: MUT.fewRunPaths, expect: ["DR7"] },
+  { id: "DCR14", label: "接入流程文档里写死了会变的条目数", mutate: MUT.hardcodedRunCount, expect: ["DR8"] },
 ];
 
 /* ========== 四、判据级负对照 ========== */
@@ -249,13 +348,49 @@ function unloadCriterion(src, calls, crit) {
   return { src: out, count: targets.length };
 }
 
-/** 负对照档：卸掉某条判据后，对应夹具必须转绿。 */
+/**
+ * 在门禁副本里按**红因归属 id** 卸掉某一条判据（一次只卸一条）。
+ * 与 unloadCriterion 的区别：DR5 有 5 处、DR7 有 2 处 fail() 调用，
+ * 判据号相同、文案片段不同 ⇒ 按判据号一次全卸，证明不了「这条红出自这一处」。
+ */
+function unloadCause(src, calls, causeId) {
+  const cause = CAUSES.find((c) => c.id === causeId);
+  if (!cause) throw new Error(`红因归属表里没有 ${causeId}`);
+  const targets = calls.filter((c) => c.literal.includes(cause.frag));
+  let out = src;
+  for (const t of targets.slice().reverse()) {
+    out = out.slice(0, t.index) + "if (false) " + out.slice(t.index);
+  }
+  return { src: out, count: targets.length };
+}
+
+/**
+ * 负对照档：卸掉某条判据后，对应夹具必须转绿。
+ *   crit  —— 按判据号卸（DR5 的 5 处一次全卸）。
+ *   cause —— 按红因归属卸（DR7a / DR7b 两处一次只卸一条）。
+ */
 const NEG_CASES = [
   { id: "NC-DR1", crit: "DR1", case: "DCR1", label: "卸掉 DR1" },
   { id: "NC-DR2", crit: "DR2", case: "DCR2", label: "卸掉 DR2" },
   { id: "NC-DR3", crit: "DR3", case: "DCR3", label: "卸掉 DR3" },
   { id: "NC-DR4", crit: "DR4", case: "DCR4", label: "卸掉 DR4" },
   { id: "NC-DR5", crit: "DR5", case: "DCR8", label: "卸掉 DR5" },
+  { id: "NC-DR6", crit: "DR6", cause: "DR6", case: "DCR11", label: "卸掉 DR6" },
+  {
+    id: "NC-DR7a",
+    crit: "DR7",
+    cause: "DR7a",
+    case: "DCR12",
+    label: "卸掉 DR7a（接入流程文档缺失那条）",
+  },
+  {
+    id: "NC-DR7b",
+    crit: "DR7",
+    cause: "DR7b",
+    case: "DCR13",
+    label: "卸掉 DR7b（路径候选数下限那条）",
+  },
+  { id: "NC-DR8", crit: "DR8", cause: "DR8", case: "DCR14", label: "卸掉 DR8" },
 ];
 
 /* ========== 执行 ========== */
@@ -278,6 +413,7 @@ function repoDigest() {
   const paths = [
     GATE,
     path.join(ROOT, "docs", "implementation-notes.md"),
+    path.join(ROOT, "HOW_TO_RUN.md"),
     path.join(ROOT, "src", "content", "papers", "papers.11tydata.cjs"),
     path.join(ROOT, "package.json"),
   ];
@@ -410,12 +546,14 @@ for (const spec of CASES) {
 /* ---- 四、判据级负对照 ---- */
 console.log("\n四、判据级负对照");
 for (const neg of NEG_CASES) {
-  const targets = calls.filter((c) => c.crit === neg.crit);
-  if (targets.length === 0) {
-    bad(`${neg.id} → 门禁里找不到判据 ${neg.crit} 的 fail() 调用`);
+  const what = neg.cause || neg.crit;
+  const patched = neg.cause
+    ? unloadCause(gateSrc, calls, neg.cause)
+    : unloadCriterion(gateSrc, calls, neg.crit);
+  if (patched.count === 0) {
+    bad(`${neg.id} → 门禁里找不到 ${what} 的 fail() 调用`);
     continue;
   }
-  const patched = unloadCriterion(gateSrc, calls, neg.crit);
   const beforeLines = gateSrc.split("\n");
   const afterLines = patched.src.split("\n");
   if (beforeLines.length !== afterLines.length) {
@@ -440,12 +578,12 @@ for (const neg of NEG_CASES) {
   const r = runGate(mirror, fixtures[neg.case]);
   const a = attribute(r.out);
   if (r.code !== 0 || !r.out.includes("文档现状/接入流程门禁通过")) {
-    bad(`${neg.id} → 卸掉 ${neg.crit} 后 ${neg.case} 夹具必须转绿（exit 0），实测 exit ${r.code}`);
+    bad(`${neg.id} → 卸掉 ${what} 后 ${neg.case} 夹具必须转绿（exit 0），实测 exit ${r.code}`);
     console.log(r.out.split("\n").filter((l) => l.includes("✗")).join("\n"));
     continue;
   }
   if (a.rows.length !== 0) {
-    bad(`${neg.id} → 卸掉 ${neg.crit} 后 ${neg.case} 夹具判绿但仍有 ${a.rows.length} 条红因`);
+    bad(`${neg.id} → 卸掉 ${what} 后 ${neg.case} 夹具判绿但仍有 ${a.rows.length} 条红因`);
     continue;
   }
   ok(

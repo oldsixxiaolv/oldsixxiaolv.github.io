@@ -28626,3 +28626,192 @@ COV-B 现读门禁源码，红因出口与可卸开关都恰为 **TR1–TR6**；
 - **M1（内容引擎）**：选题主线本人尚未指定 ⇒ 本轮不代拍。
 - **M4 / M5**：下游于文章（文章还没有）⇒ 排在 M1 之后。
 - 其余待修缺陷（D5 / D6 / D9 / D10 / D12 / D26 / D32 / D57）仍挂本人拍板，本轮不代拍。
+
+## 2026-10-23 · 13:55–14:40 场次（**不占轮次号**）：D91 —— 修掉缺陷 **D90**：仓库根「怎么跑起来 ＋ 代码在哪」的第二份副本已经漂移，而这一族文档零门禁看守
+
+### A. 背景
+
+上一轮（D90）修的是**仓库内页面引的资源断链**。本轮换到**文档的第二份副本** ——
+上一轮管的是「页面引的资源在不在」，本轮撞见的是「**第二份文档写的现状跟代码现实脱节，而没有任何一道门禁会响**」。
+
+缺陷 **D90** 的病根不是「`HOW_TO_RUN.md` 写错了」，而是**这份文件压根不在任何门禁的扫描面里**：
+
+- 仓库根的 `HOW_TO_RUN.md` 记的是「**怎么把站点跑起来 ＋ 代码放在哪**」——
+  它是 `README.md` 与 `docs/implementation-notes.md` 之外的**第三份副本**，而且是**唯一一份新读者会直接打开的**。
+- `scripts/check-readme.cjs` 在自己的**诚实边界**里明写「**本门禁只读 README.md**」⇒ 它管不到 `HOW_TO_RUN.md`。
+- `scripts/check-doc-reality.cjs`（那道「文档现状 ↔ 代码现实」的门禁）修前的扫描面只有**一个**文件
+  （源码里 `const DOC_REL = "docs/implementation-notes.md"`）⇒ `HOW_TO_RUN.md` 同样没人看。
+- 实测：修前 `docs/DEFECT-BACKLOG.md` 全文出现 `HOW_TO_RUN` **0 次** ⇒ 这个文件从来没进过缺陷台账。
+
+⇒ **不是「门禁没发现」，是「门禁压根没看」。**
+
+**九处失实**（逐条对着源码树 / 运行时核过，不是凭印象）：
+
+1. **dev / prod 形态的判定条件整个反了**：文档的表格写「`NODE_ENV` 不等于 `production`（**含裸跑 `npm run build`**）→ dev `@import` hub」，
+   还补了一句「线上 `_site/` 里的 `components.css` 实际是 dev hub 形态（7 次额外请求）」。
+   实测 `eleventy.config.js`：`isDevServer = process.argv.includes("--serve") && process.env.NODE_ENV !== "production"`、
+   `isProductionBuild = !isDevServer` ⇒ **裸跑 build 走 prod concat**，dev hub 只在 `npm run serve` 时出现
+   ⇒ **线上是 prod 单文件**，文档说的「线上跑 dev hub」是错的。
+2. **点名 `src/assets/js/nav.js`（移动端 drawer 切换）—— 文件不存在**：`src/assets/js/` 实测只有
+   `home-chart.js` / `main.js` / `theme.js` ＋ `paper-reader/`。
+3. **paper-reader 模块清单含已删的 `reading-progress`**：现为 main / toc / annotations / highlight / theme。
+4. **`main.js` 职责写错**：文档写「入口：import theme + nav」，实际是「import 主题 ＋ 滚动 reveal ＋ 复制按钮」；
+   且**漏了 `src/assets/js/home-chart.js`**（首页降水图交互：年份游标 ＋ 读数 ＋ 键盘操作）。
+5. **说「三个列表页」**：源码树里**没有 `src/portfolio.njk`** ⇒ 作品集**没有列表页**；
+   `src/content/portfolio/` 下也只有目录数据文件、没有条目 ⇒ `/portfolio/` 这条路由现在没有页面
+   （`src/_includes/layouts/detail.njk` 里那条回链指向 `/portfolio/`，因为没有条目才不显形）。
+6. **og:image 说成「SVG 源 + PNG 导出」**：实际是 **JPEG 导出**
+   （`og-1080x1080.jpg` / `og-1200x630.jpg` / `og-1500x500.jpg`）。
+7. **论文的 `annotations.json` 被写成「必需」**：全仓 **0 个** `annotations.json`（与缺陷 **D12** 同源），
+   `src/_includes/layouts/paper.njk` 只在读到批注文件时才去取 ⇒ 当前论文页是**纯阅读模式**。
+8. **写死了会变的存量数**：其中「三篇现有论文」**当场就是错的**（实际恰好 **1 篇**）；
+   产物体积（654 B / 35 KB）与消费方个数（`getSlugFromData` 被 3 个 `*.11tydata.cjs` 消费）当时还对，
+   但同样属于「每次改动都会变」的数。
+9. **复制了 front matter 字段表**：博客与论文的字段表与 `docs/blog-writing-guide.md` / `docs/papers-interaction.md` 重复
+   ⇒ 又是第二份副本；而 `docs/blog-writing-guide.md` §1 明写 **front matter 里的 `slug:` 无效**（路由由目录名决定），
+   文档示例却把 `slug:` 写进了必填。
+
+**连带活漂移**：`docs/implementation-notes.md` L77 的模块清单仍点名已删的单文件形态 `src/assets/js/paper-reader.js`
+与已删模块 `reading-progress` ⇒ 这一条**必须同轮修**，否则新判据一上线就会当场判红。
+
+### B. 改动
+
+（本轮只做 1 个改进点：新开缺陷 **D90**「仓库根接入流程文档是第二份副本且已漂移 ＋ 这一族文档零门禁看守」。）
+
+① **重写 `HOW_TO_RUN.md`**（13004 bytes，index 模式 100644）：
+
+- **站点结构从 ASCII 树改成嵌套 markdown 列表 ＋ 完整仓库相对路径**。三个理由：① 让每个路径成为**行内反引号 span**
+  ⇒ 可被门禁逐条核对（树内相对文件名根本没法定位）；② 新读者能直接复制粘贴；
+  ③ 补齐旧树漏掉的东西 —— 4 个 partial（`hero.njk` / `publications.njk` / `citation-meta.njk` / `extreme-precip.njk`）、
+  `src/assets/css/print.css`、`src/assets/js/home-chart.js`、`src/_data/extremePrecip.json`、
+  `src/publications.bib.njk` / `src/publications.ris.njk`。
+- **dev / prod 形态改成按「进程有没有带 `--serve`」判定**，并加一段 ⚠️ 常见误解：
+  「`NODE_ENV` 不等于 `production` **并不**等于 dev」。
+- **前端契约不再复制字段表**，改为指向单一真源（`docs/blog-writing-guide.md` / `docs/papers-interaction.md`）；
+  博客要点改成「路由由目录名决定、`slug:` 无效、`layout`/`permalink`/`tags`/`prev`/`next` 自动注入、
+  封面目前是关着的（`src/blog.njk` 的 `useCovers` 取 false，开关何时打开由本人拍板）」。
+- **如实写明作品集没有列表页**，并点出「要加列表页得同时补模板与那条回链的目标」。
+- **写死的存量数一律改成「以真源目录为准」**；批注那条如实写「当前仓库里没有接入批注数据，论文页是纯阅读模式」。
+- 全文改成**可被门禁核对的形态**（路径进反引号），**不点名、不存在的路径不写进反引号**。
+
+② **修连带活漂移**：`docs/implementation-notes.md` L77 就地订正 —— 去掉已删的单文件路径与已删模块，
+改引 `src/_includes/layouts/paper.njk` 与 `src/assets/js/paper-reader/main.js`。
+
+③ **扩既有门禁，不新建门禁文件**（`scripts/check-doc-reality.cjs`，判据 **DR1 → DR8**，`fail()` 调用点 9 → **13** 处）：
+
+- **DR6 活文档点名的仓内路径必须真实存在**。口径刻意保守：只扫**行内反引号 span**（围栏代码块不扫）；
+  词元须含 `/` 且字符集限字母数字与 `_ . - /`（含 `<` `>` `*` `=` 者跳过 ⇒ 占位符与 glob 自动豁免）；
+  排除 `/` 开头的绝对路径与 `_site/` 产物路径（`check:doc-reality` 在 Eleventy 之前跑，`_site/` 可能还不存在）；
+  **首段必须是仓库根真实条目** ⇒ 局部相对写法自动跳过。
+- **DR7 覆盖度自证**（两条）：**DR7a** = `HOW_TO_RUN.md` 不在判红；**DR7b** = 每份**在的**活文档检出的路径候选数
+  不得低于下限（`MIN_PATH_CANDIDATES = 5`）⇒ 防止「把文档改空了就通过」。
+- **DR8 接入指南里不许写死会变的条目数**：量词表 = `篇 / 次 / 处 / 份 / 项 / 条 / 块 / 张 / KB / MB / B`，
+  **刻意不含「个」**（它常用于修辞，如「两个副本」，初版含「个」误报本文自己）；
+  「N 个 partial」的清点改由 DR6 守。
+- 扫描面：DR6 / DR7 / DR8 覆盖 `docs/implementation-notes.md` ＋ `HOW_TO_RUN.md` 两份活文档；
+  **DR1–DR5 作用域不变**；**不扫历史记录**（`docs/IMPROVEMENT-LOG.md` / `docs/DEFECT-BACKLOG.md` / `docs/ROADMAP.md`）。
+
+④ **自测同步扩**（`scripts/test-doc-reality.cjs`，全绿）：
+
+- **红因归属表 9 → 13 条**（新增 DR6 / DR7a / DR7b / DR8），13 条文案片段**互不包含**；
+  静态判据清单扩到 `DR1`–`DR8`。
+- **注入档 11 → 15 档**：新增 **DCR11**（接入流程文档点名了仓库里不存在的路径 ⇒ 恰为 {DR6}）、
+  **DCR12**（接入流程文档缺失 ⇒ 恰为 {DR7}）、**DCR13**（路径候选太少 ⇒ 恰为 {DR7}）、
+  **DCR14**（写死了会变的条目数 ⇒ 恰为 {DR8}）。
+- **负对照 5 → 9 档**：新增 **NC-DR6** / **NC-DR7a** / **NC-DR7b** / **NC-DR8**。
+- **归属级负对照**：DR5 有 5 处、DR7 有 2 处 `fail()` 调用、**判据号相同而文案不同** ⇒
+  按判据号一次全卸证明不了「这条红出自这一处」⇒ 新增 `unloadCause()`，按**文案片段**定位、**一次只卸一条**。
+- 夹具新增 `RUN_DOC_BASE`（12 个真实路径候选）、`STUB_FILES`（11 个）与 `STUB_DIRS`；
+  并把既有两档改写成**不改变候选数**的形态（`stalePaperList` 保留 `src/content/papers/` 反引号路径、
+  `noPaperContext` 只替换措辞）—— 否则会连带触发 DR7b，把红因归属弄脏。
+
+⑤ **接线**：`scripts/lib/selftest-slots.cjs` 里 `test-doc-reality.cjs` 的档位编号共 **24** 个
+（本轮**新增 8 个**：DCR11–DCR14 ＋ NC-DR6 / NC-DR7a / NC-DR7b / NC-DR8）；
+`README.md` L128 的门禁行补 **DR6 / DR7 / DR8** 三个前缀（源码侧 DR 集合实测 = {1,2,3,4,5,6,7,8}）；
+`package.json` **无需改动**（两个 script 已在 build 链）。
+
+⑥ **不代拍**：本轮**没有新增待拍板项**，中央「待决策」台账不动。
+
+### C. 验证
+
+① **修前实测**：门禁 `node scripts/check-doc-reality.cjs` **exit 0** —— 绿得「理直气壮」，
+因为它的扫描面里根本没有 `HOW_TO_RUN.md`；同时实测缺陷台账里 `HOW_TO_RUN` 出现 **0 次**
+⇒ **红绿与这份文档彻底脱钩**（本地绿、这份文档烂了也没人知道）。
+
+② **改判据的边界用探针实测定案**（探针在 `/tmp/mh_d91/`、不入库）：
+注入 `src/assets/js/nav-drawer.js` ⇒ DR6 报红；注入已删的 `src/assets/js/paper-reader.js` ⇒ DR6 报红；
+注入「现在已有 3 篇论文」⇒ DR8 报红；清空路径清单 ⇒ DR7b 报红 ⇒ 四条判据都**咬得住**，不是摆设。
+
+③ **修后门禁**：`node scripts/check-doc-reality.cjs` exit 0，输出
+「仓内路径候选：`docs/implementation-notes.md` 20 个 / `HOW_TO_RUN.md` 102 个（下限 5 个）——
+文档用行内反引号点名的仓库根相对路径都真实存在」。
+
+④ **自测**：`node scripts/test-doc-reality.cjs` exit 0 —— **15 档注入**（DCR0 判绿，DCR1–DCR14 判红且
+**判据集合恰为预期**）、**9 档负对照**（卸掉后同一夹具**转绿**、零红因）、**红因 13/13 判红**、
+**判据 8/8 判红**、**真源指纹前后一致**（`d1e3ce03c98eed0e…`，注入全程只在临时副本上做）。
+
+⑤ **档位守卫对账**：`scripts/check-selftest-guard.cjs` exit 0 ——
+「57 个接在 build 链上的自测全部经由 `scripts/run-selftest.cjs`，静态清单登记了 57 个自测 / 1301 条档位号，
+接线与清单双向自洽」。
+
+⑥ **受影响门禁全绿**（逐条 exit 0）：`check:doc-reality` / `check:doc-reality-selftest` / `check:readme` /
+`check:readme-selftest` / `check:selftest-guard` / `check:gates` / `check:doc-snapshot` /
+`check:markdown-tables` / `check:log-sections` / `check:decision-ids` / `check:mount-contract`；
+**`npm run build` exit 0**。
+
+⑦ ⚠️ **线上巡检完成**（外网需经本机代理 `http://127.0.0.1:7890` 才通）：7 条 URL 里 **4 条 200、3 条 404**
+（`/papers/`、`/publications.bib`、`/feed.xml`）—— 属缺陷 **D6**，**由 push 触发**，本轮不代拍、不 push。
+
+### D. 顺手发现（记下来，不在本轮修）
+
+以下都是后台勘查子代理给出的**候选**，本轮**未逐条复核、只记不下手**（留作后续轮次素材）：
+
+- `docs/og-image-and-a11y-report.md`：一处对比度仍写 7.75:1（实际 7.23 / 8.05）——
+  同一份报告里 §7.1 已订正、§8.1 漏改；同报告还有几处用「当前实现」描述**早已换掉的文案**；
+  一处截图断言写 7 张、其中数张实为 404 页；一处写「17 files」、实际 6 个 HTML；
+  一处写 puppeteer-core 在 `/tmp/screenshot-tool`（该目录已不存在）。
+- `docs/implementation-notes.md`：og 图写成「SVG+PNG」（实际 SVG+JPEG）；
+  papers / portfolio 都写 `size: 100`（papers 没有 pagination 块、portfolio 模板不存在）；
+  「论文数量早已不止一篇」（实际恰好 1 篇）；「404 中文化」（实际全英文）。
+- `docs/blog-writing-guide.md`：说中文豁免三处，实际只剩两处（`robots.njk` 已取消豁免）。
+- `docs/ui-ux-pro-max-improvement-plan.md`：至少 6 条「证据」已过期（`@media print` 早已存在、
+  `break-word` 早已 `anywhere`、断点 720 已不存在且新增 360、数据图表早已落地、行数全错）。
+- `docs/design-system.md`：说 `_card.css` 是占位（实为 113 行真实组件）；`badge--accent` 类不存在。
+- `docs/information-architecture.md`：说 Twitter Card 标签未加（`base.njk` 早已加）。
+- `docs/papers-interaction.md`：说 `paper.md` 已手工改写成带 `id="p-XXX"` 的形式（实际 0 个）。
+- `docs/DEPLOY.md`：说 `check:css` 是构建第一步（实际在第 32 段）。
+
+本轮新增的三条**诚实边界**（已写进门禁头注释）：
+
+- **DR6 分不清**「文档在说某路径已不存在」与「文档以为它存在」⇒ 文档要提到已删路径时，**不要把它放进反引号**。
+- **DR7 数的是候选路径数**、不是路径真值数 ⇒ 通篇用相对写法的文档会被判红，**这是有意的**（提醒该写全路径）。
+- **DR8 只管 `HOW_TO_RUN.md`**；`docs/implementation-notes.md` 的论文篇数由 DR2 管。
+
+### E. 文档
+
+- `docs/DEFECT-BACKLOG.md`：新增缺陷 **D90** 行（现象 / 验收条件 / 已修状态逐条兑现）。
+- `docs/ROADMAP.md`：进度行「缺陷清单已到 **D90**」、已修列表补 D90、M0 里新增 **D91** 条目。
+- `docs/IMPROVEMENT-LOG.md`：本小节；中央「待决策」台账**不新增**待拍板项（本轮是纯工程补强）。
+
+### F. 本轮纪律
+
+- 提交只走**私有索引 CAS**，只提交本轮自己改的路径；**不 push**。
+- 并发场次占用的 `scripts/check-identity-handles.cjs` / `scripts/test-gates-selfcheck.cjs`
+  本轮**未触碰、未提交**。
+- 探针、夹具与文档拼接脚本都放在 `/tmp/mh_d91/`（**不入库**）；收尾用 `mavis-trash` 清理。
+- 门禁红了先定位红因，**不为了 build 变绿去放宽判据**。
+- 新判据**纯静态、不联网、不 import 被检查方** ⇒ build 链保持零网络依赖。
+- **不编造数据**：批注是作者本人的精读笔记（仓库里 0 个 `annotations.json`），
+  文档如实写「当前是纯阅读模式」，**不代写假的**；`slug:` 这类无效字段如实点破，不粉饰。
+- 修「文档 ↔ 代码」的漂移时，**只改现状陈述**，历史场次条目里的同一说法**一个字不动**。
+- 文档里的每个断言都先实证再写：九处失实逐条对着源码树核过，判据边界用探针打出来过。
+
+### 下一轮入口
+
+- **缺陷 D6（线上 3 条 404）**：真正的前置是 **push**（本轮不代拍、不 push）。
+- **D5 / D9 / D10 / D12 / D26 / D32 / D57**：仍挂本人拍板，本轮不代拍。
+- **M1（内容引擎）**：选题主线本人尚未指定 ⇒ 本轮不代拍；M1-1 被待拍板 50 阻塞且当前 0 篇文章；M1-2 已完成。
+- **M3（Decap 后台）**：bundle 自托管还是走 CDN 尚未定，OAuth App 必须本人建 ⇒ 本轮不做。
+- **portfolio 路由缺口**：`src/portfolio.njk` 不存在，但 `detail.njk` 的回链与 `sitemap.njk` 都按它存在处理
+  ⇒ 目前 0 条 portfolio 内容故不显形；**改路由属于结构性变更**，不在纯文档轮次里动。
+- **本轮 D 节的候选清单**：那份「文档现状陈述漂移」审计还有一批可修项，可挑一条单独开缺陷。

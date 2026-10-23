@@ -135,7 +135,9 @@ const SLOTS = {
   ],
   "test-doc-reality.cjs": [
     "DCR0", "DCR1", "DCR2", "DCR3", "DCR4", "DCR5", "DCR6", "DCR7",
-    "DCR8", "DCR9", "DCR10", "NC-DR1", "NC-DR2", "NC-DR3", "NC-DR4", "NC-DR5"
+    "DCR8", "DCR9", "DCR10", "DCR11", "DCR12", "DCR13", "DCR14",
+    "NC-DR1", "NC-DR2", "NC-DR3", "NC-DR4", "NC-DR5", "NC-DR6", "NC-DR7a",
+    "NC-DR7b", "NC-DR8"
   ],
   "test-doc-snapshot.cjs": [
     "SP0", "SP1", "SP2", "SP3", "SP4", "SP5", "SP6", "SP7",

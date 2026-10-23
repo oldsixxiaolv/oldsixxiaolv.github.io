@@ -74,7 +74,7 @@ paper.njk 里的 `<script type="module">` 在 `<article class="paper">` 之后�
 - `.paper-anchor` 类不会被装饰（所有段落看起来一样）
 - 右侧没有批注侧栏（屏幕变窄、布局看上去像普通博客）
 
-> **现状更新（Phase 2B.6）**：paper-reader 已从单个 `src/assets/js/paper-reader.js` 拆成 `src/assets/js/paper-reader/` 下的 6 个 ESM 模块（main / toc / annotations / reading-progress / highlight / theme），由 paper.njk 动态 `import()` 入口。单一文件已不存在，排查时以 `paper-reader/main.js` 为准。
+> **现状更新（Phase 2B.6）**：paper-reader 已从单文件形态拆成 `src/assets/js/paper-reader/` 下的 ESM 模块（main / toc / annotations / highlight / theme），由 `src/_includes/layouts/paper.njk` 动态 `import()` 入口。单一文件形态已不存在，排查时以 `src/assets/js/paper-reader/main.js` 为准。
 
 **用户感知**：作为一篇普通长文阅读仍然能工作，只是失去双向联动。
 
