@@ -461,35 +461,39 @@ CS8：门禁**从产物自身判模式** —— `components.css` 含 `@import ur
 ### 6.1 按钮（Button）
 
 ```html
-<button class="btn btn-primary">查看论文</button>
-<button class="btn btn-accent">下载附件</button>
-<a class="btn btn-ghost" href="/blog">博客</a>
+<a class="btn btn--primary" href="/about/">About me</a>
+<a class="btn btn--outline" href="/blog/">Technical notes</a>
+<button type="button" class="btn btn--ghost btn--sm">Copy BibTeX</button>
 ```
 
-| 变体 | 用途 |
-|---|---|
-| `.btn-primary` | 流场蓝实色 + 白字，主操作 |
-| `.btn-accent` | 赭石实色，多用于「下载」「引用」 |
-| `.btn-ghost` | 透明背景 + 品牌色边框/字 |
-| `.btn-link` | 无边框，文字加粗 + 下划线动画 |
-| 尺寸：`.btn-sm` / `.btn-md`（默认）/ `.btn-lg` |  |
+| 变体 | 用途 | min-height |
+|---|---|---|
+| `.btn` | 基础按钮（默认样式） | 44px |
+| `.btn--primary` | 流场蓝实色 + 白字，主操作 | 44px |
+| `.btn--ghost` | 透明背景 + 品牌色边框 / 字 | 44px |
+| `.btn--outline` | 首页 hero 的次要动作（描边） | 44px |
+| `.btn--sm` | 紧凑尺寸（论文页的引用 / 导出按钮） | 36px |
 
 规则：
 
 - 圆角 `--radius-md`（6px）
-- 水平 padding `--space-3` / `--space-4`
-- min-height 40px（sm）/ 44px（md）/ 52px（lg）
-- hover 仅改 `background` 和 `box-shadow`，**禁止 transform: scale 引起布局抖动**
-- `:focus-visible { outline: none; box-shadow: var(--shadow-focus); }`
+- 水平 padding `--space-3`（`.btn--sm`）/ `--space-4`（默认）
+- hover 只改 `background` / `border-color` / `color` / `box-shadow`，**禁止 transform: scale 引起布局抖动**
+- 焦点环走全局 `:focus-visible` 规则（`base.css`），组件内不另写
 
 ### 6.2 卡片（Card）
 
-`.card`：白底、`--radius-lg`、`--space-4` 内边距、`--shadow-1` → hover `--shadow-2`  
-变体：
+`.card` 是**外壳**：背景 `--bg-surface`、边框 `--border-subtle`、圆角 `--radius-lg`；
+hover / `:focus-visible` 时背景 `--bg-subtle`、边框 `--border-default`。
+卡片**本身没有内边距，也没有阴影** —— 内容区的留白由列表那一层负责。
 
-- `.card-image` — 顶部 16:9 封面图
-- `.card-horizontal` — 左图右文（项目大卡片用）
-- `.card-flag` — 左色条强调（论文精读摘要卡用，`border-inline-start: 4px solid var(--color-accent-400)`）
+| 变体 | 用途 |
+|---|---|
+| `.card__media` | 顶部 16:9 封面槽（`aspect-ratio: 16 / 9`，底色 `--bg-muted`） |
+| `.card__img` | 封面图本体（`object-fit: cover`） |
+
+左侧强调条不是 `border-inline-start`，而是 `.card::before`：2px 宽、`--color-accent-400`，
+静息态 `scaleY(0)`，hover / `:focus-visible` 时 `scaleY(1)` 展开。
 
 ### 6.3 表单（Form）
 
@@ -521,11 +525,13 @@ CS8：门禁**从产物自身判模式** —— `components.css` 含 `@import ur
 ### 6.5 引用块（Blockquote）
 
 ```html
-<blockquote class="quote">
+<blockquote>
   <p>……引用内容……</p>
   <cite>—— 来源 / 出处</cite>
 </blockquote>
 ```
+
+引用块**没有自己的类**，样式直接挂在 `blockquote` 元素上：
 
 - 左边 3px `--color-accent-400` 边
 - 背景 `--bg-muted`
@@ -535,9 +541,9 @@ CS8：门禁**从产物自身判模式** —— `components.css` 含 `@import ur
 ### 6.6 代码块（Code / Pre）
 
 - 行内：`background: var(--bg-muted); padding: 2px 6px; border-radius: var(--radius-sm); font: var(--font-code)`
-- 块级：`<pre><code>`，配 Monaco / Shiki 渲染
-- 顶部带文件名（`.filename`）装饰
-- 深色模式下底色用 `#15141A` 单独抽离，避免与卡片底色重合
+- 块级：`<pre><code>`，与行内共用同一套 `code` 元素样式
+- 深色模式下**不写死色值**：底色仍是 `--bg-muted`（其暗色取值由 `tokens.css` 的暗色块给出）
+- 顶部文件名装饰（`.filename`）**规划中**：代码里还没有这个类
 
 ### 6.7 批注侧栏（Annotation Panel · 仅论文精读页用）
 

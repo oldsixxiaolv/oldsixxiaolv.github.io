@@ -121,6 +121,10 @@ const SLOTS = {
     "M0", "M1", "M2", "M3", "M4", "M5", "M6", "M7",
     "M8", "M9", "M10", "M11", "M12", "M13"
   ],
+  "test-design-components.cjs": [
+    "DCXR0", "DCXR1", "DCXR2", "DCXR3", "DCXR4", "DCXR5", "DCXR6", "DCXR7",
+    "DCXR8", "NC-DCX1", "NC-DCX2", "NC-DCX3", "NC-DCX4"
+  ],
   "test-design-system-contract.cjs": [
     "DT0", "DT1", "DT2", "DT3", "DT4", "DT5", "DT6", "DT7",
     "DT8", "DT9", "DT10"

@@ -27450,3 +27450,154 @@ D59 第三批给 `check-lang`、第四批给 `check-print-theme`、第五批给 
 - **批注层本身**：`docs/papers-interaction.md` 里 §6 / §7 / §9 仍是**规划**，
   而 D12（批注子系统整体不可达）挂待拍板 ⇒ 那条线本轮不碰。
 - 其余待修缺陷（D5 / D6 / D9 / D10 / D12 / D26 / D32 / D57）仍挂本人拍板，本轮不代拍。
+
+## 2026-10-23 · 02:50–04:10 场次（**不占轮次号**）：D82 —— 修掉缺陷 **D81**：站内唯一的设计系统组件清单与代码现实脱节（四节），且零门禁看守
+
+### A. 背景
+
+- 上一轮（D81）修的是 `docs/papers-interaction.md`（论文精读交互契约）。本轮用同一个方法去盘
+  `docs/design-system.md` §6 —— 站内**设计系统组件清单**。这是开发者查「按钮叫什么类名」
+  「卡片长什么样」「引用块怎么写」的第一入口。
+- 触发点是**门禁覆盖面**：既有门禁 `check-design-system-contract.cjs`（判据 **DC1–DC8**）
+  只守 §6.0 徽标、§6.4 徽标 token、§10 构建模式、§2.2 / §2.3 排版契约 ——
+  **§6.1 按钮、§6.2 卡片、§6.5 引用块、§6.6 代码块这四节，一条判据都没有**。
+  既有 DC 门禁守的是「类名族是否存在」这一层，**§6 的规格层**（谁有 padding、谁有阴影、
+  尺寸多少、变体叫什么）从来没人核对。
+- 实测漂移清单（不是推测，每条都对着代码核过）：
+  ① **§6.1 按钮** —— 文档写的 `.btn-primary` / `.btn-accent` / `.btn-ghost` / `.btn-link` /
+     `.btn-sm` / `.btn-md` / `.btn-lg` **七个类全仓不存在**（`src/` 命中 0）。真实是 BEM
+     **双下划线**的 `.btn--primary` / `.btn--ghost` / `.btn--outline`（`.btn--outline` 在
+     `pages.css` 顶层，不在 `_button.css` 里），尺寸**只有 `.btn--sm` 一档**。
+     文档给的 HTML 示例 `class="btn btn-primary"` **永远匹配不到任何规则**。
+     min-height 规格写 40 / 44 / 52px，而代码 `.btn--sm` 是 **36px**、`.btn` 是 **44px**。
+  ② **§6.2 卡片** —— 文档说「`--space-4` 内边距、常态 `--shadow-1`、hover `--shadow-2`」，
+     而 `.card` **既没有内边距也没有阴影**（hover 只改 background 与 border-color）。
+     变体 `.card-image` / `.card-horizontal` / `.card-flag` 不存在，真实结构是
+     `.card__media`（`aspect-ratio: 16 / 9`、`--bg-muted`、`--border-default`、`--radius-md`）
+     ＋ `.card__img`（`object-fit: cover`）。强调条不是文档写的 `border-inline-start: 4px`，
+     而是 `.card::before` 的 **2px** 竖条（`--color-accent-400`，静息 `scaleY(0)`、
+     hover 展开 `scaleY(1)`）。
+  ③ **§6.5 引用块** —— 示例写 `<blockquote class="quote">`，但代码**没有 `.quote` 类**
+     （命中 0），样式直接挂在 `blockquote` **元素选择器**上（3px `--color-accent-400` 左边条、
+     `--bg-muted`、padding `--space-4` `--space-5`、`--radius-lg`、`--font-editorial`）。
+  ④ **§6.6 代码块** —— `.filename` **全仓不存在**；文档写的深色底色 `#15141A`
+     **全仓不存在**（暗色 `--bg-muted` 实为 `#14131180`）；`pre` 与 `code` 共用 `--bg-muted`，
+     且 `pre code` 会重置背景 / padding / radius —— 这层关系文档一个字没写。
+- 连带影响：同一份文档里 **12 处**幽灵写法（`.btn-primary` / `.btn-accent` / `.btn-ghost` /
+  `.btn-link` / `.btn-sm` / `.btn-md` / `.btn-lg` / `.card-image` / `.card-horizontal` /
+  `.card-flag` / `class="quote"` / `#15141A`）会**直接把后来者引到不存在的类上**。
+
+### B. 改动
+
+- **新门禁 `scripts/check-design-components.cjs`**（判据 **DCX1–DCX4**，**7 处 `fail()` 调用点**：
+  DCX1×2、DCX2×1、DCX3×3、DCX4×1）。全静态、**不联网**、**不 import 被检查方**、不跑构建；
+  环境变量 `DCX_DOC` / `DCX_CSS_DIR` 供自测注入。
+  - **DCX1** 四个扫描小节里的**每个类名**必须在 CSS 里**真实存在**
+    （HTML 属性里的裸名 `class="quote"` 与行内代码里的点号类名 `.btn--primary` 都收）；
+  - **DCX2** 每个**规格 token**必须**被该组件作用域内的规则 `var()` 引用** ——
+    作用域 = 该小节点名的类 ∪ 该小节出现的元素标签，**不硬编码**组件前缀；
+  - **DCX3** §6.1 变体表的 min-height **逐行**与 CSS 一致（变体自身没写则回退基础类 `.btn`）；
+  - **DCX4** 覆盖度自证**四项门槛**（类名 ≥ 6、token ≥ 10、尺寸表 ≥ 3 行、CSS 规则 ≥ 8 条），
+    缺一即红，防「改空了通过」。
+  - 扫描面**只取 §6.1 / §6.2 / §6.5 / §6.6**（这四节带类名或可量化规格）；
+    §6.3 表单 / §6.7 批注侧栏 / §6.8 顶栏 / §6.9 面包屑**不在本轮范围**。
+  - 含「**规划中**」的行**整体豁免** —— 文档有权声明未落地能力，但必须明写。
+- **修法是让文档向代码对齐，不是补 CSS**：补上去的幽灵类**没有落点**，会被死类门禁
+  `check-dead-css.cjs` 当场判红 ⇒ 只能改文档。
+- **文档修正一处、四节全部重写为代码现实**（`docs/design-system.md`）：
+  - **§6.1 按钮**：HTML 示例改成真实的 `btn btn--primary` / `btn btn--outline` /
+    `btn btn--ghost btn--sm`；变体表改成 `.btn` / `.btn--primary` / `.btn--ghost` /
+    `.btn--outline` / `.btn--sm` **五行**，min-height 逐行对得上；尺寸档从文档写的三档
+    改成**实有的两档**（44px / 36px）。
+  - **§6.2 卡片**：改成「`.card` 是外壳：**本身没有内边距，也没有阴影**」＋
+    `.card__media` / `.card__img` 两行变体表 ＋ 强调条改写为 `.card::before` 的 **2px** 竖条。
+  - **§6.5 引用块**：删掉 `class="quote"`，改成「引用块**没有自己的类**，样式直接挂在
+    `blockquote` 元素上」并逐条列真实规格。
+  - **§6.6 代码块**：删掉 `#15141A` 这个不存在的色值，改成「深色模式下**不写死色值**，
+    底色仍是 `--bg-muted`」；把 `.filename` 明写成**规划中**（代码里还没有这个类）——
+    **兼作门禁的豁免用例**。
+- **自测 `scripts/test-design-components.cjs`** 四件套：
+  - 红因归属表 **7 条**（DCX1a「在 CSS 里没有对应的类选择器」/ DCX1b「这一节在设计系统文档里
+    没有找到」/ DCX2「没有被 var() 引用」/ DCX3a「的 min-height 写的是」/ DCX3b「的 min-height
+    在 CSS 里找不到」/ DCX3c「的 min-height 在 CSS 里有多处取值」/ DCX4「覆盖度自证不足」），
+    **文案片段互不包含** ⇒ 归属纯净；
+  - 覆盖度自证双向：门禁 7 处 `fail()` ↔ 归属表、门禁解析出的判据集合恰为 DCX1–DCX4；
+  - 注入档 **DCXR0–DCXR8**（9 档，每档断言「判红 ＋ 判据集合**恰为**预期」）；
+  - 判据级负对照 **NC-DCX1–NC-DCX4**：复制门禁源码到 tmp 再**同行替换**
+    （**不给生产门禁加可卸开关**），断言行数不变、差异行数 == 该判据 `fail()` 数、
+    对应夹具**转绿**、仓库原件 sha256 前后一致。
+  - 夹具是**合成式**：类名 `.wg*` / `.blk*`、token `--wg-*` / `--blk-*` / `--quote-*` /
+    `--code-*`，**刻意与真实仓库不同** ⇒ 证明门禁是**真源驱动**而不是把真实类名写死。
+- **接线**：`scripts/lib/selftest-slots.cjs` 登记 **13** 个编号（DCXR0–DCXR8 ＋
+  NC-DCX1–NC-DCX4）；`package.json` 加 `check:design-components` 与
+  `check:design-components-selftest`，两者都接进 build 链（排在 `check:design-contract-selftest`
+  之后、`check:doc-snapshot` 之前）；`README.md` 命令表补两行（门禁行只列 **DCX1–DCX4**，
+  **不带缺陷编号**、不带别的门禁前缀 token）。
+- **前缀唯一性**：**DX 已被占用**（`DX-1` / `DX-19`）⇒ 本轮采用 **DCX**（全仓唯一）。
+
+### C. 验证
+
+- **独立反向验证（关键一条）**：把修前的**原始文档**复制到
+  `/tmp/mh_d82/design-system.md.bak`、用 `DCX_DOC` 指过去跑（**仓库文件一行不动**）⇒
+  门禁 **exit 1**，红因 **17 条**：
+  - **DCX1 ×12** —— 命中的幽灵类里含 `.quote` 与 `.filename`；
+  - **DCX2 ×4** —— 命中的假 token 有 `--shadow-1` / `--shadow-2` / `--space-4` / `--space-3`
+    （写的是「看着像」的 token，代码里对应的组件根本没引用它们）；
+  - **DCX4 ×1** —— 覆盖度自证不足（尺寸表行数 0 < 3）。
+  ⇒ **修文档后**真仓实跑 **exit 0**（类名 8 个 · 规格 token 18 个 · 尺寸表 5 行 · CSS 规则 583 条）。
+- 自测 **DCXR0–DCXR8 与 NC-DCX1–NC-DCX4 全绿**（经包装器，13 个编号全部有出处，
+  静态清单与实跑完全一致）。
+- 元门禁（`check-gates-wired` / `check-readme` / `check-selftest-guard` / `check-doc-snapshot` /
+  `check-design-contract`）全 exit 0；`npm run build` **exit 0**。
+- 线上巡检如实记录：**不是全 200** —— `/`、`/blog/`、`/about/`、`/sitemap.xml` 200，
+  `/papers/`、`/publications.bib`、`/feed.xml` 三条 **404** —— 这三条属缺陷 **D6**
+  （旧部署，**由 push 触发**），本轮**不代拍**，也没有去动部署相关代码。
+  （本机 ClashX Pro TUN 会劫持 DNS，直连 curl 大量返 000 ⇒ 巡检走
+  `curl -x http://127.0.0.1:7890`。）
+
+### D. 顺手发现（记下来，不在本轮修）
+
+- **`docs/design-system.md` §6.8 顶部导航**（本轮**不在**门禁扫描面内）：
+  文档写「高度 **64px** / `bg-page/85` / 桌面端**不 sticky**，首次滚动后 sticky」，
+  而 `components/_nav.css` 的 `html body .topbar` 实为 `height: **56px**`、
+  `background: color-mix(in srgb, var(--bg-page) **90%**, transparent)`、
+  **始终 `position: sticky`**（三处全对不上）。下一轮可把它并进本门禁的扫描面。
+- 门禁 DCX2 的作用域是**文档自己声明的**（该小节点名的类 ∪ 该小节出现的元素标签）⇒
+  文档若漏写一个类名，作用域会跟着缩小、门禁也就看不见它。**门禁不替文档猜**「本该有哪些类」。
+- 尺寸表**只覆盖 min-height 一列**；其他可量化规格（padding、`aspect-ratio`、边框粗细）
+  本轮**未门禁化**。
+- 门禁只判「类**是否存在**」与「token **是否被引用**」，**不判「有无落点」** ——
+  后者是死类门禁 `check-dead-css.cjs` 的活，两道门禁不重叠。
+
+### E. 文档
+
+- `docs/DEFECT-BACKLOG.md`：登记 **D81（已修）**，附验收条件逐条兑现与诚实边界。
+- `docs/ROADMAP.md`：§1 缺陷清单摘要更新（**D81 列入已修**）、末尾追加 D82 场次条目（①–⑨）。
+- `docs/IMPROVEMENT-LOG.md`：本小节；中央「待决策」台账**不新增**待拍板项
+  （本轮是纯工程补强）。
+
+### F. 本轮纪律
+
+- 提交只走**私有索引 CAS**，只提交本轮自己改的路径；**不 push**。
+- 并发场次占用的 `scripts/check-identity-handles.cjs` / `scripts/test-gates-selfcheck.cjs`
+  本轮**未触碰、未提交**。
+- 探针与勘察脚本都放在 `/tmp/mh_d82/`（含修前文档备份 `design-system.md.bak`），
+  **不入库**；收尾用 `mavis-trash` 清理。
+- 门禁红了先定位红因，**不为了 build 变绿去放宽判据**。
+- **不代拍**：本轮**没有新增待拍板项**，中央台账不动。
+- **文档里的每个断言都先实证再写**：类名、token、尺寸逐条对过 `_button.css` / `_card.css` /
+  `base.css` / `tokens.css`；没有靠「文档原本就是这么写的」来背书。
+- 新门禁**纯静态、不联网、不 import 被检查方** ⇒ build 链保持零网络依赖。
+- **修法方向**：先把「文档错了」与「代码错了」分开判 —— 本轮**代码是对的、文档是错的**
+  （`.quote` / `.filename` 这类未落地能力文档有权声明，但必须明写「规划中」）；
+  ⇒ 改文档，不补 CSS。
+
+### 下一轮入口
+
+- **缺陷 D6（线上 3 条 404）**：真正的前置是 **push**（本轮不代拍、不 push）。
+- **§6.8 顶栏**：本轮已核出三处漂移（高度 56px / `color-mix` 90% / 始终 sticky），
+  下一轮可并进 `check-design-components.cjs` 的扫描面并修正文档。
+- **M3（Decap 后台）**：要先把「bundle 自托管还是走 CDN」定下来，且 OAuth App 必须本人建。
+- **M1（内容引擎）**：选题主线本人尚未指定 ⇒ 本轮不代拍。
+- **M4 / M5**：下游于文章（文章还没有）⇒ 排在 M1 之后。
+- 其余待修缺陷（D5 / D6 / D9 / D10 / D12 / D26 / D32 / D57）仍挂本人拍板，本轮不代拍。
