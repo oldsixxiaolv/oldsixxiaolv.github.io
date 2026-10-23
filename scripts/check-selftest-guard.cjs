@@ -24,6 +24,7 @@
  *                        且接在 build 链上的自测脚本。
  *   SG4 覆盖度自证 —— 接线自测数与静态清单条目数都不得低于下限
  *                        （空跑保护：这两边被一起砍掉时，SG1 / SG3 会一起绿）。
+ *   SG5 登记自洽 —— EXTRA（行首标记行的显式去处）本身不能自相矛盾。
  *
  * ⚠️ 诚实边界（写清楚才算数）：
  *   · 本门禁只保证"接线与清单这一层是自洽的"，**不保证静态清单里的编号本身是对的**
@@ -31,6 +32,8 @@
  *   · 本门禁不检查自测内部逻辑；自测逻辑的证据是各自测自己的负对照。
  *   · 「接线自测数 == 清单条目数」这个等式由 SG1（不缺）与 SG3（不多）双向蕴含，
  *     本门禁不单独判它 —— 单判一个"两个数相等"很容易在两边一起被改坏时一起变绿。
+ *   · SG5 在 EXTRA 为空时没有可比对的东西 —— **这不是空跑**：那种情况下真正的
+ *     守门人是包装器的兜底判据（每有一条行首标记行没有出处就当场判红）。
  *
  * 编号用独立字母体系 SG*（静态清单守卫 · 元门禁），与 scripts/run-selftest.cjs 的
  * SF*（包装器）各管一段，互不重叠。
@@ -43,7 +46,7 @@ const PKG = path.join(ROOT, "package.json");
 const SCRIPTS_DIR = path.join(ROOT, "scripts");
 const WRAPPER = "scripts/run-selftest.cjs";
 
-const { SLOTS } = require(path.join(__dirname, "lib", "selftest-slots.cjs"));
+const { SLOTS, EXTRA } = require(path.join(__dirname, "lib", "selftest-slots.cjs"));
 
 /**
  * 接线自测数的下限 —— **空跑保护**。
@@ -168,6 +171,78 @@ if (Object.keys(SLOTS).length < MIN_WIRED) {
   );
 }
 
+/* ---------- SG5：EXTRA 登记必须自洽 ---------- */
+/**
+ * EXTRA（scripts/lib/selftest-slots.cjs）是「每个行首标记行的显式去处」：
+ * 要么是静态清单里的编号，要么是登记过的锚点，要么被显式声明成「不是一档」。
+ * 这一条守的是**登记本身不能自相矛盾**：
+ *   · 登记了一个不在静态清单里的文件 ⇒ 这条登记是孤儿（它守的东西不在守卫视野里）；
+ *   · 锚点词与该文件的清单编号重叠 ⇒ 同一个词既是编号又是锚点，判定说不清；
+ *   · 锚点词与「显式声明不是一档」的词重叠 ⇒ 自相矛盾；
+ *   · 同一个文件里同一个词登记了两次 ⇒ 次数说不清；
+ *   · 锚点的 count 不是 ≥1 的整数 ⇒ 锚点没有意义。
+ */
+for (const [file, reg] of Object.entries(EXTRA)) {
+  if (SLOTS[file] === undefined) {
+    problems.push(
+      `SG5 EXTRA 里登记了 scripts/${file}，但静态清单里没有它的条目 —— ` +
+        `这条登记是孤儿（它守的东西根本不在守卫视野里）。`
+    );
+    continue;
+  }
+  const ids = new Set(SLOTS[file]);
+  const anchors = (reg && reg.anchors) || [];
+  const notSlots = (reg && reg.notSlots) || [];
+  const seenAnchor = new Set();
+  for (const a of anchors) {
+    const w = a && a.word;
+    if (typeof w !== "string" || !w) {
+      problems.push(
+        `SG5 EXTRA 里 scripts/${file} 有一条锚点登记没有合法的 word —— 锚点必须写清行首词。`
+      );
+      continue;
+    }
+    if (seenAnchor.has(w)) {
+      problems.push(
+        `SG5 EXTRA 里 scripts/${file} 的锚点「${w}」登记了两次 —— 同一个词的次数说不清。`
+      );
+    }
+    seenAnchor.add(w);
+    if (ids.has(w)) {
+      problems.push(
+        `SG5 EXTRA 里 scripts/${file} 的锚点「${w}」与静态清单的编号重合 —— ` +
+          `同一个词既是编号又是锚点，判定说不清。`
+      );
+    }
+    if (notSlots.includes(w)) {
+      problems.push(
+        `SG5 EXTRA 里 scripts/${file} 的锚点「${w}」与「显式声明不是一档」的词重合 —— 自相矛盾。`
+      );
+    }
+    if (!Number.isInteger(a.count) || a.count < 1) {
+      problems.push(
+        `SG5 EXTRA 里 scripts/${file} 的锚点「${w}」的 count 必须是 ≥1 的整数` +
+          `（现在是 ${JSON.stringify(a.count)}）。`
+      );
+    }
+  }
+  const seenNot = new Set();
+  for (const w of notSlots) {
+    if (seenNot.has(w)) {
+      problems.push(
+        `SG5 EXTRA 里 scripts/${file} 的「不是一档」词「${w}」登记了两次。`
+      );
+    }
+    seenNot.add(w);
+    if (ids.has(w)) {
+      problems.push(
+        `SG5 EXTRA 里 scripts/${file} 的「不是一档」词「${w}」与静态清单的编号重合 —— ` +
+          `同一个词既是编号又不是档，自相矛盾。`
+      );
+    }
+  }
+}
+
 /* ---------- 汇总 ---------- */
 if (problems.length) {
   console.error("自测静态清单守卫元门禁未通过：\n");
@@ -178,8 +253,18 @@ if (problems.length) {
 
 const registryKeys = Object.keys(SLOTS);
 const totalSlots = registryKeys.reduce((a, k) => a + SLOTS[k].length, 0);
+const extraKeys = Object.keys(EXTRA);
+const extraAnchors = extraKeys.reduce(
+  (a, k) => a + (((EXTRA[k] && EXTRA[k].anchors) || []).length),
+  0
+);
+const extraNotSlots = extraKeys.reduce(
+  (a, k) => a + (((EXTRA[k] && EXTRA[k].notSlots) || []).length),
+  0
+);
 console.log(
   `自测静态清单守卫元门禁通过：${wired.size} 个接在 build 链上的自测全部经由 ${WRAPPER}，` +
     `静态清单登记了 ${registryKeys.length} 个自测 / ${totalSlots} 条档位号，` +
-    `接线与清单双向自洽（不缺、不多），包装器本身也在 build 链上。`
+    `接线与清单双向自洽（不缺、不多），包装器本身也在 build 链上，` +
+    `EXTRA 登记 ${extraKeys.length} 个自测（锚点 ${extraAnchors} 个 / 显式非档位 ${extraNotSlots} 个）且自洽。`
 );

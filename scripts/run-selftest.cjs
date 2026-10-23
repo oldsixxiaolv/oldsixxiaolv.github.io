@@ -25,6 +25,16 @@
  *   退出码：自测本身红 ⇒ 透传自测的退出码；自测绿但清单对不上 ⇒ 1；清单里没登记这个
  *   自测 ⇒ 1（守卫对它无效，必须红，不许静默放行）。
  *
+ * 四条判据：
+ *   SF1 少跑 —— 清单要求的编号没出现（或出现次数不够）。
+ *   SF2 多跑 —— 出现了清单里没有的编号。
+ *   SF3 有一行守卫看不见 —— **兜底判据**：每个行首标记行都必须有出处 ——
+ *      要么是静态清单里的编号，要么是登记过的锚点（EXTRA.anchors），
+ *      要么被显式声明成「不是一档」（EXTRA.notSlots）。三处都没有 ⇒ 判红。
+ *      这一条是缺陷 D73 的修法核心：以前「抽不出编号的行」守卫根本看不见，
+ *      删掉那一档照样全绿；现在它当场暴露。
+ *   SF4 锚点登记未兑现 —— 登记过的锚点必须**恰好**出现登记的次数（少跑 / 多跑都判红）。
+ *
  * 编号用独立字母体系 SF*（静态清单守卫），与 scripts/check-selftest-guard.cjs 的
  * SG*（元门禁）各管一段，互不重叠。
  */
@@ -32,7 +42,7 @@ const fs = require("fs");
 const path = require("path");
 const { spawn } = require("child_process");
 
-const { SLOTS, NOISE } = require(path.join(__dirname, "lib", "selftest-slots.cjs"));
+const { SLOTS, NOISE, EXTRA } = require(path.join(__dirname, "lib", "selftest-slots.cjs"));
 
 /* ---------- 抽取规则：什么样的行算"一档" ---------- */
 
@@ -69,6 +79,30 @@ function extractIds(text) {
     ids.push(m[1]);
   }
   return ids;
+}
+
+/**
+ * 行首第一个 **ASCII 词**（宽松口径）。
+ *
+ * 为什么要有这个：TOKEN 那条正则要求「首词形如编号 + 后跟边界符」，
+ * 于是「COV」（纯字母无数字）与「ID6c'」（编号后带撇号）都抽不出来 ⇒ 守卫看不见。
+ * 兜底判据（SF3）要问的是「这一行到底属于谁」，所以改用**宽松口径**取首词：
+ * 凡是首词是 ASCII 的行，都必须能在静态清单 / 锚点 / 非档位登记里找到出处。
+ * 首词不是 ASCII 的行（中文的「原件校验：」「注入：」等）天然不是编号，不参与。
+ */
+const WORD = /^[A-Za-z][A-Za-z0-9\u0027-]*/;
+
+/** 从一段输出里抽出所有「行首标记 + 首词是 ASCII」的行。 */
+function extractMarkedWords(text) {
+  const out = [];
+  for (const line of String(text).split("\n")) {
+    if (!MARK.test(line)) continue;
+    const rest = line.replace(MARK, "");
+    const m = rest.match(WORD);
+    if (!m) continue;
+    out.push({ word: m[0], line: line.trim() });
+  }
+  return out;
 }
 
 /** 编号 → 出现次数。 */
@@ -173,21 +207,60 @@ child.on("close", (code) => {
     process.exit(typeof code === "number" ? code : 1);
   }
 
-  if (missing.length || extra.length) {
+  /* ---------- 兜底判据：每个行首标记行都必须有出处 ---------- */
+  const extraReg = EXTRA[name] || { anchors: [], notSlots: [] };
+  const anchors = extraReg.anchors || [];
+  const notSlots = extraReg.notSlots || [];
+  /** 有出处的首词：清单里的编号 ∪ 噪声编号 ∪ 锚点 ∪ 显式声明的非档位。 */
+  const registered = new Set([
+    ...(entry || []),
+    ...(NOISE[name] || []),
+    ...anchors.map((a) => a.word),
+    ...notSlots,
+  ]);
+  const marked = extractMarkedWords(outBuf).concat(extractMarkedWords(errBuf));
+  const unregistered = marked.filter((m) => !registered.has(m.word));
+  const anchorMismatches = anchors
+    .map((a) => ({
+      word: a.word,
+      want: a.count,
+      got: marked.filter((m) => m.word === a.word).length,
+    }))
+    .filter((a) => a.got !== a.want);
+
+  const problems = [];
+  for (const [id, n, m] of missing) {
+    problems.push(
+      `SF1 ${name} 少跑了档位 ${id}：清单要求 ${n} 次，实到 ${m} 次 —— ` +
+        `「该跑的档位都跑了」这件事没被证明。`
+    );
+  }
+  for (const [id, n] of extra) {
+    problems.push(
+      `SF2 ${name} 多跑了档位 ${id}：实到 ${n} 次，静态清单里没有 —— ` +
+        `清单与自测已经不同步（改了自测就要同步改清单）。`
+    );
+  }
+  for (const m of unregistered) {
+    problems.push(
+      `SF3 ${name} 出现未登记的档位行：行首标记「${m.word}」既不在静态清单的编号里、` +
+        `也不是登记过的锚点、也没被声明成「不是一档」 ⇒ 这一行守卫看不见它 ` +
+        `（删掉它守卫也不会知道）。要么把它登记进静态清单的编号，要么登记成锚点 ` +
+        `（scripts/lib/selftest-slots.cjs 的 EXTRA），要么显式声明它不是一档。` +
+        `原文：${m.line}`
+    );
+  }
+  for (const a of anchorMismatches) {
+    problems.push(
+      `SF4 ${name} 锚点登记未兑现：锚点「${a.word}」登记要求出现 ${a.want} 次，` +
+        `实到 ${a.got} 次 —— 用锚点登记的档必须恰好跑够登记的次数。`
+    );
+  }
+
+  if (problems.length) {
     console.error("");
     console.error("自测档位静态清单守卫未通过：\n");
-    for (const [id, n, m] of missing) {
-      console.error(
-        `  ✗ SF1 ${name} 少跑了档位 ${id}：清单要求 ${n} 次，实到 ${m} 次 —— ` +
-          `「该跑的档位都跑了」这件事没被证明。`
-      );
-    }
-    for (const [id, n] of extra) {
-      console.error(
-        `  ✗ SF2 ${name} 多跑了档位 ${id}：实到 ${n} 次，静态清单里没有 —— ` +
-          `清单与自测已经不同步（改了自测就要同步改清单）。`
-      );
-    }
+    for (const p of problems) console.error(`  ✗ ${p}`);
     console.error("");
     console.error("  静态清单：scripts/lib/selftest-slots.cjs");
     console.error(
@@ -199,8 +272,10 @@ child.on("close", (code) => {
   const uniq = new Set(entry).size;
   if (!endedWithNl) console.log("");
   console.log(
-    `  ✓ 静态清单守卫：${name} 跑了 ${entry.length} 条编号（${uniq} 个唯一编号），` +
-      `与静态清单完全一致（少跑 / 多跑都没有）。`
+    `  ✓ 静态清单守卫：${name} 跑了 ${entry.length} 条编号（${uniq} 个唯一编号）` +
+      (anchors.length ? ` + ${anchors.length} 个锚点档` : "") +
+      `，与静态清单完全一致（少跑 / 多跑都没有）；` +
+      `${marked.length} 个行首标记行全部有出处。`
   );
   process.exit(0);
 });
