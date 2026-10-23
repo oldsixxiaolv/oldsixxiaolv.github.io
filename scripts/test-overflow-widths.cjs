@@ -27,6 +27,12 @@
  *                **不是**「load 事件等不到」那种超时（缺陷清单 D74 的配套负对照）
  *   M8 密闭   —— 测量期间从「产物之外」拿到响应时，门禁必须**当场判红**，
  *                红因点名「不是本机产物服务」并带上那个资源的地址（D74 的配套负对照）
+ *   M9 推导   —— 门禁里「从产物自身推导外域主机」那一步**被摘掉**时，
+ *                门禁必须**当场判红**，且红因点名 D75 与那个漏掉的外域主机，
+ *                **不是**「load 事件等不到」那种超时（缺陷清单 D75 的配套负对照）
+ *   M10 逃逸  —— 页面在**脚本里**发起外域请求（静态扫描看不到的那一类）时，
+ *                门禁必须**当场判红**并点名那个外域主机；
+ *                把这条判据卸掉后同一夹具必须**转绿**（证明那条红确实是它判出来的）
  *
  * 用法：node scripts/test-overflow-widths.cjs
  *   （已接进 npm run build，见 package.json 的 check:overflow-selftest）
@@ -470,7 +476,7 @@ try {
    *   与「页面压根没加载完」这两种完全不同的红。
    */
   const BLOCK_LINE =
-    '  await cdp.send("Network.setBlockedURLs", { urls: BLOCKED_URL_PATTERNS }, sessionId);';
+    '  await cdp.send("Network.setBlockedURLs", { urls: blockedPatterns }, sessionId);';
   const gateSource = fs.readFileSync(GATE, "utf8");
   const blockCount = gateSource.split(BLOCK_LINE).length - 1;
   if (blockCount !== 1) {
@@ -555,6 +561,142 @@ try {
     } catch {
       /* 子进程已经退出了，kill 报错不影响判定 */
     }
+  }
+
+  /* ---------- M9：阻断清单的推导被摘掉 ⇒ 门禁必须当场判红 ----------
+   *
+   * D74 留下的阻断清单是**手写的两域**：站点将来新增任何外域子资源，
+   * 那个域都不在清单里 ⇒ 页面又要等它 ⇒ 测量重新依赖外网
+   * ⇒ **D74 的症状原样复发**，而没有任何一道门禁会说一个字。
+   * D75 把清单改成「手写底线 ∪ 从产物自身推导」，这一档是它的**行为级负对照**：
+   * 把「从产物推导」这一步摘掉，覆盖度自证必须当场红，并点名那个漏掉的主机。
+   *
+   * 做法：夹具页挂一张**外域**样式表（https://cdn.example.org/probe.css）——
+   *   · 真门禁：推导把那个域自动收进阻断清单 ⇒ 页面照常加载 ⇒ 判绿；
+   *   · 门禁副本：把推导那一步换成空集合 ⇒ 阻断清单只剩手写底线
+   *     ⇒ 覆盖度自证在**起 Chrome 之前**就判红。
+   * ⚠️ 红因必须**归属纯净**：输出里不能出现「超时」——
+   *   否则分不清是「覆盖度自证抓到了被摘掉的推导」还是「页面压根没加载完」。
+   */
+  const DERIVE_LINE =
+    "  const derivedHosts = deriveExternalHosts(SITE, [...pages, ...styleFiles]);";
+  const deriveCount = gateSource.split(DERIVE_LINE).length - 1;
+  if (deriveCount !== 1) {
+    bad(
+      "M9 门禁源码里「从产物推导外域主机」那一步**恰好出现一次**（注入点唯一）",
+      `实际出现 ${deriveCount} 次 —— 注入点没了，本档跳过（否则红因会串味）`
+    );
+  } else {
+    ok("M9 门禁源码里「从产物推导外域主机」那一步**恰好出现一次**（注入点唯一）", "");
+    const m9Dir = path.join(tmp, "m9-site");
+    fs.mkdirSync(m9Dir);
+    fs.writeFileSync(
+      path.join(m9Dir, "probe.html"),
+      pageWithHead(
+        "Overflow selftest — external stylesheet in the product",
+        `<p>This fixture page loads one stylesheet from an external host, which is
+             what the product site may legitimately do.</p>`,
+        `<link rel="stylesheet" href="https://cdn.example.org/probe.css">`
+      )
+    );
+    const m9Real = runGate(m9Dir);
+    assert(
+      m9Real.code === 0,
+      "M9 外域子资源在真门禁下判绿（推导把它收进了阻断清单）",
+      `exit=${m9Real.code}`
+    );
+    const m9CopyDir = path.join(tmp, "gate-copy-m9");
+    fs.mkdirSync(m9CopyDir);
+    const m9CopyPath = path.join(m9CopyDir, "check-overflow.cjs");
+    fs.writeFileSync(
+      m9CopyPath,
+      gateSource.replace(DERIVE_LINE, "  const derivedHosts = new Set();")
+    );
+    const m9 = runGate(m9Dir, [], m9CopyPath);
+    assert(m9.code === 1, "M9 推导被摘掉后门禁判红", `exit=${m9.code}`);
+    assert(/D75/.test(m9.out), "M9 红因点名 D75（阻断清单覆盖自证）", "");
+    assert(
+      /cdn\.example\.org/.test(m9.out),
+      "M9 红因点名那个漏掉的外域主机 cdn.example.org",
+      ""
+    );
+    assert(
+      !/超时/.test(m9.out),
+      "M9 红因归属纯净：输出里没有「超时」（不是 load 等不到）",
+      ""
+    );
+    assert(
+      !/外部字体域/.test(m9.out),
+      "M9 红因归属纯净：没有混入外部字体探针那一档的红因",
+      ""
+    );
+  }
+
+  /* ---------- M10：运行期逃逸判据不是空跑 ----------
+   *
+   * D75 还有第二道：**运行期兜底** —— 测量期间浏览器向
+   * 「**没有被阻断**的外域主机」发起请求 ⇒ 判红。
+   * 静态扫描看不到的那一类（JS 里 fetch、运行时才拼出来的地址）靠它兜住。
+   *
+   * 这一档用「页面在脚本里 fetch 一个外域地址」来制造这种情况：
+   *   · 真门禁 ⇒ 判红，红因点名 D75 与那个外域主机；
+   *   · 门禁副本（把逃逸判据的条件换成 false）⇒ 同一夹具**判绿**
+   *     —— 绿了就说明那条红确实是这条判据判出来的，不是别的红因。
+   * ⚠️ 这个 fetch 是**异步**的：它不阻塞 load 事件 ⇒ 门禁能把这一轮量完，
+   *   红因才是「逃逸」而不是「超时」。
+   */
+  const ESCAPE_LINE = "  if (escapedHosts.size > 0) {";
+  const escapeCount = gateSource.split(ESCAPE_LINE).length - 1;
+  if (escapeCount !== 1) {
+    bad(
+      "M10 门禁源码里「运行期逃逸」那一条判据**恰好出现一次**（注入点唯一）",
+      `实际出现 ${escapeCount} 次 —— 注入点没了，本档跳过（否则红因会串味）`
+    );
+  } else {
+    ok("M10 门禁源码里「运行期逃逸」那一条判据**恰好出现一次**（注入点唯一）", "");
+    const m10Dir = path.join(tmp, "m10-site");
+    fs.mkdirSync(m10Dir);
+    fs.writeFileSync(
+      path.join(m10Dir, "fetch.html"),
+      page(
+        "Overflow selftest — runtime external request",
+        `<p>This fixture page asks for an external resource from script at run time,
+           which no static scan of the product can see.</p>
+         <script>
+           fetch("https://cdn.example.org/probe.json", { mode: "no-cors" }).catch(function () {});
+         </script>`
+      )
+    );
+    const m10 = runGate(m10Dir);
+    assert(
+      m10.code === 1,
+      "M10 页面在脚本里发起外域请求时门禁判红（静态扫描看不到的那类）",
+      `exit=${m10.code}`
+    );
+    assert(/D75/.test(m10.out), "M10 红因点名 D75（运行期逃逸判据）", "");
+    assert(
+      /cdn\.example\.org/.test(m10.out),
+      "M10 红因点名那个外域主机 cdn.example.org",
+      ""
+    );
+    assert(
+      !/超时/.test(m10.out),
+      "M10 红因归属纯净：输出里没有「超时」（不是 load 等不到）",
+      ""
+    );
+    const m10CopyDir = path.join(tmp, "gate-copy-m10");
+    fs.mkdirSync(m10CopyDir);
+    const m10CopyPath = path.join(m10CopyDir, "check-overflow.cjs");
+    fs.writeFileSync(
+      m10CopyPath,
+      gateSource.replace(ESCAPE_LINE, "  if (false) {")
+    );
+    const m10Copy = runGate(m10Dir, [], m10CopyPath);
+    assert(
+      m10Copy.code === 0,
+      "M10 逃逸判据被卸掉后同一夹具判绿（证明这条红确实是它判出来的）",
+      `exit=${m10Copy.code}`
+    );
   }
 } finally {
   try {

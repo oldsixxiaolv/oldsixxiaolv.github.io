@@ -140,6 +140,20 @@
  *      这些量的是布局盒，**不随字宽改变**；只有「断词导致的横向溢出」这一类
  *      可能因字体不同而有细微差别 —— 这一点在文末的通过文案里如实写出来。
  *
+ * ⚠️ 为什么阻断清单要**从产物自身推导**（2026-10-23 修缺陷清单 **D75**）：
+ *   D74 把「外部字体请求在浏览器层被拦掉」做成了**手写的两域清单**。
+ *   那是**靠人记得维护**的清单：站点将来新增任何外域子资源
+ *   （哪怕它已经被 scripts/check-third-party.cjs 合法白名单放行），
+ *   那个域都不在阻断清单里 ⇒ 页面又要等它 ⇒ 测量重新依赖外网
+ *   ⇒ **D74 的症状原样复发**（load 事件不来、红因指错方向），
+ *   而**没有任何一道门禁会说一个字**。
+ *   修法：阻断清单 = 手写底线（探针要用的字体域，**不能删**）
+ *        ∪ **从产物自身推导**的外域主机（扫产物的 HTML 资源标签与 CSS 的 url()/@import）。
+ *   「新增外域子资源」于是**不需要人去记得更新清单**：产物里多一个外域引用，
+ *   阻断清单就多一个域 ⇒ 测量永远与外网解耦。
+ *   并加一道**覆盖度自证**：产物里引用的每个外域主机都必须在实际交给 CDP 的
+ *   阻断清单里 —— 推导一旦被摘掉或算漏，这道自证当场红（见自测的 M9 负对照）。
+ *
  * 用法：
  *   node scripts/check-overflow.cjs                # 全部默认档位
  *   node scripts/check-overflow.cjs --width 320    # 只测某一档（调试用）
@@ -164,8 +178,6 @@ const SITE = process.env.SITE_DIR
  * 测量时把它们**在浏览器层拦掉**，测量结果就不再依赖「这台机器能不能出网」。
  */
 const EXTERNAL_FONT_HOSTS = ["fonts.googleapis.com", "fonts.gstatic.com"];
-/** 交给 CDP `Network.setBlockedURLs` 的通配规则（`*` 匹配任意前缀/后缀）。 */
-const BLOCKED_URL_PATTERNS = EXTERNAL_FONT_HOSTS.map((h) => `*${h}*`);
 /** 探针打的那个域（必须是上面被拦的域之一，否则探针证明不了任何事）。 */
 const FONT_PROBE_HOST = EXTERNAL_FONT_HOSTS[0];
 /** 探针自己的等待上限：挂住这么久就判定「没被阻断」。 */
@@ -183,6 +195,229 @@ const FONT_PROBE_SCRIPT = `(async () => {
   ]);
   return { kind: outcome.kind, ms: Date.now() - t0 };
 })()`;
+
+/* ---------- 外域主机识别：阻断清单从产物自身推导（2026-10-23 修缺陷清单 D75） ----------
+ *
+ * D74 把「外部字体请求在浏览器层被拦掉」做成了**手写的两域清单**。
+ * 那是**靠人记得维护**的清单：站点将来新增任何外域子资源
+ * （哪怕它已经被 scripts/check-third-party.cjs 合法白名单放行），
+ * 那个域都不在阻断清单里 ⇒ 页面又要等它 ⇒ 测量重新依赖外网
+ * ⇒ **D74 的症状原样复发**（load 事件不来、红因指错方向），
+ * 而没有任何一道门禁会说一个字。
+ *
+ * 修法：阻断清单 = 手写**底线** ∪ **从产物自身推导**的外域主机。
+ * 「新增外域子资源」于是**不需要人去记得更新清单**：
+ * 产物里多一个外域引用，阻断清单就多一个域 ⇒ 测量永远与外网解耦。
+ */
+
+/** 本机主机名（这些不算外域 —— 相对路径解析出来也落在这一档）。 */
+const LOCAL_HOSTS = new Set(["127.0.0.1", "localhost", "::1", "[::1]"]);
+
+/**
+ * <link rel> 里哪些值表示「浏览器会去取这个资源」。
+ * canonical / alternate / prev / next / author / license 这类是**指针**，
+ * 浏览器不会去取它们 ⇒ 不算（否则会把站点自己的域名也算成外域）。
+ */
+const FETCHABLE_LINK_RELS = new Set([
+  "stylesheet", "preload", "prefetch", "modulepreload", "prerender",
+  "preconnect", "dns-prefetch", "icon", "manifest", "apple-touch-icon", "mask-icon",
+]);
+
+/** 每个资源标签用哪些属性去取资源（其余属性一律不看）。 */
+const RESOURCE_ATTRS = {
+  link: ["href"],
+  script: ["src"],
+  img: ["src", "srcset"],
+  source: ["src", "srcset"],
+  iframe: ["src"],
+  video: ["src", "poster"],
+  audio: ["src"],
+  track: ["src"],
+  embed: ["src"],
+  object: ["data"],
+  input: ["src"],
+};
+
+/**
+ * 这个 URL 的主机名；不是「浏览器会去取的绝对外网 URL」就返回 null。
+ *
+ * · 相对路径按本机产物服务解析 ⇒ 主机名是 127.0.0.1 ⇒ 不算外域；
+ * · data: / blob: / mailto: / javascript: 没有主机名 ⇒ 不算；
+ * · 协议相对（//host/x）解析出来是外域 ⇒ 算。
+ */
+function hostOfUrl(raw) {
+  if (typeof raw !== "string") return null;
+  const s = raw.trim();
+  if (!s || s.startsWith("#")) return null;
+  let u;
+  try {
+    u = new URL(s, "http://127.0.0.1/");
+  } catch {
+    return null;
+  }
+  if (u.protocol !== "http:" && u.protocol !== "https:") return null;
+  const host = u.hostname.toLowerCase();
+  if (!host || LOCAL_HOSTS.has(host)) return null;
+  return host;
+}
+
+/** srcset 的值里有哪些 URL（逗号分隔，每段取第一个词）。 */
+function srcsetUrls(value) {
+  return String(value)
+    .split(",")
+    .map((part) => part.trim().split(/\s+/)[0])
+    .filter(Boolean);
+}
+
+/** 从一段 CSS 里推导它引用的外域主机（@import 与 url()）。 */
+function hostsInCss(css) {
+  const hosts = new Set();
+  const text = String(css).replace(/<!--[\s\S]*?-->/g, "");
+  const patterns = [
+    /@import\s+(?:url\(\s*)?(?:"([^"]*)"|'([^']*)'|([^)\s;]+))/gi,
+    /url\(\s*(?:"([^"]*)"|'([^']*)'|([^)]*?))\s*\)/gi,
+  ];
+  for (const re of patterns) {
+    let m;
+    while ((m = re.exec(text)) !== null) {
+      const raw = (m[1] ?? m[2] ?? m[3] ?? "").trim();
+      const host = hostOfUrl(raw);
+      if (host) hosts.add(host);
+    }
+  }
+  return hosts;
+}
+
+/** 解析一个标签的属性表（属性名小写）。 */
+function parseAttrs(attrText) {
+  const attrs = {};
+  const re = /([a-zA-Z_:][-a-zA-Z0-9_:.]*)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))/g;
+  let m;
+  while ((m = re.exec(attrText)) !== null) {
+    attrs[m[1].toLowerCase()] = m[2] ?? m[3] ?? m[4] ?? "";
+  }
+  return attrs;
+}
+
+/**
+ * **主扫描**：从一个 HTML 文件里推导它引用的外域主机。
+ * 口径 = 「浏览器会去取回的东西」：资源标签的资源属性 ＋ CSS 的 @import / url()。
+ * <a href> 导航链接、<link rel=canonical> 这类指针**不算**。
+ */
+function hostsInHtml(html) {
+  const hosts = new Set();
+  const clean = String(html)
+    .replace(/<!--[\s\S]*?-->/g, "")
+    .replace(/(<script\b[^>]*>)[\s\S]*?(<\/script>)/gi, "$1$2");
+  const tagRe = /<([a-zA-Z][a-zA-Z0-9:-]*)((?:\s[^>]*?)?)(\/?)>/g;
+  let m;
+  while ((m = tagRe.exec(clean)) !== null) {
+    const name = m[1].toLowerCase();
+    const attrNames = RESOURCE_ATTRS[name];
+    if (!attrNames) continue;
+    const attrs = parseAttrs(m[2] || "");
+    if (name === "link") {
+      const rels = String(attrs.rel || "").toLowerCase().split(/\s+/).filter(Boolean);
+      if (!rels.some((r) => FETCHABLE_LINK_RELS.has(r))) continue;
+    }
+    for (const attrName of attrNames) {
+      const value = attrs[attrName];
+      if (value === undefined) continue;
+      const candidates = attrName === "srcset" ? srcsetUrls(value) : [value];
+      for (const c of candidates) {
+        const host = hostOfUrl(c);
+        if (host) hosts.add(host);
+      }
+    }
+  }
+  /* 内联 <style> 里的 CSS 也会被浏览器去取。 */
+  for (const s of clean.matchAll(/<style\b[^>]*>([\s\S]*?)<\/style>/gi)) {
+    for (const host of hostsInCss(s[1])) hosts.add(host);
+  }
+  return hosts;
+}
+
+/**
+ * **独立扫描**：覆盖度自证的**基准**。
+ *
+ * 为什么要有第二套：覆盖度自证如果只用同一套扫描，它就是**镜子不是守卫** ——
+ * 扫描漏掉的东西，两边会一起漏 ⇒ 自证照样绿。
+ * 这里用**不同的算法**再算一遍：把文档切成「标签块 / 文本」两类，
+ * 只在标签块里按**属性名**取 URL（不解析属性表）；
+ * 文本块一律不看（正文、JSON-LD 里的地址浏览器不会当资源去取）。
+ * ⚠️ 两套口径必须一致（同一批「浏览器会去取」的位置），否则会误红。
+ */
+function hostsInHtmlByTags(html) {
+  const hosts = new Set();
+  const clean = String(html).replace(/<!--[\s\S]*?-->/g, "");
+  const tokens = clean.match(/<[^>]*>|[^<]+/g) || [];
+  let inStyle = false;
+  for (const tok of tokens) {
+    if (!tok.startsWith("<")) {
+      if (inStyle) for (const host of hostsInCss(tok)) hosts.add(host);
+      continue;
+    }
+    const nameM = /^<\/?\s*([a-zA-Z][a-zA-Z0-9:-]*)/.exec(tok);
+    const name = nameM ? nameM[1].toLowerCase() : "";
+    if (name === "style") {
+      inStyle = !/^<\//.test(tok);
+      continue;
+    }
+    const attrNames = RESOURCE_ATTRS[name];
+    if (!attrNames) continue;
+    if (name === "link") {
+      const relM = /\brel\s*=\s*["']?([^"'\s>]*)/i.exec(tok);
+      const rels = relM ? relM[1].toLowerCase().split(/\s+/) : [];
+      if (!rels.some((r) => FETCHABLE_LINK_RELS.has(r))) continue;
+    }
+    for (const attrName of attrNames) {
+      const re = new RegExp(`\\b${attrName}\\s*=\\s*(?:"([^"]*)"|'([^']*)'|([^\\s"'=<>\`]+))`, "gi");
+      let m;
+      while ((m = re.exec(tok)) !== null) {
+        const raw = (m[1] ?? m[2] ?? m[3] ?? "").trim();
+        const candidates = attrName === "srcset" ? srcsetUrls(raw) : [raw];
+        for (const c of candidates) {
+          const host = hostOfUrl(c);
+          if (host) hosts.add(host);
+        }
+      }
+    }
+  }
+  return hosts;
+}
+
+/** 读一个产物文件；读不到就当它不存在（不猜、不报错）。 */
+function readProductFile(dir, rel) {
+  try {
+    return fs.readFileSync(path.join(dir, rel), "utf8");
+  } catch {
+    return null;
+  }
+}
+
+/** 从产物里推导「浏览器会去取回」的外域主机（主扫描）。 */
+function deriveExternalHosts(dir, files) {
+  const hosts = new Set();
+  for (const rel of files) {
+    const text = readProductFile(dir, rel);
+    if (text === null) continue;
+    const found = rel.endsWith(".css") ? hostsInCss(text) : hostsInHtml(text);
+    for (const host of found) hosts.add(host);
+  }
+  return hosts;
+}
+
+/** 独立扫描（覆盖度自证的基准）。 */
+function auditExternalHosts(dir, files) {
+  const hosts = new Set();
+  for (const rel of files) {
+    const text = readProductFile(dir, rel);
+    if (text === null) continue;
+    const found = rel.endsWith(".css") ? hostsInCss(text) : hostsInHtmlByTags(text);
+    for (const host of found) hosts.add(host);
+  }
+  return hosts;
+}
 
 /* ---------- 找 Chrome ----------
  *
@@ -809,15 +1044,42 @@ const measureScript = (contentSelector) => `(() => {
   }
 
   const pages = [];
+  const styleFiles = [];
   (function walk(dir, base) {
     for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
       const p = path.join(dir, e.name);
       if (e.name.startsWith("._")) continue;
       if (e.isDirectory()) walk(p, base + e.name + "/");
       else if (e.name.endsWith(".html")) pages.push(base + e.name);
+      else if (e.name.endsWith(".css")) styleFiles.push(base + e.name);
     }
   })(SITE, "");
   const routes = pages.map((p) => (p.endsWith("/index.html") ? "/" + p.slice(0, -"index.html".length) : "/" + p));
+
+  /* ---------- D75：阻断清单 = 手写底线 ∪ 从产物自身推导的外域主机 ---------- */
+  /* ⚠️ 下面这一行是 D75 的注入点：把「从产物推导」这一步摘掉，
+     阻断清单就只剩手写底线 ⇒ 覆盖度自证当场红（见自测里的 M9 负对照）。 */
+  const derivedHosts = deriveExternalHosts(SITE, [...pages, ...styleFiles]);
+  /* 覆盖度自证的**基准**：用另一套算法独立算一遍（口径必须一致，否则会误红）。 */
+  const auditHosts = auditExternalHosts(SITE, [...pages, ...styleFiles]);
+  const blockedHosts = new Set([...EXTERNAL_FONT_HOSTS, ...derivedHosts]);
+  /** 交给 CDP `Network.setBlockedURLs` 的通配规则（`*` 匹配任意前缀/后缀）。 */
+  const blockedPatterns = [...blockedHosts].map((h) => `*${h}*`);
+
+  /* D75 覆盖度自证：产物里引用的每个外域主机都必须在实际交给浏览器的那份清单里。
+     ⚠️ 这一道在**起 Chrome 之前**就判红：快、确定、不依赖网络。
+     ⚠️ 它之所以不是空跑：上面那一步「推导」是**可摘的**（M9 负对照证明了这点）。 */
+  const missingHosts = [...auditHosts].filter((h) => !blockedHosts.has(h));
+  if (missingHosts.length) {
+    console.error("\n✗ 窄屏溢出门禁未通过：\n");
+    console.error(
+      `  ✗ D75 阻断清单覆盖对不上：产物里引用的外域主机 ${missingHosts.join("、")} ` +
+        `不在实际交给浏览器的那份阻断清单里 —— 测量会去等这些外域资源，` +
+        `结论会随「这台机器能不能出网」而变。`
+    );
+    console.error("");
+    process.exit(1);
+  }
 
   const { server, port } = await startServer();
   const chrome = await startChrome(chromeBin);
@@ -837,13 +1099,14 @@ const measureScript = (contentSelector) => `(() => {
   /* 观测域事件用（密闭性自证要看到「哪些请求拿到了响应」）。 */
   await cdp.send("Network.enable", {}, sessionId);
 
-  /* ⚠️ 阻断外部字体请求（2026-10-22 修缺陷清单 D74）——
-     这一行是**测量与外网解耦**的全部依赖：它让外部字体请求**立刻失败**
+  /* ⚠️ 阻断外部资源请求（D74 打底、D75 改成从产物推导）——
+     这一行是**测量与外网解耦**的全部依赖：它让外部请求**立刻失败**
      而不是挂住，页面 load 事件照常来，测量结果不再随外网状态漂移。
      ⚠️ 这一行**不许被摘掉**：摘掉之后下面的「外部字体探针」会当场判红
      （见 scripts/test-overflow-widths.cjs 里的对应负对照档）。
+     ⚠️ 清单本身也不能退化成手写的两域：D75 那一档负对照守的就是这件事。
      ⚠️ 别改成 Chrome 的 `--host-resolver-rules` —— 实测在 macOS 上不生效。 */
-  await cdp.send("Network.setBlockedURLs", { urls: BLOCKED_URL_PATTERNS }, sessionId);
+  await cdp.send("Network.setBlockedURLs", { urls: blockedPatterns }, sessionId);
 
   /* ---------- 密闭性观测：哪些请求拿到了响应 ---------- */
   const localOrigin = `http://127.0.0.1:${port}`;
@@ -860,10 +1123,20 @@ const measureScript = (contentSelector) => `(() => {
   };
   const requestUrls = new Map();       // requestId → url
   const externalResponded = new Map(); // url → HTTP 状态码（只记「不是本机产物服务」的）
+  const escapedHosts = new Map();     // host → 第一个请求地址（向「没被阻断的外域」发过的）
   cdp.onAny = (msg) => {
     if (msg.method === "Network.requestWillBeSent") {
       const r = msg.params.request;
-      if (r && r.url) requestUrls.set(msg.params.requestId, r.url);
+      if (r && r.url) {
+        requestUrls.set(msg.params.requestId, r.url);
+        /* D75 运行期兜底：测量期间向**没被阻断**的外域主机发请求 ⇒ 阻断清单漏了它。
+           ⚠️ 这里按**主机名**判本机（不是 origin）：另一个端口的 127.0.0.1
+           也是本机，它归密闭性判据管，不该混进这里。 */
+        const host = hostOfUrl(r.url);
+        if (host && !blockedHosts.has(host) && !escapedHosts.has(host)) {
+          escapedHosts.set(host, r.url);
+        }
+      }
       return;
     }
     if (msg.method === "Network.responseReceived") {
@@ -1182,6 +1455,15 @@ const measureScript = (contentSelector) => `(() => {
         [...externalResponded.entries()].map(([u, s]) => `${u}（HTTP ${s}）`).join("、")
     );
   }
+  /* ③ D75 运行期兜底：测量期间向「**没有被阻断**的外域主机」发过请求 ⇒ 阻断清单漏了它。
+     静态扫描扫不到的那些（JS 里 fetch、运行时才拼出来的地址）靠这一道兜住。 */
+  if (escapedHosts.size > 0) {
+    problems.push(
+      `D75 测量期间浏览器向 ${escapedHosts.size} 个**没有被阻断**的外域主机发起了请求：` +
+        [...escapedHosts.entries()].map(([h, u]) => `${h}（${u}）`).join("、") +
+        ` —— 阻断清单漏了它们，测量结论会随这台机器能不能出网而变。`
+    );
+  }
 
   ws.close();
   chrome.proc.kill();
@@ -1270,7 +1552,9 @@ const measureScript = (contentSelector) => `(() => {
       `量到触点 ${targetCount} 个，其中 ${inlineExempt} 个按**行内例外**豁免；` +
       `量到滚动定位目标 ${anchorCount} 个（其中目录目标 ${tocMeasured} 个），` +
       `识别到吸顶顶栏 ${occluderSeen} 次）` +
-      `；本次测量在**外部字体不可用**的前提下进行（页面用的是系统回退字体，不是 webfont —— ` +
+      `；本次测量把产物里引用的全部 ${blockedHosts.size} 个外域主机` +
+      `（${[...blockedHosts].join("、") || "无"}）在浏览器层拦掉了，测量不依赖本机能不能出网` +
+      `（页面用的是系统回退字体，不是 webfont —— ` +
       `门禁量的是布局盒宽度，不随字宽改变，只有断词类横向溢出可能有细微差别）`
   );
   process.exit(0);
