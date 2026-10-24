@@ -86,6 +86,13 @@
  *    33. 逐比较点覆盖度自证：每条门禁的比较点在这一轮都必须**真的跑过**
  *        （比较点目录静态登记；每个比较点的判据条数也必须在场），
  *        否则「整块判据被摘掉 / 被短路」这类静默失效会全绿通过
+ *    34. 集合列表页的每个列表项都必须有自己的标题元素：
+ *        该页 ItemList 每一项的 name 必须逐字出现在本页某个 h2–h6 的
+ *        标题元素可见文本里（锚在数据声明上，不锚在 class 名上）
+ *
+ * ⚠ 编号顺序 ≠ 执行顺序：门禁 33 是**覆盖度自证**，它要看得见每条门禁
+ *    这一轮都真的跑过 ⇒ 它的代码段必须排在**最后**（排在门禁 34 之前）。
+ *    门禁 24 只比两个集合、不比顺序 ⇒ 新门禁一律插在 33 之前。
  *
  * 旧编号 → 新编号对照（历史日志/commit 里引用的是旧号，追溯时用这张表）：
  *   （无）            → 新 0    （本轮新增：产物里不得有 macOS 资源叉文件）
@@ -124,6 +131,7 @@
  *   （无）            → 新 31   （本轮新增：同一 @id 的同名字段必须一致）
  *   （无）            → 新 32   （本轮新增：论文列表页的 ItemList 完整性）
  *   （无）            → 新 33   （本轮新增：逐比较点覆盖度自证）
+ *   （无）            → 新 34   （本轮新增：集合列表页的条目标题必须是标题元素）
  *
  * 用法：node scripts/verify-site.cjs   （有错 exit 1）
  */
@@ -214,6 +222,7 @@ const G30_ON = true;
 const G31_ON = true;
 const G32_ON = true;
 const G33_ON = true;
+const G34_ON = true;
 const SWITCH_ON = {
   "0": G0_ON,
   "1": G1_ON,
@@ -250,6 +259,7 @@ const SWITCH_ON = {
   "31": G31_ON,
   "32": G32_ON,
   "33": G33_ON,
+  "34": G34_ON,
 };
 // 逐比较点覆盖度自证的记账（门禁 33 消费）。
 // ⚠️ mark() 必须跟判据**同生共死**：整块判据被删掉时 mark 也必须一起消失，
@@ -3358,6 +3368,122 @@ mark("32");
   }
 }
 
+/* ---------- 34. 集合列表页的每个列表项都必须有自己的标题元素 ----------
+   这条是被一个**语义缺口**逼出来的：/blog/ 整页只有一个标题元素（页标题 h1），
+   底下三篇文章的标题写成了 <span class="list__title"> —— 于是读屏器的
+   「标题列表」里这三篇**根本不存在**（用户按标题逐条浏览时直接跳过它们）。
+   同构的 /papers/ 每条论文本来就是标题元素（<h3 class="home-pub__title">），
+   两个集合列表页的语义却对不上。
+   而 check-a11y 的 A7 只查「每页恰好一个 h1 + 不跳级」——
+   **没有任何一道门禁**在看守"列表项有没有自己的标题"。
+
+   ⚠ 为什么不泛化成"每个 <li> 都得有个标题"：
+     全站别的 <li>（导航、定义列表……）本来就没有标题元素，那条规则会把
+     十几页立刻判红 ⇒ 规则会被迫放宽成"什么都查不到"。
+     所以本条锚在**站点自己声明的数据**上：只有声明了列表级实体（ItemList）
+     的页才算集合列表页，比对的也只有那一页自己声明的那些条目。
+
+   判据（逐项配对 ⇒ 能点名第几项）：
+     34a 页面侧：本页 h2–h6 标题元素的可见文本（去脚本/样式、去标签、
+         解 HTML 实体、压空白）
+     34b 条目侧：该页 ItemList 的每个 ListItem 的 name
+     34c 每一项的 name 必须**逐字出现在**本页某个 h2–h6 的可见文本里
+     34d 自证存活：全站找不到任何 ItemList ⇒ 本条存在的理由没了 ⇒ 判红
+
+   ⚠ 诚实边界（本条**不**判的）：
+     · ListItem 没有 name（空串）时**不判** —— 没有名字就没有可比的东西；
+     · 只看 h2–h6：h1 是页面自己的标题，不算条目标题；
+     · 本条不管标题**层级**对不对（那是 check-a11y 的 A7 的事），
+       也不管条目在页面上排第几（那是门禁 32 的事）—— 两件事不重叠。
+
+   ⚠ 为什么比对的是 name 而不是 class 名：
+     锚在**数据声明**上 ⇒ 换模板实现（span → h2 → 别的标题元素）不会让判据
+     失效，而这正是本条要守的那件事本身。 */
+mark("34");
+{
+  const problemsBeforeListTitle = problems.length;
+
+  // ① 全站哪些页声明了列表级实体（按页去重）
+  const itemListPages = new Set();
+  for (const { from, parsed } of ldRecords) {
+    for (const node of collectNodes(parsed)) {
+      if (typesOf(node).includes("ItemList")) itemListPages.add(from);
+    }
+  }
+
+  /** 本页 h2–h6 的可见文本（去脚本/样式、去标签、解实体、压空白）。 */
+  const visibleHeadingTexts = (html) => {
+    const body = html
+      .replace(/<script\b[\s\S]*?<\/script>/gi, "")
+      .replace(/<style\b[\s\S]*?<\/style>/gi, "");
+    const out = [];
+    for (const m of body.matchAll(/<h([2-6])\b[^>]*>([\s\S]*?)<\/h\1>/gi)) {
+      const text = decodeHtmlEntities(m[2].replace(/<[^>]*>/g, " "))
+        .replace(/\s+/g, " ")
+        .trim();
+      if (text) out.push(text);
+    }
+    return out;
+  };
+
+  // ② 逐页逐项比对
+  let comparedItems = 0;
+  for (const from of itemListPages) {
+    const pageFile = path.join(SITE, from);
+    const headings = visibleHeadingTexts(fs.readFileSync(pageFile, "utf8"));
+    // 该页 ItemList 的条目名（没有 name 的条目不参与比对 —— 诚实边界）
+    const names = [];
+    for (const { from: f2, parsed } of ldRecords) {
+      if (f2 !== from) continue;
+      for (const node of collectNodes(parsed)) {
+        if (!typesOf(node).includes("ItemList")) continue;
+        const list = Array.isArray(node.itemListElement) ? node.itemListElement : [];
+        for (const el of list) {
+          if (!el || typeof el !== "object") continue;
+          const nm = typeof el.name === "string" ? el.name : "";
+          if (!nm.trim()) continue;
+          names.push(nm);
+        }
+      }
+    }
+    for (let i = 0; i < names.length; i++) {
+      const name = names[i].replace(/\s+/g, " ").trim();
+      comparedItems++;
+      if (!headings.some((h) => h.includes(name))) {
+        fail("34",
+          `${from}: ItemList 第 ${i + 1} 项「${name}」在本页找不到对应的标题元素 —— ` +
+            "集合列表页的每个列表项都必须有自己的标题元素（h2–h6），" +
+            "否则读屏器的标题列表里这一项根本不存在"
+        );
+      }
+    }
+  }
+
+  // 34d：自证存活 —— 判据自己被卸掉时不能"全绿"
+  if (!itemListPages.size) {
+    fail("34",
+      "全站找不到任何 ItemList —— 本条存在的理由就是守住集合列表页的条目标题；" +
+        "它消失了，判据也就跟着失效了"
+    );
+  } else if (!comparedItems) {
+    fail("34",
+      "全站有 ItemList，却一条列表项都没被比对 —— 判据可能已经失效"
+    );
+  }
+
+  // ⚠ note 的措辞必须跟着本条的判定结果走：判红时**不许**照抄通过时
+  //    那句带断言的话（读的人先扫到 note，就会把红因当成别的问题）。
+  const listTitleProblems = problems.length - problemsBeforeListTitle;
+  if (itemListPages.size) {
+    note(
+      listTitleProblems
+        ? `集合列表页的条目标题：${itemListPages.size} 个集合列表页 / 比对了 ${comparedItems} 项 —— 存在问题（见上方报错）`
+        : `集合列表页的条目标题：${itemListPages.size} 个集合列表页 / 比对了 ${comparedItems} 项，` +
+          "每一项都落在本页自己的标题元素上"
+    );
+  }
+}
+
 /* ---------- 33. 逐比较点覆盖度自证：每条判据的比较点都必须真的跑过 ----------
    这条是**给自己这一族门禁上的保险**：编号化之后，最坏的一类失效是
    「判据还在、编号还在，但那段代码已经不跑了」——
@@ -3389,7 +3515,7 @@ const COVERAGE_POINTS = {
   "5": 2, "6": 1, "7": 6, "8": 10, "9": 2, "10": 1, "11": 8, "12": 3,
   "13": 7, "14": 1, "15": 2, "16": 8, "17": 4, "18": 10, "19": 4,
   "20": 5, "21": 6, "22": 1, "23": 2, "24": 4, "25": 1, "26": 1, "27": 1,
-  "28": 2, "29": 5, "30": 10, "31": 3, "32": 15,
+  "28": 2, "29": 5, "30": 10, "31": 3, "32": 15, "34": 3,
 };
 {
   const dirIds = Object.keys(COVERAGE_POINTS);
@@ -3489,6 +3615,6 @@ if (problems.length) {
   process.exit(1);
 }
 console.log(
-  `✓ 站点自检全部通过（门禁 0–33；逐比较点覆盖度 ${coveredPoints.size}/` +
+  `✓ 站点自检全部通过（门禁 0–34；逐比较点覆盖度 ${coveredPoints.size}/` +
     `${Object.keys(COVERAGE_POINTS).length}）`
 );

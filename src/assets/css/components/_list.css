@@ -120,6 +120,11 @@
   color: var(--text-primary);
   text-decoration: none;
   display: inline-block;
+  /* 字距**显式钉死**在基准值：这条规则的宿主元素现在是 <h2>（标题元素），
+     而 base.css 的标题基础样式会带上 --tracking-tight（-0.015em）。
+     不钉死的话，改成标题元素的那一刻字距就悄悄变了 ——
+     这次改动只该改语义，不该改版式。 */
+  letter-spacing: var(--tracking-base);
   /* touch target: 列表标题可能 2 行 ≈ 50px，但仍需 ≥ 44；用 min-height 兜底 */
   min-height: 44px;
   /* 列表标题常跨 2 行（中英文混排尤其常见），pretty 比 balance 更克制，

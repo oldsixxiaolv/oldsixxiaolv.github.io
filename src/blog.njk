@@ -91,7 +91,9 @@ editPaths:
               <img class="card__img" src="{{ coverSrc }}" alt="" width="800" height="450" loading="lazy" decoding="async" />
             </span>
           {% endif %}
-          <span class="list__body">
+          {# 卡片主体是 <div> 不是 <span>：里面的条目标题是块级的 <h2>，
+             而 <span> 是行内容 —— 行内容里套块级标题是无效 HTML。 #}
+          <div class="list__body">
             {# 分层：日期（眉标）→ 标题 → 摘要 → 主题标签。
                之前这些全挤在一行同色小字里，扫读时抓不到重点。
 
@@ -104,7 +106,14 @@ editPaths:
             <span class="list__kicker">
               <time datetime="{{ post.date | dateToIso | truncate(10, true, '') }}">{{ post.date | dateToIso | truncate(10, true, '') }}</time>
             </span>
-            <span class="list__title">{{ post.data.title }}</span>
+            {# 条目标题必须是**标题元素**（h2），不是 <span>：
+               读屏器的「标题列表」是用户逐条浏览一份列表的主路径 ——
+               标题写成 span 的话，这一页在标题列表里只剩一个 h1（页标题），
+               底下几篇文章在标题列表里**根本不存在**（按标题跳转时会跳过它们）。
+               同构的 /papers/ 每条论文本来就是标题元素（partials/publications.njk
+               里的 <h3 class="home-pub__title">）⇒ 两个集合列表页语义本该一致。
+               层级：h1（页标题）→ h2（条目）—— 不跳级。 #}
+            <h2 class="list__title">{{ post.data.title }}</h2>
             {% if post.data.excerpt %}<span class="list__excerpt">{{ post.data.excerpt }}</span>{% endif %}
             {# tags 里混着 .11tydata.cjs 注入的集合名（"blog"），展示前滤掉；
                主题只取前 3 个，再多就抢标题的注意力了。 #}
@@ -115,7 +124,7 @@ editPaths:
               {% if post.data.readingTime %}<span class="badge badge--quiet">{{ post.data.readingTime }} min read</span>{% endif %}
               {% for tag in topicTags %}{% if loop.index <= 3 %}<span class="badge badge--brand">{{ tag }}</span>{% endif %}{% endfor %}
             </span>{% endif %}
-          </span>
+          </div>
         </a>
       </li>
     {% endfor %}

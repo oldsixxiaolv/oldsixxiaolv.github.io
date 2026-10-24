@@ -2,8 +2,8 @@
 /**
  * scripts/test-verify-site.cjs —— verify-site.cjs 的常驻自测（第一版）
  *
- * 为什么要有这个：verify-site.cjs 是全站门禁的**总汇**，34 条判据、
- * 133 处 fail() 调用点。编号化之后它自己就变成了一类新的风险面：
+ * 为什么要有这个：verify-site.cjs 是全站门禁的**总汇**，判据数十条、
+ * fail() 调用点上百。编号化之后它自己就变成了一类新的风险面：
  *   · 红因不带门禁号 ⇒ 一屏几十条报错时没人说得清是哪条判据报的；
  *   · 可卸开关不被消费 ⇒ 「卸掉一条判据」根本不会发生，
  *     判据级负对照全是假绿；
@@ -157,16 +157,16 @@ function patchBlockWith(html, marker, fn) {
 }
 
 /**
- * 判据 11 的档位断言：exit 1 + 红因**只**来自门禁 11 + **恰好一条** +
+ * 档位断言（门禁号可传）：exit 1 + 红因**只**来自该门禁 + **恰好一条** +
  * 文案命中指定片段、不命中指定片段。
  * 「恰好一条」是关键：多出来的那条说明这一档的缺陷不纯，读者没法判断
  * 到底是哪条分支在报红 ⇒ 这一档就白做了。
  */
-function expectOnlyGate11(r, mustHit, mustNotHit) {
+function expectOnlyGate(r, gateId, mustHit, mustNotHit) {
   if (r.code === 0) return "产物被改坏后门禁必须报红，却 exit 0";
   const ids = [...new Set(r.causes.map((c) => c.id))].sort();
-  if (ids.length !== 1 || ids[0] !== "11") {
-    return `红因归属不纯净：实到 ${ids.join(",") || "无"}，期望只有 11`;
+  if (ids.length !== 1 || ids[0] !== gateId) {
+    return `红因归属不纯净：实到 ${ids.join(",") || "无"}，期望只有 ${gateId}`;
   }
   if (r.causes.length !== 1) return `期望恰好 1 条红因，实到 ${r.causes.length} 条`;
   const msg = r.causes[0].msg;
@@ -179,11 +179,11 @@ function expectOnlyGate11(r, mustHit, mustNotHit) {
   return null;
 }
 
-/** 负对照断言：卸掉门禁 11 的开关后，同一份产物补丁必须零问题、exit 0。 */
-function expectGreenAfterSwitchOff(r) {
+/** 负对照断言：卸掉该门禁的开关后，同一份产物补丁必须零问题、exit 0。 */
+function expectGreenAfterSwitchOff(r, gateId) {
   if (r.causes.length) {
     const ids = [...new Set(r.causes.map((c) => c.id))].sort();
-    return `卸掉门禁 11 的开关后不该还有红因，实到 ${ids.join(",")}`;
+    return `卸掉门禁 ${gateId} 的开关后不该还有红因，实到 ${ids.join(",")}`;
   }
   if (r.code !== 0) return `卸掉开关后应零问题，却 exit ${r.code}`;
   return null;
@@ -562,15 +562,71 @@ const G11_CASES = [
 
 for (const c of G11_CASES) {
   addCase(c.id, c.title, () => PRISTINE, (r) =>
-    expectOnlyGate11(r, c.mustHit, c.mustNotHit), { patchSite: c.patch });
+    expectOnlyGate(r, "11", c.mustHit, c.mustNotHit), { patchSite: c.patch });
   addCase(
     `N-${c.id.slice(2)}`,
     `负对照：${c.title} —— 卸掉门禁 11 的开关后同一份补丁必须转绿`,
     () => flipSwitch(PRISTINE, "11"),
-    (r) => expectGreenAfterSwitchOff(r),
+    (r) => expectGreenAfterSwitchOff(r, "11"),
     { patchSite: c.patch }
   );
 }
+
+// ---------------------------------------------------------------------------
+// ⑧ 判据 34 的精准性档（集合列表页的每个列表项都必须有自己的标题元素）
+//
+// 这一族证明三件事：
+//   ① 判据 34 真的在跑：把第一条列表项的标题降级成 span，它必须报红；
+//   ② 只坏一条 ⇒ **恰好一条**红因（另两条仍在页上、仍应通过）——
+//      缺陷不纯的档位会让读者分不清是哪条分支在报红；
+//   ③ 判据能被卸掉：负对照 = 同一份产物补丁 + 卸掉门禁 34 的开关 ⇒ 转绿。
+//
+// ⚠ 补丁只改副本：每档一份独立产物副本（SANDBOX/sites/<caseId>），
+//    真产物一个字节都不动。
+// ---------------------------------------------------------------------------
+
+/**
+ * 集合列表页的**第一条**列表项标题被降级成 span（标题元素不见了）。
+ * 只降级第一条 ⇒ 后面两条仍在页上 ⇒ 这一档只注入**一个**缺陷。
+ * ⚠ 必须命中**第一条**：命中不到就抛错（补丁空跑 ⇒ 断言变成自说自话）。
+ */
+function patchDemoteListTitle(siteDir) {
+  const relPath = path.join("blog", "index.html");
+  patchHtml(siteDir, relPath, (html) => {
+    const m = html.match(/<h2\b([^>]*\bclass="list__title"[^>]*)>/);
+    if (!m) throw new Error("博客列表页里找不到 h2.list__title");
+    const start = m.index;
+    const after = start + m[0].length;
+    const closeAt = html.indexOf("</h2>", after);
+    if (closeAt < 0) throw new Error("找不到 h2.list__title 的闭合标签");
+    return (
+      html.slice(0, start) +
+      "<span" + m[1] + ">" +
+      html.slice(after, closeAt) +
+      "</span>" +
+      html.slice(closeAt + "</h2>".length)
+    );
+  });
+}
+
+addCase(
+  "P-34a",
+  "精准性：集合列表页第一条的标题被降级成 span ⇒ 条目标题必须报红",
+  () => PRISTINE,
+  (r) =>
+    expectOnlyGate(r, "34", ["ItemList 第 1 项", "找不到对应的标题元素"], [
+      "ItemList 第 2 项",
+      "ItemList 第 3 项",
+    ]),
+  { patchSite: patchDemoteListTitle }
+);
+addCase(
+  "N-34a",
+  "负对照：同一条降级补丁 —— 卸掉门禁 34 的开关后必须转绿",
+  () => flipSwitch(PRISTINE, "34"),
+  (r) => expectGreenAfterSwitchOff(r, "34"),
+  { patchSite: patchDemoteListTitle }
+);
 
 // ---------------------------------------------------------------------------
 // 执行
