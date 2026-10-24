@@ -89,7 +89,7 @@
 - 后续每轮都从这份清单里取一条来修（不是随手挑）。
 
 **进度（2026-10-23 实测）**
-- 缺陷清单已到 **D94**（D1 / D2 / D3 / D4 / D11 / D13 / D14 / D15 / D16 / D17 / D18 / D19 / D20 / D21 / D22 / D23 / D24 / D25 / D27 / D28 / D29 / D30 / D31 / D33 / D34 / D35 / D36 / D37 / D38 / D39 / D40 / D41 / D42 / D43 / D44 / D45 / D46 / D47 / D48 / D49 / D50 / D51 / D52 / D53 / D54 / D55 / D56 / D58 / D59 / D60 / D61 / D62 / D63 / D64 / D65 / D66 / D67 / D68 / D69 / D70 / D71 / D72 / D73 / D74 / D75 / D76 / D77 / D78 / D79 / D80 / D81 / D82 / D83 / D84 / D85 / D86 / D87 / D88 / D89 / D90 / D91 / D92 已修；D5 / D6 / D9 / D10 / D12 / D26 / D32 / D57 / D93 / D94 待修；D7 / D8 不修）。
+- 缺陷清单已到 **D95**（D1 / D2 / D3 / D4 / D11 / D13 / D14 / D15 / D16 / D17 / D18 / D19 / D20 / D21 / D22 / D23 / D24 / D25 / D27 / D28 / D29 / D30 / D31 / D33 / D34 / D35 / D36 / D37 / D38 / D39 / D40 / D41 / D42 / D43 / D44 / D45 / D46 / D47 / D48 / D49 / D50 / D51 / D52 / D53 / D54 / D55 / D56 / D58 / D59 / D60 / D61 / D62 / D63 / D64 / D65 / D66 / D67 / D68 / D69 / D70 / D71 / D72 / D73 / D74 / D75 / D76 / D77 / D78 / D79 / D80 / D81 / D82 / D83 / D84 / D85 / D86 / D87 / D88 / D89 / D90 / D91 / D92 已修；D5 / D6 / D9 / D10 / D12 / D26 / D32 / D57 / D93 / D94 / D95 待修；D7 / D8 不修）。
 - **D5 本地已实现（2026-10-23 D94 场次）**：首批 3 篇真实长文 ＋ 互链 ＋ 博客门禁新增判据 **F16「博客集合不得为空」**；
   但 D5 **仍留在下面的「待修」组** —— 它的验收条件里「`/blog/<slug>/` 全部 200」是**线上项**，
   本轮**只做本地提交、不 push** ⇒ 线上那半无法验证，**不写「已修」**。
@@ -3771,6 +3771,47 @@
      ③ 「该有 / 不该有」的判定走**数据层**（front matter 顶层 / eleventyComputed / 目录数据文件三条路径），
      **不按 URL 硬编码路由**；
      ④ **不扫历史记录**（`docs/IMPROVEMENT-LOG.md` / `docs/DEFECT-BACKLOG.md` / `docs/ROADMAP.md`）——
+     它们必须原样保留当时的错误写法，改写历史就是伪造历史。
+
+- **D97**（本轮修的是缺陷 **D95**）：这一轮修的是 **博客列表页自己的那一句描述缺席 ＋ 这一族零门禁看守**。
+  上一轮（D96）修的是**文章页在结构化数据里不是一篇文章**；本轮换到**列表页自己那一句** ——
+  上一轮让文章有了机器可读的身份，本轮撞见的是「**文章页说得清自己是谁，列表页却说不清自己是什么**」。
+  三件事都是实测坐实的：
+  - **现象**：博客列表页 `/blog/` 的四处 description 出口 —— `meta[name=description]`、`og:description`、
+    `twitter:description` 与页面级 **WebPage** JSON-LD 的 `description` —— **逐字等于站点通用描述**（站点 bio）；
+    对照组里 `/papers/`、`/404/`、首页、`/about/` **各有自己的一句** ⇒ `/blog/` 是站内**唯一**漏掉的那张集合列表页。
+  - **后果**：搜索结果与社交卡片里，这张列表页拿到的还是「这是谁的站点」而不是「这是哪一批文章」 ——
+    同一站内、同一类出口，**不同页面给出不同质地的文案**；而且这一层缺了**不会报错**：页面照出、JSON-LD 照常合法、
+    其它门禁全绿，只有逐页读才知道它抄的是通用描述。
+  - **根因**：`src/blog.njk` 的 front matter **没有 `description` 字段**；模板回落链 `description or site.description`
+    **本身是对的**，缺的是**字段**；而且这一族**零门禁看守** —— `scripts/check-blog-frontmatter.cjs` 的扫描面只有
+    `src/content/blog`，**从不看列表页模板**。
+  ① **补字段**：`src/blog.njk` front matter 新增一句英文 `description`；上面加整行 `#` 注释说明用途，旧注释块原样保留。
+  ② **模板零改动**：`base.njk` 的回落链 `description or site.description` **不改** —— 补上字段后四处出口**一次全好**。
+  ③ **扩既有门禁**（`scripts/check-blog-frontmatter.cjs`，**不新建门禁文件** ⇒ 不动 `package.json` / README / GW1 / GW4）：
+     新增 **F21**（列表页必须有自己的 `description`）、**F22**（不能复读自己的 `title`）、
+     **F23**（不能照抄站点通用描述）；**读不到列表页模板 ⇒ 判红**（判据没跑 ≠ 通过）；
+     配套新增可注入入口 **`BLOG_LIST_PAGE`**（先例 `check-tag-leak.cjs` 的 `LIST_PAGE`）。
+  ④ **自测扩档**（`scripts/test-blog-frontmatter.cjs`）：档位 **24 → 28** 档。夹具默认写一份**合规**的列表页 ⇒
+     原有 M0–M23 语义不变、每档仍只注入一个缺陷；新增 **M24**（缺 description ⇒ F21）、**M25**（复读 title ⇒ F22）、
+     **M26**（照抄通用描述 ⇒ F23）、**M27**（模板不见了 ⇒ F21 读不到列表页）四档，均带归属纯净断言。
+     `scripts/lib/selftest-slots.cjs` 同步登记 **24 → 28** 档。
+  ⑤ **写作契约同步**：`docs/blog-writing-guide.md` §2.4 判据表补 F21 / F22 / F23 三行（**WC1 双向对账**），
+     并新增 §2.6 说明「列表页自己那一句」；§2.6 只写正文不写表格（避免落进 §2.5 的 T 表范围）。
+  ⑥ **缺陷台账**：`docs/DEFECT-BACKLOG.md` 新增 **D95** 行（状态：本地已实现，待 push 后复验线上项）。
+  ⑦ **不代拍**：本轮**没有新增待拍板项**，中央台账不动（最高仍是待拍板 56）。
+  ⑧ **验收**：`check:blog-frontmatter`（及其自测 28 档全绿）/ `check:writing-contract` / `check:markdown-tables` /
+     `check:lang` / `check:selftest-guard` / `check:log-sections` / `check:decision-ids` / `check:doc-snapshot` /
+     `check:mount-contract` / `check:readme` / `check:gates` / `check:tag-leak` / `check:information-architecture` /
+     `check:block-language` 全 exit 0；`npm run build` exit 0；
+     产物实测 `/blog/` 四处 description **逐字等于新字段**、**不等于**站点通用描述。
+  ⑨ ⚠ **线上那半未验**：线上仍是旧部署（7 条 URL 里 4 条 200、3 条 404 —— `/papers/`、`/publications.bib`、`/feed.xml`，
+     属缺陷 **D6**，**由 push 触发**）⇒ 本轮**只做本地提交、不 push** ⇒ **D95 的状态写「本地已实现，待 push 后复验线上项」，
+     仍留在「待修」组，不写「已修」**。
+  ⑩ **诚实边界**：① 本轮 F21–F23 **只守博客列表页** —— 首页与 `/about/` 走 `eleventyComputed.description`，
+     不在这一族的扫描面内（扩到那些单页模板属下一轮候选）；
+     ② 「列表页必须有自己的描述」这条**不是对所有集合页的普遍要求** —— 本轮只对博客这一张列表页立判据；
+     ③ **不扫历史记录**（`docs/IMPROVEMENT-LOG.md` / `docs/DEFECT-BACKLOG.md` / `docs/ROADMAP.md`）——
      它们必须原样保留当时的错误写法，改写历史就是伪造历史。
 
 ---

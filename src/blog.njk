@@ -13,6 +13,12 @@ layout: layouts/page.njk
 # 原来漏了 title，base.njk 的 {% if title %} 判空落空，<title> 直接退化成
 # 站点名 "Yihang Lyu"——博客列表页和首页在搜索结果里会长得一模一样。
 title: "Technical notes"
+# 列表页自己那一句 description（2026-10-23 D97 场次补；判据 F21–F23 守着）。
+# 模板的回落链是 `description or site.description` ⇒ 缺这一句时，/blog/ 的
+# meta / og:description / twitter:description / JSON-LD 四个出口全部印**站点通用描述**
+# （"PhD student at the Institute of…"）—— 而 /papers/、/about/、/404/ 各有自己的一句。
+# 站内其它页面都写了，唯独这个列表页没写 ⇒ 搜索结果里它和自我介绍长得一模一样（缺陷 D95）。
+description: "Field notes on atmospheric science: lightning structure in TRMM thunderstorms, long precipitation records, and reproducible analysis workflows."
 eleventyNavigation:
   key: Blog
   order: 3

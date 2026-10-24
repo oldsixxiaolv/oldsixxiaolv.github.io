@@ -29421,3 +29421,123 @@ README 命令表 / GW1 / GW4）：
   ③ J13 目前**不核对** `image` 与 `dateModified`（论文页那一类核对在 J11）——
      要不要把时效核对也扩到博客这一族，属下一轮可做的小活。
 - **M1 剩余项**：M1-1（封面开关 ＋ 比例口径）仍被**待拍板 50** 阻塞。
+
+
+## 2026-10-23 · 21:30–22:40 场次（**不占轮次号**）：D97 —— 修掉缺陷 **D95**：博客列表页自己的那一句描述缺席（补 `description` 字段 + F21–F23 判据）
+
+### A. 背景
+
+上一轮（D96）修的是**文章页在结构化数据里不是一篇文章** —— 给博客文章页补上了 `BlogPosting` 实体。
+本轮换到**列表页自己那一句** —— 上一轮让文章有了机器可读的身份，本轮撞见的是
+「**文章页说得清自己是谁，列表页却说不清自己是什么**」。
+
+这一条是上一轮自己登记的候选（D96 日志「下一轮入口」第①条：「博客列表页的 description 是站点 bio 而不是『这个博客是什么』」）。
+
+本轮开工前照惯例把 `docs/DEFECT-BACKLOG.md` 过了一遍：待修里 D5 / D6 / D9 / D10 / D12 / D26 / D32 / D57
+全部要么被 push 卡住、要么属本人拍板方向 ⇒ 走**新开缺陷**路线，登记 **D95**。
+
+线上巡检（2026-10-23 21:35 实测，经本机代理 `http://127.0.0.1:7890`）：`/` 200 · `/blog/` 200 · `/about/` 200 ·
+`/sitemap.xml` 200；**`/papers/`、`/publications.bib`、`/feed.xml` 404** —— 与上一轮**逐条一致**，
+仍是缺陷 **D6**（部署滞后，**由 push 触发**），本轮不代拍、不 push。
+
+### B. 改动
+
+**① 补字段** —— `src/blog.njk` front matter 新增一句英文 `description`：
+
+> Field notes on atmospheric science: lightning structure in TRMM thunderstorms, long precipitation records, and reproducible analysis workflows.
+
+上面加了整行 `#` 注释说明用途；文件里原有的封面开关注释块**原样保留**。
+
+**② 模板零改动** —— `base.njk` 的回落链 `description or site.description` **不改**。
+补上字段之后，meta / og / twitter / WebPage JSON-LD 四处出口**一次全好**：
+回落链本身是对的，**缺的是字段**。这和上一轮 D95 的修法同构（补文章 front matter 的 `description`，
+模板同样零改动）—— 但**两者的扫描面不同**，见④。
+
+**③ 扩既有门禁**（`scripts/check-blog-frontmatter.cjs`，**不新建门禁文件** ⇒ 不动 `package.json` / README / GW1 / GW4）：
+
+- **F21**：博客列表页必须有自己的 `description`；
+- **F22**：不能复读自己的 `title`；
+- **F23**：不能照抄站点通用描述（取值同 F19，取自 `src/_data/site.js`）。
+
+**读不到列表页模板 ⇒ 判红** —— 判据没跑 ≠ 通过，这是本轮特意加的一档。
+配套新增可注入入口 **`BLOG_LIST_PAGE`**（先例 `check-tag-leak.cjs` 的 `LIST_PAGE`），
+自测才能把列表页换成坏版本。
+
+**④ 扫描面扩到列表页** —— 这才是本轮真正的门禁缺口：原来这个门禁只看 `src/content/blog` 下的**文章**，
+**从不看列表页模板** ⇒ 文章写得再好，列表页抄通用描述这件事**没人管**。
+
+**⑤ 自测扩档**（`scripts/test-blog-frontmatter.cjs`）：档位 **24 → 28** 档。
+夹具默认写一份**合规**的列表页 ⇒ 原有 M0–M23 语义不变、每档仍只注入一个缺陷；
+新增 **M24**（缺 description ⇒ F21）、**M25**（复读 title ⇒ F22）、**M26**（照抄通用描述 ⇒ F23）、
+**M27**（模板不见了 ⇒ F21 读不到列表页）四档，均带归属纯净断言。
+`scripts/lib/selftest-slots.cjs` 同步登记 **24 → 28** 档。
+
+**⑥ 写作契约同步** —— `docs/blog-writing-guide.md` §2.4 判据表补 F21 / F22 / F23 三行（**WC1 双向对账**），
+并新增 §2.6 说明「列表页自己那一句」；§2.6 只写正文不写表格（避免落进 §2.5 的 T 表范围）。
+
+**⑦ 不代拍** —— 本轮**没有新增待拍板项**，中央台账不动（最高仍是待拍板 56）。
+
+### C. 验证
+
+- `node scripts/check-blog-frontmatter.cjs` → exit 0（末行确认列表页 `src/blog.njk` 的 description 核了 3 处）。
+- `npm run check:blog-frontmatter-selftest` → exit 0（**28/28** 档全绿；静态清单守卫确认「跑了 28 条编号（28 个唯一编号）」）。
+- `npm run check:writing-contract` → exit 0（F 判据表 **23** 条，与门禁源码 F1–F23 双向对账通过）。
+- `npm run check:lang` / `check:markdown-tables` / `check:selftest-guard` / `check:log-sections` /
+  `check:decision-ids` / `check:doc-snapshot` / `check:mount-contract` / `check:readme` / `check:gates` /
+  `check:tag-leak` / `check:information-architecture` / `check:block-language` 全 exit 0。
+- `npm run build` → **exit 0**。
+- **产物核对**：`/blog/` 的 `meta[name=description]`、`og:description`、`twitter:description` 与页面级 **WebPage**
+  JSON-LD 的 `description` **四处逐字等于**新字段，且**都不等于**站点通用描述；
+  对照组 `/papers/`、`/404/`、首页、`/about/` 各自的描述**保持原样未被改动**。
+
+### D. 顺手发现
+
+- **同一站内、同一出口，不同页面不同质**：这是本轮最值得记的一条。
+  `/papers/`、`/404/`、首页、`/about/` **各有自己的一句**，只有 `/blog/` 抄了通用描述 ——
+  ⇒ 「有没有自己的一句」必须**逐页**核，不能因为「模板回落链是对的」就以为全站都对。
+- **回落链是对的，缺的是字段和判据**：`description or site.description` 本身是**正确**的兜底，
+  判红的从来不该是兜底，而是「内容把自己的描述写成兜底」。
+  这两轮（D95 文章页 / D97 列表页）修的是同一个病，只是**扫描面不同**。
+- **门禁要可注入，才好做判据级负对照**：给「被检查文件的路径」留一个环境变量入口
+  （本轮 `BLOG_LIST_PAGE`，先例 `LIST_PAGE`）⇒ 自测才能把列表页换成坏版本，判据级负对照才成立。
+- **「读不到 ⇒ 判红」不能省**：如果列表页模板被改名或删掉，门禁若只是「读到才判」，
+  那这条判据就是**从未执行过**却照样绿 —— 这一档必须自己判红。
+- **集合级判据会让旧夹具自身撞车**：新增「列表页也要有自己的描述」之后，
+  若夹具沿用「一篇好文章 + 一篇坏文章共用同一份内容」，好文章那档会**自己也撞上新判据**。
+  ⇒ 夹具必须保证**每档只注入一个缺陷**；本轮用「默认写一份合规列表页」实现。
+- **页面级 JSON-LD 的 `@type` 是分化的**：产物核对时逐页看下来，`/blog/` 与 `/papers/` 的页面实体是
+  **`WebPage`**，而 `/about/` 与首页是 **`ProfilePage`** ⇒ **不能按 `@type == "WebPage"` 硬找「页面级出口」**，
+  否则会漏掉首页与关于页。正确的分法是**排除站点级实体**（`Person` / `WebSite` 按设计就该全站一致），
+  **剩下的才当页面级出口**。这直接影响下一轮候选③（把 F21–F23 泛化到 `eleventyComputed` 单页模板）怎么做。
+
+### E. 文档
+
+- `docs/DEFECT-BACKLOG.md`：**新增 D95 行**（位置 / 现象 / 验收条件 / 状态格逐条兑现）；
+  状态写「**本地已实现，待 push 后复验线上项**」，**不写「已修」**；既有行一字未动。
+- `docs/ROADMAP.md`：进度行「缺陷清单已到 **D94**」改为 **D95**；M0 段追加 **D97** 条目。
+- `docs/blog-writing-guide.md`：§2.4 判据表补 F21 / F22 / F23 三行 ＋ 新增 §2.6。
+- `docs/IMPROVEMENT-LOG.md`：本小节；中央「待决策」台账**不新增**待拍板项（最高仍是待拍板 56）。
+
+### F. 本轮纪律
+
+- 提交只走**私有索引 CAS**，只提交本轮自己改的路径；**不 push**。
+- 并发场次占用的 `scripts/check-identity-handles.cjs` / `scripts/test-gates-selfcheck.cjs`
+  本轮**未触碰、未提交**。
+- 探针、夹具与文档拼接脚本都放在 `/tmp/mh_d97/`（**不入库**）；收尾用 `mavis-trash` 清理。
+- **不写死会变的存量数**：文档现状陈述里不写「门禁共几道」这种每轮都变的数。
+- **日期口径三处自洽**：DEFECT-BACKLOG 的 D95 行、ROADMAP 的 D97 条目、写作指南里那一行，
+  都写 **2026-10-23**（本场次实际日期）。
+- 每个数字都能在同页找到出处；**不编造**任何数据、结论或引用。
+
+### 下一轮入口
+
+- **D95 的收尾只差 push**：线上 `/blog/` 的四处 description 出口得是「这个博客是什么」而不是站点 bio ——
+  与 **D6**（线上 3 条 404）同一个前置。
+- **D5 / D93 / D94** 同样卡在 push；**D9 / D10 / D12 / D26 / D32 / D57** 仍挂本人拍板；
+  **D7 / D8** 判为不修 —— 本轮不代拍。
+- **本轮顺手记下的候选**（接上一轮的候选②③）：
+  ① `docs/og-image-and-a11y-report.md` 的旧数字与失效路径；
+  ② J13 目前**不核对** `image` 与 `dateModified`（论文页那一类核对在 J11）；
+  ③ 把 F21–F23 的口径从「博客列表页」泛化到**其它走 `eleventyComputed` 的单页模板**（首页 / `/about/`）——
+     但要先确认这些页面的 description **不是**刻意复用站点通用描述，否则会判出假红。
+- **M1 剩余项**：M1-1（封面开关 ＋ 比例口径）仍被**待拍板 50** 阻塞。

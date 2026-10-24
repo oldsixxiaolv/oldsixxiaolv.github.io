@@ -183,14 +183,22 @@ cover: cover.svg          # ✅ 只写文件名，与 index.md 同目录
 | F18 | `description` 不得逐字等于 `title` | §2 表 | 判红（复读标题 ⇒ 等于没改写） |
 | F19 | `description` 不得逐字等于站点通用描述（`site.description`） | §2 表 | 判红（照抄通用描述 ⇒ 搜索结果里还是分不出这篇文章） |
 | F20 | 集合内不同文章的 `description` 不得逐字相同 | §2 表 | 判红（共用一句 ⇒ 每篇文章的 snippet 一模一样） |
+| F21 | **博客列表页**（`src/blog.njk`）必须自带一句 `description` | §2.6 | 判红（缺了 ⇒ `/blog/` 的四个 description 出口全回落成站点通用描述） |
+| F22 | 列表页的 `description` 不得逐字等于它自己的 `title` | §2.6 | 判红（复读标题 ⇒ 等于没改写） |
+| F23 | 列表页的 `description` 不得逐字等于站点通用描述（`site.description`） | §2.6 | 判红（照抄通用描述 ⇒ 搜索结果里它和自我介绍长得一模一样） |
 
 - **判红 = "写错了"**（形态 / 类型 / 覆盖了自动注入）；**note = "忘了写"**（契约里标的是"建议"）。
   `excerpt` 缺失归 note 是本轮定的口径，是否升级为判红已登记为待拍板 46。
   `description` 缺失归**判红**（与 `title` / `date` 同级：缺了它，整篇文章的 meta description
   会回落到站点通用描述，站内每篇文章的搜索 snippet 就会一模一样）。
+- **F21–F23 守的不是文章，是列表页**：`src/blog.njk`（`/blog/` 的模板）自己也要有一句
+  `description`，且不得复读自己的标题、不得照抄站点通用描述 —— 详见 §2.6。
+  这一族此前**一条门禁都没有**：本门禁的扫描面是文章目录 `src/content/blog`，
+  从来不看列表页模板 ⇒ 列表页这一族是**零看守**的。
 - 手动跑：`npm run check:blog-frontmatter`；证明判据本身有牙齿：`npm run check:blog-frontmatter-selftest`
   （在 /tmp 搭夹具站逐档注入缺陷；档位清单见该自测脚本的文件头）。
 - 站内**已有文章** ⇒ 逐篇判据（F1–F15、F17–F20）现在**真的在跑**；
+  而 F21–F23（列表页那一族）与文章数无关 —— 只要列表页模板在，它们就一直跑；
   而"站内 0 篇文章"这个状态改由 **F16 判红**挡住：空集合不是"暂时没写"，
   是**内容路径没接上**（`/blog/` 退化成空状态页、`feed.xml` 里没有任何条目、
   `sitemap.xml` 里没有任何文章路由），而且集合为空时逐篇判据一条都跑不到 ——
@@ -224,6 +232,27 @@ cover: cover.svg          # ✅ 只写文件名，与 index.md 同目录
   「layout 指向哪个版式」推导出来的 ⇒ **新增集合忘了在版式里滤掉，这道门禁会自动判红**。
 - T3 专门盯一种"看起来修好了"的错法：**把 `tags` 本身滤掉** —— 集合名确实不见了，
   文章却也被偷偷换成了首页版式（页脚变成 "Back to Home"，回不到列表页）。
+
+### 2.6 列表页自己那一句（`src/blog.njk`）
+
+`/blog/` 是**集合列表页**，它同样有四个 description 出口
+（`<meta name="description">`、`og:description`、`twitter:description`、JSON-LD 的 `description`），
+而这四个出口都来自模板的同一条回落链 `description or site.description`。
+
+⇒ **列表页缺 `description` 时，四个出口全部印站点通用描述**（"PhD student at the Institute of…"）——
+搜索结果里这个列表页和站内其它页面长得一模一样。
+2026-10-23 实测：`/papers/`、`/about/`、`/404/` 各自都写了自己的一句，**唯独 `/blog/` 没写**。
+
+⇒ 这一条现在由 **F21–F23** 判红（见 §2.4）：
+
+- **F21** —— 列表页必须自带一句 `description`（非空字符串）；
+- **F22** —— 不得逐字等于它自己的 `title`（`"Technical notes"` 是标题，不是描述）；
+- **F23** —— 不得逐字等于站点通用描述（照抄它等于把"缺字段"换成"抄了句通用的话"，症状一样）。
+
+⚠️ **这一族的门禁此前是空的**：front matter 门禁的扫描面是文章目录 `src/content/blog`，
+**从不看 `src/blog.njk`** ⇒ 列表页这一族一度零看守。
+⇒ 现在补上的只是**博客列表页这一族**；**其它单页模板**（`src/index.njk`、`src/about.njk` 等，
+它们的 `description` 走 `eleventyComputed`）**还没有被任何判据覆盖** —— 那是另一条待办。
 
 ---
 

@@ -82,6 +82,15 @@
  *       那正是回落链会给的值；照抄它等于把"缺字段"换成"抄了句通用的话"，症状一样。
  *   F20 集合内**不同文章的 `description` 不得逐字相同** —— 两篇不同的文章
  *       共用一句描述，搜索结果里还是分不出彼此。
+ *   F21 **博客列表页**（`src/blog.njk`）自己也要有一句 `description` ——
+ *       与 F17 同一族，但守的是**列表页**而不是文章。
+ *       （2026-10-23 D97 场次实测：`/papers/`、`/about/`、`/404/` 各有自己的一句，
+ *        唯独 `/blog/` 没有 ⇒ 它的四个 description 出口（meta / og / twitter / JSON-LD）
+ *        全部回落成站点通用描述 —— 缺陷 D95。而这一族此前**零门禁看守**：
+ *        本门禁的扫描面是文章目录 `src/content/blog`，**从不看列表页模板**。）
+ *   F22 列表页的 `description` 不得逐字等于**它自己的 `title`** —— 与 F18 同一族。
+ *   F23 列表页的 `description` 不得逐字等于**站点通用描述** —— 与 F19 同一族；
+ *       那正是回落链会给的值，照抄它等于把"缺字段"换成"抄了句通用的话"，症状一样。
  *
  * ⚠️ **note 与判红的分界**（写清楚，免得后人以为本门禁什么都拦）：
  *   判红 = 「**写错了**」（形态不对、类型不对、覆盖了自动注入）；
@@ -94,6 +103,7 @@
  *
  * ⚠️ **自证存活**：本站现在**有文章** ⇒ F1–F15 与 F17–F20 的逐篇判据**真的在跑**，
  *   不再是「判据写在纸上、永远跑不到」。
+ *   F21–F23（博客列表页那一族）与文章数无关：只要列表页模板在，它们就一直跑。
  *   判据本身有没有牙齿，由 `scripts/test-blog-frontmatter.cjs` 的夹具站负责
  *   （那个自测**接在 build 链上**，每次 build 都证明一遍）；其中有一档专门
  *   搭一个**0 篇文章**的夹具站 ⇒ F16 判红，证明空集合这条也咬得住。
@@ -104,7 +114,8 @@
  *
  * 环境变量：
  *   BLOG_DIR        —— 覆盖要扫的文章目录（自测的夹具站用它）；
- *   BLOG_DATA_FILE  —— 覆盖目录数据文件的路径（默认取 BLOG_DIR 下的同名文件）。
+ *   BLOG_DATA_FILE  —— 覆盖目录数据文件的路径（默认取 BLOG_DIR 下的同名文件）；
+ *   BLOG_LIST_PAGE  —— 覆盖博客列表页模板的路径（默认 src/blog.njk；自测的夹具站用它）。
  */
 const fs = require("fs");
 const path = require("path");
@@ -114,6 +125,11 @@ const ROOT = path.resolve(__dirname, "..");
 const BLOG_DIR = process.env.BLOG_DIR || path.join(ROOT, "src", "content", "blog");
 const BLOG_DATA_FILE =
   process.env.BLOG_DATA_FILE || path.join(BLOG_DIR, "blog.11tydata.cjs");
+/* 博客**列表页**模板（F21–F23 守它）。默认 src/blog.njk —— 它是 /blog/ 的模板，
+   列表页的 description 出口全靠它的 front matter。
+   ⚠️ 与 check-tag-leak.cjs 的 LIST_PAGE 同一套做法：给自测的夹具站一个可注入的入口，
+   否则夹具站没法证明"这一族判据真的能变红"（它会一直去读仓库里那个真文件）。 */
+const BLOG_LIST_PAGE = process.env.BLOG_LIST_PAGE || path.join(ROOT, "src", "blog.njk");
 
 /** slug 命名规则（规范 §1：小写 ASCII + 连字符）。 */
 const SLUG_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
@@ -586,6 +602,87 @@ for (const [, files] of descriptionsByText) {
   }
 }
 
+/* ---------- F21 / F22 / F23：博客列表页自己那一句 description ---------- */
+/* 为什么这一族要单独判（F17–F19 只管文章，不管列表页）：
+   模板的回落链是 `description or site.description` —— 缺 description 时，
+   **那一页**的 meta / og:description / twitter:description / JSON-LD 四个出口
+   都会印站点通用描述（"PhD student at the Institute of…"）。
+   F17–F20 守的是**文章**那一族；站内另一族页面（集合列表页、单页模板）
+   此前**一条都没有守**：2026-10-23 D97 场次实测，`/papers/`、`/about/`、`/404/`
+   各自都有一句，唯独 `/blog/` 没有 ⇒ 它的四个出口全是站点自我介绍（缺陷 D95）。
+   ⇒ 这一族补上：列表页必须自己写一句，且不得蹭站点通用描述、不得复读自己的标题。
+
+   ⚠️ 读不到列表页 ⇒ **判红**，不是"通过"：判据读不到真源就是没跑
+   （与 F19 读不到 site.description 时同一口径）。 */
+const listPageRel = (() => {
+  const toRoot = path.relative(ROOT, BLOG_LIST_PAGE).split(path.sep).join("/");
+  return toRoot && !toRoot.startsWith("..") ? toRoot : path.basename(BLOG_LIST_PAGE);
+})();
+
+let listPageChecked = 0;
+if (!fs.existsSync(BLOG_LIST_PAGE)) {
+  fail(
+    `判据 F21：读不到博客列表页（${listPageRel}）—— ` +
+      `它是 /blog/ 的模板，列表页的 description 出口全靠它的 front matter；` +
+      `读不到它，F21 / F22 / F23 一条都跑不到（不是"通过"）。`
+  );
+} else {
+  const listSrc = fs.readFileSync(BLOG_LIST_PAGE, "utf8");
+  const listMatch = listSrc.match(FRONT_MATTER_RE);
+  if (!listMatch) {
+    fail(
+      `判据 F21：博客列表页（${listPageRel}）没有 front matter —— ` +
+        `列表页的 description 写在 front matter 里；没有它，模板的回落链 ` +
+        `\`description or site.description\` 会让 /blog/ 的四个出口全印站点通用描述。`
+    );
+  } else {
+    let listData = null;
+    try {
+      listData = matter(listSrc).data;
+    } catch (e) {
+      fail(
+        `判据 F21：博客列表页（${listPageRel}）的 front matter 解析失败 —— ` +
+          `${String(e.message || e).split("\n")[0]}；YAML 写错会让列表页的数据层为空。`
+      );
+    }
+    if (listData) {
+      const listDesc = typeof listData.description === "string" ? listData.description.trim() : "";
+      if (!listDesc) {
+        fail(
+          `判据 F21：博客列表页（${listPageRel}）缺 \`description\` —— ` +
+            `模板的回落链是 \`description or site.description\`，缺了它，/blog/ 的 ` +
+            `meta description / og:description / twitter:description / JSON-LD 四个出口 ` +
+            `全部印**站点通用描述**（${siteDescription ? siteDescription.slice(0, 48) + "…" : "（读不到）"}）—— ` +
+            `搜索结果里这个列表页和站内其它页面长得一模一样。`
+        );
+      } else {
+        listPageChecked++;
+        // F22：不得复读自己的标题
+        const listTitle = typeof listData.title === "string" ? listData.title.trim() : "";
+        if (listTitle && listDesc === listTitle) {
+          fail(
+            `判据 F22：博客列表页（${listPageRel}）的 \`description\` 与它自己的 \`title\` 逐字相同 —— ` +
+              `description 的本职是**标题的改写**（换个说法说清这一页讲什么）；` +
+              `逐字相同等于没改写，搜索结果里等于只印了一遍标题。`
+          );
+        } else {
+          listPageChecked++;
+        }
+        // F23：不得照抄站点通用描述
+        if (siteDescription !== null && listDesc === siteDescription) {
+          fail(
+            `判据 F23：博客列表页（${listPageRel}）的 \`description\` 与**站点通用描述**逐字相同 —— ` +
+              `那句话是全站自我介绍（${siteDescription.slice(0, 48)}…），不是这个列表页的描述；` +
+              `照抄它等于把"缺字段"换成"抄了句通用的话"，症状一样。`
+          );
+        } else {
+          listPageChecked++;
+        }
+      }
+    }
+  }
+}
+
 /* ---------- F14：覆盖度自证 ---------- */
 /* 应验 = 声明了封面且文件确实在磁盘上的；实测 = 真的读出了真实格式的。
    两者必须相等 —— 否则本门禁在"有封面"的情况下判绿，而它其实什么都没验，
@@ -621,6 +718,7 @@ console.log(
   `博客 front matter 契约门禁通过：扫了 ${articles.length} 篇文章、` +
     `比了 ${comparedFields} 处 front matter 字段；` +
     `目录数据文件的自动注入字段核了 ${dataFileChecked} 项；` +
+    `列表页 ${listPageRel} 的 description 核了 ${listPageChecked} 处；` +
     `封面核了 ${coverVerified} 张（声明 ${coverDeclared} 张、文件在 ${coverPresent} 张）。`
 );
 if (notes.length) {

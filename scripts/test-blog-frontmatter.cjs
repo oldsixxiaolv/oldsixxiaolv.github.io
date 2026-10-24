@@ -19,7 +19,7 @@
  *   再用 BLOG_DIR / BLOG_DATA_FILE 环境变量把门禁指向夹具站。
  *   ⚠️ 全程不动仓库里的任何文件；跑完再自证真目录一个字节都没变。
  *
- * 二十四档（M0–M23）：
+ * 二十八档（M0–M27）：
  *   M0  基线：一篇完全合规的文章              → exit 0（证明这套判据不是空跑）
  *   M1  readingTime 写成 "3 min"             → 判红，点名 readingTime
  *   M2  目录名写成 Bad_Slug                  → 判红，点名 slug
@@ -44,10 +44,16 @@
  *   M21 description 逐字等于 title          → 判红，点名 F18（复读标题）
  *   M22 description 逐字等于站点通用描述      → 判红，点名 F19（抄了通用描述）
  *   M23 两篇文章的 description 逐字相同       → 判红，点名 F20（每篇文章的 snippet 一模一样）
+ *   M24 博客列表页缺 description               → 判红，点名 F21（/blog/ 的四个出口回落成站点通用描述）
+ *   M25 博客列表页的 description 复读自己的 title → 判红，点名 F22
+ *   M26 博客列表页的 description 照抄站点通用描述 → 判红，点名 F23
+ *   M27 博客列表页模板不见了                    → 判红，点名 F21（读不到真源 ⇒ 判据没跑，不是"通过"）
  *
  *   除 M13（0 篇文章那一档）外，其余各档的夹具站里都**同时放着那篇完全合规的好文章** ——
  *   证明门禁不是"见着文章就红"，而是**指着坏的那一篇**红；
  *   M20–M23 那一档还额外断言**红因归属纯净**：好文章的名字**不得**出现在输出里。
+ *   M24–M27 那一族（列表页）也一样：夹具站里默认放一份**合规的列表页**，
+ *   那一族只在被注入的那一档里坏掉 ⇒ 每档仍然只注入**一个**缺陷。
  *   M9 / M10 是"忘了写"档：契约里写的是"建议"，所以它们**不该**拦下 build
  *   （excerpt 缺失要不要升级为判红 = 待拍板 46，本轮定的口径是 note）。
  *   M15–M19 是**封面**这一档（D40）：契约 §2.3 明写「必须是真 SVG 文本」，
@@ -125,6 +131,26 @@ const OTHER = {
   description: "A different fixture article, with a description of its own.",
 };
 
+/* ---------- 夹具里的博客列表页（F21–F23 的对象） ---------- */
+/* 形状照 src/blog.njk：front matter + 一个极简的列表页骨架。
+   ⚠️ 这份列表页是**合规**的（有自己的 description、不复读标题、不抄通用描述）——
+   夹具站默认放它 ⇒ 原有各档的语义不变；只有 M24–M27 那一族会把它弄坏，
+   于是每档仍然只注入**一个**缺陷。
+   ⚠️ 它的 description 刻意与 GOOD.description 不同：F20 那一族守的是
+   「集合内不同文章的 description 不得逐字相同」，而列表页不是文章 ——
+   但两份文字撞在一起会让"到底是谁撞了"这件事说不清。 */
+const LIST_PAGE_GOOD = [
+  "---",
+  "layout: layouts/page.njk",
+  'permalink: "/blog/"',
+  'title: "Fixture technical notes"',
+  'description: "A fixture sentence about the blog list page, written in its own words."',
+  "---",
+  "",
+  '<article class="list-page"><h1>Fixture technical notes</h1></article>',
+  "",
+].join("\n");
+
 /* ---------- 封面的三种字节 ---------- */
 /** 一张真的 1×1 PNG（标准 base64）—— "真位图"那一档的素材。 */
 const PNG_BYTES = Buffer.from(
@@ -145,10 +171,16 @@ function buildFixture(c) {
   fs.mkdirSync(blogDir, { recursive: true });
   const dataFile = path.join(blogDir, "blog.11tydata.cjs");
   fs.copyFileSync(REAL_DATA_FILE, dataFile);
+  /* 列表页模板放在夹具站根下（与文章目录 blog/ 平级）——
+     门禁靠 BLOG_LIST_PAGE 环境变量指过来，不指的话它会一直去读仓库里那个真文件，
+     那样"注入缺陷"就注不到夹具站上（判据会一直在验真页面）。 */
+  const listPage = path.join(root, "blog.njk");
+  fs.writeFileSync(listPage, LIST_PAGE_GOOD);
   return {
     root,
     blogDir,
     dataFile,
+    listPage,
     /** 写一篇 <slug>/index.md */
     writeArticle(slug, fields) {
       const dir = path.join(blogDir, slug);
@@ -176,10 +208,21 @@ function buildFixture(c) {
       if (after === before) throw new Error("注入没有改变目录数据文件的内容");
       fs.writeFileSync(dataFile, after);
     },
+    /** 改列表页模板（文本层面，门禁也是按文本核的） */
+    editListPage(fn) {
+      const before = fs.readFileSync(listPage, "utf8");
+      const after = fn(before);
+      if (after === before) throw new Error("注入没有改变列表页的内容");
+      fs.writeFileSync(listPage, after);
+    },
+    /** 删掉列表页模板（读不到真源 ⇒ 判据必须判红，不能当"通过"） */
+    dropListPage() {
+      fs.unlinkSync(listPage);
+    },
   };
 }
 
-/* ---------- 二十档 ---------- */
+/* ---------- 二十八档 ---------- */
 const CASES = [
   {
     id: "M0",
@@ -432,6 +475,62 @@ const CASES = [
       fx.writeArticle("bad-post-2", { ...OTHER, description: SHARED_DESCRIPTION });
     },
   },
+  {
+    id: "M24",
+    desc: "博客列表页缺 description（⇒ /blog/ 的四个出口全回落成站点通用描述）",
+    expect: "red",
+    sub: ["F21", "缺 `description`"],
+    not: "good-post",
+    setup: (fx) => {
+      fx.writeArticle("good-post", GOOD);
+      fx.editListPage((t) => {
+        const out = t.replace(/^description:.*\n/m, "");
+        if (out === t) throw new Error("注入锚点不存在：列表页里没有 description:");
+        return out;
+      });
+    },
+  },
+  {
+    id: "M25",
+    desc: "博客列表页的 description 复读它自己的 title",
+    expect: "red",
+    sub: ["F22", "与它自己的"],
+    not: "good-post",
+    setup: (fx) => {
+      fx.writeArticle("good-post", GOOD);
+      fx.editListPage((t) => {
+        const out = t.replace(/^description:.*$/m, 'description: "Fixture technical notes"');
+        if (out === t) throw new Error("注入锚点不存在：列表页里没有 description:");
+        return out;
+      });
+    },
+  },
+  {
+    id: "M26",
+    desc: "博客列表页的 description 照抄站点通用描述",
+    expect: "red",
+    sub: ["F23", "站点通用描述"],
+    not: "good-post",
+    setup: (fx) => {
+      fx.writeArticle("good-post", GOOD);
+      fx.editListPage((t) => {
+        const out = t.replace(/^description:.*$/m, `description: "${SITE_DESCRIPTION}"`);
+        if (out === t) throw new Error("注入锚点不存在：列表页里没有 description:");
+        return out;
+      });
+    },
+  },
+  {
+    id: "M27",
+    desc: "博客列表页模板不见了（读不到真源 ⇒ 判据没跑，不是\"通过\"）",
+    expect: "red",
+    sub: ["F21", "读不到博客列表页"],
+    not: "good-post",
+    setup: (fx) => {
+      fx.writeArticle("good-post", GOOD);
+      fx.dropListPage();
+    },
+  },
 ];
 
 /* ---------- 跑一档 ---------- */
@@ -440,7 +539,12 @@ function run(c) {
   try {
     if (c.setup) c.setup(fx);
     const r = spawnSync(process.execPath, [GATE], {
-      env: { ...process.env, BLOG_DIR: fx.blogDir, BLOG_DATA_FILE: fx.dataFile },
+      env: {
+        ...process.env,
+        BLOG_DIR: fx.blogDir,
+        BLOG_DATA_FILE: fx.dataFile,
+        BLOG_LIST_PAGE: fx.listPage,
+      },
       encoding: "utf8",
       cwd: ROOT,
     });
