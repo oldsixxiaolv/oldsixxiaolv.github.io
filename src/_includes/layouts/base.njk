@@ -183,8 +183,16 @@
      统统自称 article —— 它们都不是文章，分享卡片与聚合器会按文章语义
      解读它们。ogp.me 的 Types 段原文："Any non-marked up webpage should
      be treated as og:type website"。
-     只有论文详情页（front-matter 有 pubKey）才是真文章。 #}
-  {%- set ogIsArticle = pubKey and pubKey != '' -%}
+
+     什么样的页面才算"文章"：**本页自己声明了一个作品实体**。
+     这个口径与下半段算 mainEntity 时用的**同一个**（有 pubKey 或
+     structuredType ⇒ 本页有作品实体），两处不会走样。
+     ⚠️ 早先这里只认 pubKey（只有论文页算文章）—— 那口径停在"博客还是
+        空的"那年：博客文章页明明声明了 BlogPosting 作品实体、自己也有
+        <time datetime>、有作者、有主题标签，却在 Open Graph 里自称
+        website、零 article: 扩展（缺陷清单 D98）。
+        模板与门禁自洽地一起错 ⇒ 零门禁看守。 #}
+  {%- set ogIsArticle = (pubKey and pubKey != '') or (structuredType and structuredType != '') -%}
   <meta property="og:type" content="{% if ogIsArticle %}article{% else %}website{% endif %}" />
   <meta property="og:site_name" content="{{ site.title }}" />
   <meta property="og:title" content="{{ ogTitle }}" />
@@ -204,19 +212,34 @@
      但也不给残缺的列表** —— 7 位作者一律按 published name 输出，
      与同页 citation_author ×7 完全一致、事实完整。
      （citation_author_orcid 不输出，是因为该标签按位置配对、给 3 个会错挂；
-       article:author 没有按位置配对的语义，所以不受那条限制。） #}
+       article:author 没有按位置配对的语义，所以不受那条限制。）
+
+     博客文章页的作者是**本人**（它的作品实体 author 指向全站 Person
+     节点），名字取 site.author.name —— 与同页 JSON-LD 里那个 Person
+     节点的 name **同一个出处**（site.js），不是另抄一份。
+     article:published_time 取 page.date | date('yyyy-LL-dd')，与页面上
+     那个可见 <time datetime>、与作品实体的 datePublished 三者同源。 #}
   {%- if ogIsArticle -%}
-    {%- set ogPub = site.publications | pubByKey(pubKey) -%}
-    {%- if ogPub -%}
-      {%- if ogPub.dates and ogPub.dates.published %}
+    {%- if pubKey and pubKey != '' -%}
+      {%- set ogPub = site.publications | pubByKey(pubKey) -%}
+      {%- if ogPub -%}
+        {%- if ogPub.dates and ogPub.dates.published %}
   <meta property="article:published_time" content="{{ ogPub.dates.published }}" />
-      {%- endif %}
-      {%- if ogPub.journal %}
+        {%- endif %}
+        {%- if ogPub.journal %}
   <meta property="article:section" content="{{ ogPub.journal }}" />
-      {%- endif %}
-      {%- for a in (ogPub.authorList or []) %}
+        {%- endif %}
+        {%- for a in (ogPub.authorList or []) %}
   <meta property="article:author" content="{{ a.name }}" />
-      {%- endfor %}
+        {%- endfor %}
+      {%- endif -%}
+    {%- elif structuredType == 'BlogPosting' -%}
+      {%- if page.date %}
+  <meta property="article:published_time" content="{{ page.date | date('yyyy-LL-dd') }}" />
+      {%- endif %}
+      {%- if site.author and site.author.name %}
+  <meta property="article:author" content="{{ site.author.name }}" />
+      {%- endif %}
     {%- endif -%}
   {%- endif -%}
 

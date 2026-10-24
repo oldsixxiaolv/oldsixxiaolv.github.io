@@ -23,6 +23,9 @@
  *   ④ 精准性档：故意破坏覆盖度自证自己的三条判据（判据条数下限 /
  *      开关消费 / 目录静态性），断言门禁 33 必须报红；
  *      外加一条「退回旧口径」档，证明红因格式断言不是摆设。
+ *   ⑤ 判据 11 的精准性档：og:type / article:* 扩展 / 发表日期分别坏掉，
+ *      断言各条分支都在跑、互相独立（数据层与页面所见层分开验），
+ *      外加负对照：卸掉门禁 11 的开关后同一份产物补丁必须转绿。
  *
  * 沙箱怎么搭（关键：不用从零造假站）：
  *   产物用**真实 _site 的副本**（只读，一份就够，门禁只读产物）；
@@ -122,6 +125,136 @@ function neuterFirstFail(src, gateId) {
     `report("${gateId}",` +
     src.slice(i + needle.length)
   );
+}
+
+/** 改一个 HTML 产物文件；改动为空即抛错（补丁空跑 ⇒ 断言变成自说自话）。 */
+function patchHtml(siteDir, relPath, fn) {
+  const file = path.join(siteDir, relPath);
+  const before = fs.readFileSync(file, "utf8");
+  const after = fn(before);
+  if (after === before) throw new Error("补丁没有改动任何内容: " + relPath);
+  fs.writeFileSync(file, after);
+}
+
+/**
+ * 只改**带指定标记的那一个** ld+json 块。
+ * ⚠️ 产物里同一页有多个 ld+json 块（Person / WebSite@graph / 全站论文节点 /
+ *    本页作品实体），无脑 replace 会改错目标 —— 所以按标记挑块，
+ *    且要求**恰好命中 1 个块**：命中 0 个或 ≥2 个都当失败。
+ */
+function patchBlockWith(html, marker, fn) {
+  const re = /(<script[^>]*type\s*=\s*"application\/ld\+json"[^>]*>)([\s\S]*?)(<\/script>)/gi;
+  let hit = 0;
+  const out = html.replace(re, (whole, open, body, close) => {
+    if (!body.includes(marker)) return whole;
+    hit++;
+    const patched = fn(body);
+    if (patched === body) throw new Error("块内补丁没有改动任何内容");
+    return open + patched + close;
+  });
+  if (hit !== 1) throw new Error(`标记块命中 ${hit} 次，期望恰好 1 次`);
+  return out;
+}
+
+/**
+ * 判据 11 的档位断言：exit 1 + 红因**只**来自门禁 11 + **恰好一条** +
+ * 文案命中指定片段、不命中指定片段。
+ * 「恰好一条」是关键：多出来的那条说明这一档的缺陷不纯，读者没法判断
+ * 到底是哪条分支在报红 ⇒ 这一档就白做了。
+ */
+function expectOnlyGate11(r, mustHit, mustNotHit) {
+  if (r.code === 0) return "产物被改坏后门禁必须报红，却 exit 0";
+  const ids = [...new Set(r.causes.map((c) => c.id))].sort();
+  if (ids.length !== 1 || ids[0] !== "11") {
+    return `红因归属不纯净：实到 ${ids.join(",") || "无"}，期望只有 11`;
+  }
+  if (r.causes.length !== 1) return `期望恰好 1 条红因，实到 ${r.causes.length} 条`;
+  const msg = r.causes[0].msg;
+  for (const frag of mustHit) {
+    if (!msg.includes(frag)) return `红因文案没命中「${frag}」，实到：${msg}`;
+  }
+  for (const frag of mustNotHit || []) {
+    if (msg.includes(frag)) return `红因文案不该命中「${frag}」，实到：${msg}`;
+  }
+  return null;
+}
+
+/** 负对照断言：卸掉门禁 11 的开关后，同一份产物补丁必须零问题、exit 0。 */
+function expectGreenAfterSwitchOff(r) {
+  if (r.causes.length) {
+    const ids = [...new Set(r.causes.map((c) => c.id))].sort();
+    return `卸掉门禁 11 的开关后不该还有红因，实到 ${ids.join(",")}`;
+  }
+  if (r.code !== 0) return `卸掉开关后应零问题，却 exit ${r.code}`;
+  return null;
+}
+
+/**
+ * 造一份**可改**的产物副本。
+ * ⚠️ 必须**真复制 HTML**、其余文件**硬链**：
+ *   · 软链目录不行 —— 门禁遍历产物用 entry.isDirectory()，而
+ *     readdirSync(withFileTypes) 对软链返回 isSymbolicLink()=true、
+ *     isDirectory()=false ⇒ 软链出来的目录**不会被 walk** ⇒ 门禁看不见它
+ *     （实测踩到过：软链 assets 目录后门禁当成"产物里没有资源"）。
+ *   · 硬链是同 fs 内的零拷贝；要改的文件（HTML）走真复制 ⇒
+ *     改副本不脏真产物。
+ */
+function copySiteLinked(src, dst) {
+  fs.mkdirSync(dst, { recursive: true });
+  for (const entry of fs.readdirSync(src, { withFileTypes: true })) {
+    const from = path.join(src, entry.name);
+    const to = path.join(dst, entry.name);
+    if (entry.isDirectory()) {
+      copySiteLinked(from, to);
+    } else if (entry.isFile()) {
+      if (/\.html?$/i.test(entry.name)) {
+        fs.copyFileSync(from, to);
+        const st = fs.statSync(from);
+        fs.utimesSync(to, st.atime, st.mtime);
+      } else {
+        try {
+          fs.linkSync(from, to);
+        } catch (e) {
+          fs.copyFileSync(from, to);
+        }
+      }
+    }
+  }
+}
+
+/** 产物里的 HTML 相对路径（跳过 macOS 资源叉，与门禁口径一致）。 */
+function htmlRelPaths(dir, base, out) {
+  base = base || dir;
+  out = out || [];
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const p = path.join(dir, entry.name);
+    if (entry.isDirectory()) htmlRelPaths(p, base, out);
+    else if (entry.name.endsWith(".html") && !entry.name.startsWith("._")) {
+      out.push(path.relative(base, p));
+    }
+  }
+  return out;
+}
+
+/**
+ * 动态找出产物里的**博客文章页**：og:type=article 且 canonical 在 /blog/ 下。
+ * ⚠️ 不写死具体 slug —— 文章增删会换文件名，写死就会让自测某天突然失联。
+ */
+function blogArticleRel(siteDir) {
+  const hits = [];
+  for (const relPath of htmlRelPaths(siteDir)) {
+    const html = fs.readFileSync(path.join(siteDir, relPath), "utf8");
+    const ogType =
+      (html.match(/<meta[^>]*property\s*=\s*"og:type"[^>]*content\s*=\s*"([^"]*)"/i) || [])[1];
+    if (ogType !== "article") continue;
+    const canonical =
+      (html.match(/<link[^>]*rel\s*=\s*"canonical"[^>]*href\s*=\s*"([^"]*)"/i) || [])[1] || "";
+    if (!/\/blog\//.test(canonical)) continue;
+    hits.push(relPath);
+  }
+  if (!hits.length) throw new Error("产物里找不到博客文章页");
+  hits.sort();
+  return hits[0];
 }
 
 // ---------------------------------------------------------------------------
@@ -290,6 +423,156 @@ addCase("R-2", "退回旧口径：产物为空时每页检查必须显式豁免�
   }, { emptySite: true });
 
 // ---------------------------------------------------------------------------
+// ⑦ 判据 11 的精准性档（og:type / article:* 扩展 / 发表日期）
+//
+// 这一族要证明三件事：
+//   ① 判据 11 的**每条分支都真的在跑** —— 把产物改坏，对应分支必须报红；
+//   ② 各条分支**互相独立** —— P-11c 只响数据层（可见层必须闭嘴），
+//      P-11d 只响可见层（数据层必须闭嘴）：两条判据不是同一根算两次；
+//   ③ 每条判据**能被卸掉** —— 负对照 = 同一份产物补丁 + 卸掉门禁 11 的开关
+//      ⇒ 必须转绿（证明红因确实来自门禁 11，不是别的门禁顺带报的）。
+//
+// ⚠️ 产物补丁**只改副本**：每档一份独立产物副本（SANDBOX/sites/<caseId>），
+//    真产物一个字节都不动。
+// ---------------------------------------------------------------------------
+
+/** 博客文章页自称 website（页面性质与 og:type 打架）。 */
+function patchOgTypeWebsite(siteDir) {
+  const relPath = blogArticleRel(siteDir);
+  patchHtml(siteDir, relPath, (html) => {
+    const needle = '<meta property="og:type" content="article" />';
+    if (!html.includes(needle)) throw new Error("博客文章页的 og:type 不是 article");
+    return html.replace(needle, '<meta property="og:type" content="website" />');
+  });
+}
+
+/**
+ * 文章页**一个 article:* 都不留**（分支：文章页却零扩展）。
+ * ⚠️ 还要把作品实体自己声明的日期/作者、页面上可见的日期一并摘掉 ——
+ *    否则日期分支与作者分支会跟着一起响 ⇒ 这一档就分不清是谁报的。
+ *    摘完之后这一档**恰好**一条红因（"却没有一个 article:* 属性"）。
+ */
+function patchStripArticleMetas(siteDir) {
+  const relPath = blogArticleRel(siteDir);
+  patchHtml(siteDir, relPath, (html) => {
+    const stripped = html
+      // ① 清掉 og 侧的全部 article:* 扩展
+      .replace(/^[ \t]*<meta property="article:[^"]+" content="[^"]*" \/>\r?\n/gm, "")
+      // ② 页面上不再显示日期（可见层就没什么可比的了）
+      .replace(/^[ \t]*<time\b[^>]*>[^<]*<\/time>[ \t]*\r?\n/gm, "");
+    if (stripped === html) throw new Error("博客文章页里没找到 article:* meta");
+    // ③ 作品实体不再声明日期与作者（数据层/作者层就没什么可比的了）
+    return patchBlockWith(stripped, '"@type":"BlogPosting"', (body) => {
+      const noDate = body.replace(/,"datePublished":"[^"]*"/, "");
+      const noAuthor = noDate.replace(/,"author":\{"@id":"[^"]*"\}/, "");
+      if (noAuthor === body) throw new Error("BlogPosting 块里没找到 datePublished/author");
+      return noAuthor;
+    });
+  });
+}
+
+/**
+ * og 里的日期与作品实体声明的日期对不上，而**页面上可见的日期跟着一起改**
+ * ⇒ 只该由**数据层**那一条判据报红（可见层必须闭嘴）。
+ */
+function patchTamperOgAndVisible(siteDir) {
+  const relPath = blogArticleRel(siteDir);
+  patchHtml(siteDir, relPath, (html) => {
+    const m = html.match(/<meta property="article:published_time" content="([^"]*)" \/>/);
+    if (!m) throw new Error("博客文章页里没找到 article:published_time");
+    const NEW = "1999-12-31";
+    let out = html.replace(m[0], `<meta property="article:published_time" content="${NEW}" />`);
+    const t = out.match(/<time datetime="[^"]*">[^<]*<\/time>/);
+    if (!t) throw new Error("博客文章页里没找到可见的 <time>");
+    out = out.replace(t[0], `<time datetime="${NEW}">${NEW}</time>`);
+    return out;
+  });
+}
+
+/**
+ * og 里的日期与**作品实体声明的日期**一起改，而页面上可见的日期不动
+ * ⇒ 只该由**页面所见**那一条判据报红（数据层必须闭嘴）。
+ */
+function patchTamperOgAndJsonLd(siteDir) {
+  const relPath = blogArticleRel(siteDir);
+  patchHtml(siteDir, relPath, (html) => {
+    const m = html.match(/<meta property="article:published_time" content="([^"]*)" \/>/);
+    if (!m) throw new Error("博客文章页里没找到 article:published_time");
+    const oldDate = m[1];
+    const NEW = "1999-12-31";
+    const out = html.replace(m[0], `<meta property="article:published_time" content="${NEW}" />`);
+    return patchBlockWith(out, '"@type":"BlogPosting"', (body) => {
+      const needle = `"datePublished":"${oldDate}"`;
+      if (!body.includes(needle)) throw new Error("BlogPosting 块里没找到 datePublished");
+      return body.replace(needle, `"datePublished":"${NEW}"`);
+    });
+  });
+}
+
+/** 非文章页（博客列表页）挂一个 article:* ⇒ 冒充文章。 */
+function patchNonArticleAuthor(siteDir) {
+  const relPath = path.join("blog", "index.html");
+  patchHtml(siteDir, relPath, (html) => {
+    const needle = '<meta property="og:type" content="website" />';
+    if (!html.includes(needle)) throw new Error("博客列表页的 og:type 不是 website");
+    return html.replace(
+      needle,
+      needle + '\n  <meta property="article:author" content="Yihang Lyu" />'
+    );
+  });
+}
+
+const G11_CASES = [
+  {
+    id: "P-11a",
+    title: "精准性：博客文章页自称 website ⇒ og:type 与页面性质不一致必须报红",
+    patch: patchOgTypeWebsite,
+    mustHit: ["文章页的 og:type 应为 article"],
+    mustNotHit: ["非文章页的 og:type"],
+  },
+  {
+    id: "P-11b",
+    title: "精准性：文章页一个 article:* 都不留 ⇒ 零扩展必须报红",
+    patch: patchStripArticleMetas,
+    mustHit: ["却没有一个 article:* 属性"],
+    mustNotHit: ["datePublished", "页面上可见的日期"],
+  },
+  {
+    id: "P-11c",
+    title: "精准性：og 日期与作品实体对不上 ⇒ 数据层必须报红（可见层必须闭嘴）",
+    patch: patchTamperOgAndVisible,
+    mustHit: ["本页作品实体声明的 datePublished"],
+    mustNotHit: ["页面上可见的日期"],
+  },
+  {
+    id: "P-11d",
+    title: "精准性：og 日期与页面上可见的日期对不上 ⇒ 可见层必须报红（数据层必须闭嘴）",
+    patch: patchTamperOgAndJsonLd,
+    mustHit: ["页面上可见的日期"],
+    mustNotHit: ["datePublished"],
+  },
+  {
+    id: "P-11e",
+    title: "精准性：非文章页挂 article:* ⇒ 冒充文章必须报红",
+    patch: patchNonArticleAuthor,
+    mustHit: ["非文章页却带了"],
+    mustNotHit: ["非文章页的 og:type"],
+  },
+];
+
+for (const c of G11_CASES) {
+  addCase(c.id, c.title, () => PRISTINE, (r) =>
+    expectOnlyGate11(r, c.mustHit, c.mustNotHit), { patchSite: c.patch });
+  addCase(
+    `N-${c.id.slice(2)}`,
+    `负对照：${c.title} —— 卸掉门禁 11 的开关后同一份补丁必须转绿`,
+    () => flipSwitch(PRISTINE, "11"),
+    (r) => expectGreenAfterSwitchOff(r),
+    { patchSite: c.patch }
+  );
+}
+
+// ---------------------------------------------------------------------------
 // 执行
 // ---------------------------------------------------------------------------
 function runCase(c) {
@@ -305,9 +588,23 @@ function runCase(c) {
     });
   }
   let siteDir = SITE_COPY;
-  if (c.opts && c.opts.emptySite) {
-    siteDir = path.join(SANDBOX, "empty-site");
-    fs.mkdirSync(siteDir, { recursive: true });
+  try {
+    if (c.opts && c.opts.emptySite) {
+      siteDir = path.join(SANDBOX, "empty-site");
+      fs.mkdirSync(siteDir, { recursive: true });
+    } else if (c.opts && c.opts.patchSite) {
+      // 每档一份**独立**的产物副本：补丁改副本，真产物一个字节都不动。
+      siteDir = path.join(SANDBOX, "sites", c.id);
+      copySiteLinked(SITE_SRC, siteDir);
+      c.opts.patchSite(siteDir);
+    }
+  } catch (e) {
+    return Promise.resolve({
+      id: c.id,
+      title: c.title,
+      ok: false,
+      detail: "构造产物副本失败：" + e.message,
+    });
   }
   return runGate(dir, siteDir).then((r) => {
     let detail = null;

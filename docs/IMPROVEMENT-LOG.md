@@ -29769,3 +29769,97 @@ README 命令表 / GW1 / GW4）：
   ② J15 目前只守**博客文章页**的作品实体 —— 其它将来若新增作品类型（期刊文章、数据集等），要确认它们是否也需要同一对字段；
   ③ 把 F21–F23 的口径从「博客列表页」泛化到其它走 `eleventyComputed` 的单页模板（首页 / `/about/`），但要先确认这些页面的 description **不是**刻意复用站点通用描述。
 - **M1 剩余项**：M1-1（封面开关 ＋ 比例口径）仍被**待拍板 50** 阻塞。
+
+## 2026-10-24 · 03:28–05:28 场次（**不占轮次号**）：D100 —— 修掉缺陷 **D98**：博客文章页在分享卡片这一侧自称网站、零 article 扩展（改判据 11 为产物驱动 ＋ 模板补扩展）
+
+### A. 背景
+
+上一轮（D99）修的是**作品实体的图与时效**。本轮换到**页面在社交平台面前自称的是什么**。
+
+线上巡检（2026-10-24 03:28 实测，经本机代理 `http://127.0.0.1:7890`）：`/` 200 · `/blog/` 200 · `/about/` 200 · `/sitemap.xml` 200；**`/papers/`、`/publications.bib`、`/feed.xml` 404** —— 与前两轮**逐条一致**，仍是缺陷 **D6**（部署滞后，**由 push 触发**）。基线 `npm run build` → **exit 0**。
+
+开工前照惯例把 `docs/DEFECT-BACKLOG.md` 过了一遍：待修 / 本地已实现的条目要么被 push 卡住、要么属本人拍板方向 ⇒ 走**新开缺陷**路线，登记 **D98**。
+
+**D98 是什么**：博客文章页在 Open Graph 里**自称 `og:type=website`**、**零 `article:*` 扩展** —— 可它自己的结构化数据里明明是一篇 `BlogPosting`（`@id` 等于本页 canonical、有 `datePublished`、有作者引用）。页面自称「这是个网站」、结构化数据自称「这是一篇文章」，**两侧打架**；分享卡片与聚合器按 og 那一侧读，于是拿不到发表日期与作者。
+
+而这一族**零门禁看守**：`scripts/verify-site.cjs` 的判据 **11** 用 `isPaperDetail` 这条 **URL 正则**把「文章页」**定义成论文页** —— 那口径停在「博客还是空的」那年：博客文章页明明有作品实体，却因为不在那个正则里而被当成「非文章页」⇒ 模板与门禁**自洽地一起错**，谁也不报红。
+
+实测坐实三件事：
+
+- **现象**：产物里每一篇博客文章页的 og 块写的是 `og:type=website`、一个 `article:*` 都没有；而它自己的 ld+json 里躺着 `@type` 为 `BlogPosting` 的作品实体。
+- **后果**：这两种说法打架，而**没有任何门禁会红** —— 页面照出、JSON-LD 照常合法、其它门禁全绿。
+- **根因**：判据 **11** 的「什么算文章页」用 URL 硬编码；模板侧同一件事也用同一套硬编码（`ogIsArticle` 只认 `pubKey`）⇒ 两处**自洽地一起错**。
+
+**选题取舍**（四个候选，只有一个值得做）：
+
+1. ~~feed 的 `pubDate` 对不上文章日期~~ —— 实测已一致（文章日期与 feed 日期同源），**降级**。
+2. ~~feed 的 `description` 等于 meta description~~ —— 那是 D93 的契约设计（feed 用站点通用描述），**不选**。
+3. ~~旧报告里的数字~~ —— 历史实测快照，改它等于改写历史 ⇒ **不选**。
+4. **本轮做的**：把「什么算文章页」从 URL 硬编码改成**产物驱动**，并给博客文章页补上 article 扩展。
+
+### B. 改动
+
+本轮动了**一个模板 ＋ 一个门禁 ＋ 该门禁的自测**，不新建门禁文件 ⇒ `package.json` / README / GW1 / GW4 一律不动。
+
+1. **模板侧**（`src/_includes/layouts/base.njk`）：
+   - `ogIsArticle` 由「有 `pubKey`（即论文页）」扩成「有 `pubKey` **或** 有 `structuredType`（即本页自己声明了作品实体）」，与下半段 `pageMainEntityId`（`pubKey or structuredType`）**同一口径**。
+   - og 块的 article 扩展拆成两支：论文支（`pubKey`：`published_time` / `section` / `author`×N）**逐字未变**；博客支（`structuredType` 为 `BlogPosting`）输出 `article:published_time`（＝ `page.date` 经 `date('yyyy-LL-dd')`）与 `article:author`（＝ `site.author.name`）。
+2. **门禁侧**（`scripts/verify-site.cjs` 判据 **11**）：整体重写为**产物驱动**。
+   - 新增 `ARTICLE_WORK_TYPES`（只含 `ScholarlyArticle` 与 `BlogPosting`）与 `articlePageWorks` 表；逐页按 `@id` **逐字等于本页 canonical** ＋ `@type` 命中作品类型来选本页的作品实体。
+   - ⚠️ **不能取「第一个 `ScholarlyArticle`」**：**每一页**都带一个全站论文节点（`@id` 是论文页的 canonical），那是**另一页**的作品。
+   - 8 个 `fail()` 调用点（5 → 8），比较点目录 `"11": 5 → 8`。
+3. **顺手拆掉全站第二份路由硬编码**：判据 15 原先靠 `isPaperDetail(from)` 认论文页，改为复用 `articlePageWorks` 里同一张作品实体表 ⇒ 全站不再有两处「哪些页是论文页」的答案。
+4. **按证据来源分层**：数据层（作品实体 `datePublished`）与页面所见（可见 `<time datetime>`）**分成两条独立判据** ⇒ 摘掉一条，另一条仍在。
+5. **作者判据只对「纯 `@id` 引用」的作者生效**（博客作品实体是引用式作者）⇒ 论文页的内联作者数组不会误判。
+6. **自测扩档**（`scripts/test-verify-site.cjs`，**77 → 87** 档）：
+   - 机制：每档一份**独立**的产物副本（`SANDBOX/sites/<caseId>`）；副本用 **HTML 真复制 ＋ 其余文件硬链**。
+   - 精准性 **P-11a**（og:type 改成 website）/ **P-11b**（article 扩展清零）/ **P-11c**（数据层日期对不上、可见日期跟着改 ⇒ 只红数据层）/ **P-11d**（数据层日期一起改 ⇒ 只红页面所见层）/ **P-11e**（非文章页挂 article 扩展）。
+   - 五档判据级负对照 **N-11a–N-11e**（**同一份产物补丁** ＋ 卸掉门禁 11 的开关 ⇒ 必须转绿）。
+   - 每档断言**红因文案命中**、**红因归属纯净**（只属门禁 11）且**恰好一条**。
+7. **静态清单**（`scripts/lib/selftest-slots.cjs`）：登记 **77 → 87** 档。
+
+### C. 验证
+
+- `node scripts/test-verify-site.cjs` → **87/87 档全过**，exit 0；门禁原件 SHA-256 未变（G-IMMUT）。
+- 产物实测（逐页读 og 块与 ld+json）：
+  - 博客文章页：`og:type=article`；`article:published_time` **逐字等于**该页可见 `<time datetime>`；`article:author` 等于作者节点的 `name`。
+  - 论文页：`og:type=article` ＋ `published_time` / `section` / `author`×N —— 与改前**逐字未变**。
+  - 非文章页（404 / `/about/` / `/blog/` 列表 / `/papers/` 列表 / 首页）：`og:type=website`，**零** `article:*`。
+- 受影响门禁复验：`check:site` / `check:site-selftest` / `check:jsonld` / `check:jsonld-selftest` / `check:tag-leak` / `check:tag-leak-selftest` / `check:log-sections` / `check:decision-ids` / `check:doc-snapshot` / `check:mount-contract` / `check:markdown-tables` / `check:readme` / `check:gates` / `check:selftest-guard` —— **全部 exit 0**。
+- `npm run build` → **exit 0**。
+
+### D. 顺手发现
+
+- **区分串必须互不包含**：P-11a 的断言我最初写成「不得命中 `og:type 应为`」，而正例文案本身就是「文章页的 **og:type 应为** article」⇒ 断言把自己的正例判红了。真正的区分串是「**非文章页的** og:type」—— 判据级断言要用**两条分支各自的特征词**，而不是"这条分支的关键词"。
+- **产物副本不能软链目录**：门禁遍历产物用的是 `entry.isDirectory()`，而 `readdirSync(withFileTypes)` 对软链返回 `isSymbolicLink()=true` / `isDirectory()=false` ⇒ 软链出来的 `assets` 目录**不会被 walk**，门禁会当成"产物里没有资源"。改用 **HTML 真复制 ＋ 其余文件硬链**（同 fs 内零拷贝）就绕开了。
+- **「零 article:*」这个缺陷天然会连累三条分支**：把 article 扩展清空之后，日期两条与作者一条会跟着一起响 ⇒ 那一档就分不清是谁报的。要让**P-11b 恰好一条红因**，得把作品实体自己声明的日期/作者、页面可见的日期一并摘掉 —— 缺陷仍然是同一个（"这一页什么扩展都没有了"），只是把别的分支的**比较对象**也拿掉了。
+- **每一页都带一个全站论文节点**：这是本轮最危险的一个坑 —— 取"第一个 `ScholarlyArticle`"会拿到**别页**的作品，判据看着在跑、其实比的是错的节点。必须按 `@id` 逐字等于本页 canonical 来选。
+
+### E. 文档
+
+- `docs/DEFECT-BACKLOG.md`：**新增 D98 行**（位置 / 现象 / 可判定的验收条件 / 状态格逐条兑现）；状态写「**本地已实现，待 push 后复验线上项**」，**不写「已修」**；既有行一字未动。
+- `docs/ROADMAP.md`：进度行更新（缺陷清单已到 **D98**、待修组补上 D98）；进度区新增 D98 的「本地已实现」条目；M0 段追加 **D100** 条目（现象 / 后果 / 根因 ＋ 十二条改动 ＋ 诚实边界）。
+- `docs/IMPROVEMENT-LOG.md`：本小节；中央「待决策」台账**不新增**待拍板项（最高仍是待拍板 56）。
+- `docs/blog-writing-guide.md`：本轮**未改动** —— 本轮不涉及写作契约（判据编号 F/T 体系未动；本轮只动站点门禁的判据 11）。
+
+### F. 本轮纪律
+
+- 提交只走**私有索引 CAS**，只提交本轮自己改的路径；**不 push**。
+- 并发场次占用的 `scripts/check-identity-handles.cjs` / `scripts/test-gates-selfcheck.cjs` 本轮**未触碰、未提交**。
+- 探针、夹具与文档拼接脚本都放在 `/tmp/mh_d100/`（**不入库**）；收尾用 `mavis-trash` 清理。
+- **不写死会变的存量数**：文档现状陈述里不写「全站几篇」「几篇文章」这种每轮都变的数。
+- **日期口径三处自洽**：DEFECT-BACKLOG 的 D98 行、ROADMAP 的 D100 条目、IMPROVEMENT-LOG 的 D100 小节，都写 **2026-10-24**。
+- 门禁红了先定位红因，**不放宽判据**；负对照断言**红因文案命中**且**红因归属纯净**。
+- **门禁源码里的 `fail(` 字面量不含反引号、不嵌套模板字符串**；中文内联引号一律用 `「」`，不用 ASCII 双引号。
+- 每个数字都能在同页找到出处；**不编造**任何数据、结论或引用。
+
+### 下一轮入口
+
+- **D98 的收尾只差 push**：线上文章页的分享卡片要复验 —— 与 **D6**（线上 3 条 404）同一个前置。
+- **D5 / D93 / D94 / D95 / D96 / D97** 同样卡在 push；**D9 / D10 / D12 / D26 / D32 / D57** 仍挂本人拍板；**D7 / D8** 判为不修 —— 本轮不代拍。
+- **本轮顺手记下的候选**：① `article:tag` **没加** —— 主题标签只在子模板 `detail.njk` 里算，父布局 `base.njk` 拿不到；
+  要加就得先把标签过滤链提到数据层（或让父布局能拿到），否则会在父布局造出**第二份**集合名清单（新漂移面）；
+  ② `article:author` 现在用**姓名**（与论文页既有做法一致）；若哪天要改成 profile URL，**两页必须一起改**，不能只改博客；
+  ③ 判据 11 的作品类型集合目前只有 `ScholarlyArticle` 与 `BlogPosting` —— 将来若新增期刊文章、数据集等作品类型，
+  要确认它们该不该进这个集合。
+- **M1 剩余项**：M1-1（封面开关 ＋ 比例口径）仍被**待拍板 50** 阻塞。

@@ -32,7 +32,10 @@
  *        概念 DOI
  *     9. 身份类 meta（twitter:site/creator）没有写死的兜底值
  *    10. JSON-LD 里的 @id / url 都是绝对地址
- *    11. og:type 与页面性质一致；article:* 只出现在 article 页上
+ *    11. og:type 与页面性质一致（文章页 = 本页自己声明了作品实体，
+ *        按 @id == 本页 canonical 判定，不按 URL 硬编码）；article:*
+ *        只出现在 article 页上，且文章页的 og 扩展要与作品实体的
+ *        datePublished、页面可见的 <time> 逐字对得上
  *    12. 全站"本人"的 @id 只有一个取值
  *    13. /publications.bib 与论文页 Copy 按钮逐字一致
  *    14. 下载的 .bib 里不含 HTML 实体
@@ -816,37 +819,141 @@ for (const { from, parsed } of ldRecords) {
    /papers/ 列表页、/404.html 统统自称 article——它们都不是文章，
    分享卡片与聚合器会按文章语义解读它们（取 article:published_time 等）。
    ogp.me 的 Types 段原文："Any non-marked up webpage should be treated
-   as og:type website"。只有论文详情页（front-matter 有 pubKey）才是文章。
+   as og:type website"。
+
+   "什么算文章页"这条口径（2026-10-24；缺陷清单 D98）：**由数据层决定，
+   不按 URL 硬编码**。
+     文章页 = 本页自己声明了一个作品实体：存在一个 JSON-LD 节点，它的
+     @id **逐字等于本页 canonical**，且 @type ∈ {ScholarlyArticle,
+     BlogPosting}。这与 base.njk 算 mainEntity 时用的口径**同一个**
+     （有 pubKey 或 structuredType ⇒ 本页有作品实体），两处不会走样。
+   ⚠️ 早先的 isPaperDetail 正则把"文章页"写死成论文页（/^papers\/…/）——
+     那口径停在"博客还是空的"那年：博客文章页明明有 BlogPosting 作品
+     实体，却因为不在那个正则里而被当成"非文章页"，于是模板与门禁
+     自洽地一起错 ⇒ 零门禁看守。
+   ⚠️ 也绝不能取"第一个 ScholarlyArticle"：**每一页都带一个全站论文
+     节点**（@id = 论文页的 canonical），那是**另一页**的作品。必须按
+     @id == 本页 canonical 选节点。
 
    同时校验 article:* 只出现在 og:type=article 的页面上——这两件事是
    一条规则的两面：声明自己是文章，就得带文章的属性；不是文章的页面，
-   就不许挂 article:* 冒充。 */
+   就不许挂 article:* 冒充。
+   文章页该带什么、日期对不对，按**证据来源**分开判：
+     · 数据层：作品实体自己声明的 datePublished；
+     · 页面所见：页面上读者能看到的 <time datetime>。 */
 mark("11");
-const isPaperDetail = (r) => /^papers\/[^/]+\/index\.html$/.test(r);
+// 「文章页」对应的那两种作品实体（og:type=article 的语义范围）。
+// ⚠️ 与门禁 19 的 WORK_ENTITY_TYPES 是**两回事**：那个是"内容类实体"的
+//    全集（含 Dataset / SoftwareSourceCode），判定的是"这一页有没有
+//    产出"；这里只管"这一页是不是一篇文章"（数据集不是文章）。
+const ARTICLE_WORK_TYPES = new Set(["ScholarlyArticle", "BlogPosting"]);
+// 本页的作品实体表：相对路径 → 该页的作品实体节点数组（@id == 本页 canonical）。
+// 后面几条门禁复用**同一个**口径 ⇒ 全站不再有第二份"哪些页是论文页"的硬编码路由。
+const articlePageWorks = new Map();
 for (const file of htmlFiles) {
   const from = rel(file);
   const html = fs.readFileSync(file, "utf8");
+  const canonical =
+    (html.match(/<link[^>]*rel\s*=\s*"canonical"[^>]*href\s*=\s*"([^"]*)"/i) || [])[1] || "";
+
+  // 本页声明的全部节点（含 @graph 与嵌套的作者节点）。
+  const pageNodes = [];
+  for (const rec of ldRecords) {
+    if (rec.from !== from) continue;
+    for (const node of collectNodes(rec.parsed)) pageNodes.push(node);
+  }
+  // 本页的**作品实体**：@id 必须逐字等于本页 canonical。
+  const works = canonical
+    ? pageNodes.filter((node) => {
+        if (!typesOf(node).some((t) => ARTICLE_WORK_TYPES.has(t))) return false;
+        const id = typeof node["@id"] === "string" ? node["@id"].trim() : "";
+        return id === canonical;
+      })
+    : [];
+  const isArticle = works.length > 0;
+  articlePageWorks.set(from, works);
+
   const ogType = (html.match(/<meta[^>]*property\s*=\s*"og:type"[^>]*content\s*=\s*"([^"]*)"/i) || [])[1];
-  const wantsArticle = isPaperDetail(from);
   if (!ogType) {
     fail("11", `${from}: 缺 og:type`);
     continue;
   }
-  if (wantsArticle && ogType !== "article") {
-    fail("11", `${from}: 论文详情页的 og:type 应为 article，实际是 "${ogType}"`);
+  if (isArticle && ogType !== "article") {
+    fail("11", `${from}: 文章页的 og:type 应为 article，实际是 "${ogType}"`);
   }
-  if (!wantsArticle && ogType !== "website") {
+  if (!isArticle && ogType !== "website") {
     fail("11", `${from}: 非文章页的 og:type 应为 website，实际是 "${ogType}"`);
   }
-  const articleMetas = [...html.matchAll(/<meta[^>]*property\s*=\s*"(article:[^"]+)"[^>]*content/gi)];
-  if (!wantsArticle && articleMetas.length) {
-    fail("11", 
+
+  const articleMetas = [
+    ...html.matchAll(/<meta[^>]*property\s*=\s*"(article:[^"]+)"[^>]*content\s*=\s*"([^"]*)"/gi),
+  ];
+  if (!isArticle && articleMetas.length) {
+    fail("11",
       `${from}: 非文章页却带了 ${articleMetas.length} 个 article:* 属性` +
         `（${articleMetas.map((m) => m[1]).join(", ")}）——og:type 与 article 扩展必须一致`
     );
   }
-  if (wantsArticle && !articleMetas.length) {
-    fail("11", `${from}: 论文页 og:type=article 却没有一个 article:* 属性——分享卡片拿不到发表日期/刊名/作者`);
+  if (isArticle && !articleMetas.length) {
+    fail("11", `${from}: 文章页 og:type=article 却没有一个 article:* 属性——分享卡片拿不到发表日期/作者`);
+  }
+
+  if (isArticle) {
+    const publishedTime = (articleMetas.find((m) => m[1] === "article:published_time") || [])[2] || "";
+
+    // —— 证据来源一：数据层（作品实体自己声明的发表日）——
+    const declared = works
+      .map((w) => (typeof w.datePublished === "string" ? w.datePublished.trim() : ""))
+      .filter(Boolean);
+    if (declared.length && !declared.includes(publishedTime)) {
+      fail("11",
+        `${from}: article:published_time 是「${publishedTime || "(缺)"}」，` +
+          `本页作品实体声明的 datePublished 是「${declared.join(" / ")}」——两者必须逐字相同`
+      );
+    }
+
+    // —— 证据来源二：页面所见（读者在页面上能看到的那个日期）——
+    const visibleDates = [
+      ...new Set(
+        [...html.matchAll(/<time[^>]*datetime\s*=\s*"([^"]*)"/gi)]
+          .map((m) => m[1].trim())
+          .filter(Boolean)
+      ),
+    ];
+    if (visibleDates.length && !visibleDates.includes(publishedTime)) {
+      fail("11",
+        `${from}: article:published_time 是「${publishedTime || "(缺)"}」，` +
+          `页面上可见的日期是「${visibleDates.join(" / ")}」——og 里的日期必须与读者看到的那个逐字相同`
+      );
+    }
+
+    // —— 作者：作品实体用 @id 引用作者时，og 里的作者名必须逐字等于那个
+    //    Person 节点的 name。论文页的作者是**内联数组**（不是纯引用），
+    //    所以这条只对"引用式作者"生效，论文页不会误判。——
+    const authorValues = articleMetas.filter((m) => m[1] === "article:author").map((m) => m[2]);
+    for (const w of works) {
+      const ref =
+        w.author && !Array.isArray(w.author) && typeof w.author["@id"] === "string"
+          ? w.author["@id"].trim()
+          : "";
+      if (!ref) continue;
+      const person = pageNodes.find(
+        (n) =>
+          typesOf(n).includes("Person") &&
+          typeof n["@id"] === "string" &&
+          n["@id"].trim() === ref &&
+          typeof n.name === "string" &&
+          n.name.trim()
+      );
+      if (!person) continue;
+      const personName = person.name.trim();
+      if (!authorValues.includes(personName)) {
+        fail("11",
+          `${from}: article:author 是「${authorValues.join(" / ") || "(缺)"}」，` +
+            `但本页作品实体指向的作者节点 ${ref} 的 name 是「${personName}」——两者必须逐字相同`
+        );
+      }
+    }
   }
 }
 
@@ -1159,7 +1266,12 @@ for (const file of htmlFiles) {
   }
 
   // 论文页：分享卡片用的图必须是页面上真给读者看的那张
-  if (isPaperDetail(from)) {
+  //   ⚠️ 口径与门禁 11 同一个（按 @id == 本页 canonical 选作品实体），
+  //   不再按 URL 硬编码路由 —— 路由一改，硬编码就会静默失配。
+  const paperWorks = (articlePageWorks.get(from) || []).filter((w) =>
+    typesOf(w).includes("ScholarlyArticle")
+  );
+  if (paperWorks.length) {
     const shown = [...imgAlts.keys()];
     const ogPaths = pairImageAlts(html, "og")
       .map((x) => siteRelPath(file, x.image))
@@ -3274,7 +3386,7 @@ mark("32");
         与门禁 24 的清单形成交叉校验。 */
 const COVERAGE_POINTS = {
   "0": 2, "1": 2, "2": 1, "3": 2, "4b": 5, "4c": 3,
-  "5": 2, "6": 1, "7": 6, "8": 10, "9": 2, "10": 1, "11": 5, "12": 3,
+  "5": 2, "6": 1, "7": 6, "8": 10, "9": 2, "10": 1, "11": 8, "12": 3,
   "13": 7, "14": 1, "15": 2, "16": 8, "17": 4, "18": 10, "19": 4,
   "20": 5, "21": 6, "22": 1, "23": 2, "24": 4, "25": 1, "26": 1, "27": 1,
   "28": 2, "29": 5, "30": 10, "31": 3, "32": 15,
