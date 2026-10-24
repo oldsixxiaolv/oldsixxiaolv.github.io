@@ -531,7 +531,7 @@ const CONTENT_COLUMN_RULES = [
   { match: "/", selector: ".home-hero", note: "首页英雄区（标题+导语+降水图）；它在 ≤1024px 是单栏，实测占视口 91~92%" },
   { match: "/papers/*/", selector: ".paper-body", note: "论文精读页的正文列（D11 坏掉的就是这一列）" },
   { match: "/papers/", selector: "article", note: "论文列表装在 article 容器里" },
-  { match: "/blog/", selector: "article", note: "博客列表装在 article 容器里（当前为空状态页）" },
+  { match: "/blog/", selector: "article", note: "博客列表装在 article 容器里（列表卡）" },
   { match: "/about/", selector: "article", note: "关于页正文在 article 里（英雄区是分栏，不算正文列）" },
   { match: "/404.html", selector: "main", note: "短页，盯主容器" },
 ];

@@ -22,7 +22,7 @@
 其它已知偏差（**不是路径**，所以不进上表）：
 
 - 列表页的分页仍是**未实现的规划意图**：blog 侧只设了 `size: 100`（一次铺 100 条，页面上没有翻页控件），papers 侧直接铺全部条目；§4.3 的框图已按「一次性渲染」写实，不再承诺分页；
-- §2.1 / §2.2 里的条目级 slug 都是**示意**：blog 与 portfolio 集合当前 0 条内容，papers 只有 1 条（`trmm-thunderstorm-stages`）；
+- §2.1 / §2.2 里的条目级 slug 都是**示意**：blog 集合已有内容（2026-10-23 起补上首批文章，实际清单见 `/blog/`），portfolio 仍没有内容，papers 只有 1 条（`trmm-thunderstorm-stages`）；
 - 作品集里的 `cma-meso` 条目至今没有对应内容。
 
 > 文档版本：v1.3 · 2026-10-23  
@@ -447,7 +447,7 @@ tags: [lightning, radar, trmm]
 ## 八、设计评审清单
 
 - [x] 一级入口 ≤ 5 个，且语义互斥（当前 4 个：Home / Papers / Blog / About）
-- [ ] 二级页面 slug 与论文 / 项目 / 博客一一对应（blog 与 portfolio 集合当前 0 条内容）
+- [ ] 二级页面 slug 与论文 / 项目 / 博客一一对应（blog 已有内容、slug 按规范定；portfolio 仍空）
 - [x] 404 页含 Topbar + 返回首页 CTA
 - [x] 所有页面都有 `<title>` 与 `<meta description>`（SEO）
 - [ ] 所有页面都有 OG/Twitter Card（OG 家族已实现；Twitter Card 标签未加）

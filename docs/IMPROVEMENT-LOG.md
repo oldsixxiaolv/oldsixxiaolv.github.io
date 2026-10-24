@@ -29029,3 +29029,149 @@ COV-B 现读门禁源码，红因出口与可卸开关都恰为 **TR1–TR6**；
 - **portfolio 路由缺口**：`src/portfolio.njk` 不存在但回链与 sitemap 都按它存在处理 ⇒ 目前不显形，不在本轮动。
 - **本轮 D 节的候选清单**：`docs/og-image-and-a11y-report.md` 的旧数字与失效路径、
   `docs/design-system.md` 的三处存量篇幅数漂移 —— 可挑一条单独开缺陷。
+
+## 2026-10-23 · 17:30–18:55 场次（**不占轮次号**）：D94 —— 修掉缺陷 **D5**：博客是空的（首批 3 篇真实长文 + 互链 + 集合非空判据）
+
+### A. 背景
+
+上一轮（D93）修的是**改进计划文档的证据过期**。本轮换到**站点自己的内容管线** ——
+上一轮撞见的是「文档里那几行证据停在当时」，本轮撞见的是「**整条内容路径一个产物都没有**」。
+
+开工前照惯例把 `docs/DEFECT-BACKLOG.md` 过了一遍。**D5** 这一条的验收条件写得非常具体：
+「`/blog/` 至少 3 篇真实长文；列表卡有 excerpt / readingTime / 主题标签；`/blog/<slug>/` 全部 200；
+`feed.xml` 出现文章条目」。但它当时的状态是「待修（**依赖 M1-3**；选题主线本人尚未指定 ⇒ 本条不代拍）」。
+
+**为什么本轮可以动手了**（这一段必须写清楚，否则就是静默代拍）：
+- 「选题主线本人尚未指定」是 **2026-10-20** 的口径；
+- 本人 **2026-10-21** 已明确改口径：「请你自己琢磨不要再问我了」「你自己判断自行抉择」⇒
+  方案选型、参数档位这类问题**自己判断、直接执行**，不要拿问卷回问；
+- 本轮**只做本地提交、不 push** ⇒ 选题与写法都可**复审、可回退**（回退 = 删掉三篇目录 + 回退门禁那一处）。
+
+另外两条硬约束本轮全程守住：素材 **100% 在仓内**（华北降水数据集 `src/_data/extremePrecip.json`、
+论文精读页 `src/content/papers/trmm-thunderstorm-stages/paper.md`、出版记录 `src/_data/site.js`）
+⇒ **不编造任何数据、结论或引用**；站内文字**全英文**。
+
+### B. 改动
+
+**① 三篇英文长文**（`src/content/blog/<slug>/index.md`，front matter 严格照契约五字段）：
+
+- `north-china-extreme-precipitation` —— 《North China's extreme-precipitation share has shifted since 2020》。
+  素材 = 华北降水数据集的逐年统计：区域 32–50°N / 110–120°E、13,896 个陆地点、0.1°、1960–2025、
+  面积按 `cos(latitude)` 加权、湿日定义 ≥1 mm、极端日阈值取**逐格点 95 分位**。
+  结论先行：年均 533.6 mm、极端日占比均值 25.4%；年代均值从 24.55% 一路到 2020–2025 的 30.67%；
+  全序列最高是 2021 年的 35.4%，2024 年 33.2%；**1960–2019 单独看趋势不显著**（MK p = 0.6099），
+  1960–2025 合并才显著（p = 0.0401，R95p 份额 +0.556 pp/decade）；Rx1day 2020–2025 = 63.91 mm/day
+  （早期 52.4–55.8）。出处 = ESSD 17(8) 3987–4004（DOI `10.5194/essd-17-3987-2025`）＋
+  数据集 Zenodo（DOI `10.5281/zenodo.14632156`），数据集归属写的是 CHM_PRE V2.1.1 三位作者。
+- `reading-a-daily-precipitation-record` —— 《How to read a 66-year daily precipitation record》。
+  素材 = 同一套数据的方法面：三个指数各答一个问题（R95p / Rx1day / 湿日）、
+  为什么用**逐格点分位阈值**而不是固定 mm/day、**占比与绝对量不是同一份证据**、
+  Rx1day 是「格点最大值的区域平均」而不是单次事件、**窗口决定结论**、以及公开值四舍五入
+  制造出的 1961/2004 人造并列。两处告诫都写进了正文。
+- `trmm-stage-dependent-lightning` —— 《Reading a stage-dependent lightning-structure relationship in TRMM thunderstorms》。
+  素材 = 论文精读页 + `site.js` 的出版记录：TRMM 快照问题、热带非洲 16 年观测、
+  按雷达回波结构做 K-means（紧凑型风暴再分三簇：Pre-Mature / Mature / Post-Mature）、
+  紧凑型风暴占 81%、**相关系数相近但线性拟合不同** ⇒ 阶段专属起电机制。
+  引用写全：JGR: Atmospheres 131(11) e2026JD046836（DOI `10.1029/2026JD046836`）、
+  数据集 Zenodo v2.0（DOI `10.5281/zenodo.18041880`，CC BY 4.0）、代码仓 GitHub。
+
+三篇都**刻意不写封面、不写图片、不写表格**（`useCovers = false`；markdown-it 未开 table 插件），
+DOI / 长 URL 一律放行内 `code` 防溢出。
+
+**② 互链（M1-4）**：文章 ↔ 文章（`../<slug>/`）、文章 ↔ 论文页（`../../papers/trmm-thunderstorm-stages/`）、
+文章 ↔ 首页图表锚点（`../../#north-china-precip`）、博客 ↔ `/about/`（`src/content/about.md`
+的 Technical notes 一条补了站内 `../blog/` 链接，CSDN 旧链接保留）。
+**站内引用一律相对路径** —— 这一条是被 `scripts/verify-site.cjs` 判据 1 与 `check-404-depth.cjs` 的 E3 逼出来的
+（根绝对路径会直接判红），此前写作指南 §3.3 写的却是「用站内绝对路径」，本轮一并订正。
+
+**③ 既有门禁扩判据 F16（不新建门禁文件 ⇒ 不动 package.json / GW1 / GW4 结构）**：
+`scripts/check-blog-frontmatter.cjs` 新增 **F16「博客集合不得为空」**（至少 1 篇 `<slug>/index.md`），
+空集合**直接判红**。这一条替换掉的是旧门禁结尾那句「站内还没有文章 ⇒ 逐篇判据当前未执行」——
+那句话是**诚实但没用**的：集合为空时 F1–F15 一条都跑不到，门禁 exit 0 却其实什么都没验
+（正是 `check-gates-wired.cjs` 文件头写的「看起来在、其实不生效」那一族）。
+自测同步改：**M13** 从「note 档」改成「F16 判红档」；**M0**（基线档）补上了 `setup` ——
+原来那一档**没有 setup**，夹具站是空的，它其实一直在测「0 篇文章」，
+也就是说「基线证明判据不是空跑」这句话从来没说真过；F16 落地后它当场露馅。
+
+**④ 写作契约同步**（`docs/blog-writing-guide.md`）：§2.4 判据表加 F16 行（WC1 双向核对，缺行即红）、
+§2.4 的「站内还没有文章」段落改写成「已有文章 ＋ 空集合由 F16 判红 ＋ 封面那一半仍明说未执行」、
+§3.3 的绝对路径错句改成相对路径写法（并把挂载无关那条契约的例外写清）、§5 已知缺陷表里
+「`/blog/` 是空状态页」标记为已修（并注明由 F16 守）。
+
+**⑤ 连带修掉的活漂移**（同一批改动必然带出来的，一并修，不留到下一轮）：
+`docs/information-architecture.md` 两处「blog 与 portfolio 集合当前 0 条内容」改为按「blog 已有内容 /
+portfolio 仍没有内容」写（**不写条目数**，写死就会再漂一次）；`src/index.njk` 那句
+「collections.blog / collections.papers 已空」补上「当时」二字并注明博客首批文章是 2026-10-23 才补的；
+`scripts/check-overflow.cjs` 里「博客列表装在 article 容器里（当前为空状态页）」的注释去掉「当前为空状态页」。
+
+### C. 验证
+
+- **门禁全绿**（逐条实跑 exit 0）：`check:blog-frontmatter`（扫了 3 篇文章 / 比了 30 处 front matter 字段）、
+  `check:blog-frontmatter-selftest`（20 档全过，M13 判红并命中「F16」与「集合为空」）、
+  `check:writing-contract`、`check:tag-leak`、`check:readme`、`check:selftest-guard`、`check:gates`、
+  `check:doc-snapshot`、`check:markdown-tables`、`check:log-sections`、`check:decision-ids`、`check:mount-contract`。
+- **`npm run build` exit 0**（日志 `/tmp/mh_d94/build.log`，末段 `[11ty] Copied 19 Wrote 14 files`）——
+  产物页面数 9 → 12。
+- **产物逐项核对**（本地）：`_site/blog/index.html` 有 **3 张卡**，每张都带
+  `list__kicker` 日期 / `list__title` / `list__excerpt` / `list__tags`（readingTime 徽章 + 3 个主题标签）；
+  三个详情页 `_site/blog/<slug>/index.html` 齐备，**每页恰好 1 个 h1**、标题不跳级、
+  prev/next 翻页条可用（3 篇之间互相指得到）、`Back to Blog` 回到列表；
+  `_site/feed.xml` **4 条 item**（论文 1 ＋ 文章 3）；`_site/sitemap.xml` 出现 **3 条新路由**
+  ＋ `/blog/`；verify-site 实测 **209 条本地引用全部相对路径**。
+- ⚠️ **线上巡检完成**（外网需经本机代理才通）：7 条 URL 里 **4 条 200、3 条 404**
+  （`/papers/`、`/publications.bib`、`/feed.xml`）—— 与上一轮**完全一致**，因为本轮**不 push**，
+  线上仍是旧版本 ⇒ 属缺陷 **D6**（**由 push 触发**），本轮不代拍、不 push。
+  ⇒ **D5 的线上那一半（`/blog/` 与 `/blog/<slug>/` 全部 200）本轮无法验证**，
+  缺陷台账里**不写「已修」**，写「本地已实现，待 push 后复验」。
+
+### D. 顺手发现
+
+- **一个注入档在内容变多之后失效了**（本轮 build 第一次红就是它）：`scripts/test-citation-meta.cjs` 的 **M12**
+  原来删的是 feed.xml 里的**第一个** `<item>` —— 那时订阅源只有论文那一条，删第一个就是删论文；
+  站内补了文章之后订阅源有 4 条、第一个变成博客文章 ⇒ 删掉它论文还在 ⇒ 门禁当然不红（**档位失效**）。
+  已改成**按链接定位**论文那一条（link 以 `/papers/<slug>/` 结尾），与订阅源里有多少篇文章无关。
+  ⚠️ 这一族的教训：**注入档的定位方式不能依赖「第一个 / 最后一条」这种位置**，
+  内容一多位置就变、档位悄悄失效（而门禁还在报「通过」）。
+- **一个基线档其实一直在测别的东西**：`scripts/test-blog-frontmatter.cjs` 的 **M0**（基线）
+  原来**没有 setup** ⇒ 夹具站是空的，它测的其实是「0 篇文章」那一档 ⇒
+  「基线证明判据不是空跑」这句话从来没说真过。F16 落地后当场露馅，已补上真文章。
+- **写作指南 §3.3 写着「链接到别的页面用站内绝对路径 `/about/`」** —— 这句话与
+  `scripts/verify-site.cjs` 判据 1 和 `check-404-depth.cjs` 的 E3 **直接冲突**
+  （根绝对路径会判红，理由是它打破挂载无关那条契约）。本轮已订正为相对路径写法。
+- **文章页没有独立的 meta description**：模板的 `<meta name="description">` 取 `description or site.description`，
+  而契约里**没有** `description` 字段 ⇒ 三篇文章的 meta description 会**共用站点通用描述**。
+  本轮**不扩契约**（扩它要同步改 front matter 契约表、F 判据与自测，属结构性改动），
+  登记为**下一轮候选**。
+- **M1 的里程碑标题「最高优先，因为博客现在是空的」** 现在过时了 —— 但那是 ROADMAP 的**计划历史**，
+  本轮**不改它**，改在本轮条目里说明状态（改计划历史等于伪造历史）。
+
+### E. 文档
+
+- `docs/DEFECT-BACKLOG.md`：**D5 行状态**改写（本地已实现 + 逐条验收兑现 + 明确「线上那半待 push 复验」，
+  **不写「已修」**）；其余行一字未动。
+- `docs/ROADMAP.md`：进度行补一条 **D5 本地已实现**的说明（D5 仍留在「待修」组 —— 线上项没验就不能算已修）；
+  M0 段追加 **D94** 条目。
+- `docs/IMPROVEMENT-LOG.md`：本小节；中央「待决策」台账**不新增**待拍板项 ——
+  本轮的技术选型（选题、篇数、写法）依据本人 2026-10-21 的自决授权作出，
+  且只做本地提交、可复审可回退；唯一真正卡住的是 **push**，那不是「代拍」能解决的。
+
+### F. 本轮纪律
+
+- 提交只走**私有索引 CAS**，只提交本轮自己改的路径；**不 push**。
+- 并发场次占用的 `scripts/check-identity-handles.cjs` / `scripts/test-gates-selfcheck.cjs`
+  本轮**未触碰、未提交**。
+- 探针、夹具与文档拼接脚本都放在 `/tmp/mh_d94/`（**不入库**）；收尾用 `mavis-trash` 清理。
+- 门禁红了先定位红因，**不放宽判据**；两次 build 红都是**注入档失效**，修的是注入档，不是判据。
+- **扩既有门禁而不是新建门禁文件** ⇒ 不新增 npm script ⇒ 不触发 README 命令表 / GW1 / GW4 的连带改动。
+- **不写死会变的存量数**：文档里写「blog 已有内容」而不写「几篇」。
+- 每个数字都能在同页找到出处；**不编造**任何数据、结论或引用。
+
+### 下一轮入口
+
+- **D5 的收尾只差 push**：线上 `/blog/` 与三个 `/blog/<slug>/` 全部 200 —— 与 **D6**（线上 3 条 404）同一个前置。
+- **D9 / D10 / D12 / D26 / D32 / D57**：仍挂本人拍板；**D7 / D8** 判为不修 —— 本轮不代拍。
+- **M1 剩余项**：M1-1（封面开关 + 比例口径）被**待拍板 50** 阻塞；M1-2 已完成；**M1-3 / M1-4 本轮做完**；
+  M1 的第 4 条（互链）已随本轮落地，`feed.xml` 已能看到文章条目。
+- **文章页 meta description**：是否给 front matter 加 `description` 字段（见 D 节）—— 可独立成一轮。
+- **本轮 D 节的候选清单**：`docs/og-image-and-a11y-report.md` 的旧数字与失效路径、
+  `docs/design-system.md` 的三处存量篇幅数漂移 —— 可挑一条单独开缺陷。

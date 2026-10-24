@@ -75,6 +75,17 @@ if (!pubs.length) {
   console.error("引用元数据自测失败：site.js 里没有带 slug 的论文条目，无从注入。");
   process.exit(1);
 }
+/* 本门禁 C8 核的是「带关键词的论文在订阅源里有一条指向它的条目」。
+   取第一篇带关键词的 —— 注入要删的就是**它那一条**，
+   不能靠"删第一个 <item>"（订阅源里有多少条取决于站内有多少篇文章）。 */
+const paperWithKeywords = pubs.find(
+  (p) => Array.isArray(p.keywords) && p.keywords.length > 0
+);
+if (!paperWithKeywords) {
+  console.error("引用元数据自测失败：site.js 里没有带关键词的论文条目，C8 无从注入。");
+  process.exit(1);
+}
+const PAPER_FEED_PATH_SUFFIX = `/papers/${paperWithKeywords.slug}/`;
 
 /* ---------- 复制产物：只复制门禁会读的几类文件 ----------
    ⚠️ 2026-10-20（D14）新增 .xml：门禁的 C8 要读 feed.xml 的分类标签，
@@ -297,8 +308,26 @@ const CASES = [
     sub: "订阅源里这篇论文不见了",
     file: "feed.xml",
     mutate: (t) => {
-      const out = t.replace(/\n\s*<item>[\s\S]*?<\/item>/, "\n");
-      if (out === t) throw new Error("注入没有改变内容：找不到 <item> 块");
+      /* ⚠️ 这一档原来删的是**第一个** <item>。那时订阅源里只有论文那一条，
+         删第一个就是删论文；2026-10-23 站内补了首批文章之后，订阅源有 4 条，
+         第一个变成了博客文章 ⇒ 删掉它论文还在 ⇒ 门禁当然不红（**档位失效**）。
+         现在改成**按链接定位**论文那一条（link 以 /papers/<slug>/ 结尾）——
+         删的仍然是"论文那条"，与订阅源里有多少篇博客文章无关。 */
+      let hit = false;
+      const out = t.replace(/\n\s*<item>[\s\S]*?<\/item>/g, (m) => {
+        if (hit) return m;
+        const link = (m.match(/<link>([\s\S]*?)<\/link>/) || [])[1] || "";
+        if (link.includes(PAPER_FEED_PATH_SUFFIX)) {
+          hit = true;
+          return "\n";
+        }
+        return m;
+      });
+      if (!hit) {
+        throw new Error(
+          `注入没有改变内容：feed.xml 里找不到指向 ${PAPER_FEED_PATH_SUFFIX} 的条目`
+        );
+      }
       return out;
     },
   },

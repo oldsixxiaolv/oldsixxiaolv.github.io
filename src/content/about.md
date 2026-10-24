@@ -41,7 +41,8 @@ citation count or h-index on this site yet.
   code for the TRMM work is on GitHub.
 - **Technical notes** — the writing that exists so far (Python for atmospheric
   science, xarray, Fortran, WRF) is on
-  [CSDN](https://blog.csdn.net/lvyihang200411).
+  [CSDN](https://blog.csdn.net/lvyihang200411); the notes published on this site
+  start in [Blog](../blog/).
 
 ## Corrections
 
