@@ -39,8 +39,18 @@ src/content/blog/<slug>/cover.svg     ← 可选封面（同一目录）
 | `permalink` | `/blog/<slug>/` |
 | `tags` | 追加集合名 `"blog"` |
 | `prev` / `next` | 按发布日期排的上一篇 / 下一篇（用于详情页底部的翻页条） |
+| `structuredType` | `BlogPosting` —— 这一族页面在结构化数据里自称的作品实体类型（2026-10-23 起） |
 
 ⇒ front matter 里**再写** `layout` / `permalink` 不是"更保险"，是**覆盖**它们，会把版式与 URL 弄坏。
+⇒ `structuredType` 同理是**站点的事**（这一族页面的实体类型一样），不是每篇文章各写一遍的事；
+front matter 里再写它没有意义，写错则会让结构化数据里的实体类型与页面实际声明的对不上（门禁 J13 判红）。
+
+⚠️ `structuredType` 与论文页的 `pubKey` 是**同一层意思的两种写法**：
+`pubKey` 指向 `src/_data/site.js` 里那一条已登记的论文（外部有权威登记可查），
+`structuredType` 只声明实体类型（博客文章没有外部登记条目可指向）。
+两者都只作用在**页面这一层**的裸键上，模板与门禁都按数据层的三条路径回源
+（front matter 顶层 / `eleventyComputed` / 目录数据文件）——
+不按 URL 硬编码路由，路由一改就不会静默失配。
 
 ⚠️ **2026-10-20 实测订正**：`tags` **不是覆盖，是"合并"** ——
 front matter 写的 `tags` 与自动追加的 `"blog"` 会**并成一份**，

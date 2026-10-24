@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * 自测：scripts/check-jsonld.cjs（门禁 J0–J12）
+ * 自测：scripts/check-jsonld.cjs（门禁 J0–J13）
  *
  * 为什么要有这个自测：
  *   这道门禁守的是"结构化数据这一层还在不在、接不接得上"——它一旦失效，
@@ -9,14 +9,14 @@
  *
  * 本自测的形态（与 scripts/test-identity-derivation.cjs 同一套范式）：
  *   · 绿档（G0–G3）—— 临时目录上的基线必须全绿
- *   · 注入档（J0–J12，含 J11b）—— 每条判据各来一个"只让它红"的坏形态，
+ *   · 注入档（J0–J13，含 J11b）—— 每条判据各来一个"只让它红"的坏形态，
  *     断言红因编号**多重集恰好**等于预期 ⇒ 证明它真的会红、且归属纯净
- *   · 判据级负对照（N-J0–N-J12，含 N-J11b）—— 同一个坏形态 + 卸掉该判据的开关
+ *   · 判据级负对照（N-J0–N-J13，含 N-J11b）—— 同一个坏形态 + 卸掉该判据的开关
  *     ⇒ 该判据的红因必须**一个都不剩** ⇒ 证明开关真的被 fail() 消费
  *   · 精准性负对照（P-*）—— 合法但少见的写法不该被误伤
  *   · 退回旧口径（RE-*）—— 把新口径的关键机制拆掉，证明旧口径确实漏
  *
- *   共 38 档：4 绿 + 14 注入 + 14 判据级负对照 + 3 精准性 + 3 退回旧口径。
+ *   共 40 档：4 绿 + 15 注入 + 15 判据级负对照 + 3 精准性 + 3 退回旧口径。
  *
  * ⚠️ 全部注入都在**临时目录里的副本**上做，仓库里的原件一个字节都不动
  *   （收尾时用 SHA-256 校验）。
@@ -50,6 +50,16 @@ const PAPER_URL = `${SITE_URL}/papers/paper/`;
 const PAPER_PAGE_ID = `${PAPER_URL}#webpage`;
 const PAPER_ID = PAPER_URL;
 const OG_IMAGE = `${SITE_URL}/assets/cover.png`;
+/* 博客文章页（J13 用）：作品实体的 @id = 页面 URL（**无片段**），
+   与页面实体的 @id（带 #webpage）不同 —— 这不是自引用。 */
+const BLOG_URL = `${SITE_URL}/blog/post/`;
+const BLOG_PAGE_ID = `${BLOG_URL}#webpage`;
+const BLOG_ID = BLOG_URL;
+/* ⚠️ 标题与描述里**故意带撇号**：HTML 侧写成 `&#39;`，JSON-LD 侧是原字符 ——
+   J13 逐字比较前必须解 HTML 实体，否则会把同一句话判成两句（假红）。 */
+const BLOG_TITLE = "A reader's first impression";
+const BLOG_DESC = "What a reader's first impression actually is.";
+const BLOG_DATE = "2026-10-24";
 
 /* ---------- 从门禁源码里解析可卸开关表（不在本文件写死）----------
    跟门禁一样的理由：仓库里只能有一份判据清单。
@@ -86,6 +96,27 @@ const PAPER_SRC = [
   "---",
   "",
   "<p>paper</p>",
+  "",
+].join("\n");
+
+/* 博客文章页源：**没有** profilePage（按约定是 WebPage），
+   作品类型 `structuredType` 走**目录数据文件**（数据层的第三条路径）。
+   ⚠️ 为什么不给它写 front matter 里的 structuredType：
+      那样就只测到了三条路径里的一条；目录数据文件是本站真实的做法
+      （src/content/blog/blog.11tydata.cjs 就是这么注入的）。 */
+const BLOG_SRC = [
+  "---",
+  'title: "A reader\'s first impression"',
+  "layout: layouts/detail.njk",
+  "---",
+  "",
+  "<p>post</p>",
+  "",
+].join("\n");
+
+/* 目录数据文件：注入集合级的裸键 structuredType。 */
+const BLOG_DATA_SRC = [
+  'module.exports = { structuredType: "BlogPosting" };',
   "",
 ].join("\n");
 
@@ -138,6 +169,33 @@ function paperHtml(dateModified) {
 
 const NOT_FOUND_HTML = ["<!doctype html>", "<html><body>404</body></html>", ""].join("\n");
 
+/* 博客文章页产物：多一个作品实体（BlogPosting），页面实体的 mainEntity 指向它。
+   ⚠️ HTML 侧的 h1 / meta description 里的撇号写成 `&#39;`，JSON-LD 侧是原字符 ——
+      J13 比较前必须解实体，否则这一页会被判成"机器读到的与人看到的不是同一句"。 */
+function blogHtml() {
+  const ent = (s) => s.replace(/'/g, "&#39;");
+  const blocks = [
+    `<script type="application/ld+json">{"@context":"https://schema.org","@type":"WebSite","@id":"${SITE_ID}","url":"${HOME_URL}","publisher":{"@id":"${PERSON_ID}"}}</script>`,
+    `<script type="application/ld+json">{"@context":"https://schema.org","@type":"WebPage","@id":"${BLOG_PAGE_ID}","url":"${BLOG_URL}","isPartOf":{"@id":"${SITE_ID}"},"mainEntity":{"@id":"${BLOG_ID}"}}</script>`,
+    `<script type="application/ld+json">{"@context":"https://schema.org","@type":"Person","@id":"${PERSON_ID}","name":"Demo Author"}</script>`,
+    `<script type="application/ld+json">{"@context":"https://schema.org","@type":"BlogPosting","@id":"${BLOG_ID}","url":"${BLOG_URL}","headline":"${BLOG_TITLE}","description":"${BLOG_DESC}","datePublished":"${BLOG_DATE}","author":{"@id":"${PERSON_ID}"},"mainEntityOfPage":{"@id":"${BLOG_PAGE_ID}"}}</script>`,
+  ].join("\n");
+  return [
+    "<!doctype html>",
+    '<html><head>',
+    `<link rel="canonical" href="${BLOG_URL}" />`,
+    `<meta name="description" content="${ent(BLOG_DESC)}" />`,
+    `<meta property="og:image" content="${OG_IMAGE}" />`,
+    "</head><body>",
+    "<!-- source: src/blog/post.md -->",
+    `<h1>${ent(BLOG_TITLE)}</h1>`,
+    `<time datetime="${BLOG_DATE}">${BLOG_DATE}</time>`,
+    blocks,
+    "</body></html>",
+    "",
+  ].join("\n");
+}
+
 /* 沙箱：门禁副本 + scripts/lib 两个依赖 + 夹具源码 + 产物 + 一个 git 仓库。
    ⚠️ git 仓库是**为了让 J11 的 dateModified 真的可比**（那半条判据取的是
       依赖闭包里最晚的提交时间；没有 git 历史 ⇒ 取不到 ⇒ 无从比较）。
@@ -157,6 +215,9 @@ function makeSandbox() {
   write(path.join(repo, "src", "_data", "site.js"), SITE_SRC);
   write(path.join(repo, "src", "index.njk"), HOME_SRC);
   write(path.join(repo, "src", "papers", "paper.njk"), PAPER_SRC);
+  /* 博客文章页：源文件 + 目录数据文件（作品类型走数据层的第三条路径）。 */
+  write(path.join(repo, "src", "blog", "post.md"), BLOG_SRC);
+  write(path.join(repo, "src", "blog", "blog.11tydata.cjs"), BLOG_DATA_SRC);
   /* gray-matter 等第三方依赖：借真实仓库的 node_modules（符号链接）。
      沙箱在临时目录（APFS）⇒ 符号链接没问题。 */
   try {
@@ -176,15 +237,19 @@ function makeSandbox() {
   ).toISOString();
   write(path.join(repo, "_site", "index.html"), homeHtml());
   write(path.join(repo, "_site", "papers", "paper", "index.html"), paperHtml(stamp));
+  write(path.join(repo, "_site", "blog", "post", "index.html"), blogHtml());
   write(path.join(repo, "_site", "404.html"), NOT_FOUND_HTML);
   return { base, repo };
 }
 
 const homeOf = (s) => path.join(s.repo, "_site", "index.html");
 const paperOf = (s) => path.join(s.repo, "_site", "papers", "paper", "index.html");
+const blogOf = (s) => path.join(s.repo, "_site", "blog", "post", "index.html");
 const notFoundOf = (s) => path.join(s.repo, "_site", "404.html");
 const homeSrcOf = (s) => path.join(s.repo, "src", "index.njk");
 const paperSrcOf = (s) => path.join(s.repo, "src", "papers", "paper.njk");
+const blogSrcOf = (s) => path.join(s.repo, "src", "blog", "post.md");
+const blogDataOf = (s) => path.join(s.repo, "src", "blog", "blog.11tydata.cjs");
 const gateOf = (s) => path.join(s.repo, "scripts", "check-jsonld.cjs");
 
 /* ================= 跑门禁 / 解析红因 ================= */
@@ -487,6 +552,21 @@ function injJ12(s) {
   );
 }
 
+/** J13：作品实体的 headline 与页面 h1 不是同一句
+ *  （机器读到的标题 ≠ 人看到的标题）。
+ *  ⚠️ 为什么改 headline 而不是把整个 BlogPosting 块删掉：
+ *     删块 ⇒ J13 的"恰好一个实体"红 **加上** J4 的"mainEntity 成了空引用"红
+ *     ⇒ 两条红因，归属不纯（那两条各自都成立，但这一档就同时测了两条判据）。
+ *     只改 headline ⇒ 恰好一条 J13 红因。 */
+function injJ13(s) {
+  patchFile(
+    blogOf(s),
+    `"headline":"${BLOG_TITLE}"`,
+    '"headline":"A headline that is not the page title"',
+    1
+  );
+}
+
 /* ================= 断言 ================= */
 
 const results = [];
@@ -574,7 +654,7 @@ function expectNoRed(id, s, goneId, o = {}) {
   expectGreenBaseline(
     "G0 基线（临时目录上）",
     s,
-    "站点实体 / 页面实体 / 归属链 / mainEntity / 论文实体全部接得上，23 个比较点都跑过"
+    "站点实体 / 页面实体 / 归属链 / mainEntity / 论文实体 / 作品实体全部接得上，31 个比较点都跑过"
   );
   fs.rmSync(s.base, { recursive: true, force: true });
 }
@@ -659,6 +739,7 @@ const INJ_CASES = [
     note: "image 整个没了 ⇒ J11 的 image 比对从未发生 ⇒ J7 的存活自证理应红一条",
   },
   { id: "J12", inj: injJ12, want: ["J12"] },
+  { id: "J13", inj: injJ13, want: ["J13"] },
 ];
 
 for (const c of INJ_CASES) {

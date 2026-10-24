@@ -32,6 +32,46 @@ layout: layouts/base.njk
   {% set listLabel = "Home" %}
 {% endif %}
 
+{# —— BlogPosting：这一篇文章的结构化数据 ——
+   为什么放在这一层（2026-10-24；缺陷清单 D94）：
+     论文页早就有完整的作品实体（ScholarlyArticle），博客文章页此前**一个作品
+     节点都没有** —— 结构化数据里只有"这一页是网站"与"这一页在讲本人"，
+     站点自己的文章在机器眼里不是一篇文章。缺了它不会报错：页面照出、
+     JSON-LD 照常合法、其它门禁全绿，只有逐个节点读才知道少了这一层。
+
+   为什么用**独立的 ld+json 块**（而不是并进 base.njk 那一段 @graph）：
+     页面特有的实体一律走独立的块 —— 这是本仓已有的做法（论文页的
+     ScholarlyArticle、/papers/ 的 ItemList 都是这么加的）。base.njk 那一段
+     是"站点实体 + 页面实体"，全站每页都有；作品实体是**这一页才有**的。
+
+   为什么实体类型由**集合级裸键**决定（structuredType，见 blog.11tydata.cjs）：
+     这一族页面的实体类型是**站点的事**，不是每篇文章各写一遍的事。
+     裸键在 Eleventy 里有三条合法来源（front matter 顶层 / eleventyComputed /
+     目录数据文件），模板与门禁都按这三条回源，不在门禁里另抄一份 URL 清单
+     —— 路由一改，清单就会静默失配。 #}
+{%- if structuredType == "BlogPosting" %}
+{%- set ldPost = {
+     title: title,
+     description: description,
+     date: (page.date | date('yyyy-LL-dd')) if page.date else null,
+     keywords: topicTags
+   } -%}
+{# image 与该页 og:image 走**同一个** coverImageUrl filter ⇒ 逐字相同是构造出来的。
+   没有自己的封面时，fallback 就是 site.ogImage（base.njk 的 og:image 同源）。
+   dateModified 与 sitemap 的 lastmod 同一数据源；取不到就不给（宁可没有，
+   也不要一个假时间戳）。 #}
+{%- set ldOpts = {
+     coverUrl: (cover | coverImageUrl(site.url, page.url, site.ogImage)),
+     modified: (page.inputPath | lastCommitTime)
+   } -%}
+{%- set ldNode = ldPost | jsonLdBlogPost(site, page.url, ldOpts) -%}
+{% if ldNode %}
+<script type="application/ld+json">
+{{ ldNode | dump | safe }}
+</script>
+{% endif %}
+{%- endif %}
+
 <article class="detail">
   <header class="detail__head">
     <h1>{{ title }}</h1>

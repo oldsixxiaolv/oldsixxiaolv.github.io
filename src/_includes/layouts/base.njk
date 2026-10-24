@@ -460,10 +460,14 @@
   {%- set pageEntityType = 'ProfilePage' if profilePage else 'WebPage' -%}
   {%- set pageEntityId = site.url + page.url + '#webpage' -%}
   {%- set pageEntityUrl = site.url + page.url -%}
-  {# mainEntity 指向"这一页在讲谁"：论文页讲的是那篇论文，其余页讲的是本人。
-     论文页的 @id = 页面 URL（无片段），与本页实体的 @id（带 #webpage）不同，
-     所以这不是自引用。 #}
-  {%- set pageMainEntityId = pageEntityUrl if pubKey else (site.url + '/#person') -%}
+  {# mainEntity 指向"这一页在讲谁"：**本页自己声明的作品实体**，其余页讲本人。
+     作品实体的 @id 恒为「页面 URL（无片段）」—— 与本页实体的 @id（带 #webpage）不同，
+     所以这不是自引用。
+     · 论文页：pubKey 有值 → 本页声明了一个 ScholarlyArticle（@id == 页面 URL）。
+     · 博客文章页：structuredType 有值（集合级裸键，见 blog.11tydata.cjs）→
+       本页声明了一个 BlogPosting（@id == 页面 URL）。
+     · 其余页 → 本人（这一页在讲作者本人）。 #}
+  {%- set pageMainEntityId = pageEntityUrl if (pubKey or structuredType) else (site.url + '/#person') -%}
   <script type="application/ld+json">
   {
     "@context": "https://schema.org",

@@ -29290,3 +29290,134 @@ README 命令表 / GW1 / GW4）：
   ② 博客列表页的 description 是站点 bio 而不是「这个博客是什么」；
   ③ `docs/og-image-and-a11y-report.md` 的旧数字与失效路径。
 - **M1 剩余项**：M1-1（封面开关 ＋ 比例口径）仍被**待拍板 50** 阻塞。
+
+## 2026-10-23 · 20:20–20:50 场次（**不占轮次号**）：D96 —— 修掉缺陷 **D94**：博客文章页在结构化数据里不是一篇文章（加 `BlogPosting` 实体 + J13 判据）
+
+### A. 背景
+
+上一轮（D95）修的是**文章页自己的 SEO 出口** —— 三篇文章的四处 description 出口全是站点通用描述。
+本轮换到**文章页自己的机器可读身份** —— 上一轮把文章内容补齐了，本轮撞见的是
+「**文章有了，但机器眼里它不是一篇文章**」。
+
+这一条是上一轮自己登记的候选（D95 日志「下一轮入口」第①条：「博客文章页缺 `BlogPosting` JSON-LD（论文页有）」）。
+
+本轮开工前照惯例把 `docs/DEFECT-BACKLOG.md` 过了一遍：待修里 D5 / D6 / D9 / D10 / D12 / D26 / D32 / D57
+全部要么被 push 卡住、要么属本人拍板方向 ⇒ 走**新开缺陷**路线，登记 **D94**。
+
+线上巡检（2026-10-23 20:35 实测，经本机代理 `http://127.0.0.1:7890`）：`/` 200 · `/about/` 200 · `/blog/` 200 ·
+`/sitemap.xml` 200；**`/papers/`、`/publications.bib`、`/feed.xml` 404** —— 与上一轮**逐条一致**，
+仍是缺陷 **D6**（部署滞后，**由 push 触发**），本轮不代拍、不 push。
+
+### B. 改动
+
+**① 数据层注入「页面角色」标记** —— `src/content/blog/blog.11tydata.cjs` 增加顶层裸键
+`structuredType: "BlogPosting"`。
+
+**为什么不写进文章 front matter**：那要改写作契约的 §2 字段表（每个作者都得写一遍），
+而「这一族的页面在结构化数据里自称作品实体」是**集合级属性**，不是每篇文章的作者选择
+⇒ 放**目录数据文件**最合适。代价是 §1「自动注入的字段」表必须同步登记（WC4 双向对账要求）。
+
+**② 新增 filter `jsonLdBlogPost`**（`eleventy.config.js`，紧接 `jsonLdPaper` 之后），产出**扁平**作品节点：
+
+- `@id` / `url` ＝ 页面 URL **无片段**；
+- `headline` / `description` / `datePublished` / `image` / `dateModified` 从页面与数据源取；
+- `author` / `publisher` → 本人 `{"@id": site.url + "/#person"}`；
+- `isPartOf` → `{"@id": site.url + "/#website"}`；
+- `mainEntityOfPage` → `{"@id": "<pageUrl>#webpage"}`。
+
+**③ 模板两处**：
+
+- `src/_includes/layouts/detail.njk`：在 `</article>` 前输出**独立**的 BlogPosting ld+json 块，
+  门控条件是 `structuredType == "BlogPosting"` —— 与 `paper.njk` 的先例同构（论文页的 `ScholarlyArticle`
+  早就是独立一块）。
+- `src/_includes/layouts/base.njk`：`pageMainEntityId` 的口径改成
+  「论文页（`pubKey`）或博客文章页（`structuredType`）⇒ 指向**本页作品实体**；其余页 ⇒ 指向本人」。
+  改之前它一律指向本人，等于告诉消费方「这一页在讲作者本人」。
+
+**④ 扩既有门禁**（`scripts/check-jsonld.cjs`，**不新建门禁文件** ⇒ 不动 `package.json` / README / GW1 / GW4）：
+
+- **J4 泛化**：「作品页」口径从「只有 `ScholarlyArticle`」改成**作品实体族**
+  （`Article` / `BlogPosting` / `NewsArticle` / `ScholarlyArticle` / `ScholarlyChapter` / `TechArticle` /
+  `Review` / `CreativeWork`）。**不泛化就会判出假红** —— 门禁会把新的 `BlogPosting` 页面当成「非作品页」，
+  然后要求它的 `mainEntity` 指向本人。
+- **新增 J13**：逐页判「该有 / 不该有」＋ 字段逐字核对，共 **8 个比较点**
+  （`declaredType` / `entityCount` 逐页；`id` / `headline` / `description` / `datePublished` / `author` /
+  `mainEntityOfPage` 全站级）。
+- **「该有 / 不该有」走数据层**：front matter 顶层 / eleventyComputed / 目录数据文件三条路径，
+  **不按 URL 硬编码路由** —— 下一族作品类型不用改门禁。
+- **比较对象取「页面所见」**：`headline` 对 h1、`description` 对 meta description、
+  `datePublished` 对 `<time datetime>`；比较前**解 HTML 实体**（`&#39;` 与原字符是同一句话）。
+- `COVERAGE_POINTS` **23 → 31** 项；**J7 存活自证**新增 `j13Compared` ⇒ J13 从未真正执行过就判红。
+
+**⑤ 自测同步扩**（`scripts/test-jsonld.cjs`）：档位 **38 → 40** 档，新增注入档 **J13** 与判据级负对照 **N-J13**。
+夹具新增第三个页面（博客文章页：源文件 ＋ **目录数据文件**注入 `structuredType` ＋ 产物四类块）。
+`scripts/lib/selftest-slots.cjs` 同步登记 **38 → 40** 档。
+
+**⑥ 写作契约同步**：`docs/blog-writing-guide.md` §1「自动注入的字段」表补 `structuredType` 行。
+
+**⑦ 不代拍**：本轮**没有新增待拍板项**，中央台账不动（最高仍是待拍板 56）。
+
+### C. 验证
+
+- `node scripts/check-jsonld.cjs` → exit 0（**31/31** 个比较点都跑过，3 个作品实体逐字核对了
+  `@id` / `url`、`headline`、`description`、`datePublished`、`author`、`mainEntityOfPage`）。
+- `node scripts/test-jsonld.cjs` → exit 0（**40/40** 档全绿，末行确认门禁原件 SHA-256 未变）。
+- `npm run check:blog-frontmatter` / `check:writing-contract` / `check:tag-leak` / `check:selftest-guard` /
+  `check:gates` / `check:information-architecture` / `check:block-language` 全 exit 0；
+  `npm run build` → **exit 0**（日志含「✓ 结构化数据自检通过（门禁 J0–J13）」与「✓ J13 注入（红因恰好是 J13）」）。
+- **产物核对**：三篇文章各有且仅有 1 个 `BlogPosting`；`@id` / `url` ＝ canonical、`headline` ＝ h1、
+  `description` ＝ meta description、`datePublished` ＝ `<time>`、`author` ＝ 本人
+  `https://github.lvyihang.xyz/#person`、`mainEntityOfPage` ＝ `<canonical>#webpage`、
+  页面 `mainEntity` ＝ 文章 URL；含 BlogPosting 的页面数 = 3、**非博客页泄漏 = 0**、404 页含 BlogPosting = false。
+
+### D. 顺手发现
+
+- **J4 不泛化就会假红**：门禁原本把「作品页」等同于「`ScholarlyArticle` 页面」。
+  新写法一落地，博客文章页会被当成「非作品页」⇒ 门禁反而要求它的 `mainEntity` 指向本人。
+  ⇒ 结论：**新增作品类型时，先把「作品页」这个概念泛化成「作品实体族」**，
+  否则新判据会和新模板互相打架（这类假红在自测里表现为「基线档红了」，很容易被误判成夹具坏了）。
+- **HTML 实体是逐字比较的隐形陷阱**：meta 标签里的撇号是 `&#39;`，JSON-LD 里是原字符 `'`。
+  不解实体就逐字比较 ⇒ 「同一句话」被判成「不一致」⇒ 假红。
+  夹具里**故意**让 HTML 侧写 `&#39;`、JSON-LD 侧写原字符 ⇒ 不解实体的基线档当场红。
+- **注入档要「只改一个字段」**：J13 的注入档改 `headline`，**不删整块** ——
+  删块会连带 J4 空引用红 ⇒ 红因归属被污染（一条判据的负对照夹具同时撞两条判据）。
+  自测框架已有 `redIds` 机制断言「红因恰好是 J13」。
+- **覆盖度自证要跟着判据一起长**：J13 新增 8 个比较点，`COVERAGE_POINTS` 同步 23 → 31；
+  同时在 **J7（存活自证）**里加 `j13Compared` ⇒ 「J13 从未真正执行过」会判红，
+  而不是像以前那样让整段判据被摘掉后门禁照样通过。
+- **页面实体与作品实体的 `@id` 不能重复**：作品实体用**页面 URL 无片段**、页面实体用 **`#webpage`** ——
+  同 ident 出现两个 `@id` 会被 `verify-site` 的判据 19 判红。
+
+### E. 文档
+
+- `docs/DEFECT-BACKLOG.md`：**新增 D94 行**（位置 / 现象 / 验收条件 / 状态格逐条兑现）；
+  状态写「**本地已实现，待 push 后复验线上项**」，**不写「已修」**；既有行一字未动。
+- `docs/ROADMAP.md`：进度行「缺陷清单已到 **D93**」改为 **D94**（D93 与 D94 都仍在「待修」组 ——
+  线上项没验就不能算已修）＋ 补一条 **D94 本地已实现**说明；M0 段追加 **D96** 条目。
+- `docs/blog-writing-guide.md`：§1「自动注入的字段」表补 `structuredType` 行（WC4 双向对账）。
+- `docs/IMPROVEMENT-LOG.md`：本小节；中央「待决策」台账**不新增**待拍板项（最高仍是待拍板 56）。
+
+### F. 本轮纪律
+
+- 提交只走**私有索引 CAS**，只提交本轮自己改的路径；**不 push**。
+- 并发场次占用的 `scripts/check-identity-handles.cjs` / `scripts/test-gates-selfcheck.cjs`
+  本轮**未触碰、未提交**。
+- 探针、夹具与文档拼接脚本都放在 `/tmp/mh_d96/`（**不入库**）；收尾用 `mavis-trash` 清理。
+- **不写死会变的存量数**：文档现状陈述里不写「门禁共几道」这种每轮都变的数；
+  本轮实测确定的量（如三篇文章、8 个比较点）可以写。
+- **日期口径三处自洽**：DEFECT-BACKLOG 的 D94 行、ROADMAP 的 D96 条目、写作指南 §1 那一行，
+  都写 **2026-10-23**（本场次实际日期）。
+- 每个数字都能在同页找到出处；**不编造**任何数据、结论或引用。
+
+### 下一轮入口
+
+- **D94 的收尾只差 push**：线上文章页能被消费方读成「一篇博客文章」，且非文章页不出现 BlogPosting ——
+  与 **D6**（线上 3 条 404）同一个前置。
+- **D5 / D93** 同样卡在 push；**D9 / D10 / D12 / D26 / D32 / D57** 仍挂本人拍板；
+  **D7 / D8** 判为不修 —— 本轮不代拍。
+- **本轮顺手记下的候选**（接上一轮的候选②③）：
+  ① 博客列表页的 description 是站点 bio 而不是「这个博客是什么」；
+  ② `docs/og-image-and-a11y-report.md` 的旧数字与失效路径；
+  ③ J13 目前**不核对** `image` 与 `dateModified`（论文页那一类核对在 J11）——
+     要不要把时效核对也扩到博客这一族，属下一轮可做的小活。
+- **M1 剩余项**：M1-1（封面开关 ＋ 比例口径）仍被**待拍板 50** 阻塞。

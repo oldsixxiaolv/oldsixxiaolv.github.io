@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 /**
- * 门禁 J0–J12：站点实体（WebSite）与页面实体（WebPage / ProfilePage）这一层
- * 必须存在，并且彼此接得上；实体身份（@id）全站唯一。
+ * 门禁 J0–J13：站点实体（WebSite）与页面实体（WebPage / ProfilePage）这一层
+ * 必须存在，并且彼此接得上；实体身份（@id）全站唯一；作品实体（BlogPosting）
+ * 必须与页面上人能看到的东西逐字一致。
  *
  * 为什么要有这个门禁：
  *   本站此前的结构化数据只有两层——"我是谁"（Person）与"我产出过什么"
@@ -40,8 +41,9 @@
  *      WebSite 的 publisher → "本人"的 @id（与该页 Person 节点同一个）
  *      （"本人"这个 @id 只能有**一个**来源：该页的 Person 声明）
  *   J4 mainEntity 能解析，且指向"这一页真正在讲的东西"：
- *      · 论文页（该页自己声明了 @id == 本页 canonical 的 ScholarlyArticle）
- *        → 必须指向那篇论文
+ *      · 作品页（该页自己声明了 @id == 本页 canonical 的作品实体
+ *        —— 论文页的 ScholarlyArticle、博客文章页的 BlogPosting）
+ *        → 必须指向那个作品实体
  *      · 其余页 → 必须指向本页的 Person 节点
  *      · 无论哪种，被指向的节点都必须在**本页**有声明（不能是空引用）
  *   J5 全站只应有一个站点实体：所有页的 WebSite @id 集合大小必须为 1
@@ -115,6 +117,21 @@
  *      ⚠️ 比较点目录必须**静态登记**：运行时拼出来的键在源码里查不到落点
  *        ⇒ 整块判据被摘掉时它连同自己的比较点一起消失 ⇒ 自证被自己拆掉。
  *      ⚠️ 判据被卸掉（开关关）⇒ 它的比较点不算缺失，否则"卸判据"永远转不了绿。
+ *   J13 **作品实体（BlogPosting）必须完整，且与页面上人能看到的东西逐字一致**。
+ *      背景（2026-10-24；缺陷清单 D94）：论文页早就有完整的作品实体
+ *      （ScholarlyArticle），博客文章页此前**一个作品节点都没有** ——
+ *      结构化数据里只有"这一页是网站"与"这一页在讲本人"，站点自己的文章
+ *      在机器眼里不是一篇文章。缺了它**不会报错**：页面照出、JSON-LD 照常
+ *      合法、其它门禁全绿，只有逐个节点读才知道少了这一层。
+ *      · 源文件声明了 `structuredType`（数据层的三条路径，与 J10 同一套）
+ *        的页面 ⇒ 产物里必须**恰好一个**该类型的实体；
+ *      · 没有声明的页面 ⇒ 产物里**不得出现** BlogPosting（不许漏出去）；
+ *      · 那个实体的字段必须与页面所见**逐字一致**：
+ *        @id / url = 该页 canonical；headline = 页面 h1；
+ *        description = 该页 meta description；datePublished = 页面 <time>；
+ *        author = 本页的"本人" @id；mainEntityOfPage = 本页页面实体。
+ *      ⚠️ 逐字比较前必须**解 HTML 实体**：meta 与 h1 里的撇号是 `&#39;`，
+ *        JSON-LD 里是原字符 —— 不解码就会把同一句话判成两句。
  *
  * 与既有门禁的关系（**刻意不重复**）：
  *   · verify-site 第 2 条查 JSON-LD 能否 JSON.parse → 本门禁不查解析本身，
@@ -167,6 +184,7 @@ const J9_ON = true; // 论文 mainEntityOfPage 指向承载它的那一页
 const J10_ON = true; // 页面 @type 与源文件声明的角色一致
 const J11_ON = true; // 论文页 ScholarlyArticle 必须有 image 与 dateModified
 const J12_ON = true; // 逐比较点覆盖度自证
+const J13_ON = true; // 作品实体（BlogPosting）必须完整且与页面所见一致
 
 const SWITCH_ON = {
   J0: J0_ON,
@@ -182,6 +200,7 @@ const SWITCH_ON = {
   J10: J10_ON,
   J11: J11_ON,
   J12: J12_ON,
+  J13: J13_ON,
 };
 
 /* 开关关 ⇒ 这条判据不说话（**计算照做**，不短路）——
@@ -229,6 +248,14 @@ const COVERAGE_POINTS = [
   { key: "J11.paperPage", min: 1 }, // 至少有一页论文实体对上了本页 canonical
   { key: "J11.image", min: 1 }, // 至少逐字比过一次 image 与 og:image
   { key: "J11.dateModified", min: 1 }, // 至少逐字比过一次 dateModified
+  { key: "J13.declaredType", min: 1, everyPage: true }, // 每页都解析了源文件声明的结构化类型
+  { key: "J13.entityCount", min: 1, everyPage: true }, // 每页都数了该类型的实体个数
+  { key: "J13.id", min: 1 }, // 至少逐字比过一次作品实体的 @id / url
+  { key: "J13.headline", min: 1 }, // 至少逐字比过一次 headline 与页面 h1
+  { key: "J13.description", min: 1 }, // 至少逐字比过一次 description 与 meta description
+  { key: "J13.datePublished", min: 1 }, // 至少逐字比过一次 datePublished 与页面 <time>
+  { key: "J13.author", min: 1 }, // 至少逐字比过一次 author 与本人节点的 @id
+  { key: "J13.mainEntityOfPage", min: 1 }, // 至少逐字比过一次 mainEntityOfPage 与本页页面实体
 ];
 
 /* 逐页记账：页标识 -> 该页真正跑过的比较点。
@@ -456,13 +483,13 @@ function jsTruthy(value) {
  *   保证与 Eleventy 解析出来的值**逐值一致**。
  *   解析失败 → 判据求不出真假 → 交给调用方判红，不猜。
  */
-function valueFromFrontMatter(raw) {
+function valueFromFrontMatter(raw, key = "profilePage") {
   try {
-    const doc = matter("---\nprofilePage: " + raw + "\n---\n");
-    if (!doc.data || !Object.prototype.hasOwnProperty.call(doc.data, "profilePage")) {
-      return { ok: false, reason: "解析出来的 front matter 里没有 profilePage 这一项" };
+    const doc = matter("---\n" + key + ": " + raw + "\n---\n");
+    if (!doc.data || !Object.prototype.hasOwnProperty.call(doc.data, key)) {
+      return { ok: false, reason: `解析出来的 front matter 里没有 ${key} 这一项` };
     }
-    return { ok: true, value: doc.data.profilePage };
+    return { ok: true, value: doc.data[key] };
   } catch (e) {
     return { ok: false, reason: `YAML 解析失败（${String(e.message).split("\n")[0]}）` };
   }
@@ -642,6 +669,129 @@ function resolveDeclaredRole(file) {
   return { raw: "", where: path.relative(ROOT, file), kind: "none", evaluable: true, value: false };
 }
 
+/* ---------- 作品实体（J4 与 J13 共用）---------- */
+
+/** "作品实体"类型集合：**这一页自己产出**的东西。
+    ⚠️ 为什么 Dataset / SoftwareSourceCode 不在里面：
+      它们是作品的**附属物**（这份数据、这份代码），不是"这一页在讲的作品"；
+      论文页里的 SoftwareSourceCode 节点的 @id 也不是页面 URL。 */
+const WORK_TYPES = new Set([
+  "Article",
+  "BlogPosting",
+  "NewsArticle",
+  "ScholarlyArticle",
+  "ScholarlyChapter",
+  "TechArticle",
+  "Review",
+  "CreativeWork",
+]);
+
+/** 解 HTML 实体。
+    ⚠️ meta 标签与 h1 里的撇号是 `&#39;`，JSON-LD 里是原字符 ——
+      不解码就会把同一句话判成两句。`&amp;` 必须**最后**解，
+      否则 `&amp;#39;` 这类会被解两次。 */
+function decodeEntities(s) {
+  return String(s)
+    .replace(/&#(\d+);/g, (_, d) => String.fromCharCode(Number(d)))
+    .replace(/&#x([0-9a-fA-F]+);/g, (_, h) => String.fromCharCode(parseInt(h, 16)))
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&");
+}
+
+/** 该页的 meta description（name="description" 的那一个）。 */
+function metaDescriptionOf(html) {
+  for (const m of html.matchAll(/<meta\b[^>]*>/gi)) {
+    const tag = m[0];
+    if (linkAttr(tag, "name").toLowerCase() !== "description") continue;
+    const content = linkAttr(tag, "content");
+    if (content) return decodeEntities(content);
+  }
+  return "";
+}
+
+/** 该页**第一个** h1 的文字（剥标签、解实体、压空白）。
+    页面里若有多个 h1，取第一个 —— 首屏那个才是这一页的标题。 */
+function h1TextOf(html) {
+  const m = html.match(/<h1\b[^>]*>([\s\S]*?)<\/h1>/i);
+  if (!m) return "";
+  return decodeEntities(m[1].replace(/<[^>]*>/g, "")).replace(/\s+/g, " ").trim();
+}
+
+/** 该页**第一个** <time datetime="..."> 的日期值。 */
+function timeDateOf(html) {
+  const m = html.match(/<time\b[^>]*\bdatetime\s*=\s*"([^"]*)"/i);
+  return m ? m[1].trim() : "";
+}
+
+/**
+ * 源文件声明的"结构化类型"（裸键 `structuredType`）——与 J10 的角色声明
+ * **同一套数据层**（front matter 顶层 / eleventyComputed / 目录数据文件）。
+ *
+ *  ⚠️ 为什么不按 URL 硬编码"哪些页该是 BlogPosting"：
+ *    路由一改，硬编码就会静默失配（判红的是无关的页，或漏掉新加的页）。
+ *    真源由模板端决定（detail.njk 读裸键 `structuredType`），门禁回源核对。
+ *
+ *  返回 { raw, where, kind, evaluable, value }（与角色声明同一套形状）：
+ *    value —— 声明的类型名（字符串）；kind = "none" 时 value = null。
+ */
+function resolveDeclaredStructuredType(file) {
+  const block = frontMatterOf(file);
+  if (block !== null) {
+    const computed = scalarIn(block, "structuredType", true);
+    if (computed !== null) {
+      return roleResult(computed, path.relative(ROOT, file), "computed", valueFromComputed);
+    }
+    const top = scalarIn(block, "structuredType");
+    if (top !== null) {
+      return roleResult(
+        top,
+        path.relative(ROOT, file),
+        "front-matter",
+        (raw) => valueFromFrontMatter(raw, "structuredType")
+      );
+    }
+  }
+  for (const p of directoryDataChain(file)) {
+    let mod;
+    try {
+      mod = require(p);
+    } catch (e) {
+      return {
+        raw: "",
+        where: path.relative(ROOT, p),
+        kind: "directory-data",
+        evaluable: false,
+        reason: `读不出目录数据文件（${e.message}）`,
+      };
+    }
+    let raw = null;
+    if (mod && Object.prototype.hasOwnProperty.call(mod, "structuredType")) {
+      raw = mod.structuredType;
+    } else if (
+      mod &&
+      mod.eleventyComputed &&
+      Object.prototype.hasOwnProperty.call(mod.eleventyComputed, "structuredType")
+    ) {
+      raw = mod.eleventyComputed.structuredType;
+    }
+    if (raw !== null) {
+      // 目录数据文件是**已经求过值的 JS 值** → 直接用它，不必再解析字面量。
+      return {
+        raw: String(raw),
+        where: path.relative(ROOT, p),
+        kind: "directory-data",
+        evaluable: true,
+        value: raw,
+      };
+    }
+  }
+  return { raw: "", where: path.relative(ROOT, file), kind: "none", evaluable: true, value: null };
+}
+
 /* ---------- 逐页检查 ---------- */
 let pagesChecked = 0;
 let errorPagesChecked = 0;
@@ -665,6 +815,7 @@ let j10Declared = 0; // J10 里真的找到"角色声明"的页数（自证：�
 let j11Compared = 0; // J11 真正核对过的论文页数
 let j11ImageCompared = 0; // J11 里 image 真正逐字比过的次数
 let j11ModifiedCompared = 0; // J11 里 dateModified 真正逐字比过的次数（源文件已提交）
+let j13Compared = 0; // J13 里真正逐字核对过字段的作品实体个数
 const j10Kinds = {}; // 角色声明来自哪条数据层路径（front-matter / computed / directory-data / none）
 const websiteIds = new Set();
 // J8 的全站口径：@id → (@type 组合 → 出现在哪些页)
@@ -934,10 +1085,15 @@ for (const file of htmlFiles) {
   }
 
   /* ---- J4：mainEntity —— 这一页在讲谁 ----
-     论文页 = 本页自己声明了 @id 等于本页 canonical 的 ScholarlyArticle；
+     作品页 = 本页自己声明了 @id 等于本页 canonical 的**作品实体**
+     （论文页的 ScholarlyArticle、博客文章页的 BlogPosting）；
      其余页 = 本人的 Person 节点。
      ⚠️ 前提比原先**宽**：原先这一段与 J3 合并 ⇒ 站点实体缺失时整段被跳过；
-        现在 mainEntity 的判定只依赖页面实体，不依赖站点实体 ⇒ 站点出问题也能被看见。 */
+        现在 mainEntity 的判定只依赖页面实体，不依赖站点实体 ⇒ 站点出问题也能被看见。
+     ⚠️ 2026-10-24（D96）：原先这一段只认 ScholarlyArticle —— 博客文章页声明了
+        自己的 BlogPosting（@id 同样是页面 URL、无片段）却被当成"非论文页"，
+        判据会要求它的 mainEntity 指向本人 ⇒ **假红**（把一处本来正确的东西
+        报成错的）。口径因此泛化成"作品实体族"（WORK_TYPES）。 */
   if (pageNodes.length === 1) {
     const page = pageNodes[0];
     mark("J4.mainEntity", from);
@@ -948,13 +1104,19 @@ for (const file of htmlFiles) {
       waive("J4.mainEntityDecl", from);
     } else {
       mark("J4.mainEntityDecl", from);
-      const isPaperPage = articles.some((a) => a["@id"] === canonical);
-      const expected = isPaperPage ? canonical : personId;
+      const workNode = declarations.find(
+        (d) => d["@id"] === canonical && typesOf(d).some((t) => WORK_TYPES.has(t))
+      );
+      const isWorkPage = Boolean(workNode);
+      const workLabel = isWorkPage
+        ? "作品页（" + typesOf(workNode).join("/") + "）"
+        : "非作品页";
+      const expected = isWorkPage ? canonical : personId;
       if (mainEntityId !== expected) {
         fail(
           "J4",
           `${from}: 页面实体的 mainEntity 指向 ${JSON.stringify(mainEntityId)}，` +
-            `应为 ${JSON.stringify(expected)}（本页是${isPaperPage ? "论文页" : "非论文页"}）`
+            `应为 ${JSON.stringify(expected)}（本页是${workLabel}）`
         );
       }
       if (!declarations.some((d) => d["@id"] === mainEntityId)) {
@@ -1115,6 +1277,176 @@ for (const file of htmlFiles) {
       }
     }
   }
+
+  /* ---- J13：作品实体（BlogPosting）必须完整，且与页面所见逐字一致 ----
+     缺这一层**不会报错**：页面照出、JSON-LD 照常合法、其它门禁全绿，
+     只有逐个节点读才知道少了一篇"文章"。
+     判定口径（与 J10 同一套纪律：不按 URL 硬编码，回源读数据层）：
+       · 源文件声明了 structuredType 的页 ⇒ 产物里必须**恰好一个**该类型的实体；
+       · 没声明的页 ⇒ 产物里**不许出现** BlogPosting（不许漏出去）；
+       · 那个实体的字段必须与页面所见**逐字一致**：
+         @id / url = 该页 canonical；headline = 页面 h1；
+         description = 该页 meta description；datePublished = 页面 <time>；
+         author = 本页本人节点的 @id；mainEntityOfPage = 本页页面实体。
+     ⚠️ 逐字比较前必须解 HTML 实体：meta 与 h1 里的撇号是 &#39;，
+        JSON-LD 里是原字符 —— 不解码就会把同一句话判成两句。 */
+  {
+    mark("J13.declaredType", from);
+    const j13SrcRel = sourceOf(html);
+    const j13SrcPath = j13SrcRel ? path.resolve(ROOT, j13SrcRel) : "";
+    if (!j13SrcRel || !fs.existsSync(j13SrcPath)) {
+      fail(
+        "J13",
+        `${from}: 页面里没有 <!-- source: ... --> 源文件标注（或标注的文件找不到）—— ` +
+          `本条判据靠它知道这一页声明了什么作品类型` +
+          `（base.njk 里那行 <!-- source: ... --> 不能删）`
+      );
+      waivePrefix("J13.", from);
+    } else {
+      const declared = resolveDeclaredStructuredType(j13SrcPath);
+      if (!declared.evaluable) {
+        // 声明求不出（模板表达式 / 语法错）→ 判红，不猜。
+        fail(
+          "J13",
+          `${from}: 这一页声明的结构化类型求不出（${declared.where} 里写的是 ` +
+            `structuredType: ${declared.raw}）—— ${declared.reason}。` +
+            `本条判据对这一页无法核对。`
+        );
+        waivePrefix("J13.", from);
+      } else {
+        const declaredType = typeof declared.value === "string" ? declared.value.trim() : "";
+        const hasDeclared = declaredType !== "";
+        // 没声明 ⇒ 这一页要查的是"不许漏出来"的那一半。
+        const wantedType = hasDeclared ? declaredType : "BlogPosting";
+        const found = declarations.filter((n) => typesOf(n).includes(wantedType));
+        mark("J13.entityCount", from);
+        if (!hasDeclared) {
+          if (found.length) {
+            fail(
+              "J13",
+              `${from}: 这一页没有声明 structuredType，产物里却出现了 ${found.length} 个 ` +
+                `${wantedType} 实体 —— 没有声明的作品类型不许漏出来`
+            );
+          }
+        } else if (found.length !== 1) {
+          fail(
+            "J13",
+            `${from}: 源文件声明的结构化类型是 ${declaredType}（${declared.where}），` +
+              `产物里必须**恰好一个**该类型的实体，实际 ${found.length} 个` +
+              `（缺了 = 消费方读不到这一篇；多个 = 消费方会读成好几篇）`
+          );
+          waivePrefix("J13.", from);
+        } else {
+          const node = found[0];
+          j13Compared++;
+
+          /* —— @id / url = 该页 canonical —— */
+          mark("J13.id", from);
+          const nid = typeof node["@id"] === "string" ? node["@id"] : "";
+          const nurl = typeof node.url === "string" ? node.url : "";
+          if (!canonical) {
+            fail("J13", `${from}: 取不到 canonical，无法核对 ${declaredType} 实体的 @id / url`);
+          } else if (nid !== canonical || nurl !== canonical) {
+            fail(
+              "J13",
+              `${from}: ${declaredType} 实体的 @id 是 ${JSON.stringify(nid)}、url 是 ${JSON.stringify(nurl)}，` +
+                `两者都应为该页 canonical ${JSON.stringify(canonical)} —— ` +
+                `结构化数据说的是另一个地址`
+            );
+          }
+
+          /* —— headline = 页面 h1 —— */
+          mark("J13.headline", from);
+          const headline = typeof node.headline === "string" ? node.headline : "";
+          const h1 = h1TextOf(html);
+          if (!h1) {
+            fail("J13", `${from}: 页面里没有 h1，无法核对 ${declaredType} 实体的 headline`);
+          } else if (headline !== h1) {
+            fail(
+              "J13",
+              `${from}: ${declaredType} 实体的 headline 是 ${JSON.stringify(headline)}，` +
+                `与页面 h1 ${JSON.stringify(h1)} **不是同一句** —— ` +
+                `机器读到的标题与人看到的标题不一致`
+            );
+          }
+
+          /* —— description = 该页 meta description —— */
+          mark("J13.description", from);
+          const desc = typeof node.description === "string" ? node.description : "";
+          const metaDesc = metaDescriptionOf(html);
+          if (!metaDesc) {
+            fail(
+              "J13",
+              `${from}: 页面里没有 meta description，无法核对 ${declaredType} 实体的 description`
+            );
+          } else if (desc !== metaDesc) {
+            fail(
+              "J13",
+              `${from}: ${declaredType} 实体的 description 与该页 meta description **不是同一句** —— ` +
+                `搜索结果里那段话与结构化数据里那段话不一致`
+            );
+          }
+
+          /* —— datePublished = 页面 <time> —— */
+          mark("J13.datePublished", from);
+          const published = typeof node.datePublished === "string" ? node.datePublished : "";
+          const pageDate = timeDateOf(html);
+          if (!pageDate) {
+            fail(
+              "J13",
+              `${from}: 页面里没有 <time datetime="...">，无法核对 ${declaredType} 实体的 datePublished`
+            );
+          } else if (published !== pageDate) {
+            fail(
+              "J13",
+              `${from}: ${declaredType} 实体的 datePublished 是 ${JSON.stringify(published)}，` +
+                `与页面 <time> 的 ${JSON.stringify(pageDate)} **不是同一个日期**`
+            );
+          }
+
+          /* —— author = 本页本人节点的 @id —— */
+          mark("J13.author", from);
+          const authorId =
+            node.author && typeof node.author === "object" ? node.author["@id"] : "";
+          if (!personId) {
+            fail("J13", `${from}: 取不到本人节点的 @id，无法核对 ${declaredType} 实体的 author`);
+          } else if (authorId !== personId) {
+            fail(
+              "J13",
+              `${from}: ${declaredType} 实体的 author 指向 ${JSON.stringify(authorId)}，` +
+                `应是本页本人节点的 @id ${JSON.stringify(personId)}`
+            );
+          }
+
+          /* —— mainEntityOfPage = 本页页面实体 —— */
+          mark("J13.mainEntityOfPage", from);
+          const meopId =
+            node.mainEntityOfPage && typeof node.mainEntityOfPage === "object"
+              ? node.mainEntityOfPage["@id"]
+              : "";
+          const wantPageId = canonical ? canonical + "#webpage" : "";
+          if (!wantPageId) {
+            fail(
+              "J13",
+              `${from}: 取不到 canonical，无法核对 ${declaredType} 实体的 mainEntityOfPage`
+            );
+          } else if (meopId !== wantPageId) {
+            fail(
+              "J13",
+              `${from}: ${declaredType} 实体的 mainEntityOfPage 指向 ${JSON.stringify(meopId)}，` +
+                `应是本页的页面实体 ${JSON.stringify(wantPageId)}`
+            );
+          } else if (!declarations.some((d) => d["@id"] === meopId)) {
+            fail(
+              "J13",
+              `${from}: ${declaredType} 实体的 mainEntityOfPage 指向 ${JSON.stringify(meopId)}，` +
+                `但该 @id 在**本页**没有对应声明 —— 是个解析不到的空引用`
+            );
+          }
+        }
+      }
+    }
+  }
 }
 
 /* ---- J5：全站只有一个站点实体 ---- */
@@ -1211,6 +1543,16 @@ if (!j11ImageCompared) {
       "（论文页的 ScholarlyArticle 没有 image，或该页没有 og:image 可比）"
   );
 }
+if (!j13Compared) {
+  // 自证：J13 必须真的在作品页上跑过。否则"作品实体没有 headline / description /
+  // datePublished"这条判据就是空转的 —— 整段被摘掉时门禁照样绿。
+  fail(
+    "J7",
+    "全站没有逐字核对过任何一个作品实体 —— J13 从未真正执行过" +
+      "（作品实体（BlogPosting）消失了，或它没有可比对的字段，" +
+      "headline / description / datePublished 就无人看守）"
+  );
+}
 
 /* ---------- J12：逐比较点覆盖度自证 ----------
    ⚠️ 2026-10-22（D59 第十一批）实测补：J7 的存活自证是**总数**口径
@@ -1294,6 +1636,11 @@ note(
       ? `（另有 ${j11Compared - j11ModifiedCompared} 页的源文件还没进 git 历史，按约定不给时间戳）`
       : "")
 );
+note(
+  `作品实体与页面所见：${j13Compared} 个作品实体逐字核对了 ` +
+    `@id / url、headline（= 页面 h1）、description（= meta description）、` +
+    `datePublished（= 页面 <time>）、author、mainEntityOfPage`
+);
 notes.forEach((n) => console.log(`· ${n}`));
 const ranPoints = COVERAGE_POINTS.filter(
   (p) =>
@@ -1306,4 +1653,4 @@ console.log(
   `逐比较点覆盖度自证：${ranPoints}/${COVERAGE_POINTS.length} 个比较点都跑过` +
     `（另有 ${waivedPoints} 个因前提不在场或判据被卸掉而豁免）。`
 );
-console.log("✓ 结构化数据自检通过（门禁 J0–J12）");
+console.log("✓ 结构化数据自检通过（门禁 J0–J13）");

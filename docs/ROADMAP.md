@@ -89,13 +89,16 @@
 - 后续每轮都从这份清单里取一条来修（不是随手挑）。
 
 **进度（2026-10-23 实测）**
-- 缺陷清单已到 **D93**（D1 / D2 / D3 / D4 / D11 / D13 / D14 / D15 / D16 / D17 / D18 / D19 / D20 / D21 / D22 / D23 / D24 / D25 / D27 / D28 / D29 / D30 / D31 / D33 / D34 / D35 / D36 / D37 / D38 / D39 / D40 / D41 / D42 / D43 / D44 / D45 / D46 / D47 / D48 / D49 / D50 / D51 / D52 / D53 / D54 / D55 / D56 / D58 / D59 / D60 / D61 / D62 / D63 / D64 / D65 / D66 / D67 / D68 / D69 / D70 / D71 / D72 / D73 / D74 / D75 / D76 / D77 / D78 / D79 / D80 / D81 / D82 / D83 / D84 / D85 / D86 / D87 / D88 / D89 / D90 / D91 / D92 已修；D5 / D6 / D9 / D10 / D12 / D26 / D32 / D57 / D93 待修；D7 / D8 不修）。
+- 缺陷清单已到 **D94**（D1 / D2 / D3 / D4 / D11 / D13 / D14 / D15 / D16 / D17 / D18 / D19 / D20 / D21 / D22 / D23 / D24 / D25 / D27 / D28 / D29 / D30 / D31 / D33 / D34 / D35 / D36 / D37 / D38 / D39 / D40 / D41 / D42 / D43 / D44 / D45 / D46 / D47 / D48 / D49 / D50 / D51 / D52 / D53 / D54 / D55 / D56 / D58 / D59 / D60 / D61 / D62 / D63 / D64 / D65 / D66 / D67 / D68 / D69 / D70 / D71 / D72 / D73 / D74 / D75 / D76 / D77 / D78 / D79 / D80 / D81 / D82 / D83 / D84 / D85 / D86 / D87 / D88 / D89 / D90 / D91 / D92 已修；D5 / D6 / D9 / D10 / D12 / D26 / D32 / D57 / D93 / D94 待修；D7 / D8 不修）。
 - **D5 本地已实现（2026-10-23 D94 场次）**：首批 3 篇真实长文 ＋ 互链 ＋ 博客门禁新增判据 **F16「博客集合不得为空」**；
   但 D5 **仍留在下面的「待修」组** —— 它的验收条件里「`/blog/<slug>/` 全部 200」是**线上项**，
   本轮**只做本地提交、不 push** ⇒ 线上那半无法验证，**不写「已修」**。
 - **D93 本地已实现（2026-10-23 D95 场次）**：3 篇文章加 `description` front matter ＋ 博客门禁新增判据
   **F17–F20**（必需 / 不等于自己的标题 / 不等于站点通用描述 / 集合内逐篇不重样）；
   但 D93 **仍留在下面的「待修」组** —— 它的验收条件里「线上文章页的四处 description 出口逐篇不同」是**线上项**，
+  本轮**只做本地提交、不 push** ⇒ 线上那半无法验证，**不写「已修」**。
+- **D94 本地已实现（2026-10-23 D96 场次）**：博客文章页输出独立的 `BlogPosting` 作品实体 ＋ 页面实体的 `mainEntity` 改指本页作品实体 ＋ 结构化数据门禁新增判据 **J13**（作品实体必须完整、且与页面所见逐字一致）并把 **J4** 泛化到作品实体族；
+  但 D94 **仍留在下面的「待修」组** —— 它的验收条件里「线上文章页能被消费方读成一篇文章」是**线上项**，
   本轮**只做本地提交、不 push** ⇒ 线上那半无法验证，**不写「已修」**。
 - **D59 已做第一、二、三、四、五、六、七、八、九、十、十一、十二批**（第一批 2026-10-21 D57 场次；第二批 2026-10-21 D58 场次；
   第三批 2026-10-21 D59 场次；第四批 2026-10-21 D59 场次；第五批 2026-10-21 D59 场次；
@@ -3722,6 +3725,52 @@
      ⑤ 页面上另有 **Person / WebSite** 两个**站点级** JSON-LD 节点（站点 bio / 站点简介）—— 按设计就该**全站一致**，
         **不在文章级出口之列**，本轮**不动**；
      ⑥ **不扫历史记录**（`docs/IMPROVEMENT-LOG.md` / `docs/DEFECT-BACKLOG.md` / `docs/ROADMAP.md`）——
+     它们必须原样保留当时的错误写法，改写历史就是伪造历史。
+
+- **D96**（本轮修的是缺陷 **D94**）：这一轮修的是 **博客文章页在结构化数据里不是一篇文章 ＋ 这一族零门禁看守**。
+  上一轮（D95）修的是**文章页的四处 description 出口全是站点通用描述**；本轮换到**文章页自己的机器可读身份** ——
+  上一轮把文章内容补齐了，本轮撞见的是「**文章有了，但机器眼里它不是一篇文章**」。
+  三件事都是实测坐实的：
+  - **现象**：博客文章页的 JSON-LD 里**一个作品节点都没有** —— 只有 Person（我是谁）、WebSite ＋ WebPage（这一页是网站）与全站论文列表；
+    论文页早就有完整的 `ScholarlyArticle` 实体（带 `image` / `dateModified` / `mainEntityOfPage`），博客侧**一个都没有**；
+    更进一步，页面实体的 `mainEntity` 指向**本人**，等于告诉消费方「这一页在讲作者本人」而不是「这一页在讲这篇文章」。
+  - **后果**：消费方（搜索的结构化数据通道、阅读器与聚合服务）读到博客文章页时**拿不到「这是一篇文章」** ——
+    没有 `headline` / `datePublished` / `author` / `image` 这一层，文章只能被当成站点里的一个普通页面；
+    而且这一层缺了**不会报错**：页面照出、JSON-LD 照常合法、其它门禁全绿，只有逐个节点读才知道少了它。
+  - **根因**：这一族**零门禁看守** —— `scripts/check-jsonld.cjs`（J0–J12）只管站点实体 / 页面实体 / 归属链 /
+    论文实体的图与时效，**从不看博客文章页的作品实体**。
+  ① **数据层注入「页面角色」标记**：`src/content/blog/blog.11tydata.cjs` 注入集合级裸键 `structuredType: "BlogPosting"`
+     （**不改文章 front matter** ⇒ 不动写作契约的 §2 字段表，只在 §1 的「自动注入的字段」表登记）。
+  ② **新增 filter `jsonLdBlogPost`**（`eleventy.config.js`，紧接 `jsonLdPaper` 之后）：产出扁平作品节点，
+     `@id` / `url` ＝ 页面 URL **无片段**（页面实体用 `#webpage` ⇒ 作品实体不是自引用）。
+  ③ **模板两处**：`detail.njk` 在 `</article>` 前输出**独立**的 BlogPosting ld+json 块；
+     `base.njk` 的 `pageMainEntityId` 改成「作品页（论文页或博客文章页）⇒ 指向本页作品实体；其余页 ⇒ 指向本人」。
+  ④ **门禁 `scripts/check-jsonld.cjs` 扩到 J0–J13**：新增 **J13**（作品实体必须完整、且与页面所见逐字一致），
+     并把 **J4** 的「作品页」口径**泛化**到作品实体族（论文页的 `ScholarlyArticle` 与博客文章页的 `BlogPosting` 同等对待，
+     否则新写法会判出假红）；J13 登记 **8 个比较点**（`declaredType` / `entityCount` 逐页，
+     `id` / `headline` / `description` / `datePublished` / `author` / `mainEntityOfPage` 全站级），
+     `COVERAGE_POINTS` **23 → 31** 项；J7 存活自证新增「从比较点」计数 ⇒ J13 从未真正执行过就判红。
+  ⑤ **自测 `scripts/test-jsonld.cjs` 扩到 40 档**：新增注入档 **J13** 与判据级负对照 **N-J13**；
+     夹具新增第三个页面（博客文章页：源文件 ＋ **目录数据文件**注入 `structuredType` ＋ 产物四类块）；
+     夹具的 h1 与 meta description **故意用 `&#39;` 写撇号**、JSON-LD 侧用原字符 ⇒ 不解实体会误判成「不是同一句」（假红）。
+     `scripts/lib/selftest-slots.cjs` 同步登记 **38 → 40** 档。
+  ⑥ **写作契约同步**：`docs/blog-writing-guide.md` §1「自动注入的字段」表补 `structuredType` 行
+     （**WC4 双向对账**要求：数据文件注入了的字段必须出现在指南里）。
+  ⑦ **不代拍**：本轮**没有新增待拍板项**，中央台账不动（最高仍是待拍板 56）。
+  ⑧ **验收**：`check:jsonld`（及其自测 40 档全绿）/ `check:blog-frontmatter` / `check:writing-contract` /
+     `check:tag-leak` / `check:selftest-guard` / `check:gates` / `check:information-architecture` /
+     `check:block-language` 全 exit 0；`npm run build` exit 0；
+     产物实测三篇文章各有且仅有 1 个 BlogPosting、`@id` 与 `url` ＝ canonical、`headline` ＝ h1、
+     `description` ＝ meta description、`datePublished` ＝ `<time>`、`author` ＝ 本人、
+     `mainEntityOfPage` ＝ `<canonical>#webpage`、`mainEntity` ＝ 文章 URL；非博客页与 404 页**零** BlogPosting。
+  ⑨ ⚠ **线上那半未验**：线上仍是旧部署（7 条 URL 里 4 条 200、3 条 404 —— `/papers/`、`/publications.bib`、`/feed.xml`，
+     属缺陷 **D6**，**由 push 触发**）⇒ 本轮**只做本地提交、不 push** ⇒ **D94 的状态写「本地已实现，待 push 后复验线上项」，
+     仍留在「待修」组，不写「已修」**。
+  ⑩ **诚实边界**：① 本轮 J13 **不核对** `image` 与 `dateModified`（论文页那一类核对在 J11）；
+     ② 页面上另有 **Person / WebSite** 两个**站点级** JSON-LD 节点 —— 按设计就该**全站一致**，**不在作品级出口之列**，本轮**不动**；
+     ③ 「该有 / 不该有」的判定走**数据层**（front matter 顶层 / eleventyComputed / 目录数据文件三条路径），
+     **不按 URL 硬编码路由**；
+     ④ **不扫历史记录**（`docs/IMPROVEMENT-LOG.md` / `docs/DEFECT-BACKLOG.md` / `docs/ROADMAP.md`）——
      它们必须原样保留当时的错误写法，改写历史就是伪造历史。
 
 ---

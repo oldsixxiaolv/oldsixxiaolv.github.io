@@ -1404,6 +1404,67 @@ module.exports = function (eleventyConfig) {
     return { "@context": "https://schema.org", "@graph": [article, ...resources] };
   });
 
+  /* ---------- 4c-3. jsonLdBlogPost filter：博客文章页的作品实体 ----------
+     为什么要有它（2026-10-24；缺陷清单 D94）：
+       论文页早就有一个完整的作品实体（ScholarlyArticle，含摘要、图、时效），
+       博客文章页此前**一个作品节点都没有**：结构化数据里只有"这一页是网站"
+       与"这一页在讲本人"，站点自己的文章在机器眼里**不是一篇文章**。
+       缺了它不会报错：页面照出、JSON-LD 照常合法、其它门禁全绿 ——
+       只有逐个节点读才知道少了这一层（正是 J13 要补的洞）。
+
+     @id 口径（与 jsonLdPaper 同一套，别自创）：
+       · **作品实体**的 @id = 页面 URL（**无片段**）—— 消费方按 @id 归并节点，
+         同一件作品在站内各处要指向同一个 @id。
+       · **页面实体**的 @id = <页面 URL>#webpage（base.njk 声明）—— 带片段，
+         才不会与作品实体共用一个 @id（共用 ⇒ 同一节点挂两种 @type，J8 判红）。
+
+     引用一律写成**只有 @id 的裸引用**（{"@id": "..."}）：
+       带上 @type，门禁会把这个引用当成"本人节点"去查姓名（引用里没有 name）；
+       带上 name，会多出一组可比节点。裸引用是 schema.org 认可的
+       "按 @id 指向本档里已声明的节点"，而 Person / WebSite 节点就在同一页声明着。
+
+     ⚠️ 这个 filter 是**站点级共享**的（谁调它谁就得到实体），所以它自己
+        不知道"这一页该不该有作品实体"—— 那是调用方（版式）按数据层的
+        `structuredType` 决定的。页面特有的实体一律走**独立的 ld+json 块**
+        （与 paper.njk 同一套做法）。 */
+  eleventyConfig.addFilter("jsonLdBlogPost", (post, siteData, pageUrl, opts) => {
+    if (!post) return null;
+    const siteUrl = (siteData && siteData.url) || "";
+    const selfUrl = `${siteUrl}${pageUrl || ""}`;
+    const o = opts || {};
+    const node = {
+      "@context": "https://schema.org",
+      "@type": "BlogPosting",
+      "@id": selfUrl,
+      url: selfUrl,
+      headline: post.title || "",
+    };
+    // description 是**这一篇自己的**描述（写作契约里的 description 字段），
+    // 不是站点通用描述：作品节点说"这篇在讲什么"，不是"这个站点是谁"。
+    if (post.description) node.description = post.description;
+    // datePublished 已经由版式按 yyyy-LL-dd 格式化好（与页面 <time> 同一份值）。
+    if (post.date) node.datePublished = post.date;
+    // image 与该页 og:image 同一个 filter 解析（coverImageUrl）⇒ 逐字相同
+    // 是**构造出来的**，不是"对上了"（与论文页的 image 同一套理由）。
+    if (o.coverUrl) node.image = o.coverUrl;
+    // dateModified 与 sitemap 的 lastmod 同一数据源（lastCommitTime filter）。
+    // 取不到就不给 —— 宁可没有，也不要一个假时间戳。
+    if (o.modified) node.dateModified = o.modified;
+    node.inLanguage = (siteData && siteData.locale) || "en";
+    node.author = { "@id": `${siteUrl}/#person` };
+    // publisher 与全站 WebSite 节点的 publisher 同源（都是本人）——
+    // 站点是本人运营的，作品也是本人发的，两处指向同一个 @id 才是一件事。
+    node.publisher = { "@id": `${siteUrl}/#person` };
+    node.isPartOf = { "@id": `${siteUrl}/#website` };
+    // mainEntityOfPage 指向**承载这篇文章的那一页**（页面实体），
+    // 不是作品实体自己 —— 与 jsonLdPaper 的写法同一套理由（J9 守着它）。
+    node.mainEntityOfPage = { "@id": `${selfUrl}#webpage` };
+    // keywords = 主题标签。集合名（"blog"）由版式滤掉后才传进来：
+    // 它是**归档位置**，不是这篇文章的主题。
+    if (Array.isArray(post.keywords) && post.keywords.length) node.keywords = post.keywords;
+    return node;
+  });
+
   /* ---------- 4d. feedItems filter：RSS 条目列表 ----------
      输入 publications 与 blog 集合，输出**按日期倒序**的 feed 条目数组。
 
