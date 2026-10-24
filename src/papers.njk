@@ -3,6 +3,10 @@ layout: layouts/page.njk
 permalink: /papers/
 title: "Publications"
 description: "Peer-reviewed publications with DOI, PDF, code and data links, plus a BibTeX export."
+# 集合列表页的数据层标记（缺陷 D96 场次补）：本页要有一个**列表级实体**。
+# 与博客列表页（src/blog.njk）同一套机制 —— 门禁 J14 按这个标记回源核对，
+# 「标记说该有」与「产物里真有」两边都跑不掉。
+structuredList: "ItemList"
 eleventyNavigation:
   key: Papers
   order: 2

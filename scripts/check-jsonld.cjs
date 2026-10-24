@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 /**
- * 门禁 J0–J13：站点实体（WebSite）与页面实体（WebPage / ProfilePage）这一层
+ * 门禁 J0–J14：站点实体（WebSite）与页面实体（WebPage / ProfilePage）这一层
  * 必须存在，并且彼此接得上；实体身份（@id）全站唯一；作品实体（BlogPosting）
- * 必须与页面上人能看到的东西逐字一致。
+ * 必须与页面上人能看到的东西逐字一致；集合列表页的列表级实体（ItemList）
+ * 必须既在、又自洽、又是真的。
  *
  * 为什么要有这个门禁：
  *   本站此前的结构化数据只有两层——"我是谁"（Person）与"我产出过什么"
@@ -132,6 +133,19 @@
  *        author = 本页的"本人" @id；mainEntityOfPage = 本页页面实体。
  *      ⚠️ 逐字比较前必须**解 HTML 实体**：meta 与 h1 里的撇号是 `&#39;`，
  *        JSON-LD 里是原字符 —— 不解码就会把同一句话判成两句。
+ *   J14 **集合列表页的列表级实体（ItemList）必须既在、又自洽、又是真的**。
+ *      背景（2026-10-24；缺陷清单 D96）：论文列表页 /papers/ 早就有 ItemList，
+ *      博客列表页 /blog/ **一个都没有** —— 两页模板结构同构，消费方却没有理由
+ *      猜哪个是哪种列表。"这个博客共有几篇、按什么顺序"因此**没有答案**。
+ *      缺它**不会报错**：页面照出、JSON-LD 照常合法、其它门禁全绿。
+ *      · 源文件声明了 `structuredList`（数据层的三条路径，与 J10 / J13 同一套）
+ *        的页 ⇒ 产物里必须**恰好一个**该类型的实体；
+ *      · 没有声明的页 ⇒ 产物里**不得出现** ItemList（不许漏出去）；
+ *      · 那个实体必须自洽：@id = <该页 canonical>#list（绑定到它所在的那一页）、
+ *        name = 页面 h1（这一页确实是列表页）、numberOfItems = 条目数、
+ *        position 1..N 连续；
+ *      · 每个 item.@id 必须指向**站内某个真实页面的 canonical** ——
+ *        列表项指向一个不存在的页面时，"列表"就是一份假账。
  *
  * 与既有门禁的关系（**刻意不重复**）：
  *   · verify-site 第 2 条查 JSON-LD 能否 JSON.parse → 本门禁不查解析本身，
@@ -185,6 +199,7 @@ const J10_ON = true; // 页面 @type 与源文件声明的角色一致
 const J11_ON = true; // 论文页 ScholarlyArticle 必须有 image 与 dateModified
 const J12_ON = true; // 逐比较点覆盖度自证
 const J13_ON = true; // 作品实体（BlogPosting）必须完整且与页面所见一致
+const J14_ON = true; // 集合列表页的列表级实体（ItemList）必须既在、又自洽、又是真的
 
 const SWITCH_ON = {
   J0: J0_ON,
@@ -201,6 +216,7 @@ const SWITCH_ON = {
   J11: J11_ON,
   J12: J12_ON,
   J13: J13_ON,
+  J14: J14_ON,
 };
 
 /* 开关关 ⇒ 这条判据不说话（**计算照做**，不短路）——
@@ -256,6 +272,12 @@ const COVERAGE_POINTS = [
   { key: "J13.datePublished", min: 1 }, // 至少逐字比过一次 datePublished 与页面 <time>
   { key: "J13.author", min: 1 }, // 至少逐字比过一次 author 与本人节点的 @id
   { key: "J13.mainEntityOfPage", min: 1 }, // 至少逐字比过一次 mainEntityOfPage 与本页页面实体
+  { key: "J14.declaredList", min: 1, everyPage: true }, // 每页都解析了源文件声明的列表类型
+  { key: "J14.entityCount", min: 1, everyPage: true }, // 每页都数了该类型的实体个数
+  { key: "J14.listId", min: 1 }, // 至少逐字比过一次列表实体的 @id 与本页 canonical
+  { key: "J14.listName", min: 1 }, // 至少逐字比过一次列表实体的 name 与页面 h1
+  { key: "J14.items", min: 1 }, // 至少逐字比过一次 numberOfItems 与 position 连续性
+  { key: "J14.landing", min: 1 }, // 至少核对过一次 item.@id 指向站内真实页面
 ];
 
 /* 逐页记账：页标识 -> 该页真正跑过的比较点。
@@ -728,30 +750,37 @@ function timeDateOf(html) {
 }
 
 /**
- * 源文件声明的"结构化类型"（裸键 `structuredType`）——与 J10 的角色声明
+ * 源文件声明的"结构化类型"（裸键）——与 J10 的角色声明
  * **同一套数据层**（front matter 顶层 / eleventyComputed / 目录数据文件）。
  *
  *  ⚠️ 为什么不按 URL 硬编码"哪些页该是 BlogPosting"：
  *    路由一改，硬编码就会静默失配（判红的是无关的页，或漏掉新加的页）。
  *    真源由模板端决定（detail.njk 读裸键 `structuredType`），门禁回源核对。
  *
+ *  ⚠️ 为什么**按 key 取值**（而不是为每个键各写一份）：
+ *    J13 查作品实体（structuredType）、J14 查列表实体（structuredList）——
+ *    两者的数据层路径**完全一样**（front matter 顶层 / eleventyComputed /
+ *    目录数据文件）。抄两遍 ⇒ 两边迟早走样；而"走样"在这里是**假红或假绿**：
+ *    假红会把人引去改本来正确的东西，假绿是判据根本没跑到。
+ *    所以这里只留**一份**实现，键由调用方传入。
+ *
  *  返回 { raw, where, kind, evaluable, value }（与角色声明同一套形状）：
  *    value —— 声明的类型名（字符串）；kind = "none" 时 value = null。
  */
-function resolveDeclaredStructuredType(file) {
+function resolveDeclaredKey(file, key) {
   const block = frontMatterOf(file);
   if (block !== null) {
-    const computed = scalarIn(block, "structuredType", true);
+    const computed = scalarIn(block, key, true);
     if (computed !== null) {
       return roleResult(computed, path.relative(ROOT, file), "computed", valueFromComputed);
     }
-    const top = scalarIn(block, "structuredType");
+    const top = scalarIn(block, key);
     if (top !== null) {
       return roleResult(
         top,
         path.relative(ROOT, file),
         "front-matter",
-        (raw) => valueFromFrontMatter(raw, "structuredType")
+        (raw) => valueFromFrontMatter(raw, key)
       );
     }
   }
@@ -769,14 +798,14 @@ function resolveDeclaredStructuredType(file) {
       };
     }
     let raw = null;
-    if (mod && Object.prototype.hasOwnProperty.call(mod, "structuredType")) {
-      raw = mod.structuredType;
+    if (mod && Object.prototype.hasOwnProperty.call(mod, key)) {
+      raw = mod[key];
     } else if (
       mod &&
       mod.eleventyComputed &&
-      Object.prototype.hasOwnProperty.call(mod.eleventyComputed, "structuredType")
+      Object.prototype.hasOwnProperty.call(mod.eleventyComputed, key)
     ) {
-      raw = mod.eleventyComputed.structuredType;
+      raw = mod.eleventyComputed[key];
     }
     if (raw !== null) {
       // 目录数据文件是**已经求过值的 JS 值** → 直接用它，不必再解析字面量。
@@ -816,10 +845,21 @@ let j11Compared = 0; // J11 真正核对过的论文页数
 let j11ImageCompared = 0; // J11 里 image 真正逐字比过的次数
 let j11ModifiedCompared = 0; // J11 里 dateModified 真正逐字比过的次数（源文件已提交）
 let j13Compared = 0; // J13 里真正逐字核对过字段的作品实体个数
+let j14Compared = 0; // J14 里真正逐字核对过的列表级实体个数
 const j10Kinds = {}; // 角色声明来自哪条数据层路径（front-matter / computed / directory-data / none）
 const websiteIds = new Set();
 // J8 的全站口径：@id → (@type 组合 → 出现在哪些页)
 const siteTypeUse = new Map();
+
+/* 全站每一页的 canonical（**先收齐，再逐页核对**）——
+   J14 的"落地"判据要问"这个 item.@id 是不是站内某个真实页面的地址"，
+   而"站内有哪些页面"只有全站扫一遍才知道 ⇒ 必须先收齐再判。
+   （用的是同一套 canonicalOf 解析，与 J2 / J4 核对页面实体 @id 时同源。） */
+const siteCanonicals = new Set();
+for (const file of htmlFiles) {
+  const c = canonicalOf(fs.readFileSync(file, "utf8"));
+  if (c) siteCanonicals.add(c);
+}
 
 for (const file of htmlFiles) {
   const from = rel(file);
@@ -1303,7 +1343,7 @@ for (const file of htmlFiles) {
       );
       waivePrefix("J13.", from);
     } else {
-      const declared = resolveDeclaredStructuredType(j13SrcPath);
+      const declared = resolveDeclaredKey(j13SrcPath, "structuredType");
       if (!declared.evaluable) {
         // 声明求不出（模板表达式 / 语法错）→ 判红，不猜。
         fail(
@@ -1447,6 +1487,149 @@ for (const file of htmlFiles) {
       }
     }
   }
+
+  /* ---- J14：集合列表页的列表级实体（ItemList）必须既在、又自洽、又是真的 ----
+     缺这一层**不会报错**：页面照出、JSON-LD 照常合法、其它门禁全绿，
+     只有逐个节点读才知道这一页"是一份列表、有几项、按什么顺序"没有答案。
+     判定口径（与 J10 / J13 同一套纪律：不按 URL 硬编码，回源读数据层）：
+       · 源文件声明了 structuredList 的页 ⇒ 产物里必须**恰好一个**该类型的实体；
+       · 没声明的页 ⇒ 产物里**不许出现** ItemList（不许漏出去）；
+       · 那个实体必须自洽：@id = <该页 canonical>#list、name = 页面 h1、
+         numberOfItems = 条目数、position 1..N 连续；
+       · 每个 item.@id 必须指向**站内某个真实页面的 canonical**（不是假账）。 */
+  {
+    mark("J14.declaredList", from);
+    const j14SrcRel = sourceOf(html);
+    const j14SrcPath = j14SrcRel ? path.resolve(ROOT, j14SrcRel) : "";
+    if (!j14SrcRel || !fs.existsSync(j14SrcPath)) {
+      fail(
+        "J14",
+        `${from}: 页面里没有 <!-- source: ... --> 源文件标注（或标注的文件找不到）—— ` +
+          `本条判据靠它知道这一页声明了什么列表类型` +
+          `（base.njk 里那行 <!-- source: ... --> 不能删）`
+      );
+      waivePrefix("J14.", from);
+    } else {
+      const declared = resolveDeclaredKey(j14SrcPath, "structuredList");
+      if (!declared.evaluable) {
+        // 声明求不出（模板表达式 / 语法错）→ 判红，不猜。
+        fail(
+          "J14",
+          `${from}: 这一页声明的列表类型求不出（${declared.where} 里写的是 ` +
+            `structuredList: ${declared.raw}）—— ${declared.reason}。` +
+            `本条判据对这一页无法核对。`
+        );
+        waivePrefix("J14.", from);
+      } else {
+        const declaredType = typeof declared.value === "string" ? declared.value.trim() : "";
+        const hasDeclared = declaredType !== "";
+        // 没声明 ⇒ 这一页要查的是"不许漏出来"的那一半。
+        const wantedType = hasDeclared ? declaredType : "ItemList";
+        const found = declarations.filter((n) => typesOf(n).includes(wantedType));
+        mark("J14.entityCount", from);
+        if (!hasDeclared) {
+          if (found.length) {
+            fail(
+              "J14",
+              `${from}: 这一页没有声明 structuredList，产物里却出现了 ${found.length} 个 ` +
+                `${wantedType} 实体 —— 没有声明的列表类型不许漏出来`
+            );
+          }
+        } else if (found.length !== 1) {
+          fail(
+            "J14",
+            `${from}: 源文件声明的列表类型是 ${declaredType}（${declared.where}），` +
+              `产物里必须**恰好一个**该类型的实体，实际 ${found.length} 个` +
+              `（缺了 = 消费方读不到这一份列表；多个 = 消费方会读成好几份）`
+          );
+          waivePrefix("J14.", from);
+        } else {
+          const node = found[0];
+          j14Compared++;
+
+          /* —— @id = <该页 canonical>#list —— */
+          mark("J14.listId", from);
+          const listId = typeof node["@id"] === "string" ? node["@id"] : "";
+          const wantListId = canonical ? canonical + "#list" : "";
+          if (!wantListId) {
+            fail("J14", `${from}: 取不到 canonical，无法核对 ${declaredType} 实体的 @id`);
+          } else if (listId !== wantListId) {
+            fail(
+              "J14",
+              `${from}: ${declaredType} 实体的 @id 是 ${JSON.stringify(listId)}，` +
+                `应为 ${JSON.stringify(wantListId)} —— ` +
+                `列表级实体必须绑定到它所在的那一页，否则消费方不知道这份列表是谁的`
+            );
+          }
+
+          /* —— name = 页面 h1（这一页确实是列表页）—— */
+          mark("J14.listName", from);
+          const listName = typeof node.name === "string" ? node.name : "";
+          const listH1 = h1TextOf(html);
+          if (!listH1) {
+            fail("J14", `${from}: 页面里没有 h1，无法核对 ${declaredType} 实体的 name`);
+          } else if (listName !== listH1) {
+            fail(
+              "J14",
+              `${from}: ${declaredType} 实体的 name 是 ${JSON.stringify(listName)}，` +
+                `与页面 h1 ${JSON.stringify(listH1)} **不是同一句** —— ` +
+                `这一页是列表页，列表的名字必须是人看到的那个标题`
+            );
+          }
+
+          /* —— numberOfItems 与条目数一致；position 1..N 连续 —— */
+          mark("J14.items", from);
+          const items = Array.isArray(node.itemListElement) ? node.itemListElement : null;
+          if (!items) {
+            fail("J14", `${from}: ${declaredType} 实体缺 itemListElement（或它不是数组）—— 列表没有条目`);
+            waive("J14.landing", from);
+          } else {
+            if (node.numberOfItems !== items.length) {
+              fail(
+                "J14",
+                `${from}: ${declaredType} 实体的 numberOfItems 是 ${node.numberOfItems}，` +
+                  `实际条目数是 ${items.length} —— 两者必须一致（消费方按 numberOfItems 决定读几条）`
+              );
+            }
+            for (let i = 0; i < items.length; i++) {
+              const el = items[i];
+              const pos = el && typeof el === "object" ? el.position : undefined;
+              if (pos !== i + 1) {
+                fail(
+                  "J14",
+                  `${from}: ${declaredType} 实体的第 ${i + 1} 条 position 是 ${pos}` +
+                    `（应为 ${i + 1}）—— position 必须 1..N 连续，不能跳号或重复`
+                );
+              }
+            }
+
+            /* —— 每个 item.@id 必须指向站内某个真实页面的 canonical —— */
+            mark("J14.landing", from);
+            for (let i = 0; i < items.length; i++) {
+              const el = items[i];
+              const ref = el && typeof el === "object" ? el.item : null;
+              const id = ref && typeof ref === "object" ? ref["@id"] : undefined;
+              if (typeof id !== "string" || !id.trim()) {
+                fail(
+                  "J14",
+                  `${from}: ${declaredType} 实体的第 ${i + 1} 条没有 item.@id —— ` +
+                    `列表项必须指向那个作品实体，消费方才能把「列表项」与「作品」合并成同一个节点`
+                );
+                continue;
+              }
+              if (!siteCanonicals.has(id.trim())) {
+                fail(
+                  "J14",
+                  `${from}: ${declaredType} 实体的第 ${i + 1} 条的 item.@id「${id.trim()}」` +
+                    `不是站内任何一个页面的 canonical —— 列表项指向了一个不存在的页面`
+                );
+              }
+            }
+          }
+        }
+      }
+    }
+  }
 }
 
 /* ---- J5：全站只有一个站点实体 ---- */
@@ -1553,6 +1736,16 @@ if (!j13Compared) {
       "headline / description / datePublished 就无人看守）"
   );
 }
+if (!j14Compared) {
+  // 自证：J14 必须真的在集合列表页上跑过。否则"列表级实体缺失 / 不自洽"
+  // 这条判据就是空转的 —— 整段被摘掉时门禁照样绿。
+  fail(
+    "J7",
+    "全站没有逐字核对过任何一个列表级实体 —— J14 从未真正执行过" +
+      "（集合列表页的 ItemList 消失了，或它没有可比对的字段，" +
+      "@id / name / numberOfItems / position 就无人看守）"
+  );
+}
 
 /* ---------- J12：逐比较点覆盖度自证 ----------
    ⚠️ 2026-10-22（D59 第十一批）实测补：J7 的存活自证是**总数**口径
@@ -1641,6 +1834,11 @@ note(
     `@id / url、headline（= 页面 h1）、description（= meta description）、` +
     `datePublished（= 页面 <time>）、author、mainEntityOfPage`
 );
+note(
+  `集合列表页的列表级实体：${j14Compared} 个列表实体逐字核对了 ` +
+    `@id（= 本页 canonical#list）、name（= 页面 h1）、numberOfItems、` +
+    `position（1..N 连续），以及每个 item 指向的站内真实页面`
+);
 notes.forEach((n) => console.log(`· ${n}`));
 const ranPoints = COVERAGE_POINTS.filter(
   (p) =>
@@ -1653,4 +1851,4 @@ console.log(
   `逐比较点覆盖度自证：${ranPoints}/${COVERAGE_POINTS.length} 个比较点都跑过` +
     `（另有 ${waivedPoints} 个因前提不在场或判据被卸掉而豁免）。`
 );
-console.log("✓ 结构化数据自检通过（门禁 J0–J13）");
+console.log("✓ 结构化数据自检通过（门禁 J0–J14）");

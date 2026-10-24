@@ -19,6 +19,11 @@ title: "Technical notes"
 # （"PhD student at the Institute of…"）—— 而 /papers/、/about/、/404/ 各有自己的一句。
 # 站内其它页面都写了，唯独这个列表页没写 ⇒ 搜索结果里它和自我介绍长得一模一样（缺陷 D95）。
 description: "Field notes on atmospheric science: lightning structure in TRMM thunderstorms, long precipitation records, and reproducible analysis workflows."
+# 集合列表页的数据层标记（缺陷 D96 场次补）：本页要有一个**列表级实体**。
+# 模板据此在文件末尾输出 ItemList（独立的一个 ld+json 块），check-jsonld 的
+# 判据 J14 回源读这个标记 ⇒ 「标记说该有」与「产物里真有」两边都跑不掉。
+# 与论文列表页（src/papers.njk）同一套机制，只是各自声明自己那一页。
+structuredList: "ItemList"
 eleventyNavigation:
   key: Blog
   order: 3
@@ -116,3 +121,36 @@ editPaths:
     {% endfor %}
   </ul>
 </article>
+
+{# ============================================================================
+   列表级 JSON-LD（ItemList）
+   ----------------------------------------------------------------------------
+   消费方要能回答"这个博客共有几篇、按什么顺序"。此前站里只有一堆彼此无序的
+   作品实体：论文列表页有 ItemList，博客列表页**没有** ⇒ 同一个站里，
+   "共有几篇论文"答得上来，"共有几篇博客"答不上来（缺陷 D96）。
+   两个列表页的模板结构同构，却一个有、一个没有 —— 消费方没有理由猜哪个是哪种。
+
+   这里用**独立的一个 ld+json 块**输出 ItemList（与 papers.njk 同一套做法）：
+   不改 jsonLdArticles —— 那个 filter 被首页 / blog / about / papers 四页共用，
+   改它会让那三页也长出一个列表（它们不是列表页，声明 ItemList 是假声明）。
+
+   ⚠️ 为什么这个块紧跟 </article> 而不是塞进 <head>：
+     Eleventy 的 `layout:` 是**数据级包装**、不是 Nunjucks 的 `extends`
+     （paper.njk 顶部已写明这一点，并因此把 paper-reader.css 改成 inline）。
+     所以 `{% block %}` **不会跨模板注入**到 base.njk 的 head ——
+     在本页写 `{% block structuredData %}` 只会被就地渲染成正文的一部分，
+     根本进不了 <head>。而"页面专属的结构化数据跟在内容后面"正是本仓既有的做法：
+     论文列表页自己的 ItemList（papers.njk）也是这么放的。
+
+   · name 传的是本页 front matter 的 title（"Technical notes"）—— **单一真源**：
+     改标题只改一处，不会与页面上那个 h1 走样（门禁 J14 逐字核对这两者）；
+   · item.@id = <站点根><文章 url>，与那篇文章页上 BlogPosting 的 @id
+     （jsonLdBlogPost 的 selfUrl = ${siteUrl}${pageUrl}）**逐字相同**
+     ⇒ 消费方按 @id 把"列表项"与"文章实体"合并成同一个节点。
+   ========================================================================== #}
+{%- set blogItemList = posts | jsonLdBlogItemList(site.url, title) -%}
+{%- if blogItemList %}
+  <script type="application/ld+json">
+  {{ blogItemList | dump | safe }}
+  </script>
+{%- endif %}

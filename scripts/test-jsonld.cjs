@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * 自测：scripts/check-jsonld.cjs（门禁 J0–J13）
+ * 自测：scripts/check-jsonld.cjs（门禁 J0–J14）
  *
  * 为什么要有这个自测：
  *   这道门禁守的是"结构化数据这一层还在不在、接不接得上"——它一旦失效，
@@ -9,14 +9,14 @@
  *
  * 本自测的形态（与 scripts/test-identity-derivation.cjs 同一套范式）：
  *   · 绿档（G0–G3）—— 临时目录上的基线必须全绿
- *   · 注入档（J0–J13，含 J11b）—— 每条判据各来一个"只让它红"的坏形态，
+ *   · 注入档（J0–J14，含 J11b / J14b）—— 每条判据各来一个"只让它红"的坏形态，
  *     断言红因编号**多重集恰好**等于预期 ⇒ 证明它真的会红、且归属纯净
- *   · 判据级负对照（N-J0–N-J13，含 N-J11b）—— 同一个坏形态 + 卸掉该判据的开关
+ *   · 判据级负对照（N-J0–N-J14，含 N-J11b / N-J14b）—— 同一个坏形态 + 卸掉该判据的开关
  *     ⇒ 该判据的红因必须**一个都不剩** ⇒ 证明开关真的被 fail() 消费
  *   · 精准性负对照（P-*）—— 合法但少见的写法不该被误伤
  *   · 退回旧口径（RE-*）—— 把新口径的关键机制拆掉，证明旧口径确实漏
  *
- *   共 40 档：4 绿 + 15 注入 + 15 判据级负对照 + 3 精准性 + 3 退回旧口径。
+ *   共 44 档：4 绿 + 17 注入 + 17 判据级负对照 + 3 精准性 + 3 退回旧口径。
  *
  * ⚠️ 全部注入都在**临时目录里的副本**上做，仓库里的原件一个字节都不动
  *   （收尾时用 SHA-256 校验）。
@@ -60,6 +60,15 @@ const BLOG_ID = BLOG_URL;
 const BLOG_TITLE = "A reader's first impression";
 const BLOG_DESC = "What a reader's first impression actually is.";
 const BLOG_DATE = "2026-10-24";
+/* 博客**列表页**（J14 用）：集合列表页 —— 页面自己声明了列表类型，
+   产物里必须恰好有一个列表级实体（ItemList），且它自洽、且每一项都
+   指向站内某个真实页面的 canonical。
+   ⚠️ 列表页自己的 mainEntity 指向「本人」（与站内其它非作品页一致），
+      不是指向 ItemList —— 那是 J4 的口径，J14 不碰。 */
+const BLOG_LIST_URL = `${SITE_URL}/blog/`;
+const BLOG_LIST_PAGE_ID = `${BLOG_LIST_URL}#webpage`;
+const BLOG_LIST_ID = `${BLOG_LIST_URL}#list`;
+const BLOG_LIST_TITLE = "Field notes";
 
 /* ---------- 从门禁源码里解析可卸开关表（不在本文件写死）----------
    跟门禁一样的理由：仓库里只能有一份判据清单。
@@ -117,6 +126,17 @@ const BLOG_SRC = [
 /* 目录数据文件：注入集合级的裸键 structuredType。 */
 const BLOG_DATA_SRC = [
   'module.exports = { structuredType: "BlogPosting" };',
+  "",
+].join("\n");
+/* 博客列表页源：front matter 顶层声明 structuredList（数据层的第一条路径，
+   与真实 src/blog.njk 同一套做法）。 */
+const BLOG_LIST_SRC = [
+  "---",
+  "layout: layouts/page.njk",
+  'structuredList: "ItemList"',
+  "---",
+  "",
+  "<p>blog index</p>",
   "",
 ].join("\n");
 
@@ -196,6 +216,31 @@ function blogHtml() {
   ].join("\n");
 }
 
+/* 博客列表页产物：一个集合列表页 —— 站点实体 / 页面实体 / 本人 / 列表级实体。
+   ⚠️ 列表项指向那篇博客文章页的 canonical（= 站内某个真实页面的地址），
+      这一条正是 J14「落地」那一半要守的：列表项不许指向不存在的页面。 */
+function blogListHtml() {
+  const blocks = [
+    `<script type="application/ld+json">{"@context":"https://schema.org","@type":"WebSite","@id":"${SITE_ID}","url":"${HOME_URL}","publisher":{"@id":"${PERSON_ID}"}}</script>`,
+    `<script type="application/ld+json">{"@context":"https://schema.org","@type":"WebPage","@id":"${BLOG_LIST_PAGE_ID}","url":"${BLOG_LIST_URL}","isPartOf":{"@id":"${SITE_ID}"},"mainEntity":{"@id":"${PERSON_ID}"}}</script>`,
+    `<script type="application/ld+json">{"@context":"https://schema.org","@type":"Person","@id":"${PERSON_ID}","name":"Demo Author"}</script>`,
+    `<script type="application/ld+json">{"@context":"https://schema.org","@type":"ItemList","@id":"${BLOG_LIST_ID}","name":"${BLOG_LIST_TITLE}","numberOfItems":1,"itemListElement":[{"@type":"ListItem","position":1,"name":"${BLOG_TITLE}","item":{"@id":"${BLOG_ID}"}}]}</script>`,
+  ].join("\n");
+  return [
+    "<!doctype html>",
+    "<html><head>",
+    `<link rel="canonical" href="${BLOG_LIST_URL}" />`,
+    `<meta name="description" content="Field notes on the work." />`,
+    `<meta property="og:image" content="${OG_IMAGE}" />`,
+    "</head><body>",
+    "<!-- source: src/blog.njk -->",
+    `<h1>${BLOG_LIST_TITLE}</h1>`,
+    blocks,
+    "</body></html>",
+    "",
+  ].join("\n");
+}
+
 /* 沙箱：门禁副本 + scripts/lib 两个依赖 + 夹具源码 + 产物 + 一个 git 仓库。
    ⚠️ git 仓库是**为了让 J11 的 dateModified 真的可比**（那半条判据取的是
       依赖闭包里最晚的提交时间；没有 git 历史 ⇒ 取不到 ⇒ 无从比较）。
@@ -218,6 +263,11 @@ function makeSandbox() {
   /* 博客文章页：源文件 + 目录数据文件（作品类型走数据层的第三条路径）。 */
   write(path.join(repo, "src", "blog", "post.md"), BLOG_SRC);
   write(path.join(repo, "src", "blog", "blog.11tydata.cjs"), BLOG_DATA_SRC);
+  /* 博客列表页：源文件 + 产物。
+     ⚠️ 源文件放在 src/ 根（不是 src/blog/）—— 目录数据文件
+        src/blog/blog.11tydata.cjs 只作用于 src/blog/ 下的文件，
+        列表页不在其中（它声明的是列表类型，不是作品类型）。 */
+  write(path.join(repo, "src", "blog.njk"), BLOG_LIST_SRC);
   /* gray-matter 等第三方依赖：借真实仓库的 node_modules（符号链接）。
      沙箱在临时目录（APFS）⇒ 符号链接没问题。 */
   try {
@@ -238,6 +288,7 @@ function makeSandbox() {
   write(path.join(repo, "_site", "index.html"), homeHtml());
   write(path.join(repo, "_site", "papers", "paper", "index.html"), paperHtml(stamp));
   write(path.join(repo, "_site", "blog", "post", "index.html"), blogHtml());
+  write(path.join(repo, "_site", "blog", "index.html"), blogListHtml());
   write(path.join(repo, "_site", "404.html"), NOT_FOUND_HTML);
   return { base, repo };
 }
@@ -250,6 +301,8 @@ const homeSrcOf = (s) => path.join(s.repo, "src", "index.njk");
 const paperSrcOf = (s) => path.join(s.repo, "src", "papers", "paper.njk");
 const blogSrcOf = (s) => path.join(s.repo, "src", "blog", "post.md");
 const blogDataOf = (s) => path.join(s.repo, "src", "blog", "blog.11tydata.cjs");
+const blogListOf = (s) => path.join(s.repo, "_site", "blog", "index.html");
+const blogListSrcOf = (s) => path.join(s.repo, "src", "blog.njk");
 const gateOf = (s) => path.join(s.repo, "scripts", "check-jsonld.cjs");
 
 /* ================= 跑门禁 / 解析红因 ================= */
@@ -567,6 +620,31 @@ function injJ13(s) {
   );
 }
 
+/** J14：列表级实体的 @id 与「该页 canonical + #list」对不上。
+ *  ⚠️ 为什么只改 @id 而不是把整个 ItemList 块删掉：
+ *     删块 ⇒ J14 报「实体个数不对」**加上** J7 的存活自证红（列表级实体
+ *     一个都没被逐字核对过）⇒ 两条红因，归属不纯。两种形态都要覆盖，
+ *     所以拆成两档：injJ14（@id 对不上）与 injJ14b（整个列表实体没了）。 */
+function injJ14(s) {
+  patchFile(
+    blogListOf(s),
+    `"@id":"${BLOG_LIST_ID}"`,
+    `"@id":"${BLOG_LIST_URL}#list-not-this-page"`,
+    1
+  );
+}
+
+/** J14b：源文件声明了 structuredList，产物里却没有列表级实体
+ *  ⇒ J14 红一条（实体个数不对）+ J7 的存活自证红一条（列表级实体从未被核对）。 */
+function injJ14b(s) {
+  patchFile(
+    blogListOf(s),
+    `<script type="application/ld+json">{"@context":"https://schema.org","@type":"ItemList","@id":"${BLOG_LIST_ID}","name":"${BLOG_LIST_TITLE}","numberOfItems":1,"itemListElement":[{"@type":"ListItem","position":1,"name":"${BLOG_TITLE}","item":{"@id":"${BLOG_ID}"}}]}</script>`,
+    "",
+    1
+  );
+}
+
 /* ================= 断言 ================= */
 
 const results = [];
@@ -654,7 +732,7 @@ function expectNoRed(id, s, goneId, o = {}) {
   expectGreenBaseline(
     "G0 基线（临时目录上）",
     s,
-    "站点实体 / 页面实体 / 归属链 / mainEntity / 论文实体 / 作品实体全部接得上，31 个比较点都跑过"
+    "站点实体 / 页面实体 / 归属链 / mainEntity / 论文实体 / 作品实体 / 列表级实体全部接得上，全部比较点都跑过"
   );
   fs.rmSync(s.base, { recursive: true, force: true });
 }
@@ -740,6 +818,15 @@ const INJ_CASES = [
   },
   { id: "J12", inj: injJ12, want: ["J12"] },
   { id: "J13", inj: injJ13, want: ["J13"] },
+  { id: "J14", inj: injJ14, want: ["J14"] },
+  {
+    id: "J14b",
+    inj: injJ14b,
+    switch: "J14",
+    want: ["J14", "J7"],
+    also: ["J7"],
+    note: "列表级实体整个没了 ⇒ J14 的实体个数红 + J7 的存活自证红（一条列表实体都没被核对过）",
+  },
 ];
 
 for (const c of INJ_CASES) {

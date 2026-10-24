@@ -1071,25 +1071,70 @@ module.exports = function (eleventyConfig) {
        这里照抄 jsonLdArticles 的公式（而不是另编一套），
        门禁 32d 会在产物里逐项核对"每个 item.@id 都能在同一页的 JSON-LD
        实体里找到同 @id 的节点"——公式一旦与实际产物漂移，门禁立刻判红。 */
-  eleventyConfig.addFilter("jsonLdItemList", (pubs, siteUrl) => {
-    if (!Array.isArray(pubs) || !pubs.length) return null;
-    const list = pubs.filter((p) => p && p.slug);
+  /* ---------- 4b-1. buildItemList：ItemList 的**唯一形状** ----------
+     两个集合列表页（论文列表 / 博客列表）都要输出 ItemList，而 ItemList 在站里
+     必须**长得一模一样** —— 消费方读到 ItemList 时不该先猜"这一份是哪种列表"。
+     所以形状抽成**一个**函数，两个 filter 都调它 ⇒ 两边不可能走样。
+     entries 的每一项：{ slug, title, itemId }
+       slug —— 真源标识（论文是 slug，博客是 url 路径），空 ⇒ 这一项被跳过；
+       title —— 列表项显示的名字；
+       itemId —— 这一项指向的作品实体的 @id（**必须与该作品页上的 @id 逐字相同**）。 */
+  function buildItemList(listId, listName, entries) {
+    const list = entries.filter((e) => e && e.slug);
     if (!list.length) return null;
     return {
       "@context": "https://schema.org",
       "@type": "ItemList",
-      "@id": `${siteUrl || ""}/papers/#list`,
-      name: "Publications",
+      "@id": listId,
+      name: listName,
       numberOfItems: list.length,
-      itemListElement: list.map((p, i) => ({
+      itemListElement: list.map((e, i) => ({
         "@type": "ListItem",
         position: i + 1,
-        name: p.title || "",
-        // item 指向论文页那个 ScholarlyArticle 的 @id —— 消费方据此把
-        // "列表项"与"论文实体"**合并成同一个节点**，而不是当成两件东西。
-        item: { "@id": `${siteUrl || ""}/papers/${p.slug}/` },
+        name: e.title || "",
+        // item 指向作品页那个实体节点的 @id —— 消费方据此把
+        // "列表项"与"作品实体"**合并成同一个节点**，而不是当成两件东西。
+        item: { "@id": e.itemId },
       })),
     };
+  }
+
+  eleventyConfig.addFilter("jsonLdItemList", (pubs, siteUrl) => {
+    if (!Array.isArray(pubs) || !pubs.length) return null;
+    const base = siteUrl || "";
+    return buildItemList(
+      `${base}/papers/#list`,
+      "Publications",
+      pubs.map((p) => ({
+        slug: p && p.slug,
+        title: p && p.title,
+        itemId: `${base}/papers/${(p && p.slug) || ""}/`,
+      }))
+    );
+  });
+
+  /* ---------- 4b-2. jsonLdBlogItemList filter：博客列表页的 ItemList ----------
+     论文列表页早就有 ItemList，博客列表页一直没有 ⇒ 消费方问"这个博客共有几篇、
+     按什么顺序"时**没有答案**（缺陷 D96：两页模板同构，却一个有、一个没有）。
+     形状走**同一个** buildItemList ⇒ 两页的 ItemList 是同一种东西。
+     · @id = <站点根>/blog/#list（与论文那边的 /papers/#list 同构）；
+     · name 由**模板传入**（blog.njk 传自己的 front matter title）——
+       不在这里硬编码第二份，否则改标题要改两处、迟早走样；
+     · item.@id = <站点根><文章 url>，与那篇文章页上 BlogPosting 的 @id
+       （jsonLdBlogPost 的 selfUrl = ${siteUrl}${pageUrl}）**逐字相同**
+       ⇒ 消费方按 @id 把"列表项"与"文章实体"合并成同一个节点。 */
+  eleventyConfig.addFilter("jsonLdBlogItemList", (posts, siteUrl, listName) => {
+    if (!Array.isArray(posts) || !posts.length) return null;
+    const base = siteUrl || "";
+    return buildItemList(
+      `${base}/blog/#list`,
+      listName || "Technical notes",
+      posts.map((p) => ({
+        slug: (p && p.url) || "",
+        title: p && p.data ? p.data.title : "",
+        itemId: `${base}${(p && p.url) || ""}`,
+      }))
+    );
   });
 
   /* ---------- 4b-2. coverImageUrl filter：把 cover 解析成绝对 URL ----------

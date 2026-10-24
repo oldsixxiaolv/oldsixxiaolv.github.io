@@ -253,7 +253,7 @@ addCase("P-33b", "精准性：fail() 不再消费开关表 ⇒ 覆盖度自证�
   });
 
 addCase("P-33c", "精准性：比较点目录少登记一项 ⇒ 覆盖度自证必须报红", () =>
-  mustReplace(PRISTINE, '"32": 11,', "", "比较点目录里的 32 号"), (r) => {
+  mustReplace(PRISTINE, '"32": 15,', "", "比较点目录里的 32 号"), (r) => {
     const ids = [...new Set(r.causes.map((c) => c.id))].sort();
     if (!ids.includes("33")) return `覆盖度自证没报红（实到 ${ids.join(",") || "无"}）`;
     if (ids.length !== 1) return `红因归属不纯净：${ids.join(",")}`;

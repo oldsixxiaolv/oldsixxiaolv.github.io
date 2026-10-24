@@ -29541,3 +29541,148 @@ README 命令表 / GW1 / GW4）：
   ③ 把 F21–F23 的口径从「博客列表页」泛化到**其它走 `eleventyComputed` 的单页模板**（首页 / `/about/`）——
      但要先确认这些页面的 description **不是**刻意复用站点通用描述，否则会判出假红。
 - **M1 剩余项**：M1-1（封面开关 ＋ 比例口径）仍被**待拍板 50** 阻塞。
+
+## 2026-10-24 · 00:50–01:10 场次（**不占轮次号**）：D98 —— 修掉缺陷 **D96**：博客列表页在结构化数据里没有列表级实体（补 ItemList + J14 判据）
+
+### A. 背景
+
+上一轮（D97）修的是**博客列表页自己的那一句描述**。本轮换到**这一页在结构化数据里的身份**。
+
+先说清楚本场次跨零点：开工三件事（HEAD 核对、线上巡检、基线构建）做在 **2026-10-23 22:44–22:51**，代码改动与文档落在 **2026-10-24**；本场次在三份文档里统一记 **2026-10-24**。
+
+线上巡检（2026-10-23 22:44 实测，经本机代理 `http://127.0.0.1:7890`）：`/` 200 · `/blog/` 200 · `/about/` 200 · `/sitemap.xml` 200；**`/papers/`、`/publications.bib`、`/feed.xml` 404** —— 与上一轮**逐条一致**，仍是缺陷 **D6**（部署滞后，**由 push 触发**），本轮不代拍、不 push。基线 `npm run build` → exit 0。
+
+开工前照惯例把 `docs/DEFECT-BACKLOG.md` 过了一遍：缺陷共 94 条，其中待修 / 本地已实现的 11 条，要么被 push 卡住、要么属本人拍板方向 ⇒ 走**新开缺陷**路线，登记 **D96**。
+
+**D96 是什么**：论文列表页 `/papers/` 在结构化数据里有一个列表级实体（`ItemList`），博客列表页 `/blog/` **一个都没有**。两页的模板结构完全同构（同一个 `layouts/page.njk`、同一个内容循环），消费方却**没有理由猜**哪个是哪种列表 ⇒ 「这个博客共有几篇、按什么顺序」这个问题**没有答案**（「这个站点共有几篇论文、按什么顺序」答得上来）。
+
+**为什么它一直没被发现**：
+
+- 缺它**不会报错** —— 页面照出、JSON-LD 照常合法、其它门禁全绿；
+- `check-jsonld.cjs` 对 `ItemList` **零判据**（`grep "ItemList\|itemList"` 零命中）⇒ 这一族结构化数据**没人看守**；
+- 更反直觉的是：`verify-site.cjs` 的判据 32 **确实**守着 ItemList，但它是**论文列表页专属**的（路径硬编码成 `papers/index.html`），32a 甚至规定「ItemList 只允许出现在 `papers/index.html`；其它页一个都不许有」
+  ⇒ **门禁反过来挡住了同类页面的补齐**：本轮给 `/blog/` 加 ItemList，会被 32a **直接判红**。
+
+所以 D96 不是「零看守」，而是**看守的形状错了**：有一道门禁，但它守的是「论文列表页」这一个具体路径，而不是「集合列表页」这个概念。
+
+### B. 改动
+
+**① 抽出 ItemList 的唯一形状** —— `eleventy.config.js` 新增 `buildItemList(listId, listName, entries)`：
+两个集合列表页都要输出 ItemList，而 ItemList 在站里必须**长得一模一样** —— 消费方读到它时不该先猜「这一份是哪种列表」。所以形状抽成**一个**函数，两个 filter 都调它 ⇒ 两边不可能走样。
+
+**② `jsonLdItemList` 改调共享函数，输出逐字不变** —— 论文侧的行为**一个字都没变**（改前改后逐字比对过）。这是刻意的一道关：共享函数的第一条纪律是「老的那一份不许变形」。
+
+**③ 新增 `jsonLdBlogItemList(posts, siteUrl, listName)`** —— `@id` = `<站点根>/blog/#list`（与论文侧的 `/papers/#list` 同构）；`name` 由**模板传入**，不在 filter 里硬编码第二份；`item.@id` = `<站点根><文章 url>`，与那篇文章页上 `BlogPosting` 的 `@id`（`jsonLdBlogPost` 的 `selfUrl = ${siteUrl}${pageUrl}`）**逐字相同** ⇒ 消费方按 `@id` 把「列表项」与「文章实体」合并成同一个节点。
+
+**④ 模板输出一个独立的 ld+json 块** —— `src/blog.njk` 在 `</article>` 之后输出 ItemList（与 `src/papers.njk` 同一套做法）。
+
+**为什么不改 `jsonLdArticles`**：那个 filter 被首页 / blog / about / papers 四页共用，在里面塞 ItemList 会让那三页也长出一个列表 —— 它们不是列表页，声明 ItemList 是**假声明**。
+
+**⑤ 为什么这个块紧跟 `</article>` 而不是塞进 `<head>`**：`layout:` 是**数据级包装**、不是 Nunjucks 的 `extends`（`paper.njk` 顶部已写明这一点），所以 `{% block %}` **不会跨模板注入**到 `base.njk` 的 head —— 在本页写 `{% block structuredData %}` 只会被就地渲染成正文的一部分。而「页面专属的结构化数据跟在内容后面」正是本仓既有的做法。
+
+**⑥ 数据层标记** —— 两个列表页的 front matter 各加一行 `structuredList: "ItemList"`（整行 `#` 中文注释）。这是**真源**：门禁回源读它，而不是靠猜哪个页该有。
+
+**⑦ `check-jsonld.cjs` 新增 J14 判据**（**不新建门禁文件** ⇒ 不动 `package.json` / README / GW1 / GW4）：文件头判据 J0–J13 → **J0–J14**；四条口径：
+
+- **该有**：源文件声明了 `structuredList` 的页 ⇒ 产物里必须**恰好一个**该类型的实体（缺了 = 消费方读不到；多个 = 消费方读成好几份）；
+- **不该有**：没声明的页 ⇒ 产物里**不得出现** ItemList（不许漏出去）；
+- **自洽**：`@id` = `<该页 canonical>#list`（绑定到它所在的那一页）、`name` = 页面 `h1`（这一页确实是列表页）、`numberOfItems` = 条目数、`position` 1..N 连续；
+- **落地**：每个 `item.@id` 必须指向**站内某个真实页面的 canonical** —— 列表项指向一个不存在的页面时，「列表」就是一份假账。
+
+「落地」这一条要跨页才知道，所以主循环前先预扫全站 canonical 收成一张表。
+
+**⑧ 判定回源，不按 URL 硬编码** —— `resolveDeclaredStructuredType(file)` 泛化成 `resolveDeclaredKey(file, key)`：J13 查作品实体（`structuredType`）、J14 查列表实体（`structuredList`），两者的数据层路径**完全一样**（front matter 顶层 / `eleventyComputed` / 目录数据文件）。抄两遍 ⇒ 两边迟早走样，而「走样」在这里是**假红或假绿**：假红把人引去改本来正确的东西，假绿是判据根本没跑到。
+
+**⑨ `verify-site.cjs` 判据 32 从「论文列表页专属」泛化成「集合列表页族」**：
+
+- 32a：一页最多一个 ItemList，且它的 `@id` 逐字等于 `<该页 canonical>#list`（无 canonical 判红）；
+- 32b `numberOfItems` == `itemListElement.length`；32c `position` 1..N 连续；
+- 32d 每个 `item.@id` 必须是站内真实页面的 canonical，**且**那个页面背后真的声明了同 `@id` 的带 `@type` 实体节点（跨页落地）；
+- 32e 列表顺序必须与**该页把它们列出来的顺序**一致；
+- 32f 该页若也声明了这些条目对应的作品实体，则实体与列表项必须数量一致、顺序一致（旧语义保留为一条支路）；
+- 32g 自证存活。
+
+**「哪些页该有、哪些页不该有」那一半移交 `check-jsonld` 的 J14**（它回源读数据层声明，比这里更权威）⇒ verify-site 只守「出现了就必须完整、自洽、真的落地、顺序对得上」。
+
+**⑩ 自测扩档** —— `scripts/test-jsonld.cjs`：档位 **40 → 44** 档。新增两档坏形态：**J14**（`@id` 对不上 ⇒ 恰好 1 条红，归属纯净）与 **J14b**（整个列表级实体没了 ⇒ J14 的实体个数红 ＋ J7 存活自证红）。`scripts/lib/selftest-slots.cjs` 同步登记 40 → 44。
+
+**⑪ 补一个被本轮改动撞出来的 build 阻塞** —— `scripts/check-tag-leak.cjs` 用**隔离的 Nunjucks 环境**渲染 `src/blog.njk`（站内没有文章 ⇒ 产物层看不到模板问题），它只桩了 `relUrl` / `date` / `dateToIso` 三个 filter ⇒ 模板一旦用上新的自定义 filter，Nunjucks 会直接抛「unknown filter」⇒ 该门禁以「渲染列表页失败」判红，**整个 build 卡住**。
+修法：给这道门禁补一根桩 `jsonLdBlogItemList`（桩成 null ⇒ 模板里那个 JSON-LD 脚本块整块不输出 ⇒ 徽章断言的输入与从前一致）。
+**判据一条没动**（T1–T5 与红因归属表的 11 条原样，`fail()` 调用点数仍是 11）—— 只是让渲染环境认识新 filter；
+并把「往列表页新加自定义 filter 时要在这里补桩」写进了门禁文件头。
+
+### C. 验证
+
+- `node scripts/verify-site.cjs` → exit 0（末行确认「集合列表页的 ItemList：全站 2 个 / 比对了 4 项，每一项都落在站内真实页面，且顺序与各页列出它们的顺序一致」）。
+- `npm run check:jsonld` → exit 0（末行确认「集合列表页的列表级实体：2 个列表实体逐字核对了 @id（= 本页 canonical#list）、name（= 页面 h1）、numberOfItems、position（1..N 连续），以及每个 item 指向的站内真实页面」；「逐比较点覆盖度自证：37/37」）。
+- `npm run check:jsonld-selftest` → exit 0（**44/44** 档全绿，含 J14 / J14b / N-J14 / N-J14b；门禁原件 SHA-256 未变）。
+- `npm run check:verify-site-selftest` → exit 0（**77** 档全绿，含 INJ-32 / NEG-32 与覆盖度自证锚点）。
+- `npm run check:selftest-guard` / `npm run check:gates` → exit 0（自测档位号登记与门禁接线清单双向自洽）。
+- 其余门禁（`check:log-sections` / `check:decision-ids` / `check:doc-snapshot` / `check:mount-contract` / `check:markdown-tables` / `check:readme` / `check:writing-contract` / `check:blog-frontmatter`(+selftest) / `check:tag-leak` / `check:information-architecture` / `check:block-language` / `check:lang`）→ exit 0。
+- `npm run build` → **exit 0**。
+- **产物核对**：`/blog/` 恰有一个 ItemList（`@id` = `<站点根>/blog/#list`、`name` = 页面 h1、`numberOfItems` 与条目数一致、`position` 1..N 连续、每个 `item.@id` 指向真实文章页且等于该页 `BlogPosting` 的 `@id`）；`/papers/` 的 ItemList **逐字未变**；首页 / `/about/` / 404 页**零** ItemList。
+
+### D. 顺手发现
+
+- **门禁的形状错了，比没有门禁更难发现**。判据 32 一直绿，但它绿的是「论文列表页专属」这个**具体路径**。
+  于是同一件事有两副面孔：站内缺一份列表（没人管），而真去补的时候又会被门禁挡回来
+  ⇒ **补齐同族成员之前，先问「现有判据守的是概念还是实例」**。硬编码路径的门禁会**反过来挡住新成员**。
+- **「这一族」要先泛化成概念，再写判据**。本轮先有了 `structuredList`（数据层标记）这个**可判的概念**，
+  才有「哪些页该有」这个问题；否则只能对着 `/papers/` 写死一条。
+- **共享函数是防走样的最便宜手段**：ItemList 的形状抄两遍，迟早两边不一样。
+  抽成一个函数之后，两页的 ItemList 是**同一种东西**，新成员自动继承纪律。
+- **「落地」必须跨页查**：旧判据 32d 查「同页有没有同 `@id` 的实体节点」，
+  而博客列表页的条目实体在**各自文章页上** ⇒ 查法必须从「同页」升级成「站内某个真实页面」。
+  （这跟站内链接是**相对路径**这件事直接相关：`../blog/xxx/` 必须按文件位置解析再取目标页 canonical。）
+- **纯引用不能算实体**：`itemListElement[i].item` 本身就是 `{"@id": ...}` 的**引用**，
+  若把它算进「可被找到的 @id 集合」，判据就成了**拿自己证明自己** —— 永远成立。
+  只有**带 `@type` 的实体节点**才算数（这条在旧判据里就有，本轮保留）。
+- **「哪些页不该有」与「出现了得完整」是两个不同的责任**，本轮把它们拆开：
+  前者交给回源判据（J14），后者交给产物扫描判据（verify-site 32）—— 两者都绿才算数。
+- **本轮这条路径上有个既存弱点**（不是本轮引入，也不打算本轮修）：
+  同时删掉 `structuredList` 标记**和** ItemList 块，仍然没人发现 —— 因为数据层标记是唯一真源。
+  这是全门禁体系共有的性质：**真源被删掉时，「该有的东西没了」与「本来就不该有」不可区分**。
+- **`ItemList` 的 `name` 走单一真源**：由模板把自己的 `title` 传进去，
+  不在 filter 里硬编码第二份 —— 否则改一次标题要改两处，迟早有一处漏掉。
+- **「单独渲染模板」的门禁会漏掉构建期 filter**：隔离渲染只认它桩过的那几个 filter，
+  于是模板里新加一个自定义 filter（哪怕与该门禁的判据毫无关系）就会让它当场红。
+  本轮就撞上了：给列表页加 ItemList ⇒ `check:tag-leak` 判「渲染列表页失败」。
+  修法是**给门禁补桩**，不是把模板改回去 —— 判据不该为了迁就渲染环境而改。
+  （这条也解释了为什么它「一加 filter 就红」不是偶发：门禁的环境是**手写的白名单**。）
+
+### E. 文档
+
+- `docs/DEFECT-BACKLOG.md`：**新增 D96 行**（位置 / 现象 / 后果 / 根因 / 验收条件 / 状态格逐条兑现）；
+  状态写「**本地已实现，待 push 后复验线上项**」，**不写「已修」**；既有行一字未动。
+- `docs/ROADMAP.md`：进度行日期与缺陷清单编号更新（**D96**），待修清单补上 D96；
+  进度区新增 D96 的本地已实现条目；M0 段追加 **D98** 条目（现象 / 后果 / 根因 ＋ 十条改动）。
+- `docs/IMPROVEMENT-LOG.md`：本小节；中央「待决策」台账**不新增**待拍板项（最高仍是待拍板 56）。
+- `docs/blog-writing-guide.md`：本轮**未改动** —— 本轮不涉及写作契约（判据编号 F/T 体系未动）。
+
+### F. 本轮纪律
+
+- 提交只走**私有索引 CAS**，只提交本轮自己改的路径；**不 push**。
+- 并发场次占用的 `scripts/check-identity-handles.cjs` / `scripts/test-gates-selfcheck.cjs`
+  本轮**未触碰、未提交**。
+- 探针、夹具与文档拼接脚本都放在 `/tmp/mh_d98/`（**不入库**）；收尾用 `mavis-trash` 清理。
+- **不写死会变的存量数**：文档现状陈述里不写「全站几页」「几篇文章」这种每轮都变的数；
+  自测档位说明里也把会变的比较点数量改成「全部比较点都跑过」这种不会过期的说法。
+- **日期口径三处自洽**：DEFECT-BACKLOG 的 D96 行、ROADMAP 的 D98 条目、IMPROVEMENT-LOG 的 D98 小节，
+  都写 **2026-10-24**（本场次的收尾日期）。
+- 门禁红了先定位红因，**不放宽判据**；负对照断言**红因文案命中**且**红因归属纯净**。
+- 本轮 build 曾被 `check:tag-leak` 挡住（隔离渲染不认新 filter）⇒ **给门禁补桩**修掉，
+  判据 T1–T5 与红因归属表一条没动。
+- 每个数字都能在同页找到出处；**不编造**任何数据、结论或引用。
+
+### 下一轮入口
+
+- **D96 的收尾只差 push**：线上 `/blog/` 的 ItemList 与 `/papers/` 的逐字不变，
+  都要在 push 之后复验 —— 与 **D6**（线上 3 条 404）同一个前置。
+- **D5 / D93 / D94 / D95** 同样卡在 push；**D9 / D10 / D12 / D26 / D32 / D57** 仍挂本人拍板；
+  **D7 / D8** 判为不修 —— 本轮不代拍。
+- **本轮顺手记下的候选**（接上一轮的候选①③）：
+  ① `docs/og-image-and-a11y-report.md` 的旧数字与失效路径；
+  ② J13 目前**不核对** `image` 与 `dateModified`（论文页那一类核对在 J11）；
+  ③ 把 F21–F23 的口径从「博客列表页」泛化到**其它走 `eleventyComputed` 的单页模板**（首页 / `/about/`）——
+     但要先确认这些页面的 description **不是**刻意复用站点通用描述，否则会判出假红。
+- **M1 剩余项**：M1-1（封面开关 ＋ 比例口径）仍被**待拍板 50** 阻塞。

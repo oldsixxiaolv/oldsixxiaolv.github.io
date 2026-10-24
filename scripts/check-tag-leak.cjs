@@ -18,11 +18,18 @@
  * 门禁怎么做（为什么这样才算数）：
  *   · 渲染的是 `src/_includes/layouts/detail.njk` **本体**（不是副本、不是手抄一份），
  *     用的是 Eleventy 同一个模板引擎 Nunjucks、同一套 filter 语义。
- *   · 只把三个**与标签无关**的 filter 打了桩：
+ *   · 只把**与标签无关**的 filter 打了桩（逐个理由见下）：
  *       relUrl     —— 只改路径前缀（Eleventy 会按页面深度算成 `../`），与标签无关；
  *       date       —— 只格式化日期，与标签无关；
- *       dateToIso  —— 只格式化日期，与标签无关。
+ *       dateToIso  —— 只格式化日期，与标签无关；
+ *       jsonLdBlogItemList —— 生成列表页末尾那个列表级结构化数据（ItemList），
+ *         与标签无关；桩成 null ⇒ 模板里那个 JSON-LD 脚本块整块不输出，
+ *         徽章断言的输入与从前一致；它的真源在 eleventy.config.js 里，
+ *         由 check-jsonld 的 J14 与 verify-site 的 32 守着。
  *     其余一切（`reject` 过滤器、`isBlog` 判定、meta 行的循环）都是模板自己的代码。
+ *   · ⚠️ 往列表页里**新加**自定义 filter 时，必须在这里补一根桩：
+ *     Nunjucks 遇到不认识的 filter 会直接抛错 ⇒ 本门禁会以「渲染列表页失败」判红。
+ *     （实测：2026-10-24 给列表页加 ItemList 时就是这样撞上的。）
  *   · 渲染上下文里的 `tags` = **从真实数据文件推出来的集合名** + 几个主题标签。
  *     集合名不是写死在门禁里的常量，而是从内容目录里那些目录数据文件
  *     （`src/content/<集合名>/<集合名>.11tydata.cjs`）
@@ -79,7 +86,7 @@ function makeEnv() {
     new nunjucks.FileSystemLoader([path.join(ROOT, "src", "_includes")]),
     { autoescape: true, throwOnUndefined: false }
   );
-  // 只桩掉与标签无关的三个 filter（理由见文件头）。
+  // 只桩掉与标签无关的 filter（理由见文件头）。
   env.addFilter("relUrl", (u) => (u === null || u === undefined ? "" : String(u)));
   env.addFilter("date", (v) => {
     if (!v) return "";
@@ -91,6 +98,11 @@ function makeEnv() {
     const d = v instanceof Date ? v : new Date(String(v));
     return isNaN(d.getTime()) ? "" : d.toISOString();
   });
+  // jsonLdBlogItemList：列表页末尾那个列表级结构化数据的生成器（与标签无关）。
+  //   桩成 null ⇒ 模板里那个 JSON-LD 脚本块整块不输出 ⇒ 徽章断言的输入与从前一致。
+  //   这个 filter 的真源在 eleventy.config.js 里；它对不对不归本门禁管，
+  //   由 check-jsonld 的 J14 与 verify-site 的 32 守着。
+  env.addFilter("jsonLdBlogItemList", () => null);
   return env;
 }
 

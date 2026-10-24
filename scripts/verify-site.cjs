@@ -74,10 +74,12 @@
  *        字段缺失不判、嵌套字段不判；sameAs 有字符串 / 数组两种形态，
  *        先归一化再比（列表型字段按集合比，"逗号串 vs 数组"与顺序差异
  *        都不算冲突）；口径待本人拍板的字段只报不判
- *    32. /papers/ 的列表级 JSON-LD（ItemList）必须完整、且每个条目都能在
- *        **同一页**的 JSON-LD 实体里找到同 @id 的节点；numberOfItems 与
- *        条目数必须一致；position 必须 1..N 连续；ItemList 只允许出现在
- *        论文列表页（首页 / 博客 / 关于 / 404 页一个都不许有）
+ *    32. 集合列表页的列表级 JSON-LD（ItemList）必须完整、自洽、且真的落地：
+ *        一页最多一个 ItemList，它的 @id 必须逐字等于 <该页 canonical>#list；
+ *        numberOfItems 与条目数必须一致；position 必须 1..N 连续；
+ *        每一项的 item.@id 必须落在站内某个真实页面的 canonical 上，
+ *        且那个页面必须真的声明了同 @id 的实体节点；
+ *        列表顺序必须与该页把它们列出来的顺序一致
  *    33. 逐比较点覆盖度自证：每条门禁的比较点在这一轮都必须**真的跑过**
  *        （比较点目录静态登记；每个比较点的判据条数也必须在场），
  *        否则「整块判据被摘掉 / 被短路」这类静默失效会全绿通过
@@ -2951,7 +2953,7 @@ mark("31");
   }
 }
 
-/* ---------- 32. 论文列表页的列表级 JSON-LD（ItemList）必须完整 ----------
+/* ---------- 32. 集合列表页的列表级 JSON-LD（ItemList）必须完整、自洽、且真的落地 ----------
    这条是被一个**结构缺失**逼出来的：站里此前只有**一堆彼此无序的
    ScholarlyArticle**（jsonLdArticles 在首页 / 博客 / 关于 / 论文列表四页都输出
    全量 @graph）。消费方（Google、Semantic Scholar 等）据此能回答"这里有哪些
@@ -2960,26 +2962,33 @@ mark("31");
 
    ⚠️ 为什么不改 jsonLdArticles 顺带解决：那个 filter 被首页 / blog /
    about / papers 四页共用，在里面塞 ItemList 会让**首页、博客、关于页**
-   也长出一个论文列表——那三页不是论文列表页，声明 ItemList 是**假声明**。
+   也长出一个列表——那些页不是集合列表页，声明 ItemList 是**假声明**。
    所以 ItemList 走独立的 <script type="application/ld+json"> 块，
-   只在 /papers/ 由模板显式输出（见 src/papers.njk）。
+   只由集合列表页的模板显式输出（见 src/papers.njk 与 src/blog.njk）。
+
+   ⚠️ 为什么从「论文列表页专属」泛化成「集合列表页族」：
+   早先这条把路径硬编码成 papers/index.html，于是**多一个集合列表页**
+   （博客列表页）就会被判红——门禁反过来挡住了同类页面的补齐。
+   现在改成：凡是页面上出现 ItemList，就按集合列表页的规矩逐项核对。
+   「哪些页该有、哪些页不该有」那一半由 check-jsonld 的 J14 承担
+   （它回源读数据层的 structuredList 声明，比这里更权威）。
 
    判据（每一条都比"具体的东西"，不比"看起来对"）：
-     32a 论文列表页**恰好一个** ItemList；**其它页一个都不许有**
-          （反向判据：这条同时挡住"ItemList 泄到首页 / 博客 / 关于 / 404"）
+     32a 一页最多一个 ItemList；它的 @id 必须逐字等于 <该页 canonical>#list
      32b numberOfItems 必须等于 itemListElement 的实际长度
      32c position 必须等于序号（1..N 连续，不许跳号、不许重复）
-     32d 每个 item.@id 必须能在**同一页**带 @type 的 JSON-LD 实体里
-          找到**同 @id 的节点**
-     32e ItemList 的 item.@id 序列必须与该页 ScholarlyArticle 的 @id 序列
-          **逐项同序**
-     32f 自证存活
+     32d 每个 item.@id 必须落在**站内某个真实页面的 canonical** 上，
+        且那个页面必须真的声明了同 @id 的实体节点
+     32e 列表顺序必须与这一页把它们列出来的顺序一致（参照系 = 页面链接顺序）
+     32f 这一页若也声明了这些条目对应的作品实体，则实体与列表项必须
+         数量一致、顺序一致
+     32g 自证存活
 
-   ⚠️ 32d 为什么要限定"带 @type 的节点"：
+   ⚠️ 32d 为什么要限定"带 @type 的实体节点"：
      ItemList 自己的 itemListElement[i].item 就是一个 {"@id": ...} 的
      **引用**（没有 @type）。如果把这类引用也算进"可被找到的 @id 集合"，
      那么"item.@id 指向谁"这条判据就变成**拿自己证明自己** —— 它永远成立，
-     于是 32d 变成一条永远为绿的空判（与门禁 18 / 31 的"自证存活"同类）。
+     于是这条判据变成一条永远为绿的空判（与门禁 18 / 31 的"自证存活"同类）。
      只收**带 @type 的实体节点**，才是真的在问"这个 @id 背后有没有一个
      被声明过的作品实体"。 */
 mark("32");
@@ -2987,8 +2996,30 @@ mark("32");
   // 本条自己判出的问题数（用于给 note 选措辞，见文件里 note() 的纪律：
   // 判红时不能照抄通过时那句带断言的话）
   const problemsBeforeItemList = problems.length;
-  // 论文列表页在产物里的相对路径（rel() = path.relative(SITE, file)）
-  const PAPERS_PAGE = "papers/index.html";
+
+  // 每页的 canonical + 该页声明的实体 @id 全集（404 页按设计没有 canonical
+  // ⇒ 不进这两张表）。第二张表让"条目指向的页面背后有没有实体"能跨页查。
+  const itemListCanonicals = new Map(); // 绝对路径 → canonical
+  const itemListTypedIds = new Map(); // 绝对路径 → Set(实体 @id)
+  for (const file of htmlFiles) {
+    const html = fs.readFileSync(file, "utf8");
+    const canon = (html.match(/<link[^>]*rel\s*=\s*"canonical"[^>]*href\s*=\s*"([^"]*)"/i) || [])[1];
+    if (!canon) continue;
+    itemListCanonicals.set(file, canon);
+    const ids = new Set();
+    for (const { from, parsed } of ldRecords) {
+      if (path.join(SITE, from) !== file) continue;
+      for (const n of collectNodes(parsed)) {
+        if (!typesOf(n).length) continue; // 纯引用（{"@id": ...}）不算实体
+        const id = typeof n["@id"] === "string" ? n["@id"].trim() : "";
+        if (id) ids.add(id);
+      }
+    }
+    itemListTypedIds.set(file, ids);
+  }
+  // canonical → 声明它的那个页面（反过来查"这个 @id 背后有没有实体"）
+  const itemListPageByCanonical = new Map();
+  for (const [file, canon] of itemListCanonicals) itemListPageByCanonical.set(canon, file);
 
   // 全站找 ItemList（**递归进嵌套** —— 有人把它塞进 @graph 里也一样要抓）
   const itemListHits = [];
@@ -2997,56 +3028,53 @@ mark("32");
       if (typesOf(node).includes("ItemList")) itemListHits.push({ from, node });
     }
   }
-
-  // 32a：论文列表页恰好一个；其它页一个都不许有
-  const onPapers = itemListHits.filter((h) => h.from === PAPERS_PAGE);
+  // 按页分组：同一页出现多个 ItemList ⇒ 消费方会把这一页读成好几份列表
+  const itemListsByPage = new Map();
   for (const h of itemListHits) {
-    if (h.from === PAPERS_PAGE) continue;
-    fail("32", 
-      `${h.from}: 出现了 ItemList —— 论文列表实体只允许出现在 ${PAPERS_PAGE}；` +
-        `这一页不是论文列表页，声明 ItemList 是假声明（消费方会以为这里也有一份列表）`
-    );
-  }
-  if (onPapers.length !== 1) {
-    fail("32", 
-      `${PAPERS_PAGE}: 论文列表页的 ItemList 数量是 ${onPapers.length}（应为 1）—— ` +
-        `列表级实体缺了，"这个站点共有几篇论文、按什么顺序"就没有答案`
-    );
-  }
-
-  // 该页"带 @type 的实体"的 @id 全集 —— 32d 的查找范围（**不含纯引用**）
-  const typedIdsOnPapers = new Set();
-  for (const { from, parsed } of ldRecords) {
-    if (from !== PAPERS_PAGE) continue;
-    for (const node of collectNodes(parsed)) {
-      if (!typesOf(node).length) continue; // 纯引用（{"@id": ...}）不算实体
-      const id = typeof node["@id"] === "string" ? node["@id"].trim() : "";
-      if (id) typedIdsOnPapers.add(id);
-    }
-  }
-
-  // 该页 ScholarlyArticle 的 @id 序列（按文档顺序）—— 32e 的另一侧
-  const articleIdsOnPapers = [];
-  for (const { from, parsed } of ldRecords) {
-    if (from !== PAPERS_PAGE) continue;
-    for (const node of collectNodes(parsed)) {
-      if (!typesOf(node).includes("ScholarlyArticle")) continue;
-      const id = typeof node["@id"] === "string" ? node["@id"].trim() : "";
-      if (id) articleIdsOnPapers.push(id);
-    }
+    if (!itemListsByPage.has(h.from)) itemListsByPage.set(h.from, []);
+    itemListsByPage.get(h.from).push(h.node);
   }
 
   let itemCount = 0;
-  for (const { node } of onPapers) {
+  for (const [from, nodes] of itemListsByPage) {
+    // 32a：一页最多一个 ItemList
+    if (nodes.length !== 1) {
+      fail("32",
+        `${from}: 这一页出现了 ${nodes.length} 个 ItemList（应为 1）—— ` +
+          "消费方会把这一页读成好几份列表，说不清哪一份才是这一页的目录"
+      );
+      continue;
+    }
+    const node = nodes[0];
+    const pageFile = path.join(SITE, from);
+
+    // 32a：@id 必须逐字等于 <该页 canonical>#list
+    const pageCanonical = itemListCanonicals.get(pageFile) || "";
+    if (!pageCanonical) {
+      fail("32",
+        `${from}: 这一页声明了 ItemList，却没有 canonical —— ` +
+          "无法确定这份列表属于哪一页（404 页按设计没有 canonical，本就不该有列表）"
+      );
+    } else {
+      const listId = typeof node["@id"] === "string" ? node["@id"] : "";
+      const wantListId = pageCanonical + "#list";
+      if (listId !== wantListId) {
+        fail("32",
+          `${from}: ItemList 的 @id 是「${listId}」，应为「${wantListId}」—— ` +
+            "列表级实体必须绑定到它所在的那一页，否则消费方不知道这份列表是谁的"
+        );
+      }
+    }
+
     const list = Array.isArray(node.itemListElement) ? node.itemListElement : null;
     if (!list) {
-      fail("32", `${PAPERS_PAGE}: ItemList 缺 itemListElement（或它不是数组）—— 列表没有条目`);
+      fail("32", `${from}: ItemList 缺 itemListElement（或它不是数组）—— 列表没有条目`);
       continue;
     }
     // 32b：numberOfItems 与实际条目数一致
     if (node.numberOfItems !== list.length) {
-      fail("32", 
-        `${PAPERS_PAGE}: ItemList 的 numberOfItems 是 ${node.numberOfItems}，` +
+      fail("32",
+        `${from}: ItemList 的 numberOfItems 是 ${node.numberOfItems}，` +
           `实际条目数是 ${list.length} —— 两者必须一致（消费方按 numberOfItems 决定读几条）`
       );
     }
@@ -3055,76 +3083,165 @@ mark("32");
       const el = list[i];
       const pos = el && typeof el === "object" ? el.position : undefined;
       if (pos !== i + 1) {
-        fail("32", 
-          `${PAPERS_PAGE}: ItemList 第 ${i + 1} 条的 position 是 ${pos}（应为 ${i + 1}）—— ` +
-            `position 必须 1..N 连续，不能跳号或重复`
+        fail("32",
+          `${from}: ItemList 第 ${i + 1} 条的 position 是 ${pos}（应为 ${i + 1}）—— ` +
+            "position 必须 1..N 连续，不能跳号或重复"
         );
       }
     }
-    // 32d：每个 item.@id 能在同页带 @type 的实体里找到同 @id 节点
+
+    // 32e 的参照系：这一页**按链接顺序**把条目列出来。
+    //   ⚠️ 站内链接是相对路径（../blog/xxx/），必须按当前文件的位置解析，
+    //      再取目标页自己的 canonical —— 拿 href 字符串直接比会全错。
+    const pageHtml = fs.readFileSync(pageFile, "utf8");
+    const linkCanons = [];
+    for (const m of pageHtml.matchAll(/<a[^>]*href\s*=\s*"([^"]*)"/gi)) {
+      const target = resolveLocal(pageFile, m[1].trim());
+      if (!target) continue;
+      const canon = itemListCanonicals.get(target);
+      if (canon) linkCanons.push(canon);
+    }
+
+    // 32d：每个 item.@id 必须落在站内某个真实页面的 canonical 上，
+    //      且那个页面必须真的声明了同 @id 的实体节点
     const itemIds = [];
     for (let i = 0; i < list.length; i++) {
       const el = list[i];
       const ref = el && typeof el === "object" ? el.item : null;
       const id = ref && typeof ref === "object" ? ref["@id"] : undefined;
       if (typeof id !== "string" || !id.trim()) {
-        fail("32", 
-          `${PAPERS_PAGE}: ItemList 第 ${i + 1} 条没有 item.@id —— ` +
-            `列表项必须指向那个作品实体，消费方才能把"列表项"与"论文"合并成同一个节点`
+        fail("32",
+          `${from}: ItemList 第 ${i + 1} 条没有 item.@id —— ` +
+            "列表项必须指向那个作品实体，消费方才能把「列表项」与「作品」合并成同一个节点"
         );
         continue;
       }
       const idv = id.trim();
       itemIds.push(idv);
-      if (!typedIdsOnPapers.has(idv)) {
-        fail("32", 
-          `${PAPERS_PAGE}: ItemList 第 ${i + 1} 条的 item.@id「${idv}」` +
-            `在本页的 JSON-LD 实体里找不到同 @id 的节点 —— 列表项指向了一个本页没声明的作品`
+      const targetFile = itemListPageByCanonical.get(idv);
+      if (!targetFile) {
+        fail("32",
+          `${from}: ItemList 第 ${i + 1} 条的 item.@id「${idv}」` +
+            "不是站内任何一个页面的 canonical —— 列表项指向了一个不存在的页面"
+        );
+        continue;
+      }
+      const typedIds = itemListTypedIds.get(targetFile) || new Set();
+      if (!typedIds.has(idv)) {
+        fail("32",
+          `${from}: ItemList 第 ${i + 1} 条的 item.@id「${idv}」` +
+            `背后没有实体节点（${rel(targetFile)} 只声明了别的 @id）—— ` +
+            "列表项必须指向一个真的被声明过的作品，否则消费方拿到的是一个空指针"
         );
       }
     }
-    // 32e：与该页 ScholarlyArticle 的 @id 序列逐项同序
-    if (itemIds.length !== articleIdsOnPapers.length) {
-      fail("32", 
-        `${PAPERS_PAGE}: ItemList 列了 ${itemIds.length} 项，但本页声明了 ` +
-          `${articleIdsOnPapers.length} 个 ScholarlyArticle —— 两者必须逐项对应（多一个少一个都不行）`
-      );
-    } else {
-      for (let i = 0; i < itemIds.length; i++) {
-        if (itemIds[i] !== articleIdsOnPapers[i]) {
-          fail("32", 
-            `${PAPERS_PAGE}: ItemList 第 ${i + 1} 项的 @id「${itemIds[i]}」与本页第 ${i + 1} 个 ` +
-              `ScholarlyArticle 的 @id「${articleIdsOnPapers[i]}」不一致 —— 列表顺序必须与实体顺序一致`
+
+    // 32e：列表顺序必须与这一页列出它们的顺序一致
+    if (itemIds.length) {
+      let missing = 0;
+      for (const idv of itemIds) {
+        if (!linkCanons.includes(idv)) missing++;
+      }
+      if (missing) {
+        fail("32",
+          `${from}: ItemList 有 ${missing} 项在这一页找不到对应链接 —— ` +
+            "列表声明的条目必须真的被这一页列出来（消费方点进去要能到）"
+        );
+      } else {
+        // 贪心子序列：每一项都取它在该页链接序列里的位置，且必须严格递增
+        let last = -1;
+        let badAt = -1;
+        for (let i = 0; i < itemIds.length; i++) {
+          const idx = linkCanons.indexOf(itemIds[i], last + 1);
+          if (idx < 0) {
+            badAt = i;
+            break;
+          }
+          last = idx;
+        }
+        if (badAt >= 0) {
+          fail("32",
+            `${from}: ItemList 第 ${badAt + 1} 项的顺序与这一页列出它们的顺序不一致 —— ` +
+              "列表顺序必须与页面呈现顺序一致（消费方按 position 拼出的目录才对得上人看到的页面）"
           );
         }
       }
     }
+
+    // 32f：这一页若也声明了这些条目对应的作品实体，则实体与列表项必须
+    //       数量一致、顺序一致。
+    //       ⚠️ 博客列表页不在场：文章实体声明在各自的文章页上，列表页只有
+    //          一份全站的 ScholarlyArticle（那是论文，不是这些列表项）。
+    //          这时顺序由 32e 守。
+    const itemIdSet = new Set(itemIds);
+    const matchedTypes = new Set();
+    for (const { from: f2, parsed } of ldRecords) {
+      if (f2 !== from) continue;
+      for (const n of collectNodes(parsed)) {
+        if (!typesOf(n).length) continue; // 纯引用（{"@id": ...}）不算实体
+        const id = typeof n["@id"] === "string" ? n["@id"].trim() : "";
+        if (!id || !itemIdSet.has(id)) continue;
+        for (const t of typesOf(n)) matchedTypes.add(t);
+      }
+    }
+    // ⚠️ 只有在列表项**全部**拿到了 item.@id 时才比这一支：
+    //    否则 32d 已经报过错，itemIds 是残缺的，拿残缺长度去比实体数量
+    //    会再报一次「数量对不上」——那是级联噪音，会把红因指偏。
+    if (matchedTypes.size && itemIds.length === list.length) {
+      // 同类型的实体全集（页面声明了这一族作品，就必须把这一族列全）
+      const sameTypeIds = [];
+      for (const { from: f2, parsed } of ldRecords) {
+        if (f2 !== from) continue;
+        for (const n of collectNodes(parsed)) {
+          if (!typesOf(n).length) continue;
+          const id = typeof n["@id"] === "string" ? n["@id"].trim() : "";
+          if (!id) continue;
+          if (typesOf(n).some((t) => matchedTypes.has(t))) sameTypeIds.push(id);
+        }
+      }
+      if (sameTypeIds.length !== itemIds.length) {
+        fail("32",
+          `${from}: ItemList 列了 ${itemIds.length} 项，但本页声明了 ` +
+            `${sameTypeIds.length} 个对应的作品实体 —— 两者必须逐项对应（多一个少一个都不行）`
+        );
+      } else {
+        for (let i = 0; i < itemIds.length; i++) {
+          if (sameTypeIds[i] !== itemIds[i]) {
+            fail("32",
+              `${from}: ItemList 第 ${i + 1} 项的 @id「${itemIds[i]}」与本页第 ${i + 1} 个 ` +
+                `对应实体的 @id「${sameTypeIds[i]}」不一致 —— 列表顺序必须与实体顺序一致`
+            );
+          }
+        }
+      }
+    }
+
     itemCount += list.length;
   }
 
-  // 32f：自证存活 —— 判据自己被卸掉时不能"全绿"
+  // 32g：自证存活 —— 判据自己被卸掉时不能"全绿"
   if (!itemListHits.length) {
-    fail("32", 
-      "全站找不到任何 ItemList —— 本条存在的理由就是守住论文列表的列表级实体；" +
+    fail("32",
+      "全站找不到任何 ItemList —— 本条存在的理由就是守住集合列表页的列表级实体；" +
         "它消失了，判据也就跟着失效了"
     );
-  } else if (onPapers.length === 1 && !itemCount) {
-    fail("32", 
-      `${PAPERS_PAGE}: ItemList 存在但一条都没被比对 —— 判据可能已经失效` +
-        `（本条存在的理由是守住"每一项都能在同页找到作品实体"）`
+  } else if (!itemCount) {
+    fail("32",
+      "全站有 ItemList，却一条条目都没被比对 —— 判据可能已经失效" +
+        "（本条存在的理由是守住每一项都真的落地、且顺序与页面一致）"
     );
   }
   // ⚠️ note 的措辞必须跟着本条的判定结果走：判红时**不许**照抄
-  //    "仅 papers/index.html" 这类带断言的话（实测 F5：ItemList 泄到首页时，
+  //    "每一项都落在站内真实页面" 这类带断言的话（实测 F5：ItemList 泄到首页时，
   //    报错已经指出问题，note 却还在说"仅 papers/index.html"——
   //    读的人先扫到 note，就会把红因当成别的问题）。
   const itemListProblems = problems.length - problemsBeforeItemList;
   if (itemListHits.length) {
     note(
       itemListProblems
-        ? `论文列表 ItemList：全站 ${itemListHits.length} 个 / 比对了 ${itemCount} 项 —— 存在问题（见上方报错）`
-        : `论文列表 ItemList：${onPapers.length} 个（仅 ${PAPERS_PAGE}）/ ${itemCount} 项，` +
-          `每一项的 @id 都能在本页找到同 @id 的作品实体，顺序与 ScholarlyArticle 一致`
+        ? `集合列表页的 ItemList：全站 ${itemListHits.length} 个 / 比对了 ${itemCount} 项 —— 存在问题（见上方报错）`
+        : `集合列表页的 ItemList：全站 ${itemListHits.length} 个 / 比对了 ${itemCount} 项，` +
+          "每一项都落在站内真实页面，且顺序与各页列出它们的顺序一致"
     );
   }
 }
@@ -3160,7 +3277,7 @@ const COVERAGE_POINTS = {
   "5": 2, "6": 1, "7": 6, "8": 10, "9": 2, "10": 1, "11": 5, "12": 3,
   "13": 7, "14": 1, "15": 2, "16": 8, "17": 4, "18": 10, "19": 4,
   "20": 5, "21": 6, "22": 1, "23": 2, "24": 4, "25": 1, "26": 1, "27": 1,
-  "28": 2, "29": 5, "30": 10, "31": 3, "32": 11,
+  "28": 2, "29": 5, "30": 10, "31": 3, "32": 15,
 };
 {
   const dirIds = Object.keys(COVERAGE_POINTS);
