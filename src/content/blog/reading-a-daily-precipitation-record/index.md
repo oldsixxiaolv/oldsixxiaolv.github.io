@@ -1,6 +1,12 @@
 ---
 title: "How to read a 66-year daily precipitation record"
 date: 2026-10-23
+# description is the SEO meta description of this article: a rewrite of the title
+# that says what the article is about, without the headline wording.
+# excerpt is a different job - it is the one-line summary shown on the /blog/ card.
+# Never let one stand in for the other: with only excerpt, the page falls back to
+# the site-wide description and every article ends up with the same snippet.
+description: "A daily precipitation record answers a different question depending on the index, and the threshold and the window you choose decide what a 66-year series appears to show."
 excerpt: "Wet days, a per-gridpoint extreme-day threshold and annual maxima answer three different questions, and two of the choices you make - the threshold and the window - decide what you find."
 readingTime: 6
 tags: ["precipitation", "methods", "climate"]

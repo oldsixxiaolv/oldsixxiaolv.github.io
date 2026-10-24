@@ -1,6 +1,12 @@
 ---
 title: "Reading a stage-dependent lightning-structure relationship in TRMM thunderstorms"
 date: 2026-10-23
+# description is the SEO meta description of this article: a rewrite of the title
+# that says what the article is about, without the headline wording.
+# excerpt is a different job - it is the one-line summary shown on the /blog/ card.
+# Never let one stand in for the other: with only excerpt, the page falls back to
+# the site-wide description and every article ends up with the same snippet.
+description: "Pooling snapshot storms hides a stage-dependent lightning-structure relationship in TRMM thunderstorms; a K-means life-cycle classification recovers it."
 excerpt: "Pooling snapshot storms hides the lightning-structure relationship: a K-means stage classification over 16 years of TRMM observations recovers a correlation that stays stable and a slope that does not."
 readingTime: 6
 tags: ["lightning", "TRMM", "radar"]

@@ -61,6 +61,7 @@ front matter 写的 `tags` 与自动追加的 `"blog"` 会**并成一份**，
 ---
 title: "Stage-dependent lightning–radar relationships in TRMM thunderstorms"
 date: 2026-10-20
+description: "How a K-means classification of 16 years of TRMM storms into three life-cycle stages changes what a lightning-intensity relationship looks like."
 excerpt: "A K-means classifier on radar echo structure splits 16 years of TRMM storms into three stages; the lightning-intensity relation turns out to be stage-specific rather than one pooled trend."
 readingTime: 12
 tags: ["TRMM", "lightning", "radar"]
@@ -71,10 +72,21 @@ tags: ["TRMM", "lightning", "radar"]
 |---|---|---|---|---|
 | `title` | **是** | 字符串 | 列表卡标题、详情页 `<h1>`、feed `<title>` | 缺失 → 详情页 h1 空白、列表卡无名 |
 | `date` | **是** | `YYYY-MM-DD` | 列表卡眉标、详情页日期、feed `pubDate`、`prev/next` 排序 | 见 §2.1 |
+| `description` | **是** | 字符串 | SEO 用的 meta description（`<meta name="description">`、`og:description`、`twitter:description`、JSON-LD 的 `description`） | 缺失 → 回落成**站点通用描述**，站内每篇文章的搜索 snippet 一模一样（见下面的说明） |
 | `excerpt` | 强烈建议 | 字符串 | 列表卡摘要（**一句话**） | 缺失 → 卡片没有摘要，只剩标题，看不出值不值得点 |
 | `readingTime` | 建议 | **纯数字** | 模板直接拼 `{{ readingTime }} min read` | 写成 `"12 min"` → 页面显示 `12 min min read` |
 | `tags` | 可选 | 字符串数组 | 列表卡主题标签（**最多显示 3 个**） | 见 §2.2 |
 | `cover` | 可选 | **文件名**（必须是 `cover.<ext>`） | 列表卡封面 | 见 §2.3 |
+
+> **`description` 与 `excerpt` 是两个岗位，不能互相顶替**：
+> `description` 是**给搜索引擎看的一句话描述** —— 写进 `<meta name="description">`、
+> `og:description`、`twitter:description` 与 JSON-LD 的 `description` 这些出口；
+> 它的内容是**标题的改写**：换个说法说清这篇文章讲什么，读的人不点进来也大致知道。
+> `excerpt` 是**给 `/blog/` 列表页卡片看的一句话摘要**，只出现在卡片上。
+> 混起来会同时坏两处：只写 `excerpt` ⇒ 详情页的 meta description 回落到**站点通用描述**
+> （站内每篇文章的搜索 snippet 于是完全一样）；只写 `description` ⇒ 列表卡没有摘要。
+> 论文页是同一套分工（`description` / `summary`），见
+> `src/content/papers/trmm-thunderstorm-stages/paper.md` 的 front matter。
 
 ### 2.1 `date` 只写日期，不写时分
 
@@ -157,12 +169,18 @@ cover: cover.svg          # ✅ 只写文件名，与 index.md 同目录
 | F14 | 封面判据的**覆盖度自证**（应验 == 实测） | §2.3 | 判红（空跑的门禁等于没有门禁） |
 | F15 | 封面的**文件名**必须是 `cover.<ext>` | §2.3 | 判红（`copyCovers()` 不复制别的名字 ⇒ 404） |
 | F16 | **博客集合不得为空**（至少 1 篇 `<slug>/index.md`） | §1 | 判红（空集合 ⇒ 逐篇判据一条都跑不到 ⇒ 内容路径没接上） |
+| F17 | `description` 必需且是非空字符串 | §2 表 | 判红（缺了 ⇒ meta description 回落成站点通用描述） |
+| F18 | `description` 不得逐字等于 `title` | §2 表 | 判红（复读标题 ⇒ 等于没改写） |
+| F19 | `description` 不得逐字等于站点通用描述（`site.description`） | §2 表 | 判红（照抄通用描述 ⇒ 搜索结果里还是分不出这篇文章） |
+| F20 | 集合内不同文章的 `description` 不得逐字相同 | §2 表 | 判红（共用一句 ⇒ 每篇文章的 snippet 一模一样） |
 
 - **判红 = "写错了"**（形态 / 类型 / 覆盖了自动注入）；**note = "忘了写"**（契约里标的是"建议"）。
   `excerpt` 缺失归 note 是本轮定的口径，是否升级为判红已登记为待拍板 46。
+  `description` 缺失归**判红**（与 `title` / `date` 同级：缺了它，整篇文章的 meta description
+  会回落到站点通用描述，站内每篇文章的搜索 snippet 就会一模一样）。
 - 手动跑：`npm run check:blog-frontmatter`；证明判据本身有牙齿：`npm run check:blog-frontmatter-selftest`
   （在 /tmp 搭夹具站逐档注入缺陷；档位清单见该自测脚本的文件头）。
-- 站内**已有文章** ⇒ 逐篇判据（F1–F15）现在**真的在跑**；
+- 站内**已有文章** ⇒ 逐篇判据（F1–F15、F17–F20）现在**真的在跑**；
   而"站内 0 篇文章"这个状态改由 **F16 判红**挡住：空集合不是"暂时没写"，
   是**内容路径没接上**（`/blog/` 退化成空状态页、`feed.xml` 里没有任何条目、
   `sitemap.xml` 里没有任何文章路由），而且集合为空时逐篇判据一条都跑不到 ——
@@ -266,6 +284,7 @@ cover: cover.svg          # ✅ 只写文件名，与 index.md 同目录
 □ front matter 没有 layout / permalink（自动注入，别覆盖）；tags 是**合并**、照常写主题标签，但别重复写 "blog"
 □ date 只到日（YYYY-MM-DD），readingTime 是纯数字
 □ excerpt 是一句话，且**不复读标题**
+□ description 写了自己那一句（改写标题，不复读它），且与站内其它文章不重样
 □ 正文全英文，注释也没有中文
 □ 恰好一个 h1，标题不跳级
 □ 每张图都有 alt

@@ -19,7 +19,7 @@
  *   再用 BLOG_DIR / BLOG_DATA_FILE 环境变量把门禁指向夹具站。
  *   ⚠️ 全程不动仓库里的任何文件；跑完再自证真目录一个字节都没变。
  *
- * 二十档（M0–M19）：
+ * 二十四档（M0–M23）：
  *   M0  基线：一篇完全合规的文章              → exit 0（证明这套判据不是空跑）
  *   M1  readingTime 写成 "3 min"             → 判红，点名 readingTime
  *   M2  目录名写成 Bad_Slug                  → 判红，点名 slug
@@ -40,9 +40,14 @@
  *   M17 封面文件名不叫 cover.<ext>          → 判红，点名「文件名必须是」
  *   M18 一张真 PNG 封面 + 规范的名字          → **exit 0**（证明 F13–F15 不假红）
  *   M19 封面既不是位图也不是 SVG             → 判红，点名「读不出」+「F14」
+ *   M20 缺 description                       → 判红，点名 F17（meta description 回落成站点通用描述）
+ *   M21 description 逐字等于 title          → 判红，点名 F18（复读标题）
+ *   M22 description 逐字等于站点通用描述      → 判红，点名 F19（抄了通用描述）
+ *   M23 两篇文章的 description 逐字相同       → 判红，点名 F20（每篇文章的 snippet 一模一样）
  *
- *   M1–M8 / M14 的夹具站里**同时放着那篇完全合规的好文章** ——
- *   证明门禁不是"见着文章就红"，而是**指着坏的那一篇**红。
+ *   除 M13（0 篇文章那一档）外，其余各档的夹具站里都**同时放着那篇完全合规的好文章** ——
+ *   证明门禁不是"见着文章就红"，而是**指着坏的那一篇**红；
+ *   M20–M23 那一档还额外断言**红因归属纯净**：好文章的名字**不得**出现在输出里。
  *   M9 / M10 是"忘了写"档：契约里写的是"建议"，所以它们**不该**拦下 build
  *   （excerpt 缺失要不要升级为判红 = 待拍板 46，本轮定的口径是 note）。
  *   M15–M19 是**封面**这一档（D40）：契约 §2.3 明写「必须是真 SVG 文本」，
@@ -73,10 +78,24 @@ if (!fs.existsSync(REAL_DATA_FILE)) {
 const GOOD = {
   title: "A Perfectly Ordinary Fixture Article",
   date: "2026-10-20",
+  /* description：SEO 用的那一句（标题的改写）；与 excerpt 分职，两者不能互相顶替。 */
+  description: "A rewritten version of the fixture headline, saying what the article is about.",
   excerpt: "A one-sentence summary that adds something beyond the headline.",
   readingTime: 3,
   tags: ["fixture"],
 };
+
+/* 站点通用描述（src/_data/site.js）：判据 F19 拿它当"不可抄的值"，
+   自测必须用**真值**去构造夹具（不写死一句，否则真源改了夹具就失真）。 */
+const SITE = require(path.resolve(ROOT, "src", "_data", "site.js"));
+const SITE_DESCRIPTION = String((SITE && SITE.description) || "").trim();
+if (!SITE_DESCRIPTION) {
+  console.error(
+    `博客 front matter 自测失败：读不到站点通用描述（src/_data/site.js 的 description）—— ` +
+      `判据 F19 的夹具档要用它来构造"照抄通用描述"的文章，读不到就没有可验的夹具。`
+  );
+  process.exit(1);
+}
 
 /** 把字段对象渲染成 front matter + 正文。undefined 的字段**不写**。 */
 function articleMd(fields) {
@@ -93,6 +112,18 @@ function articleMd(fields) {
   lines.push("---", "", "Body paragraph for the fixture article.", "");
   return lines.join("\n");
 }
+
+/** M23 用：两篇不相干的文章共用的那一句 description。 */
+const SHARED_DESCRIPTION = "One sentence reused by two unrelated articles.";
+
+/* 夹具里"另一篇文章"的基准：除 description 外与 GOOD 相同，但 **description 必须不同** ——
+   判据 F20（集合内 description 不得逐字相同）落地后，若两篇夹具文章共用一句 description，
+   夹具站自己就会撞上 F20 ⇒ 那一档测的就不再是"它想测的那个缺陷"了。
+   ⇒ 每档只注入**一个**缺陷，其余字段保持干净。 */
+const OTHER = {
+  ...GOOD,
+  description: "A different fixture article, with a description of its own.",
+};
 
 /* ---------- 封面的三种字节 ---------- */
 /** 一张真的 1×1 PNG（标准 base64）—— "真位图"那一档的素材。 */
@@ -168,7 +199,7 @@ const CASES = [
     sub: "readingTime",
     setup: (fx) => {
       fx.writeArticle("good-post", GOOD);
-      fx.writeArticle("bad-post", { ...GOOD, readingTime: '"3 min"' });
+      fx.writeArticle("bad-post", { ...OTHER, readingTime: '"3 min"' });
     },
   },
   {
@@ -178,7 +209,7 @@ const CASES = [
     sub: "slug",
     setup: (fx) => {
       fx.writeArticle("good-post", GOOD);
-      fx.writeArticle("Bad_Slug", GOOD);
+      fx.writeArticle("Bad_Slug", OTHER);
     },
   },
   {
@@ -188,7 +219,7 @@ const CASES = [
     sub: "layout",
     setup: (fx) => {
       fx.writeArticle("good-post", GOOD);
-      fx.writeArticle("bad-post", { ...GOOD, layout: "layouts/paper.njk" });
+      fx.writeArticle("bad-post", { ...OTHER, layout: "layouts/paper.njk" });
     },
   },
   {
@@ -198,7 +229,7 @@ const CASES = [
     sub: "date",
     setup: (fx) => {
       fx.writeArticle("good-post", GOOD);
-      fx.writeArticle("bad-post", { ...GOOD, date: "2026-10-18 09:30" });
+      fx.writeArticle("bad-post", { ...OTHER, date: "2026-10-18 09:30" });
     },
   },
   {
@@ -218,7 +249,7 @@ const CASES = [
     sub: "tags",
     setup: (fx) => {
       fx.writeArticle("good-post", GOOD);
-      fx.writeArticle("bad-post", { ...GOOD, tags: "not-an-array" });
+      fx.writeArticle("bad-post", { ...OTHER, tags: "not-an-array" });
     },
   },
   {
@@ -228,7 +259,7 @@ const CASES = [
     sub: "cover",
     setup: (fx) => {
       fx.writeArticle("good-post", GOOD);
-      fx.writeArticle("bad-post", { ...GOOD, cover: "missing.svg" });
+      fx.writeArticle("bad-post", { ...OTHER, cover: "missing.svg" });
     },
   },
   {
@@ -238,7 +269,7 @@ const CASES = [
     sub: "title",
     setup: (fx) => {
       fx.writeArticle("good-post", GOOD);
-      fx.writeArticle("bad-post", { ...GOOD, title: undefined });
+      fx.writeArticle("bad-post", { ...OTHER, title: undefined });
     },
   },
   {
@@ -248,7 +279,7 @@ const CASES = [
     sub: "没有 `excerpt`",
     setup: (fx) => {
       fx.writeArticle("good-post", GOOD);
-      fx.writeArticle("bad-post", { ...GOOD, excerpt: undefined });
+      fx.writeArticle("bad-post", { ...OTHER, excerpt: undefined });
     },
   },
   {
@@ -258,7 +289,7 @@ const CASES = [
     sub: "逐字相同",
     setup: (fx) => {
       fx.writeArticle("good-post", GOOD);
-      fx.writeArticle("bad-post", { ...GOOD, excerpt: GOOD.title });
+      fx.writeArticle("bad-post", { ...OTHER, excerpt: GOOD.title });
     },
   },
   {
@@ -299,7 +330,7 @@ const CASES = [
     sub: "permalink",
     setup: (fx) => {
       fx.writeArticle("good-post", GOOD);
-      fx.writeArticle("bad-post", { ...GOOD, permalink: "/custom/" });
+      fx.writeArticle("bad-post", { ...OTHER, permalink: "/custom/" });
     },
   },
   {
@@ -309,7 +340,7 @@ const CASES = [
     sub: "SVG 文本",
     setup: (fx) => {
       fx.writeArticle("good-post", GOOD);
-      fx.writeArticle("bad-post", { ...GOOD, cover: "cover.png" });
+      fx.writeArticle("bad-post", { ...OTHER, cover: "cover.png" });
       fx.writeCover("bad-post", "cover.png", SVG_TEXT);
     },
   },
@@ -320,7 +351,7 @@ const CASES = [
     sub: "PNG 位图",
     setup: (fx) => {
       fx.writeArticle("good-post", GOOD);
-      fx.writeArticle("bad-post", { ...GOOD, cover: "cover.svg" });
+      fx.writeArticle("bad-post", { ...OTHER, cover: "cover.svg" });
       fx.writeCover("bad-post", "cover.svg", PNG_BYTES);
     },
   },
@@ -331,7 +362,7 @@ const CASES = [
     sub: "文件名必须是",
     setup: (fx) => {
       fx.writeArticle("good-post", GOOD);
-      fx.writeArticle("bad-post", { ...GOOD, cover: "banner.svg" });
+      fx.writeArticle("bad-post", { ...OTHER, cover: "banner.svg" });
       fx.writeCover("bad-post", "banner.svg", SVG_TEXT);
     },
   },
@@ -341,7 +372,7 @@ const CASES = [
     expect: "green",
     setup: (fx) => {
       fx.writeArticle("good-post", GOOD);
-      fx.writeArticle("with-cover", { ...GOOD, cover: "cover.png" });
+      fx.writeArticle("with-cover", { ...OTHER, cover: "cover.png" });
       fx.writeCover("with-cover", "cover.png", PNG_BYTES);
     },
   },
@@ -352,8 +383,53 @@ const CASES = [
     sub: ["读不出", "F14"],
     setup: (fx) => {
       fx.writeArticle("good-post", GOOD);
-      fx.writeArticle("bad-post", { ...GOOD, cover: "cover.png" });
+      fx.writeArticle("bad-post", { ...OTHER, cover: "cover.png" });
       fx.writeCover("bad-post", "cover.png", PLAIN_TEXT);
+    },
+  },
+  {
+    id: "M20",
+    desc: "缺 description（⇒ meta description 回落成站点通用描述）",
+    expect: "red",
+    sub: ["F17", "bad-post"],
+    not: "good-post",
+    setup: (fx) => {
+      fx.writeArticle("good-post", GOOD);
+      fx.writeArticle("bad-post", { ...OTHER, description: undefined });
+    },
+  },
+  {
+    id: "M21",
+    desc: "description 与 title 逐字相同（复读标题）",
+    expect: "red",
+    sub: ["F18", "bad-post"],
+    not: "good-post",
+    setup: (fx) => {
+      fx.writeArticle("good-post", GOOD);
+      fx.writeArticle("bad-post", { ...OTHER, description: GOOD.title });
+    },
+  },
+  {
+    id: "M22",
+    desc: "description 照抄站点通用描述（每篇文章的 snippet 都会一样）",
+    expect: "red",
+    sub: ["F19", "bad-post"],
+    not: "good-post",
+    setup: (fx) => {
+      fx.writeArticle("good-post", GOOD);
+      fx.writeArticle("bad-post", { ...OTHER, description: SITE_DESCRIPTION });
+    },
+  },
+  {
+    id: "M23",
+    desc: "两篇文章的 description 逐字相同（集合内重样）",
+    expect: "red",
+    sub: ["F20", "bad-post"],
+    not: "good-post",
+    setup: (fx) => {
+      fx.writeArticle("good-post", GOOD);
+      fx.writeArticle("bad-post", { ...OTHER, description: SHARED_DESCRIPTION });
+      fx.writeArticle("bad-post-2", { ...OTHER, description: SHARED_DESCRIPTION });
     },
   },
 ];
@@ -416,11 +492,18 @@ for (const c of CASES) {
     }
   } else if (c.expect === "red") {
     const subs = subsOf(c);
-    if (r.code === 1 && subs.every((s) => r.out.includes(s))) {
+    /* not：红因**归属纯净**的断言 —— 这些字样**不得**出现在输出里。
+       用来证明门禁指的是"坏的那一篇"，而不是把好文章也一起点了名。 */
+    const nots = c.not ? (Array.isArray(c.not) ? c.not : [c.not]) : [];
+    const hit = subs.every((s) => r.out.includes(s));
+    const clean = nots.every((s) => !r.out.includes(s));
+    if (r.code === 1 && hit && clean) {
       console.log(`  ✓ ${c.id} ${c.desc} → 判红，红因命中「${subs.join("」与「")}」`);
     } else {
       console.error(
-        `  ✗ ${c.id} ${c.desc} → 期望判红且红因含「${c.sub}」，实际 exit ${r.code}`
+        `  ✗ ${c.id} ${c.desc} → 期望判红且红因含「${c.sub}」` +
+          (nots.length ? `、且不得出现「${nots.join("」「")}」` : "") +
+          `，实际 exit ${r.code}`
       );
       console.error(r.out.split("\n").map((l) => "      " + l).join("\n"));
       failed++;

@@ -71,14 +71,28 @@
  *        feed.xml 里没有任何条目、sitemap.xml 里没有任何文章路由。
  *        所以"空集合"本身判红，而不是在结尾写一句"判据未执行"就放过。
  *        封面那一半仍保留"未执行"的诚实提示：本站暂不写封面（useCovers = false）。）
+ *   F17 `description` **必需**、非空字符串 —— 它是这篇文章给搜索引擎看的**一句话描述**。
+ *       （2026-10-23 D95 场次实测：首批 3 篇文章都没有这个字段 ⇒ 模板的回落链
+ *        `description or site.description` 生效 ⇒ 三篇文章的 meta description
+ *        **完全相同**，而且都是站点通用描述（"PhD student at the Institute of…"），
+ *        搜索结果里三条 snippet 一模一样 —— 缺陷 D93。）
+ *   F18 `description` 不得逐字等于 `title` —— 它的本职就是**标题的改写**
+ *       （换个说法说清这篇文章讲什么）；逐字相同等于没改写。
+ *   F19 `description` 不得逐字等于**站点通用描述**（`site.description`）——
+ *       那正是回落链会给的值；照抄它等于把"缺字段"换成"抄了句通用的话"，症状一样。
+ *   F20 集合内**不同文章的 `description` 不得逐字相同** —— 两篇不同的文章
+ *       共用一句描述，搜索结果里还是分不出彼此。
  *
  * ⚠️ **note 与判红的分界**（写清楚，免得后人以为本门禁什么都拦）：
  *   判红 = 「**写错了**」（形态不对、类型不对、覆盖了自动注入）；
  *   note = 「**忘了写**」（契约里标的是"建议"）。
  *   `excerpt` 缺失归到 note 这一档是**本轮定的**，已登记为**待拍板 46** ——
  *   本人若认为"忘了写摘要"也该拦，改 F10 一处即可。
+ *   `description` 缺失归**判红**这一档：它与 `title` / `date` 同级（契约 §2 列为必需），
+ *   而且缺了它，整篇文章的 meta description 会回落到站点通用描述 ⇒ 搜索结果里
+ *   每篇文章的 snippet 一模一样（缺陷 D93 的现象）。
  *
- * ⚠️ **自证存活**：本站现在**有文章** ⇒ F1–F15 的逐篇判据**真的在跑**，
+ * ⚠️ **自证存活**：本站现在**有文章** ⇒ F1–F15 与 F17–F20 的逐篇判据**真的在跑**，
  *   不再是「判据写在纸上、永远跑不到」。
  *   判据本身有没有牙齿，由 `scripts/test-blog-frontmatter.cjs` 的夹具站负责
  *   （那个自测**接在 build 链上**，每次 build 都证明一遍）；其中有一档专门
@@ -262,7 +276,7 @@ if (articles.length === 0) {
     `判据 F16：博客集合为空 —— 文章目录 ${displayPath(BLOG_DIR)} 里一篇 <slug>/index.md 都没有。` +
       `空集合不是"暂时没写"，是内容路径没接上：` +
       `/blog/ 会退化成空状态页、feed.xml 里没有任何条目、sitemap.xml 里没有任何文章路由。` +
-      `而且集合为空时，F1–F15 这些逐篇判据一条都跑不到 —— 门禁会 exit 0 但其实什么都没验。` +
+      `而且集合为空时，F1–F15 与 F17–F20 这些逐篇判据一条都跑不到 —— 门禁会 exit 0 但其实什么都没验。` +
       `写一篇合规的文章（规范 §1：目录名小写连字符 + index.md）就能让这条判据重新生效。`
   );
 }
@@ -285,7 +299,33 @@ for (const d of dirsWithoutIndex) {
   );
 }
 
-/* ---------- 逐篇核 front matter（F2–F11） ---------- */
+/* ---------- 站点通用描述：F19 要拿它当"不可抄的值" ---------- */
+/* 模板的回落链是 `description or site.description` ⇒ 缺 description 时，
+   每篇文章的 meta description 都会变成**站点通用描述**（"PhD student at the…"）。
+   F19 要把"照抄那句通用描述"也判红，就得先知道那句话是什么。
+   它取自 src/_data/site.js（**数据层**；被检查方是博客文章内容，不是这份数据）。
+   读不到就判红：读不到它，判据 F19 就是**没跑**，不是"通过"。 */
+let siteDescription = null;
+try {
+  const siteData = require(path.resolve(ROOT, "src", "_data", "site.js"));
+  if (typeof siteData.description === "string" && siteData.description.trim() !== "") {
+    siteDescription = siteData.description.trim();
+  }
+} catch (e) {
+  siteDescription = null;
+}
+if (siteDescription === null) {
+  fail(
+    `判据 F19：读不到站点通用描述（src/_data/site.js 的 \`description\`）—— ` +
+      `模板的回落链是 \`description or site.description\`，本门禁要拿它当"不可抄的值"；` +
+      `读不到它，判据 F19 就是**没跑**（不是"通过"）。`
+  );
+}
+
+/** F20 用：description 原文 → 写了它的文章（判定"集合内是否重样"）。 */
+const descriptionsByText = new Map();
+
+/* ---------- 逐篇核 front matter（F2–F11 / F13–F15 / F17–F19） ---------- */
 let comparedArticles = 0;
 let comparedFields = 0;
 /* 封面计数（F14 的自证依据）：声明了 cover 的文章 / 其中文件确实在的 /
@@ -488,6 +528,62 @@ for (const a of articles) {
   } else {
     comparedFields++;
   }
+
+  // F17 / F18 / F19：description（SEO 用的那一句）
+  //   这三个判据是同一族：缺了、或抄了、或是复读标题，产物里的 meta description
+  //   就不是"这篇文章的一句话"—— 搜索结果里读者分不出哪条是哪条。
+  const desc = typeof data.description === "string" ? data.description.trim() : "";
+  if (!desc) {
+    fail(
+      `${rel}: 判据 F17：front matter 缺 \`description\`（或不是非空字符串）—— ` +
+        `规范 §2 把它列为**必需**：它是这篇文章给搜索引擎看的一句话描述（标题的改写）；` +
+        `缺了它，模板的回落链 \`description or site.description\` 会让这篇的 ` +
+        `meta description 变成**站点通用描述** —— 和站内其它文章一模一样。`
+    );
+  } else {
+    comparedFields++;
+    // F18：不得逐字复读标题
+    if (typeof data.title === "string") {
+      if (desc === data.title.trim()) {
+        fail(
+          `${rel}: 判据 F18：\`description\` 与 \`title\` 逐字相同 —— ` +
+            `description 的本职是**标题的改写**（换个说法说清这篇文章讲什么）；` +
+            `逐字相同等于没改写，搜索结果里等于只印了一遍标题。`
+        );
+      } else {
+        comparedFields++;
+      }
+    }
+    // F19：不得照抄站点通用描述
+    if (siteDescription !== null) {
+      if (desc === siteDescription) {
+        fail(
+          `${rel}: 判据 F19：\`description\` 与**站点通用描述**逐字相同 —— ` +
+            `那句话是全站自我介绍（${siteDescription.slice(0, 48)}…），不是这篇文章的描述；` +
+            `照抄它等于把"缺字段"换成"抄了句通用的话"，症状一样。`
+        );
+      } else {
+        comparedFields++;
+      }
+    }
+    // 收进 F20 的对照表（跨文章比较要在循环外做）
+    const bucket = descriptionsByText.get(desc);
+    if (bucket) bucket.push(rel);
+    else descriptionsByText.set(desc, [rel]);
+  }
+}
+
+/* ---------- F20：集合内不同文章的 description 不得逐字相同 ---------- */
+/* 为什么这一条要跨文章比较：两篇不同的文章共用一句描述，搜索结果里还是分不出彼此。
+   少了它，"把同一个模板句复制到每篇文章"这件事没人守。 */
+for (const [, files] of descriptionsByText) {
+  if (files.length > 1) {
+    fail(
+      `判据 F20：${files.length} 篇文章的 \`description\` 逐字相同（${files.join("、")}）—— ` +
+        `两篇不同的文章共用一句描述，搜索结果里还是分不出彼此；` +
+        `每篇的 description 应当写**这篇**文章自己的那一句。`
+    );
+  }
 }
 
 /* ---------- F14：覆盖度自证 ---------- */
@@ -544,5 +640,6 @@ if (coverDeclared === 0) {
 }
 console.log(
   `  · 判红 = "写错了"（形态 / 类型 / 覆盖了自动注入）；note = "忘了写"（契约标的是"建议"）。` +
-    `excerpt 缺失归 note 是本轮定的，已登记为待拍板 46。`
+    `excerpt 缺失归 note 是本轮定的，已登记为待拍板 46；` +
+    `description 缺失归判红（与 title / date 同级，契约 §2 列为必需）。`
 );

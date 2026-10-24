@@ -1,6 +1,12 @@
 ---
 title: "North China's extreme-precipitation share has shifted since 2020"
 date: 2026-10-23
+# description is the SEO meta description of this article: a rewrite of the title
+# that says what the article is about, without the headline wording.
+# excerpt is a different job - it is the one-line summary shown on the /blog/ card.
+# Never let one stand in for the other: with only excerpt, the page falls back to
+# the site-wide description and every article ends up with the same snippet.
+description: "Since 2020 a larger share of North China's annual precipitation has fallen on extreme days - a shift the 1960-2019 record alone cannot detect."
 excerpt: "A 66-year daily record over 32-50 N, 110-120 E shows the share of annual precipitation falling on extreme days jumping in the last six years, while the same signal is undetectable in 1960-2019 alone."
 readingTime: 5
 tags: ["precipitation", "North China", "extreme events"]

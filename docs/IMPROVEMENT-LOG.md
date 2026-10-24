@@ -29175,3 +29175,118 @@ portfolio 仍没有内容」写（**不写条目数**，写死就会再漂一次
 - **文章页 meta description**：是否给 front matter 加 `description` 字段（见 D 节）—— 可独立成一轮。
 - **本轮 D 节的候选清单**：`docs/og-image-and-a11y-report.md` 的旧数字与失效路径、
   `docs/design-system.md` 的三处存量篇幅数漂移 —— 可挑一条单独开缺陷。
+
+## 2026-10-23 · 19:10–20:20 场次（**不占轮次号**）：D95 —— 修掉缺陷 **D93**：博客文章页的四处 description 出口全是站点通用描述（加 `description` 字段 + F17–F20 判据）
+
+### A. 背景
+
+上一轮（D94）修的是**博客整条内容路径一个产物都没有**（首批 3 篇真实长文 ＋ 互链 ＋ 集合非空判据）。
+本轮换到**文章页自己的 SEO 出口** —— 上一轮把文章建起来了，本轮撞见的是
+「**文章有了，但三篇的搜索 snippet 一模一样**」。
+
+这一条是上一轮自己登记的候选（D94 日志 D 节最后一条：「文章页没有独立的 meta description：
+模板的 `<meta name="description">` 取 `description or site.description`，而契约里**没有** `description` 字段
+⇒ 三篇文章的 meta description 会**共用站点通用描述**」）。
+
+本轮开工前照惯例把 `docs/DEFECT-BACKLOG.md` 过了一遍：7 条待修（D6 / D9 / D10 / D12 / D26 / D32 / D57）
+全部要么被 push 卡住、要么属本人拍板方向 ⇒ 走**新开缺陷**路线，登记 **D93**。
+
+### B. 改动
+
+**① 三篇文章各加一段英文 `description`**（front matter 新增字段，值是英文）：
+
+- `north-china-extreme-precipitation`：
+  `Since 2020 a larger share of North China's annual precipitation has fallen on extreme days - a shift the 1960-2019 record alone cannot detect.`
+- `trmm-stage-dependent-lightning`：
+  `Pooling snapshot storms hides a stage-dependent lightning-structure relationship in TRMM thunderstorms; a K-means life-cycle classification recovers it.`
+- `reading-a-daily-precipitation-record`：
+  `A daily precipitation record answers a different question depending on the index, and the threshold and the window you choose decide what a 66-year series appears to show.`
+
+三段**逐字互不相同**，也都**不是** `src/_data/site.js` 里的 `site.description`；
+每段都**改写标题**而不是复读标题（复读标题 ⇒ F18 判红）。
+
+**② 模板零改动**：`src/_includes/layouts/base.njk` 里七处 `description or site.description`
+（L13 / L151 / L191 / L299 / L372 / L477 / L492）**一个字节都没改** ——
+回落链本身是对的：**有文章自己的描述就用它，没有才回落成站点通用描述**。
+本轮只是把「文章自己的描述」这个字段接上 ⇒ 四处出口（meta / og / twitter / WebPage JSON-LD）**同时**修好。
+
+**③ 扩既有门禁**（`scripts/check-blog-frontmatter.cjs`，**不新建门禁文件** ⇒ 不动 `package.json` /
+README 命令表 / GW1 / GW4）：
+
+- **F17** `description` 必需，且是非空字符串 ⇒ 缺失归**判红**（与 title / date 同级）；
+- **F18** `description` 不得逐字等于 `title` ⇒ 判红；
+- **F19** `description` 不得逐字等于**站点通用描述** ⇒ 判红。该描述从 `src/_data/site.js`
+  **读成真源**（先例：`scripts/check-jsonld.cjs` 同样 require 它取参考值）；**读不到即判红** ——
+  判据没跑 ≠ 通过；
+- **F20** **集合级**判据：不同文章的 `description` 不得逐字相同 ⇒ 判红（在逐篇循环外用
+  `descriptionsByText` 跨文章比对，红因列出所有涉及文章的路径）。
+
+`fail()` 调用点 **22 → 27** 处（F17 / F18 / F19 各 1、F20 1、「读不到站点通用描述」1）。
+
+**④ 自测同步扩**（`scripts/test-blog-frontmatter.cjs`）：档位 **20 → 24** 档（M0–M23），
+新增 **M20**（缺 description ⇒ F17）/ **M21**（等于 title ⇒ F18）/ **M22**（等于站点通用描述 ⇒ F19）/
+**M23**（两篇逐字相同 ⇒ F20）四档判据级负对照；自测框架新增 `not` 字段 ⇒ 红档断言
+「**该判据的红因文案命中** ＋ **其它判据的红因不命中**」，把**红因归属纯净**变成可执行断言。
+`scripts/lib/selftest-slots.cjs` 同步登记 **24** 档。
+
+**⑤ 写作契约同步**（`docs/blog-writing-guide.md`）：§2 yaml 示例加 `description` 行；
+§2 字段表在 `date` 之后插入 `description` 行（**必需**）；新增说明块「`description` 与 `excerpt`
+是两个岗位，不能互相顶替」；§2.4 判据表加 F17–F20 四行（WC1 双向核对）；§4 自查清单加一条。
+**模板零改动** ⇒ `docs/information-architecture.md` 的 Blog 示例**不必改**（IAC5 是 ⊆ 关系）。
+
+### C. 验证
+
+- `node scripts/check-blog-frontmatter.cjs` → exit 0（扫 3 篇、比 39 处 front matter 字段）。
+- `node scripts/test-blog-frontmatter.cjs` → exit 0（**24/24** 档全绿）。
+- `npm run check:writing-contract` / `check:blog-frontmatter` / `check:blog-frontmatter-selftest` /
+  `check:selftest-guard` / `check:markdown-tables` / `check:doc-snapshot` / `check:mount-contract` /
+  `check:information-architecture` / `check:tag-leak` / `check:readme` / `check:gates` /
+  `check:log-sections` / `check:decision-ids` 全 exit 0；`npm run build` exit 0。
+- 产物实测：`_site/blog/<slug>/index.html` 的 meta description / og:description / twitter:description /
+  WebPage JSON-LD description **同一篇内四处一致**、**三篇之间逐字不同**、**都不是**站点通用描述。
+- 站点级的 **Person** / **WebSite** 两个 JSON-LD 节点仍用站点自己的文案 —— 它们是**站点实体**，按设计就该全站一致；
+  文章级出口是 **WebPage** 节点。另注：meta 标签里的撇号是 HTML 实体 `&#39;`，与 JSON-LD 里的原字符**是同一句话**。
+
+### D. 顺手发现
+
+- **新增集合级判据后，旧的夹具会自己撞上新判据**：F20 是**跨文章**判据 ⇒ M9 / M10 / M18 这三档
+  原本让「好文章」和「坏文章」共用同一句 description ⇒ 那一档实际测的**已经不是它想测的缺陷**，
+  红因归属也会被污染。已引入 `OTHER` 基准句（另一篇文章自己的 description）⇒
+  **每档只注入一个缺陷**。
+  ⇒ 这一族的教训：**新增集合级判据时，要回头检查所有旧夹具是不是「一好一坏共用同一份内容」**。
+- **参考值读不到 ≠ 通过**：F19 的站点通用描述取自 `src/_data/site.js`，读不到时门禁**判红**
+  （而不是当作「没有冲突」）—— 判据没跑不等于没问题。
+- **页面上不止一个 JSON-LD 块**：文章页有 **Person / WebSite / WebPage** 三个 ⇒ 核对「description 出口」时
+  必须**按节点分辨**：Person 与 WebSite 是**站点实体**（按设计全站一致），**WebPage** 才是文章级出口。
+  第一次核对时按「第一个 ld+json 块」取值，量到的其实是 Person 的站点 bio ⇒ 差点误判成「四处不一致」。
+- **`description` 与 `excerpt` 容易混**：`excerpt` 是列表卡摘要（站内可见），
+  `description` 是 SEO 出口（给搜索结果看）⇒ 两者内容相近但职责不同，
+  契约里必须写明「不能互相顶替」，否则作者会随手复制粘贴。
+
+### E. 文档
+
+- `docs/DEFECT-BACKLOG.md`：**新增 D93 行**（新缺陷行 ＋ 验收条件逐条兑现；状态写
+  「本地已实现，待 push 后复验线上项」，**不写「已修」**）；既有行一字未动。
+- `docs/ROADMAP.md`：进度行把「缺陷清单已到 **D92**」改为 **D93**（D93 仍列在「待修」组 ——
+  线上项没验就不能算已修）＋ 补一条 **D93 本地已实现**说明；M0 段追加 **D95** 条目。
+- `docs/IMPROVEMENT-LOG.md`：本小节；中央「待决策」台账**不新增**待拍板项（最高仍是待拍板 56）。
+
+### F. 本轮纪律
+
+- 提交只走**私有索引 CAS**，只提交本轮自己改的路径；**不 push**。
+- 并发场次占用的 `scripts/check-identity-handles.cjs` / `scripts/test-gates-selfcheck.cjs`
+  本轮**未触碰、未提交**。
+- 探针、夹具与文档拼接脚本都放在 `/tmp/mh_d95/`（**不入库**）；收尾用 `mavis-trash` 清理。
+- **不写死会变的存量数**：文档现状陈述里不写「门禁共几道」这种每轮都变的数；
+  本轮实测确定的量（如三篇文章、四处出口）可以写。
+- 每个数字都能在同页找到出处；**不编造**任何数据、结论或引用。
+
+### 下一轮入口
+
+- **D93 的收尾只差 push**：线上三个文章页的四处 description 出口逐篇不同 ——
+  与 **D6**（线上 3 条 404）同一个前置。
+- **D9 / D10 / D12 / D26 / D32 / D57**：仍挂本人拍板；**D7 / D8** 判为不修 —— 本轮不代拍。
+- **本轮顺手记下的候选**：① 博客文章页缺 `BlogPosting` JSON-LD（论文页有）；
+  ② 博客列表页的 description 是站点 bio 而不是「这个博客是什么」；
+  ③ `docs/og-image-and-a11y-report.md` 的旧数字与失效路径。
+- **M1 剩余项**：M1-1（封面开关 ＋ 比例口径）仍被**待拍板 50** 阻塞。
