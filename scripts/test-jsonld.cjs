@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * 自测：scripts/check-jsonld.cjs（门禁 J0–J14）
+ * 自测：scripts/check-jsonld.cjs（门禁 J0–J15）
  *
  * 为什么要有这个自测：
  *   这道门禁守的是"结构化数据这一层还在不在、接不接得上"——它一旦失效，
@@ -9,14 +9,14 @@
  *
  * 本自测的形态（与 scripts/test-identity-derivation.cjs 同一套范式）：
  *   · 绿档（G0–G3）—— 临时目录上的基线必须全绿
- *   · 注入档（J0–J14，含 J11b / J14b）—— 每条判据各来一个"只让它红"的坏形态，
+ *   · 注入档（J0–J15，含 J11b / J14b / J15b / J15c）—— 每条判据各来一个"只让它红"的坏形态，
  *     断言红因编号**多重集恰好**等于预期 ⇒ 证明它真的会红、且归属纯净
- *   · 判据级负对照（N-J0–N-J14，含 N-J11b / N-J14b）—— 同一个坏形态 + 卸掉该判据的开关
+ *   · 判据级负对照（N-J0–N-J15，含 N-J11b / N-J14b / N-J15b / N-J15c）—— 同一个坏形态 + 卸掉该判据的开关
  *     ⇒ 该判据的红因必须**一个都不剩** ⇒ 证明开关真的被 fail() 消费
  *   · 精准性负对照（P-*）—— 合法但少见的写法不该被误伤
  *   · 退回旧口径（RE-*）—— 把新口径的关键机制拆掉，证明旧口径确实漏
  *
- *   共 44 档：4 绿 + 17 注入 + 17 判据级负对照 + 3 精准性 + 3 退回旧口径。
+ *   共 50 档：4 绿 + 20 注入 + 20 判据级负对照 + 3 精准性 + 3 退回旧口径。
  *
  * ⚠️ 全部注入都在**临时目录里的副本**上做，仓库里的原件一个字节都不动
  *   （收尾时用 SHA-256 校验）。
@@ -192,13 +192,13 @@ const NOT_FOUND_HTML = ["<!doctype html>", "<html><body>404</body></html>", ""].
 /* 博客文章页产物：多一个作品实体（BlogPosting），页面实体的 mainEntity 指向它。
    ⚠️ HTML 侧的 h1 / meta description 里的撇号写成 `&#39;`，JSON-LD 侧是原字符 ——
       J13 比较前必须解实体，否则这一页会被判成"机器读到的与人看到的不是同一句"。 */
-function blogHtml() {
+function blogHtml(dateModified) {
   const ent = (s) => s.replace(/'/g, "&#39;");
   const blocks = [
     `<script type="application/ld+json">{"@context":"https://schema.org","@type":"WebSite","@id":"${SITE_ID}","url":"${HOME_URL}","publisher":{"@id":"${PERSON_ID}"}}</script>`,
     `<script type="application/ld+json">{"@context":"https://schema.org","@type":"WebPage","@id":"${BLOG_PAGE_ID}","url":"${BLOG_URL}","isPartOf":{"@id":"${SITE_ID}"},"mainEntity":{"@id":"${BLOG_ID}"}}</script>`,
     `<script type="application/ld+json">{"@context":"https://schema.org","@type":"Person","@id":"${PERSON_ID}","name":"Demo Author"}</script>`,
-    `<script type="application/ld+json">{"@context":"https://schema.org","@type":"BlogPosting","@id":"${BLOG_ID}","url":"${BLOG_URL}","headline":"${BLOG_TITLE}","description":"${BLOG_DESC}","datePublished":"${BLOG_DATE}","author":{"@id":"${PERSON_ID}"},"mainEntityOfPage":{"@id":"${BLOG_PAGE_ID}"}}</script>`,
+    `<script type="application/ld+json">{"@context":"https://schema.org","@type":"BlogPosting","@id":"${BLOG_ID}","url":"${BLOG_URL}","headline":"${BLOG_TITLE}","description":"${BLOG_DESC}","datePublished":"${BLOG_DATE}","image":"${OG_IMAGE}","dateModified":"${dateModified}","author":{"@id":"${PERSON_ID}"},"mainEntityOfPage":{"@id":"${BLOG_PAGE_ID}"}}</script>`,
   ].join("\n");
   return [
     "<!doctype html>",
@@ -287,7 +287,7 @@ function makeSandbox() {
   ).toISOString();
   write(path.join(repo, "_site", "index.html"), homeHtml());
   write(path.join(repo, "_site", "papers", "paper", "index.html"), paperHtml(stamp));
-  write(path.join(repo, "_site", "blog", "post", "index.html"), blogHtml());
+  write(path.join(repo, "_site", "blog", "post", "index.html"), blogHtml(stamp));
   write(path.join(repo, "_site", "blog", "index.html"), blogListHtml());
   write(path.join(repo, "_site", "404.html"), NOT_FOUND_HTML);
   return { base, repo };
@@ -645,6 +645,42 @@ function injJ14b(s) {
   );
 }
 
+/** J15：作品实体的 image 与该页第一个 og:image 不是同一个（图文不符）。
+ *  ⚠️ 与 injJ11 同一形态（论文侧那一档）：两侧的作品条目对消费方是同一种东西，
+ *     缺的字段也正是同两个 ⇒ 两侧的判据必须对称。 */
+function injJ15(s) {
+  patchFile(
+    blogOf(s),
+    `"image":"${OG_IMAGE}"`,
+    `"image":"${SITE_URL}/assets/other.png"`,
+    1
+  );
+}
+
+/** J15b：作品实体没有 image ⇒ J15 红 + J7 的存活自证红（image 比对从未发生）。 */
+function injJ15b(s) {
+  patchFile(blogOf(s), `,"image":"${OG_IMAGE}"`, "", 1);
+}
+
+/** J15c：作品实体的 dateModified 与这一页依赖闭包最晚的提交时间对不上
+ *  （时间戳必须是真的，不能是"看着像"的时间）。
+ *  ⚠️ 为什么不能写死要改成什么值：那一页的真实提交时间是**沙箱建库那一刻**
+ *     算出来的 ⇒ 只能就地把它换成另一个值（同行替换，行数不变）。 */
+function injJ15c(s) {
+  const file = blogOf(s);
+  const before = fs.readFileSync(file, "utf8");
+  const m = before.match(/"dateModified":"[^"]*"/);
+  if (!m) {
+    throw new Error("注入点不存在，已中止：作品实体里没有 dateModified 字段");
+  }
+  const after = before.replace(m[0], '"dateModified":"2026-01-01T00:00:00.000Z"');
+  fs.writeFileSync(file, after);
+  const n = changedLines(before, after);
+  if (n !== 1) {
+    throw new Error(`这一处改动的行数与声明不符（期望 1 行，实际 ${n} 行）—— 已中止。`);
+  }
+}
+
 /* ================= 断言 ================= */
 
 const results = [];
@@ -732,7 +768,7 @@ function expectNoRed(id, s, goneId, o = {}) {
   expectGreenBaseline(
     "G0 基线（临时目录上）",
     s,
-    "站点实体 / 页面实体 / 归属链 / mainEntity / 论文实体 / 作品实体 / 列表级实体全部接得上，全部比较点都跑过"
+    "站点实体 / 页面实体 / 归属链 / mainEntity / 论文实体 / 作品实体 / 作品实体的图与时效 / 列表级实体全部接得上，全部比较点都跑过"
   );
   fs.rmSync(s.base, { recursive: true, force: true });
 }
@@ -827,12 +863,31 @@ const INJ_CASES = [
     also: ["J7"],
     note: "列表级实体整个没了 ⇒ J14 的实体个数红 + J7 的存活自证红（一条列表实体都没被核对过）",
   },
+  { id: "J15", inj: injJ15, want: ["J15"], mustContain: "图文不符" },
+  {
+    id: "J15b",
+    inj: injJ15b,
+    switch: "J15",
+    want: ["J15", "J7"],
+    also: ["J7"],
+    note: "image 整个没了 ⇒ J15 的 image 比对从未发生 ⇒ J7 的存活自证理应红一条",
+  },
+  {
+    id: "J15c",
+    inj: injJ15c,
+    switch: "J15",
+    want: ["J15"],
+    mustContain: "时间戳必须是真的",
+  },
 ];
 
 for (const c of INJ_CASES) {
   const s = makeSandbox();
   c.inj(s);
-  expectRed(`${c.id} 注入（红因恰好是 ${fmtIds(c.want)}）`, s, c.want, { note: c.note });
+  expectRed(`${c.id} 注入（红因恰好是 ${fmtIds(c.want)}）`, s, c.want, {
+    note: c.note,
+    mustContain: c.mustContain,
+  });
   fs.rmSync(s.base, { recursive: true, force: true });
 }
 

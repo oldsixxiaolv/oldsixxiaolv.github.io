@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 /**
- * 门禁 J0–J14：站点实体（WebSite）与页面实体（WebPage / ProfilePage）这一层
+ * 门禁 J0–J15：站点实体（WebSite）与页面实体（WebPage / ProfilePage）这一层
  * 必须存在，并且彼此接得上；实体身份（@id）全站唯一；作品实体（BlogPosting）
  * 必须与页面上人能看到的东西逐字一致；集合列表页的列表级实体（ItemList）
- * 必须既在、又自洽、又是真的。
+ * 必须既在、又自洽、又是真的；作品实体的**图与时效**必须与页面上那张分享图、
+ * 以及这一页真实的最后提交时间逐字一致。
  *
  * 为什么要有这个门禁：
  *   本站此前的结构化数据只有两层——"我是谁"（Person）与"我产出过什么"
@@ -146,6 +147,25 @@
  *        position 1..N 连续；
  *      · 每个 item.@id 必须指向**站内某个真实页面的 canonical** ——
  *        列表项指向一个不存在的页面时，"列表"就是一份假账。
+ *   J15 **作品页自己的 BlogPosting 必须有 image 与 dateModified**。
+ *      背景（2026-10-24；缺陷清单 D97）：J11 早就在守论文页那份 ScholarlyArticle
+ *      的同样两个字段，**作品侧却一个都没有** —— J13 只核对了
+ *      @id / url / headline / description / datePublished / author /
+ *      mainEntityOfPage 这七项，"图"与"时效"两项**无人看守**。
+ *      缺它们**不会报错**：页面照出、JSON-LD 照常合法、其它门禁全绿，
+ *      消费方拿到的作品条目"无图、无时效信号"。
+ *      · image 必须**逐字等于**该页第一个 og:image 的 URL（社交平台只认
+ *        第一张；结构化数据里的图与页面上那张分享图不是同一张 = 图文不符）。
+ *      · dateModified 必须等于该页**依赖闭包里最晚的提交时间**
+ *        （闭包规则见 scripts/lib/page-deps.cjs，与 J11 同一份口径），
+ *        且"有/无"与"闭包里有没有已提交的文件"一致（本仓流程是先 build 后
+ *        commit，新写的文章页在 build 时还没进历史，就是"没有"这一档）。
+ *        取值与 sitemap 的 lastmod 同一数据源（同一个函数），
+ *        浅克隆 / 不在 git 仓库里两边同样取不到 → 两边一致，不判有也不判无。
+ *      ⚠️ 为什么单列一条而不并进 J13：J13 的口径是"与**页面上人能看到的东西**
+ *        逐字一致"，而 dateModified 不是页面上能看见的东西（它是 git 历史）；
+ *        把"图与时效"单列成一条，与论文侧的 J11 一一对应 ⇒ 两侧对称，
+ *        也让负对照能**只**卸掉这一条而不牵连 J13 的其余七项。
  *
  * 与既有门禁的关系（**刻意不重复**）：
  *   · verify-site 第 2 条查 JSON-LD 能否 JSON.parse → 本门禁不查解析本身，
@@ -200,6 +220,7 @@ const J11_ON = true; // 论文页 ScholarlyArticle 必须有 image 与 dateModif
 const J12_ON = true; // 逐比较点覆盖度自证
 const J13_ON = true; // 作品实体（BlogPosting）必须完整且与页面所见一致
 const J14_ON = true; // 集合列表页的列表级实体（ItemList）必须既在、又自洽、又是真的
+const J15_ON = true; // 作品页 BlogPosting 必须有 image 与 dateModified（与 J11 对称）
 
 const SWITCH_ON = {
   J0: J0_ON,
@@ -217,6 +238,7 @@ const SWITCH_ON = {
   J12: J12_ON,
   J13: J13_ON,
   J14: J14_ON,
+  J15: J15_ON,
 };
 
 /* 开关关 ⇒ 这条判据不说话（**计算照做**，不短路）——
@@ -278,6 +300,9 @@ const COVERAGE_POINTS = [
   { key: "J14.listName", min: 1 }, // 至少逐字比过一次列表实体的 name 与页面 h1
   { key: "J14.items", min: 1 }, // 至少逐字比过一次 numberOfItems 与 position 连续性
   { key: "J14.landing", min: 1 }, // 至少核对过一次 item.@id 指向站内真实页面
+  { key: "J15.postPage", min: 1 }, // 至少有一页作品实体对上了本页 canonical
+  { key: "J15.image", min: 1 }, // 至少逐字比过一次 image 与 og:image
+  { key: "J15.dateModified", min: 1 }, // 至少逐字比过一次 dateModified
 ];
 
 /* 逐页记账：页标识 -> 该页真正跑过的比较点。
@@ -846,6 +871,9 @@ let j11ImageCompared = 0; // J11 里 image 真正逐字比过的次数
 let j11ModifiedCompared = 0; // J11 里 dateModified 真正逐字比过的次数（源文件已提交）
 let j13Compared = 0; // J13 里真正逐字核对过字段的作品实体个数
 let j14Compared = 0; // J14 里真正逐字核对过的列表级实体个数
+let j15Compared = 0; // J15 真正核对过的作品页数（作品实体的 @id 对上了本页 canonical）
+let j15ImageCompared = 0; // J15 里 image 真正逐字比过的次数
+let j15ModifiedCompared = 0; // J15 里 dateModified 真正逐字比过的次数（源文件已提交）
 const j10Kinds = {}; // 角色声明来自哪条数据层路径（front-matter / computed / directory-data / none）
 const websiteIds = new Set();
 // J8 的全站口径：@id → (@type 组合 → 出现在哪些页)
@@ -1630,6 +1658,99 @@ for (const file of htmlFiles) {
       }
     }
   }
+
+  /* ---- J15：作品页自己的 BlogPosting 必须有 image 与 dateModified ----
+     缺这一层**不会报错**：页面照出、JSON-LD 照常合法、其它门禁全绿，
+     消费方只是拿到一条"无图、无时效信号"的作品条目。
+     为什么与 J11 一一对应（J11 守的是论文页那份 ScholarlyArticle）：
+     两侧的作品条目对消费方是**同一种东西**，缺的字段也正是同两个
+     （图 / 时效）⇒ 论文侧有看守、博客侧没有，就是一个不对称的洞。
+     口径与 J11 完全一致（同一个 ogImageOf、同一个 expectedLastmod）：
+       · image 必须**逐字等于**该页第一个 og:image 的 URL；
+       · dateModified 必须等于该页源文件**真实的最后提交时间**，且
+         "有/无"要与"源文件提交过/没提交过"一致：
+           源文件提交过 → 必须有，且值必须对；
+           源文件还没提交 → 必须没有（本仓流程是「先 build 后 commit」，
+                              新写的文章页在 build 时还没进历史，就是这种）。
+         取不到（浅克隆 / 不在 git 仓库）→ 模板那边同样取不到
+         （同一份判据、同一处降级），两边一致，不判"有"也不判"无"。
+     只管「本页自己那篇作品」（@id == 本页 canonical 的那个 BlogPosting）。 */
+  for (const p of declarations.filter((n) => typesOf(n).includes("BlogPosting"))) {
+    if (!canonical || p["@id"] !== canonical) continue;
+    j15Compared++;
+    mark("J15.postPage", from);
+
+    /* —— image —— */
+    const ogImage = ogImageOf(html);
+    const img = typeof p.image === "string" ? p.image : "";
+    if (!img) {
+      fail(
+        "J15",
+        `${from}: 作品实体「${p["@id"]}」没有 image —— ` +
+          `消费方拿到的作品条目是"无图条目"，在图搜与富结果里没有缩略图`
+      );
+      waive("J15.image", from);
+    } else if (!ogImage) {
+      fail(
+        "J15",
+        `${from}: 作品实体的 image 是 ${JSON.stringify(img)}，` +
+          `但该页**没有 og:image** —— 图与分享卡片对不上`
+      );
+      waive("J15.image", from);
+    } else {
+      mark("J15.image", from);
+      j15ImageCompared++;
+      if (img !== ogImage) {
+        fail(
+          "J15",
+          `${from}: 作品实体的 image 是 ${JSON.stringify(img)}，` +
+            `与该页第一个 og:image（${JSON.stringify(ogImage)}）**不是同一个** —— ` +
+            `图文不符：机器读到的图与人看到的分享图不是同一张`
+        );
+      }
+    }
+
+    /* —— dateModified —— */
+    const srcRel = sourceOf(html);
+    // 闭包口径：这一页的内容由哪些文件决定 ⇒ 取其中最晚的提交时间。
+    // 与 sitemap 的 lastmod、与 J11 同一个函数（scripts/lib/page-deps.cjs）。
+    const closure = srcRel ? expectedLastmod(srcRel) : null;
+    const realCommit = closure ? closure.time : null;
+    const fromFile = closure ? closure.from : null;
+    const modified = typeof p.dateModified === "string" ? p.dateModified : "";
+    if (realCommit) {
+      j15ModifiedCompared++;
+      mark("J15.dateModified", from);
+      if (!modified) {
+        fail(
+          "J15",
+          `${from}: 作品实体「${p["@id"]}」没有 dateModified —— ` +
+            `但这一页的依赖闭包里最晚的提交时间是 ${realCommit}` +
+            `（来自 ${fromFile}）：这一页确实改过，机器侧却看不到时效信号`
+        );
+      } else if (modified !== realCommit) {
+        fail(
+          "J15",
+          `${from}: 作品实体的 dateModified 是 ${JSON.stringify(modified)}，` +
+            `应是这一页依赖闭包里最晚的提交时间 ${JSON.stringify(realCommit)}` +
+            `（来自 ${fromFile}）—— 时间戳必须是真的`
+        );
+      }
+    } else {
+      /* 没有可用的 git 历史（浅克隆 / 不在仓库里）⇒ 模板那边同样取不到
+         （同一份判据、同一处降级），两边一致，不判"有"也不判"无"。
+         这条比较点没有判断对象 ⇒ 豁免（不让 J12 拿它说事）。 */
+      waive("J15.dateModified", from);
+      if (modified) {
+        fail(
+          "J15",
+          `${from}: 作品实体的 dateModified 是 ${JSON.stringify(modified)}，` +
+            `但它的源文件（${srcRel || "(没标 source)"}）的依赖闭包里查不到提交历史 —— ` +
+            `没有真实数据源却给出了时间戳`
+        );
+      }
+    }
+  }
 }
 
 /* ---- J5：全站只有一个站点实体 ---- */
@@ -1746,6 +1867,23 @@ if (!j14Compared) {
       "@id / name / numberOfItems / position 就无人看守）"
   );
 }
+if (!j15Compared) {
+  // 自证：J15 必须真的在作品页上跑过。否则"作品实体没有 image / dateModified"
+  // 这条判据就是空转的（J13 只核对另外七项，不碰这两个）。
+  fail(
+    "J7",
+    "全站没有核对到任何一页的作品实体 —— J15 从未真正执行过" +
+      "（作品实体（BlogPosting）消失了，或它的 @id 对不上本页 canonical，" +
+      "image / dateModified 就无人看守）"
+  );
+}
+if (!j15ImageCompared) {
+  fail(
+    "J7",
+    "J15 没有比到任何一个 image —— 判据从未真正执行过" +
+      "（作品页的 BlogPosting 没有 image，或该页没有 og:image 可比）"
+  );
+}
 
 /* ---------- J12：逐比较点覆盖度自证 ----------
    ⚠️ 2026-10-22（D59 第十一批）实测补：J7 的存活自证是**总数**口径
@@ -1839,6 +1977,13 @@ note(
     `@id（= 本页 canonical#list）、name（= 页面 h1）、numberOfItems、` +
     `position（1..N 连续），以及每个 item 指向的站内真实页面`
 );
+note(
+  `作品实体的图与时效：${j15Compared} 页作品核对了 image（${j15ImageCompared} 处逐字比对，` +
+    `与该页第一个 og:image 相同）；dateModified 逐字核对 ${j15ModifiedCompared} 处` +
+    (j15ModifiedCompared < j15Compared
+      ? `（另有 ${j15Compared - j15ModifiedCompared} 页的源文件还没进 git 历史，按约定不给时间戳）`
+      : "")
+);
 notes.forEach((n) => console.log(`· ${n}`));
 const ranPoints = COVERAGE_POINTS.filter(
   (p) =>
@@ -1851,4 +1996,4 @@ console.log(
   `逐比较点覆盖度自证：${ranPoints}/${COVERAGE_POINTS.length} 个比较点都跑过` +
     `（另有 ${waivedPoints} 个因前提不在场或判据被卸掉而豁免）。`
 );
-console.log("✓ 结构化数据自检通过（门禁 J0–J14）");
+console.log("✓ 结构化数据自检通过（门禁 J0–J15）");
