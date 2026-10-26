@@ -158,7 +158,17 @@ module.exports = function (eleventyConfig) {
     // 与 11 老的 src/assets/js/paper-reader.js 共存：老文件仅 5 行 re-export，
     // 兜底外部旧引用（如有）；后续可在 QA 验证稳定后删除。
     "src/assets/js/paper-reader/*.js",
-    "src/assets/fonts/**/*",
+    // ⚠️ 字体 glob **只列真实字体扩展名**，不写通配 `**/*`（D100）：
+    //   ① git **不跟踪空目录** ⇒ 这个目录必须靠 `src/assets/fonts/.gitkeep`
+    //      才存在于**每一个克隆**里；本机磁盘上它一直存在，干净克隆里没有
+    //      ⇒ 干净克隆的 build 会红在 DR6（活文档点名的仓内路径不存在），
+    //      而本机 build 全绿 —— 这就是「构建不可复现」的那一类。
+    //   ② 通配 `**/*` 会把 `.gitkeep` 这个占位文件**一起发布**进产物
+    //      （实测：_site/assets/fonts/.gitkeep）⇒ 产物里多一个没人请求的
+    //      零字节文件。列死扩展名后，占位文件永不进产物，
+    //      将来真的丢字体进去（woff/woff2/ttf/otf/eot）仍然照常发布。
+    //   ⚠️ 增删字体扩展名时，HOW_TO_RUN.md 的自托管字体说明要一起看。
+    "src/assets/fonts/**/*.{woff,woff2,ttf,otf,eot}",
     // 顶层 favicon 类 SVG（向后兼容 .DS_Store / Apple touch 图）
     "src/assets/*.svg",
     // 递归覆盖 src/assets/img/ 子树（og:image、paper 配图、avatar 等）。

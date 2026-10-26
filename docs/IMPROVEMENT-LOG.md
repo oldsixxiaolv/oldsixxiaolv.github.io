@@ -2470,6 +2470,28 @@ CSDN 521 并列）。那个归类对 ResearchGate / CSDN 成立，但对这一�
   ⚠️ **本轮不代拍**：字体是**取舍**（外观 vs 离线可用），属本人决定。
   （本场次不代拍，登记为待拍板 56）
 
+- **待拍板 57（新增）｜要不要给域名套 Cloudflare 以加自定义安全响应头：加哪几个头由谁拍板**
+  事实（2026-10-26 场次实测线上 `https://github.lvyihang.xyz/`）：GitHub Pages **自带** HSTS
+  （`strict-transport-security: max-age=31556952`）；**没有** CSP、**没有** `X-Frame-Options`、
+  **没有** `X-Content-Type-Options`、**没有** `Referrer-Policy`、**没有** `Permissions-Policy`。
+  站点**直连 GitHub Pages**（响应头实测 `server: GitHub.com` / `via: 1.1 varnish` / `x-github-edge-region`），
+  **没有 Cloudflare 代理** ⇒ GitHub Pages 这条路**给不了**自定义响应头。
+  加头的两条路：① 域名套 Cloudflare（DNS 指向 CF、CF 反代到 Pages 源站）—— 能加任意头；
+  ② 靠 `<meta http-equiv>` —— **只能管一部分**：CSP 的 `frame-ancestors` / `report-uri` 在 meta 里**不生效**，
+  `X-Frame-Options` **没有** meta 等价物 ⇒ 走 meta 补不齐。
+  代价：多一个第三方（DNS ＋ 反代）⇒ 多一处信任与故障点、多一跳、境内可达性未知、
+  DNS 与证书续期多一件事；而本站是**纯静态**、**零第三方前端运行时依赖**（`check:third-party` 的 TD1–TD5 守着）、
+  **无表单、无用户输入、无 iframe**（本轮实测 `src/` 里 `<form` / `<input` / `<textarea` / `<iframe` 均 **0 处**）。
+  候选：① **不套代理，接受现状**（HSTS 已有；无用户输入、无表单 POST、产物纯静态 ⇒
+  CSP 与 `X-Content-Type-Options` 的**实际风险面很小**；`X-Frame-Options` 只在「被人 iframe 做点击劫持」时才有意义，
+  而本站没有需要被嵌入的交互）—— 代价：那 5 个头一直缺；
+  ② **套 Cloudflare，全套补齐**（CSP `default-src 'self'` ＋ 放行 fonts.googleapis.com / fonts.gstatic.com、
+  `X-Content-Type-Options: nosniff`、`Referrer-Policy`、`Permissions-Policy`、`X-Frame-Options`）——
+  代价：多一个第三方与一跳；收益：把「浏览器该有的默认防护」补齐；
+  ③ **套 Cloudflare，但只补最有价值的一两个头**（例如 `X-Content-Type-Options` ＋ `Referrer-Policy`）——
+  折中：代理的信任成本照付，头补得不齐全。
+  ⚠️ **本轮不代拍**：套不套代理、加哪几个头，属本人取舍。
+  （本场次不代拍，登记为待拍板 57）
 ---
 ## 2026-10-19 · 第十一轮（12:22–12:47 场次）：订阅源时间戳说真话 + 404 身份开关落地
 
@@ -29978,3 +30000,128 @@ README 命令表 / GW1 / GW4）：
 
 - 批注正文是英文精读笔记（全站英文口径），内容忠实于 paper.md 的页面文本；question / critique 类是对方法的追问与质疑，不声称论文里有对应结果。
 - 验收状态按惯例标记为「**本地已实现，待 push 后复验线上项**」——线上部署（GitHub Pages）由本人决定，本轮恪守「只本地提交，不 push」的纪律。
+
+---
+
+## 2026-10-26 · 巡检轮次：修掉缺陷 D100 —— **干净克隆的 build 必然失败**（站点发不出去）＋ CI 供应链加固
+
+### A. 起因
+
+这一轮的起点是巡检清单里的「**构建可复现**」那一项 —— 它提醒了一件事：
+**git 不跟踪空目录**，`src/assets/fonts/` 这个预留的自托管字体目录只活在**作者本机磁盘**上。
+
+实测坐实，而且比预想的严重：
+
+- **干净克隆**（`git clone --no-hardlinks`，HEAD `97533bc`）里 `src/assets/fonts/` **不存在**；
+- `HOW_TO_RUN.md` 有**两处**把它写进行内反引号（`:119` 的仓库结构清单、`:225` 的接入 checklist），
+  而行内反引号**正是文档现状门禁 DR6 的取值面** ⇒ **DR6 判红**，红因 2 处；
+- `node scripts/check-doc-reality.cjs` 在干净克隆里 **exit 1**，在**本机 exit 0**；
+- `check:doc-reality` **在 build 链里** ⇒ CI 的 `npm run build` 会**断在这一步** ⇒
+  **build job 失败 ⇒ 站点永远发不出去**。
+
+⇒ 这不是文档漂移，是**「本机绿 / 干净克隆红」**那一族（构建不可复现）：
+**缺陷被本机那个空目录完全掩盖**，所以本地永远发现不了，**只有 CI 能发现** —— 而 CI 已经 10 天没跑过了。
+
+顺带查了 CI 历史：最后一次运行是 **2026-10-16**，`Deploy MeteoHub to GitHub Pages`（**本仓的工作流**）**成功**；
+同一天失败的那条是 GitHub 自带的 **`pages-build-deployment`**（分支式旧 Pages 管线）——**不是本仓的工作流**，
+属另一件事，本轮不碰。
+
+### B. 改动
+
+本轮只做**两件**事。
+
+#### B1 · 修掉缺陷 D100：让「预留目录」在每一个克隆里都存在
+
+| 文件 | 改动 |
+|---|---|
+| `src/assets/fonts/.gitkeep` | **新建**（空文件）。git 不跟踪空目录 ⇒ 这个占位文件是该目录**入库**的唯一办法 ⇒ 干净克隆里目录也在 ⇒ DR6 的两个红因消失 |
+| `eleventy.config.js` | 字体 passthrough 从通配 `src/assets/fonts/**/*` **收窄**成 `src/assets/fonts/**/*.{woff,woff2,ttf,otf,eot}` —— 通配会把 `.gitkeep` 这个占位文件**一起发布**进产物（实测 `_site/assets/fonts/.gitkeep` 确实出现）；列死扩展名后占位文件**永不进产物**，将来真的丢字体进去仍照常发布 |
+| `HOW_TO_RUN.md`（两处）、`docs/design-system.md`（一处） | 「该目录已存在但当前为空」这类表述**就地订正**为真（现在目录里有 `.gitkeep`，但没有字体文件） |
+
+#### B2 · CI 供应链加固：`.github/workflows/deploy.yml`
+
+| 项 | 原状 | 改后 |
+|---|---|---|
+| 6 个 action 的版本钉法 | `checkout@v4` / `setup-node@v4` / `configure-pages@v5` / `upload-pages-artifact@v3` / `deploy-pages@v4` / `download-artifact@v4`（**全是可移动的 tag**） | 全部 **pin 到 commit SHA**，行尾注释写明对应 tag 与该 commit 的日期；文件末尾新增「**action 版本钉法**」一节，写明升级命令与注意事项 |
+| `actions/checkout` | 未设 `persist-credentials`（默认 true ⇒ **token 被写进本地 `.git/config`**，仓内任何脚本都能用它） | 两处 checkout 都加 `persist-credentials: false`（本仓 build 链只用**本地** git 读历史，不做需要鉴权的远端操作 ⇒ 零影响） |
+| `permissions` | workflow 级 `contents: read` ＋ `pages: write` ＋ `id-token: write` ⇒ **每个 job 都持有**，包括跑完整条 build 链的 build job | workflow 级只留 `contents: read`；**`pages: write` ＋ `id-token: write` 收窄到 `deploy` job**（官方 deploy-pages 文档写明「执行部署的 job 至少需要」这两个）；build job 给 `contents: read` ＋ `pages: read`；verify-live job 给 `contents: read` |
+
+**为什么 `id-token: write` 值得收窄**：它让持有它的 job 能**铸造 OIDC JWT** ——
+而 OIDC 令牌正是「以本仓库身份去第三方云（AWS / GCP / Azure）换凭据」的那张凭证。
+原先 build job 跑的是 `npm ci` ＋ 仓内 100+ 步脚本（**仓里可被改的代码**），却握着一张这种令牌。
+
+### C. 验证
+
+- **负对照（缺陷有效性）**：隔离克隆里**删掉整个 `src/assets/fonts/`**（= 模拟「目录没入库」）⇒
+  DR6 **exit 1**、红因「…（**2 处**）」；恢复后 **exit 0**。
+  ⚠️ **只删 `.gitkeep` 不会触发**（目录还在磁盘上）—— 负对照必须删**整个目录**，否则测的不是这个缺陷。
+- **干净克隆整链**：`git clone --no-hardlinks` ＋ 全部改动 ⇒ `npm run build`（100+ 步）**exit 0**。
+- **产物**：`clone/_site/assets/` 下**没有** `fonts/` 目录 ⇒ 占位文件没被发布。
+- **工作流 YAML**：解析通过；`permissions` 逐 job 打印核对；6 个 `uses:` 全是 40 位 SHA；
+  `triggers` 仍只有 `push: [main]` ＋ `workflow_dispatch`。
+- **SHA 取值**：每个 SHA 都由 `gh api repos/<owner>/<repo>/commits/<tag> --jq '.sha'` **现查**，
+  并一并核对了该 commit 的日期与标题（不是手抄）。
+- **受影响的门禁**：`check:deploy-target`（读工作流）**exit 0**、`check:log-sections`（要求工作流里有 `fetch-depth: 0`）**exit 0**、
+  `check:doc-reality` **exit 0**、`check:design-system-contract` **exit 0**。
+- **其它体检项**：`npm audit --omit=dev` **0 vulnerabilities**；`src/` 里 `<form` / `<input` / `<textarea` / `<iframe` **各 0 处**；
+  `target="_blank"` **43 处全部**带 `rel="noopener noreferrer"`；`javascript:` / `data:text/html` **0 处**；
+  `src/` 与 `eleventy.config.js` 里**绝对路径 0 处**。
+
+### D. 顺手发现
+
+- **「删掉文件」不是「删掉目录」**：第一版负对照是删 `.gitkeep` ⇒ DR6 **没红**。
+  原因是缺陷在**目录**层面（git 不跟踪空目录），不在文件层面。
+  ⇒ **负对照必须复现真实触发条件**（干净克隆 = 目录整个不存在），不是找一个「看起来相关」的动作。
+- **`configure-pages` 只读**：从 v5 的 `dist/index.js` 里 grep 出的接口只有
+  `repos.getPages`（`GET /repos/{owner}/{repo}/pages`）与 builds 的 **GET** ⇒ build job 给 `pages: read` 足够，
+  不必留 `pages: write`。**这是从 action 的实际实现查出来的，不是照抄文档模板。**
+- **DP2 假红不是缺陷**：隔离克隆用 `git clone <本地路径>` ⇒ `origin` 指向本地路径 ⇒ 仓库名解析成 `MeteoHub` ⇒
+  `check:deploy-target` 的 DP2 判红（文档声明的发布落点是 `oldsixxiaolv.github.io`）。
+  ⇒ **这不是站点缺陷，是克隆方式的副作用**；把克隆的 `origin` 改回 `git@github.com:oldsixxiaolv/oldsixxiaolv.github.io.git` 后即绿。
+  ⇒ 以后做隔离克隆，**必须先对齐 `origin`**，否则会把克隆副作用当成缺陷去「修」。
+- **线上那条失败的 CI 不是本仓的**：GitHub 自带的 `pages-build-deployment`（分支式旧 Pages 管线）在
+  2026-10-16 与本仓工作流**同时**跑并失败；本仓的 `Deploy MeteoHub to GitHub Pages` **成功**。
+  ⇒ 看 CI 历史时要**按工作流名分开看**，否则会把旧管线的失败算到本仓头上。
+
+### E. 文档
+
+- `docs/DEFECT-BACKLOG.md`：**新增 D100 行**（位置 / 现象 / 可判定的验收条件 / 状态格逐条兑现）；
+  状态写「**本地已实现，待 push 后复验线上项**」，**不写「已修」**；既有行一字未动。
+- `docs/ROADMAP.md`：进度区新增 D100 的「本地已实现」条目。
+- `docs/IMPROVEMENT-LOG.md`：本小节；中央「待决策」台账**新增待拍板 57**（见下）。
+- `HOW_TO_RUN.md` / `docs/design-system.md`：字体目录的三处表述就地订正。
+
+### F. 本轮纪律
+
+- 提交走**私有索引 + commit-tree + update-ref CAS**，只提交本轮自己改的路径；**不 push**。
+- ⚠️ **本轮提交一并收编了 2026-10-25 场次（D12 论文批注层）遗留的未提交改动** ——
+  那些改动自 2026-10-25 起一直挂在工作树上（HEAD 里没有 `annotations.json`、没有 `hasAnnotations`），
+  而**再没有别的场次会回来收它**。为了让「HEAD 与仓内文档互相自洽」，本轮把它们**单独放一个提交**收编，
+  本轮自己的改动放**后一个提交** ⇒ 两个提交的 diff 各自可审。
+- 探针、夹具与文档拼接脚本都放在 `/tmp/mh_d102/`（**不入库**）。
+- **不写死会变的存量数**；每个数字都能在同页找到出处；**不编造**任何数据、结论或引用。
+- 取舍类**不代拍**：Cloudflare 与安全头那一族写进**待拍板 57**，本轮只给事实与候选。
+
+### 待拍板 57（本轮新增，不代拍）
+
+**要不要给域名套 Cloudflare 以加自定义安全响应头：加哪几个头由谁拍板。**
+事实：线上**有** GitHub 自带 HSTS，**没有** CSP / `X-Frame-Options` / `X-Content-Type-Options` /
+`Referrer-Policy` / `Permissions-Policy`；站点**直连 GitHub Pages（Fastly 边缘），没有 Cloudflare 代理**
+⇒ GitHub Pages 这条路给不了自定义头；走 `<meta>` **补不齐**（CSP 的 `frame-ancestors` 在 meta 里不生效，
+`X-Frame-Options` 没有 meta 等价物）。
+候选：① 不套代理接受现状（本站纯静态、零第三方前端运行时依赖、无表单无 iframe ⇒ 实际风险面很小）；
+② 套 Cloudflare 全套补齐（代价：多一个第三方与一跳）；③ 套但只补最有价值的一两个头。
+⚠️ 属本人取舍，**本轮不代拍**。
+
+### 下一轮入口
+
+- **D100 的收尾只差 push**：线上部署要真的能跑通 —— 与 **D6**（线上 3 条 404）同一个前置。
+  ⚠️ push 之后 **CI 会第一次在干净克隆上跑** ⇒ 那才是 D100 的线上那半。
+- **D5 / D12 / D93 / D94 / D95 / D96 / D97 / D98 / D99** 同样卡在 push；**D9 / D10 / D26 / D32 / D57** 仍挂本人拍板；
+  **D7 / D8** 判为不修 —— 本轮不代拍。
+- **本轮顺手记下的候选**：① 6 个 action 钉在 SHA 上之后**没有门禁看守** ⇒ 将来有人写回 `@v4` 没人拦
+  （加判据要动 `check:deploy-target` 的静态清单与自测档位，是**另一轮**的事）；
+  ② `configure-pages` 的输出**一个都没被消费**（本仓的 `pathPrefix` 由 `src/_data/site.js` 的 `site.url` 派生）⇒
+  它现在只为一个读不到的元数据付一次 API 调用；删不删属**取舍**，未代拍；
+  ③ 线上那条 GitHub 自带的 `pages-build-deployment` 失败（本仓工作流是成功的）—— 属 GitHub 侧旧管线，
+  要不要处理**未代拍**；④ **D99** 的收尾同样卡 push。

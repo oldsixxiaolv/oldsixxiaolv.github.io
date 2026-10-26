@@ -242,7 +242,7 @@
 
 > **JavaScript 加载策略**：  
 > - 优先外链 Google Fonts（思源宋体 SC 与 Inter 都有覆盖全字符的 woff2）。  
-> - 若需要在国内网络更快加载，可换 `https://fonts.loli.net` 或自托管到 `src/assets/fonts/`（该目录已存在但当前为空，字体放进去会被 passthrough 拷到 `_site/assets/fonts/`）。
+> - 若需要在国内网络更快加载，可换 `https://fonts.loli.net` 或自托管到 `src/assets/fonts/`（该目录已随仓库入库；只有 woff / woff2 / ttf / otf / eot 会被 passthrough 拷到 `_site/assets/fonts/`）。
 
 ```css
 /* Google Fonts 完整外链 */

@@ -116,7 +116,7 @@ partial 自身通过 passthrough 单独拷到 `_site/assets/css/components/`，
 - `src/assets/css/paper-reader.css` —— 论文精读页专用，由 `src/_includes/layouts/paper.njk` inline 进 `<style>`
 - `src/assets/css/components/index.css` —— 组件入口（`@import` 全部 partial）
 - `src/assets/favicon.svg` —— 站点图标
-- `src/assets/fonts/` —— 预留的自托管字体目录，当前为空（走 Google Fonts）
+- `src/assets/fonts/` —— 预留的自托管字体目录，目前只有一个占位文件 `.gitkeep`（git 不跟踪空目录；没有它，干净克隆里就没有这个目录 ⇒ 文档现状门禁 DR6 会判红，见 D100），没有字体文件（走 Google Fonts）
 - `src/assets/img/og/og-1200x630.jpg` —— 分享图主尺寸（JPEG 导出，源是同目录下的 SVG）
 - `src/assets/img/og/og-1500x500.jpg` —— 分享图宽幅
 - `src/assets/img/og/og-1080x1080.jpg` —— 分享图方形
@@ -225,6 +225,6 @@ partial 的职责划分见 `docs/design-system.md` 的组件清单。
 - [ ] `npm run build` 成功（门禁全绿、无 Eleventy 错误）
 - [ ] `grep -rE 'href="/assets/|src="/assets/' _site/*.html` 期望 0 命中（资产路径必须走 `{{ '/path' | relUrl }}` 渲染成相对路径，不能硬编码根绝对路径）
 - [ ] `_site/` 不在版本控制里（已在 `.gitignore`）
-- [ ] Google Fonts 域名是否在境内可达；如不可达，把 `src/_includes/layouts/base.njk` 里的 `<link>` 换成 `fonts.loli.net` 或自托管到 `src/assets/fonts/`（该目录已存在但当前为空，passthrough 已配好，丢字体文件进去即可）
+- [ ] Google Fonts 域名是否在境内可达；如不可达，把 `src/_includes/layouts/base.njk` 里的 `<link>` 换成 `fonts.loli.net` 或自托管到 `src/assets/fonts/`（该目录已随仓库入库；发布的 passthrough **只认字体扩展名**（woff / woff2 / ttf / otf / eot），丢字体文件进去即可，占位文件不会被发布）
 - [ ] 如果部署到子路径，确认 `src/_data/site.js` 的 `site.url` 与实际部署路径一致 —— `pathPrefix` 从它自动派生
 - [ ] 部署细节见 `docs/DEPLOY.md`

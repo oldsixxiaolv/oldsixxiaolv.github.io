@@ -5,10 +5,24 @@ on:
     branches: [main]
   workflow_dispatch: {}
 
+# ⚠️ workflow 级 permissions **只留 contents: read**（D100）。
+#
+# 为什么收窄：`pages: write` 与 `id-token: write` 原先挂在 workflow 级 ⇒
+# **每一个 job 都持有**，包括跑完整条 build 链的 build job（它会执行
+# `npm ci` 与仓内 100+ 步门禁脚本 = 仓里可被改的代码）。
+#   · `id-token: write` 的危害最大：它让那个 job 能**铸造 OIDC JWT**，
+#     而 OIDC 令牌正是「以本仓库身份去第三方云（AWS/GCP/Azure）换凭据」
+#     的那张凭证 —— 拿到它的 job 可以拿着仓库的身份去别处取密钥。
+#   · `pages: write` 让持有者能**创建 Pages 部署**（改线上内容）。
+# 官方 deploy-pages 的 action.yml 写明：执行部署的 job **至少**需要
+# `pages: write` + `id-token: write` —— 这两个权限本来就只需要在 deploy
+# job 上（https://github.com/actions/deploy-pages#deploy-pages）。
+#   · build job 只保留 `contents: read` + `pages: read`：
+#     `actions/configure-pages` 只调 `repos.getPages`（GET /repos/{o}/{r}/pages）
+#     取站点元数据，实测 dist 里的接口只有 GET，没有写操作 ⇒ `pages: read` 足够。
+#   · verify-live job 只需要读代码 ⇒ `contents: read`。
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
 # 同一 group 只允许一个 deploy 运行，避免并发部署
 concurrency:
@@ -18,10 +32,20 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    # build job 只读代码 + 读 Pages 站点元数据，不写任何东西（D100）。
+    permissions:
+      contents: read
+      pages: read
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        # ⚠️ pin 到 commit SHA（不是 tag）—— 见文件末尾「action 版本钉法」。
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
+          # ⚠️ 不把 token 留在 .git/config 里（persist-credentials 默认 true ⇒
+          # checkout 会把 GITHUB_TOKEN 写进本地 git 配置，仓内任何脚本都能用它）。
+          # 本仓的 build 链只用**本地** git 读历史（git log / git rev-parse），
+          # 不做任何需要鉴权的远端操作 ⇒ 关掉零影响。
+          persist-credentials: false
           # sitemap 的 <lastmod> 取"该页源文件最后一次 git 提交时间"，
           # 需要**完整历史**。默认是浅克隆（depth=1），历史被截断，
           # `git log -1 -- <file>` 只能查到 HEAD 那一次 —— 查出来的值
@@ -30,7 +54,7 @@ jobs:
           fetch-depth: 0
 
       - name: Setup Node 22
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           # ⚠️ 从 20 升到 22，两个原因都不是"追新"：
           #   ① **Node 20 已于 2026-04-30 结束支持（EOL）**，
@@ -99,23 +123,29 @@ jobs:
       # 开启 Pages 是一次性的手动操作：Settings → Pages → Source → GitHub Actions。
       # 本仓库是用户站仓库，base_path 应为 /（站点在域名根，无子路径）。
       - name: Configure Pages
-        uses: actions/configure-pages@v5
+        uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5
 
       - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v3
+        uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3
         with:
           path: _site
 
   deploy:
     needs: build
     runs-on: ubuntu-latest
+    # 执行部署的 job 才需要这两个权限（官方 deploy-pages 文档写明"至少需要"），
+    # 其余 job 一律不给（D100）。
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4
 
   # 线上部署核查（scripts/check-live-site.cjs）—— 这道门禁**不能**接进 build 链：
   # build 跑在 deploy 之前，那时线上还是上一次部署，把它放进 build 等于每次都对着
@@ -128,17 +158,22 @@ jobs:
   verify-live:
     needs: deploy
     runs-on: ubuntu-latest
+    # 只读代码、只读线上站点 ⇒ 不需要任何写权限（D100）。
+    permissions:
+      contents: read
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
 
       - name: Setup Node 22
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
 
       - name: Download the artifact that was just deployed
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: github-pages
           path: _site
@@ -166,3 +201,33 @@ jobs:
 
       - name: Check the live site against the deployed artifact
         run: node scripts/check-live-site.cjs
+
+# ============================================================================
+# action 版本钉法（D100）
+# ============================================================================
+#
+# 上面 6 个 action 全部 **pin 到 commit SHA**，行尾注释里写明它对应的 tag。
+#
+# 为什么不用 `@v4` 这种 tag：
+#   tag 是**可移动的引用** —— 谁改了上游 tag，指向的代码就变了，
+#   而**你不会收到任何通知**。对一条「把产物发到公网域名」的管线来说，
+#   这正是最不该有的形状：发布出去的字节由一个第三方仓库的 tag 决定，
+#   而不是由本仓库的提交决定。钉到 SHA 之后，**这段 YAML 里写下的字节
+#   就是会跑的字节**；要升级就走一次有记录的提交（PR 里能看清 diff）。
+#
+# 怎么升级（别手抄，本轮每个 SHA 都是这样取出来的）：
+#   gh api repos/<owner>/<repo>/commits/<tag> --jq '.sha'
+#   → 把返回的 40 位 SHA 写进 `uses:`，行尾注释写成 `# <tag>`
+#   → **顺手确认一下这条 commit 的日期**（同一命令加 `--jq '.commit.committer.date'`），
+#     免得 pin 到一个比当前 tag 还老的提交上。
+#
+# 当前钉住的版本（2026-10-26 实测取自 GitHub API）：
+#   actions/checkout             @11d5960a…  v4（2026-07-16）
+#   actions/setup-node           @49933ea5…  v4（2025-04-02）
+#   actions/configure-pages      @983d7736…  v5（2024-03-30）
+#   actions/upload-pages-artifact@56afc609…  v3（2024-02-07）
+#   actions/deploy-pages         @d6db9016…  v4（2024-03-15）
+#   actions/download-artifact    @d3f86a10…  v4（2025-04-24）
+#
+# ⚠️ 诚实边界：SHA 钉住**不等于**这些版本没有已知漏洞 —— 它只保证
+#   「跑的就是这一份代码」。上游若发布了安全修复，要按上面的流程升上去。
