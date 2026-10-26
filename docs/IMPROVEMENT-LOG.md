@@ -2469,6 +2469,7 @@ CSDN 521 并列）。那个归类对 ResearchGate / CSDN 成立，但对这一�
   但字形会变（本站的排版个性会掉一截）。
   ⚠️ **本轮不代拍**：字体是**取舍**（外观 vs 离线可用），属本人决定。
   （本场次不代拍，登记为待拍板 56）
+
 ---
 ## 2026-10-19 · 第十一轮（12:22–12:47 场次）：订阅源时间戳说真话 + 404 身份开关落地
 
@@ -29950,3 +29951,30 @@ README 命令表 / GW1 / GW4）：
   ② 判据 34 目前只判 h2–h6，且只要求「页面上有一个标题元素的文本包含这个条目名」—— 要判得更紧（例如要求该标题元素**落在那个 `<li>` 里**）就得解析 DOM 嵌套；
   ③ 全站其它 `<li>`（导航、定义列表）仍**没有**标题元素 —— 若将来要一并补齐，那是**另一轮**的事，本轮不扩大范围。
 - **M1 剩余项**：M1-1（封面开关 ＋ 比例口径）仍被**待拍板 50** 阻塞。
+
+---
+
+## 2026-10-25 · 场次（**不占轮次号**）：论文批注层真实接入 —— 修掉缺陷 D12 的「数据侧」（trmm-thunderstorm-stages 首篇带批注上线）
+
+### A. 起因
+
+`README.md` 把「论文精读批注」（左侧原文 + 右侧批注侧栏、六种 kind 配色、段落↔批注双向联动）列为差异化亮点，但缺陷 **D12** 记录的现实是：`hasAnnotations` 全仓未定义、`annotations.json` 全仓不存在 ⇒ `paper-reader` 的批注模块（annotations.js / highlight.js）从未在真实页面上加载过，属死代码。本轮把它接上：为唯一一篇真实论文 `trmm-thunderstorm-stages` 提供真实批注数据，并补齐激活开关。
+
+### B. 改动
+
+1. **激活开关**（`src/content/papers/papers.11tydata.cjs`）：`eleventyComputed` 新增 `hasAnnotations` —— 构建期按「该篇论文目录下真实存在 `annotations.json`」逐篇判定，喂给 `src/_includes/layouts/paper.njk` 已有的 `{%- if hasAnnotations %}` 分支。有文件的论文页传 `annotationsUrl`、挂批注侧栏；没有文件的整段跳过批注模块（不会对必然 404 的地址发请求）。layout 本身**未改** —— 开关位置早就留好了，缺的只是定义。
+2. **正文锚点**（`src/content/papers/trmm-thunderstorm-stages/paper.md`）：8 个被批注的段落从 markdown 裸段落改写成 `<p id="p-XXX">` HTML 块（正文文字一字未改；`*…*` 斜体转成 `<em>`，一处直引号转成弯引号以保持 typographer 原有渲染）。采用 `<p id>` 而不是 D.8 原规划的 `<a id="p-XXX"></a>` 空锚：空锚会让 `.paper-anchor` 装饰与高亮落在零尺寸 inline 元素上、视觉联动失效；`<p id>` 即 docs/papers-interaction.md §3.3 的五星方案，与 `docs/papers/reader-demo.html` 的 `p-007` 同形。
+3. **批注数据**（`src/content/papers/trmm-thunderstorm-stages/annotations.json`，新建）：12 条批注，全部 anchor 命中 paper.md 真实 id（`paragraph` 型）；kind 分布 insight×4 / question×2 / critique×2 / link×3 / figure×1，无 typo（正文没有真实勘误可标，不凑数）。link 类外链全部为已核实的权威资源：论文 DOI（10.1029/2026JD046836）、Zenodo 数据集（10.5281/zenodo.18041880 与概念 DOI 16662143）、Code Ocean 胶囊（10.24433/CO.6720035.v1）、GitHub 源码仓、NASA TRMM 任务页（curl 实测可达）。
+4. **触控目标合规（WCAG 2.5.8）**：接入批注后触发 `check:overflow` 真实拦截 —— `.annot-links a`、`.paper-head__links a`、`.foot a` 初始高度仅 17~23.8px，未达 WCAG 2.5.8 的 24×24px 目标尺寸规范。在 `src/assets/css/components/_paper.css`、`paper-reader.css`、`components/_nav.css` 中补齐 `display: inline-flex; align-items: center; min-height: 24px;`，使所有 7 档视口全部达到 0 处违规。
+5. **载体家族登记（门禁 ID6b）**：`src/content/papers/trmm-thunderstorm-stages/annotations.json` 作为 candidate carrier，在 `scripts/check-identity-derivation.cjs` 的 `CARRIER_FAMILIES` 中登记到 `目录数据层` 家族，通过 ID6b 且无个人句柄泄露。
+6. **文档同步**：`HOW_TO_RUN.md`「当前仓库里没有接入批注数据」一段改写为真实机制；`docs/papers-interaction.md` 三处就地订正（§2.3 落地现状、D.8 段落锚点形态、D.9 顺带记一条）；`docs/papers/reader-demo.html` 两处「本仓目前没有 annotations.json」改为「本 demo 故意不传，真实论文页已带」；`docs/DEFECT-BACKLOG.md` 与 `docs/ROADMAP.md` 同步登记 D12 本地实现验收条件。
+
+### C. 验证
+
+- 门禁：`check:paper-interaction`（PI1–PI9）、`check:overflow`（TS1–TS4, AN1–AN3，7 档宽度 0 溢出、触控尺寸 0 违规）、`check:identity-derivation`（ID0–ID7，含 34 档自测）、`check:js-targets`、`check:site-js`、`check:lang`、`check:doc-reality`、`check:readme`、`check:tracked-refs` 等全部 exit 0；`npm run build` 全链通过。
+- 浏览器实测（headless Chrome + 静态服务器指向 `_site/`）：`/papers/trmm-thunderstorm-stages/` 的 DOM 里 `aside.annot-pane` 存在、批注卡 12 张（与 annotations.json 条数一致）、正文 `.paper-anchor` 装饰 10 处（12 条批注中有两对共享锚点段：a004/a005 与 a006/a007）、`?a=a006` 直链激活对应卡片。
+
+### D. 诚实边界
+
+- 批注正文是英文精读笔记（全站英文口径），内容忠实于 paper.md 的页面文本；question / critique 类是对方法的追问与质疑，不声称论文里有对应结果。
+- 验收状态按惯例标记为「**本地已实现，待 push 后复验线上项**」——线上部署（GitHub Pages）由本人决定，本轮恪守「只本地提交，不 push」的纪律。

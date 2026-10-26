@@ -184,6 +184,31 @@ const CASES = [
       );
     },
   },
+  {
+    id: "D7",
+    desc:
+      "期望集锚失守时，「本轮跳过了哪几条判定」的说明必须打出来" +
+      "（notes 曾因结构原因排在 process.exit(1) 之后 ⇒ 结构性死代码：红路径永远打不出）",
+    gate: IDENTITY_GATE,
+    expect: "red",
+    mustContain: [
+      "**跳过**产物侧全集判定（I1）",
+      "**跳过**人读路径判定（I5）",
+      "**跳过**产品侧可见身份链接判定（I7）",
+      "**跳过**可见性一致性判定（I8）",
+    ],
+    apply() {
+      /* 注入锚失守：把期望集的哈希锚改掉一位 → I2c 判红 → anchorTrustworthy=false
+         → I1/I5/I7/I8 四条判定本轮跳过（四条 note 同时被 push）。
+         ⚠️ 注入锚用「常量定义的那一行开头」而不是那一串哈希值本身：
+            哈希值会随期望集合法增删而变，写死整串会有一天突然"注入失败"。 */
+      return inject(
+        "scripts/check-identity-handles.cjs",
+        'const ORACLE_SET_SHA256 = "',
+        'const ORACLE_SET_SHA256 = "0'
+      );
+    },
+  },
 ];
 
 /* ---------- 跑矩阵 ---------- */
@@ -193,7 +218,10 @@ let failed = false;
 prepare();
 
 const backups = {};
-for (const rel of ["src/_data/site.js", "src/index.njk"]) {
+/* IDENTITY_GATE 也在备份清单里：D7 档要往门禁文件里注入"锚失守"，
+   注入必须能被还原——否则这一档的注入会漏到后面的档位和基线里，
+   让"后面的档位红了"变成"其实是被上一档污染了"。 */
+for (const rel of ["src/_data/site.js", "src/index.njk", IDENTITY_GATE]) {
   backups[rel] = read(rel);
 }
 

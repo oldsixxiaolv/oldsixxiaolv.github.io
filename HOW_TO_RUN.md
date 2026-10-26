@@ -199,9 +199,12 @@ slug 的提取规则见 `src/eleventy-helpers.cjs` 的 `getSlugFromData`：文�
 - `tags` 由目录数据文件自动注入，不要在 front matter 里重复写。
 
 批注数据（`annotations.json`）的字段规范见 `docs/papers-interaction.md`。
-**当前仓库里没有接入批注数据** —— `src/_includes/layouts/paper.njk` 只有读到批注文件时才会去取它，
-所以现在的论文页是纯阅读模式。锚点 id（小节标题用 `<h2 id="p-XXX">`、段落锚点用 `<a id="p-XXX"></a>`）
-与批注 `anchor.value` 的对应规则同见那份文档。
+批注开关是**按篇自动判定**的：`src/content/papers/papers.11tydata.cjs` 在构建期检查论文目录下
+是否存在 `annotations.json`（算出的 `hasAnnotations` 喂给 `src/_includes/layouts/paper.njk`），
+有文件的论文页挂批注侧栏，没有文件的整段跳过批注模块、保持纯阅读模式。
+`trmm-thunderstorm-stages` 自 2026-10-25 起带批注。锚点 id 的写法：小节标题用 `<h2 id="p-XXX">`、
+段落锚点直接把 id 写在段落元素上（`<p id="p-XXX">`，与 `docs/papers/reader-demo.html` 同形）；
+批注 `anchor.value` 必须能命中这些 id，对应规则同见那份文档。
 
 > `src/content/papers/*/index.md` 会被 `eleventyConfig.ignores` 排除，不参与渲染。放不放都行；
 > 放了能当本地入口预览，但**不要**指望它出现在 `_site/` 里。

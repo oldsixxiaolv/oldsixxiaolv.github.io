@@ -28,34 +28,44 @@ summary: "A K-means classifier on radar echo structure splits 16 years of TRMM s
 
 <h2 id="p-what-this-paper-does">What this paper does</h2>
 
-TRMM gives you radar and lightning *at the same time*, which is the reason the
+<p id="p-trmm-snapshot">
+TRMM gives you radar and lightning <em>at the same time</em>, which is the reason the
 platform is still worth mining two decades after launch. But it is an
 instantaneous snapshot, so it cannot show a storm evolving — every pass sees
 one frozen moment of a life cycle that actually takes tens of minutes.
+</p>
 
-This paper builds the missing piece: a way to say *where in its life cycle a
-snapshot storm is*, so that lightning–structure relationships can be asked as
+<p id="p-missing-piece">
+This paper builds the missing piece: a way to say <em>where in its life cycle a
+snapshot storm is</em>, so that lightning–structure relationships can be asked as
 a function of storm stage rather than pooled across all of them.
+</p>
 
 <h2 id="p-how-the-stage-classification-works">How the stage classification works</h2>
 
+<p id="p-kmeans-approach">
 The approach is a machine-learning K-means clustering on radar echo structure,
 applied to 16 years of TRMM observations over tropical Africa — the global
 hotspot for lightning and thunderstorms. The clustering first separates
 storms by echo structure, and the compact storms are then grouped into three
 clusters that reproduce the known life-cycle sequence. They are therefore
 named Pre-Mature, Mature and Post-Mature.
+</p>
 
+<p id="p-key-result">
 The key result is that the stage assignment is what makes the later analysis
 meaningful. Pooled across stages, a lightning–intensity relationship looks
-like a single trend. Resolved by stage, the *correlation coefficients turn
-out to be similar* while the *linear fits differ* — which is the signal for
+like a single trend. Resolved by stage, the <em>correlation coefficients turn
+out to be similar</em> while the <em>linear fits differ</em> — which is the signal for
 stage-specific electrification mechanisms rather than one universal one.
+</p>
 
 <h2 id="p-why-stage-dependence-matters-for-the-field">Why stage-dependence matters for the field</h2>
 
+<p id="p-two-findings">
 Two findings are worth pulling out, because they are the ones that carry
 consequence beyond this paper:
+</p>
 
 - **Pre-Mature storms are smaller but electrically denser.** They show less
   horizontal scale yet higher lightning density per unit area, despite
@@ -63,20 +73,26 @@ consequence beyond this paper:
 - **Post-Mature storms are the reverse.** Larger scale, lower lightning
   density.
 
+<p id="p-mature-strongest">
 Mature-stage storms are, unsurprisingly, the strongest. The trade-off the
-paper isolates is therefore not simply "more convection means more lightning"
-— it is *how* convection intensity and horizontal scale trade off at
+paper isolates is therefore not simply “more convection means more lightning”
+— it is <em>how</em> convection intensity and horizontal scale trade off at
 different points of the life cycle, and how the electrification responds.
+</p>
 
+<p id="p-parameterisation">
 That matters downstream: lightning parameterisation schemes are usually
 written against stage-agnostic relationships. If the relationship is
 genuinely stage-dependent, a single set of coefficients will fit well in
 aggregate and badly in any individual storm.
+</p>
 
 <h2 id="p-the-data-and-the-code">The data and the code</h2>
 
+<p id="p-reproducibility">
 Everything needed to reproduce the analysis is published and separately
 citable — the dataset, the code, and a packaged capsule that runs the
 analysis with its environment intact. The section below lists each with its
 DOI, version and licence. The paper's own reference list cites the dataset
 entry, so the DOI resolves to the same record from either direction.
+</p>

@@ -532,6 +532,9 @@
   gap: var(--space-3);
 }
 .annot-links a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
   font-size: 13px;
   color: var(--link-color);
   text-decoration: none;

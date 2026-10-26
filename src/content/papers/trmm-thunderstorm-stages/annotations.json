@@ -1,0 +1,137 @@
+{
+  "paperSlug": "trmm-thunderstorm-stages",
+  "schemaVersion": "1.0",
+  "lastUpdated": "2026-10-25T00:00:00+08:00",
+  "annotations": [
+    {
+      "id": "a001",
+      "anchor": { "type": "paragraph", "value": "p-trmm-snapshot" },
+      "kind": "insight",
+      "title": "Simultaneous radar + lightning is the real asset",
+      "body": "The pairing matters more than either instrument alone: the Precipitation Radar sees echo structure while LIS sees the electrical response, so structure–lightning relationships need no colocation assumptions. The snapshot limitation stated here is inherited by every low-Earth-orbit radar; the stage classification in this paper is one way to squeeze life-cycle information out of frozen moments anyway.",
+      "tags": ["trmm", "lis", "snapshot-geometry"],
+      "createdAt": "2026-10-25",
+      "links": [
+        { "label": "NASA TRMM mission page", "url": "https://gpm.nasa.gov/missions/trmm" }
+      ]
+    },
+    {
+      "id": "a002",
+      "anchor": { "type": "paragraph", "value": "p-missing-piece" },
+      "kind": "question",
+      "title": "How is 'where in the life cycle' validated?",
+      "body": "Each storm is observed once, so stage labels cannot be checked against the same storm's evolution in this dataset. What external evidence pins the cluster order to real time — e.g. ground-based radar tracking of storms through their life cycle, or consistency with known diurnal/structural signatures? Worth checking how the paper argues the Pre→Mature→Post ordering beyond 'reproduces the known life-cycle sequence'.",
+      "tags": ["validation", "life-cycle"],
+      "createdAt": "2026-10-25",
+      "links": []
+    },
+    {
+      "id": "a003",
+      "anchor": { "type": "paragraph", "value": "p-how-the-stage-classification-works" },
+      "kind": "link",
+      "title": "Published version (JGR Atmospheres, 2026)",
+      "body": "Full text, figures and the complete methods description are in the published article — this page is a reading companion, not a substitute.",
+      "tags": ["full-text"],
+      "createdAt": "2026-10-25",
+      "links": [
+        { "label": "doi:10.1029/2026JD046836", "url": "https://doi.org/10.1029/2026JD046836" }
+      ]
+    },
+    {
+      "id": "a004",
+      "anchor": { "type": "paragraph", "value": "p-kmeans-approach" },
+      "kind": "insight",
+      "title": "Unsupervised labels, physical names",
+      "body": "K-means produces unlabeled partitions; the names Pre-Mature / Mature / Post-Mature are assigned afterwards because the three clusters reproduce the known life-cycle sequence. That interpretive step is where the physics enters an otherwise purely structural clustering — and it is stated openly here rather than implied.",
+      "tags": ["k-means", "interpretation"],
+      "createdAt": "2026-10-25",
+      "links": []
+    },
+    {
+      "id": "a005",
+      "anchor": { "type": "paragraph", "value": "p-kmeans-approach" },
+      "kind": "critique",
+      "title": "K-means assumptions deserve a robustness check",
+      "body": "K-means favors roughly spherical, equal-variance clusters and needs k chosen in advance. Echo-structure features of convective systems are unlikely to be isotropic, so feature scaling and the choice of three clusters for the compact subset could both steer the partition. A sensitivity run (different k, different scaling, or a non-centroid method such as GMM) would show how much of the stage structure is data and how much is the algorithm.",
+      "tags": ["clustering", "robustness"],
+      "createdAt": "2026-10-25",
+      "links": []
+    },
+    {
+      "id": "a006",
+      "anchor": { "type": "paragraph", "value": "p-key-result" },
+      "kind": "insight",
+      "title": "Similar r, different fits — read it dimensionally",
+      "body": "A correlation coefficient is scale-free, while a linear fit carries the units and slope of the underlying transfer from convective intensity to lightning. 'Similar correlations but different linear fits' is therefore exactly the signature expected if each stage converts intensity into lightning at a different rate — the association strength is stable, the gain is not. That is a cleaner statement of 'stage-specific electrification' than a change in r would be.",
+      "tags": ["statistics", "electrification"],
+      "createdAt": "2026-10-25",
+      "links": []
+    },
+    {
+      "id": "a007",
+      "anchor": { "type": "paragraph", "value": "p-key-result" },
+      "kind": "question",
+      "title": "Composition effect vs. mechanism?",
+      "body": "Stage-resolved subsets differ in sample size and in the mix of storm sizes they contain. Do the distinct linear fits survive bootstrap resampling or size-matched subsampling? If they do, the stage-specific interpretation is solid; if they partly collapse, composition rather than mechanism carries part of the signal.",
+      "tags": ["sampling", "statistics"],
+      "createdAt": "2026-10-25",
+      "links": []
+    },
+    {
+      "id": "a008",
+      "anchor": { "type": "paragraph", "value": "p-two-findings" },
+      "kind": "figure",
+      "title": "See the figure on this page",
+      "body": "The figure above (Fig. 10 in the published article) shows exactly this contrast: three-dimensional structural profiles of the three stages as violin plots stratified by 20/30/40 dBZ, plus the cumulative distributions of lightning rate and 40 dBZ flash density. The 'smaller but denser / larger but sparser' opposition between Pre-Mature and Post-Mature is visible there in the flash-density curves.",
+      "tags": ["figure", "structure"],
+      "createdAt": "2026-10-25",
+      "links": []
+    },
+    {
+      "id": "a009",
+      "anchor": { "type": "paragraph", "value": "p-mature-strongest" },
+      "kind": "insight",
+      "title": "Density normalization is doing the work",
+      "body": "Total flash rate tends to grow with storm size, so comparing stages on raw flash counts would mostly re-measure area. Reporting lightning density per unit area alongside flash rate is what lets the Pre-Mature stage show higher electrification efficiency despite comparable flash rates — the trade-off framing depends on that normalization choice.",
+      "tags": ["lightning-density", "normalization"],
+      "createdAt": "2026-10-25",
+      "links": []
+    },
+    {
+      "id": "a010",
+      "anchor": { "type": "paragraph", "value": "p-parameterisation" },
+      "kind": "critique",
+      "title": "Operational use needs a stage label at forecast time",
+      "body": "The argument against stage-agnostic coefficients is sound, but a parameterisation can only exploit stage-dependent fits if the model knows the stage — and this classifier runs on radar echo structure that a forecast model does not observe directly. Bridging that gap (e.g. a model-state proxy for stage) is a prerequisite for the downstream benefit claimed here.",
+      "tags": ["parameterisation", "nwp"],
+      "createdAt": "2026-10-25",
+      "links": []
+    },
+    {
+      "id": "a011",
+      "anchor": { "type": "paragraph", "value": "p-the-data-and-the-code" },
+      "kind": "link",
+      "title": "Dataset on Zenodo",
+      "body": "The storm-level dataset behind the stage classification, published as a separately citable Zenodo record (v2.0; the concept DOI always resolves to the latest version).",
+      "tags": ["data", "zenodo"],
+      "createdAt": "2026-10-25",
+      "links": [
+        { "label": "doi:10.5281/zenodo.18041880", "url": "https://doi.org/10.5281/zenodo.18041880" },
+        { "label": "All versions (concept DOI)", "url": "https://doi.org/10.5281/zenodo.16662143" }
+      ]
+    },
+    {
+      "id": "a012",
+      "anchor": { "type": "paragraph", "value": "p-reproducibility" },
+      "kind": "link",
+      "title": "Capsule and source repository",
+      "body": "Two complementary ways in: the Code Ocean capsule reruns the analysis with its compute environment packaged, while the GitHub repository is the clonable source behind it.",
+      "tags": ["reproducibility", "code"],
+      "createdAt": "2026-10-25",
+      "links": [
+        { "label": "Code Ocean capsule (doi:10.24433/CO.6720035.v1)", "url": "https://doi.org/10.24433/CO.6720035.v1" },
+        { "label": "GitHub: Manuscript_Lvyh", "url": "https://github.com/oldsixxiaolv/Manuscript_Lvyh" }
+      ]
+    }
+  ]
+}

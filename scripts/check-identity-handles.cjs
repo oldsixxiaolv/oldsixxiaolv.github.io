@@ -315,6 +315,30 @@ const notes = [];
 const fail = (msg) => problems.push(msg);
 const note = (msg) => notes.push(msg);
 
+/* ---------- notes 段的打印器：红绿两条路都要用 ----------
+   为什么必须单独抽一个（一次实测出来的病，不是假想）：
+     notes 记的是「**本轮跳过了哪几条判定**」——
+       期望集自身失守（锚判据 I2a/I2b/I2c 判红）→ 跳过 I1 / I5 / I7 / I8；
+       ORCID 白名单自身失守（条数锚或哈希锚判红）→ 跳过 I6。
+     而**每一条 note 的触发条件都蕴含至少一个 fail** ⇒ problems 非空 ⇒
+     门禁在红路径上先 process.exit(1) ⇒ notes 段根本打不出来。
+     ⇒ 那些 note 是**结构性死代码**：唯一能打到它们的时候（全绿），
+        它们描述的「本轮跳过了 X」又必然不成立（跳过必然伴随判红）。
+     后果：人只看到 1 条锚红因，看不出有四条判定被整体跳过——
+     「跳过」被包装成了「没有可跳的」。
+     这与「一条永远不会红的判据给出了看起来很确定的绿」是同一族病：
+     一个**永远不会出现**的东西，比没有它更坏，因为它让人以为该看的都看了。
+   ⇒ 修法：notes 的打印提到 problems 的 exit **之前**（红路径也打）。
+   ⚠️ 红路径走 stderr：跳过说明必须和红因待在一起；只走 stdout 的话，
+      只看 stderr 的人仍然只看见「1 条红因」，不知道还有四条判定没判。
+   ⚠️ 绿路径上 notes 恒为空（跳过必然伴随判红）⇒ 那条分支目前是防御性的，
+      留着是为了将来出现「不蕴含判红」的说明时不必再改结构。 */
+const printNotes = (sink) => {
+  if (!notes.length) return;
+  sink("—");
+  notes.forEach((n) => sink(`  · ${n}`));
+};
+
 /* ---------- I0（形态规则自证）的**锚**：条数 + 哈希，写死在本文件里 ----------
    ⚠️ 为什么锚不能从夹具表自己取：夹具表若被删掉一条，"实际条数"和"期望条数"
    会一起变小 → 永远相等 → 锚形同虚设（这正是文件头说的"拿自己和自己比"）。
@@ -352,6 +376,7 @@ if (!siteData) {
   console.error("身份句柄完整性门禁未通过：\n");
   problems.forEach((p) => console.error(`  ✗ ${p}`));
   console.error("");
+  printNotes((s) => console.error(s));
   process.exit(1);
 }
 
@@ -1275,6 +1300,10 @@ if (problems.length) {
   console.error("身份句柄完整性门禁未通过：\n");
   problems.forEach((p) => console.error(`  ✗ ${p}`));
   console.error("");
+  /* ⚠️ notes 必须在这里打，且必须在 exit 之前：
+     「本轮跳过了哪几条判定」是红因的**限定条件**——
+     只看得到红因、看不到跳过说明的人，会把"被跳过的判定"当成"没问题的判定"。 */
+  printNotes((s) => console.error(s));
   process.exit(1);
 }
 
@@ -1303,7 +1332,7 @@ console.log(
         `数据源里扫到 ${orcidFoundInSource} 个 ORCID 值，全部在登记白名单内。`
       : `ORCID 值域本轮未判定（白名单锚失守，I6 主动跳过）。`)
 );
-if (notes.length) {
-  console.log("—");
-  notes.forEach((n) => console.log(`  · ${n}`));
-}
+/* 绿路径上的 notes 目前恒为空（跳过必然伴随判红）⇒ 这段是防御性的。
+   统一走 printNotes，是为了让「notes 怎么打」只有一处实现——
+   两处各写一遍的话，改一处忘一处就会又变成"某些路打不出来"。 */
+printNotes((s) => console.log(s));

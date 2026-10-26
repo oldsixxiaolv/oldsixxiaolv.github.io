@@ -534,7 +534,7 @@ const CARRIER_FAMILIES = [
     id: "目录数据层",
     files: () =>
       listFiles(path.join(ROOT, "src/content"), true).filter((f) =>
-        /\.11ty/.test(path.basename(f))
+        /(\.11ty|annotations\.json$)/.test(path.basename(f))
       ),
   },
   {

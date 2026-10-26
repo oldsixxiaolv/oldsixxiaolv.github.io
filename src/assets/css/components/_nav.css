@@ -267,6 +267,9 @@ html body .topbar__inner {
   flex-wrap: wrap;
 }
 .foot a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
   color: var(--text-muted);
   text-decoration: none;
 }

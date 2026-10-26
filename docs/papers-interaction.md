@@ -55,7 +55,10 @@
 > - **≤1024px 单栏堆叠** —— 正文占满整宽（此前正文被挤成 200px 窄带，见 D.9）。
 > - **目录** —— 正文上方的**静态块**（不是 `<details>`，也不是 Tab）：链接排两列，
 >   触控高 ≥ 24px。本篇目录 10 条（6 条版式小节 + 4 条论文自己的小节），折叠省不下多少高度。
-> - **批注** —— 整层不可达（无 `annotations.json`），本节的批注条目暂不适用（见 D12）。
+> - **批注** —— ~~整层不可达（无 `annotations.json`）~~ **已接入**（2026-10-25 订正）：
+>   `trmm-thunderstorm-stages` 已有 `annotations.json`，`hasAnnotations` 由
+>   `papers.11tydata.cjs` 按文件存在与否逐篇算出，本节的批注条目对该篇适用（D12 已解）。
+>   本段其余「单栏 / 目录静态块」陈述不受影响。
 > - 三 Tab（§7.1）、段下手风琴（§7.2）仍未实现。
 
 ---
@@ -631,8 +634,11 @@ items.sort((a, b) => {
 
 - 段落 `id` 必须是显式 HTML id（markdown-it 默认不解析 `{#id}`）。**小节标题**已按这个约定
   手工改写成 `<h2 id="p-XXX">` 形式（id 取 `p-` 加标题 slug，如 `p-what-this-paper-does`）；
-  **段落级锚点**（`<a id="p-XXX"></a>`）**还没写** —— 批注接入时才需要（见 D12）。
-  Stage 2 接入新论文时必须沿用这一约定。
+  **段落级锚点**~~（`<a id="p-XXX"></a>`）**还没写** —— 批注接入时才需要（见 D12）~~
+  **已随批注接入落地**（2026-10-25 订正）：实际采用的形式是把 id 直接写在段落元素上
+  （`<p id="p-XXX">`，即 §3.3 的五星方案，与 `docs/papers/reader-demo.html` 的 `p-007` 同形），
+  而不是独立的 `<a id>` 空锚 —— 空锚会让 `annotations.js` 的 `.paper-anchor` 装饰与高亮落在
+  一个零尺寸的 inline 元素上，视觉联动失效。Stage 2 接入新论文时必须沿用这一约定。
 - `text` 类型 anchor（按文本第 N 次匹配）目前用 TreeWalker 实现，单篇 30k 字以内性能
   OK；超过此量级应改用预编译索引。
 - 移动端（≤768px）侧栏退化为单栏折叠态，**未**实现 Tab Bar 切换（论文 v1.0 章节 §7
@@ -654,8 +660,11 @@ items.sort((a, b) => {
   链接两列、触控高 ≥ 24px）。选静态块而不是 `<details>`：本篇目录 10 条，折叠省不下多少
   高度，而 `<details>` 方案要动 `toc.js` 的 DOM 结构（桌面侧栏得跟着变），代价大于收益。
   ⚠️ 这与 §2.3 原文的「`<details>` 折叠」不一致 —— **以本条为准**。
-- **顺带记一条**：§9.1 写的批注写作工作流**实际不生效** —— `hasAnnotations` 全仓未定义、
-  `annotations.json` 全仓不存在 ⇒ 524 行批注代码永不加载。见 DEFECT-BACKLOG 的 D12。
+- **顺带记一条**：§9.1 写的批注写作工作流~~**实际不生效** —— `hasAnnotations` 全仓未定义、
+  `annotations.json` 全仓不存在 ⇒ 524 行批注代码永不加载。见 DEFECT-BACKLOG 的 D12~~
+  **已生效**（2026-10-25 订正）：`hasAnnotations` 现由 `papers.11tydata.cjs` 的
+  `eleventyComputed` 按「同目录存在 `annotations.json`」逐篇判定，
+  `trmm-thunderstorm-stages/annotations.json` 已入库，批注侧栏在该篇论文页真实渲染（D12 已解）。
 
 ### D.10 目录要收录论文自己的小节（2026-10-23 D92 场次落地）
 

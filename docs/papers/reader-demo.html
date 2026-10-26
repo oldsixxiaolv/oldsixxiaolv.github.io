@@ -47,7 +47,7 @@
     <span>·</span>
     <span>左侧是自动生成的目录（点条目跳段，当前章节会高亮）</span>
     <span>·</span>
-    <span>段 / 卡双向联动与 ← → 上下段需要批注数据（annotations.json），本仓目前没有</span>
+    <span>段 / 卡双向联动与 ← → 上下段需要批注数据（annotations.json）；本 demo 的骨架是合成的，故意不传（真实论文页 trmm-thunderstorm-stages 已带批注）</span>
   </header>
 
   <!-- 运行方式：ES module 在 file:// 下会被 CORS 拦（Chrome 报
@@ -129,10 +129,12 @@
        ⚠️ 入口是 paper-reader/main.js：Phase 2B.6 把原来的单体 paper-reader.js
        拆成了 toc / theme / annotations / highlight 五个模块，main.js 是唯一入口
        （旧的 paper-reader.js 路径早已不存在）。
-       ⚠️ 不传 annotationsUrl：本仓目前**没有**任何 annotations.json —— 批注是作者
-       自己的精读笔记，不能替他编一份假的出来。main.js 见到没有 annotationsUrl
-       就整段跳过批注模块，于是目录与章节高亮照常工作，段 / 卡联动与键盘导航
-       不挂载。 -->
+       ⚠️ 本 demo 不传 annotationsUrl：这 8 段是合成的 holton-rollin 骨架，
+       没有对应的批注文件，批注又是作者自己的精读笔记，不能替 demo 编一份假的。
+       main.js 见到没有 annotationsUrl 就整段跳过批注模块，于是目录与章节高亮
+       照常工作，段 / 卡联动与键盘导航不挂载。
+       （2026-10-25 订正：真实论文页 trmm-thunderstorm-stages 已有
+       annotations.json，批注侧栏在那里是挂载的；这里说的只是本 demo。） -->
   <script type="module">
     import { initPaperReader } from "../../src/assets/js/paper-reader/main.js";
     initPaperReader({
