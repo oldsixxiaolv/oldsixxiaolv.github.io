@@ -28,7 +28,7 @@ const fs = require("fs");
 const os = require("os");
 const path = require("path");
 const crypto = require("crypto");
-const { spawnSync } = require("child_process");
+const { spawnSync, execFileSync } = require("child_process");
 
 const ROOT = path.resolve(__dirname, "..");
 const GATE = path.join(__dirname, "check-doc-reality.cjs");
@@ -46,6 +46,8 @@ const CAUSES = [
   { id: "DR5d", crit: "DR5", frag: "一处「必填字段清单」都没检出" },
   { id: "DR5e", crit: "DR5", frag: "一个论文语境段落都没检出" },
   { id: "DR6", crit: "DR6", frag: "活文档点名的仓内路径在仓库里不存在" },
+  { id: "DR6b", crit: "DR6", frag: "活文档点名的仓内路径没有被 git 跟踪" },
+  { id: "DR6c", crit: "DR6", frag: "读不到 git 的跟踪信息" },
   { id: "DR7a", crit: "DR7", frag: "接入流程文档不在" },
   { id: "DR7b", crit: "DR7", frag: "里检出的仓内路径候选太少" },
   { id: "DR8", crit: "DR8", frag: "接入指南里写死了会变的条目数" },
@@ -183,6 +185,10 @@ const STUB_FILES = {
   "src/assets/css/base.css": "p, li, a {\n  overflow-wrap: anywhere;\n}\n",
   "src/assets/css/print.css": "@media print {\n  body { color: #000; }\n}\n@page {\n  margin: 18mm;\n}\n",
   "src/assets/css/components/index.css": "@import \"../tokens.css\";\n",
+  // ⚠️ 博客内容目录是**空目录**，而 git 不跟踪空目录 ⇒ 文档点名它时，
+  //    「有没有被跟踪」这条判据（DR6b）会判红（这正是缺陷 D100 的形状）。
+  //    夹具里放一个占位文件，让它**像真仓库那样被跟踪** ⇒ 基线档才有意义。
+  "src/content/blog/.gitkeep": "",
 };
 
 /**
@@ -249,7 +255,20 @@ const PAPERS_DATA = [
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "mh-docreality-selftest-"));
 
-/** 建一个独立夹具（临时目录 + 合成文档 / 论文 / 数据文件），在副本上注入。 */
+/** 在夹具仓里跑一条 git 命令。 */
+function git(cwd, args) {
+  execFileSync("git", args, { cwd, stdio: ["ignore", "pipe", "pipe"] });
+}
+
+/**
+ * 建一个独立夹具（临时目录 + 合成文档 / 论文 / 数据文件），在副本上注入。
+ *
+ * ⚠️ 夹具**必须是一个真实的 git 仓**（`git init` + `git add`）——
+ *   门禁的 DR6b 判据要问「活文档点名的路径**有没有被跟踪**」，
+ *   没有 git 就问不出来 ⇒ 那样这条判据在自测里**从未被执行过**
+ *   （「没报错」和「没问题」长得一模一样）。
+ *   这与 check-tracked-refs 的夹具同一套做法。
+ */
 function buildFixture(mutate) {
   const state = {
     doc: DOC_BASE,
@@ -259,6 +278,10 @@ function buildFixture(mutate) {
     data: PAPERS_DATA,
     /** 论文目录在、但里面没有论文文件（空目录）。 */
     emptyPaperDir: false,
+    /** 这些文件**存在于磁盘上、但没有进 git 索引** ⇒ 模拟「磁盘上有、仓库里没有」。 */
+    untracked: [],
+    /** 夹具**不是** git 仓（.git 不存在）⇒ 模拟「索引读不到」。 */
+    noGit: false,
   };
   if (mutate) mutate(state);
   const dir = fs.mkdtempSync(path.join(tmp, "case-"));
@@ -281,6 +304,16 @@ function buildFixture(mutate) {
   if (state.paper !== null) fs.writeFileSync(path.join(paperDir, "paper.md"), state.paper);
   if (state.data !== null) {
     fs.writeFileSync(path.join(papersRoot, "papers.11tydata.cjs"), state.data);
+  }
+
+  if (!state.noGit) {
+    git(dir, ["init", "-q"]);
+    git(dir, ["add", "-A"]);
+    // 把「untracked」那些文件从索引里摘掉，但**留在磁盘上**
+    // （git rm --cached 就是这个语义：文件还在，只是不再被跟踪）。
+    for (const rel of state.untracked) {
+      git(dir, ["rm", "-q", "--cached", "--", rel]);
+    }
   }
   return dir;
 }
@@ -409,6 +442,18 @@ const MUT = {
   planHardcodedLength: (s) => {
     s.planDoc = s.planDoc + "\n- 该计划文档目前约 500 行。\n";
   },
+  /**
+   * 活文档点名的路径**磁盘上有、但没有被 git 跟踪** ⇒ DR6b
+   * （缺陷 D100 的形状：git 不跟踪空目录 ⇒ 目录只在作者本机磁盘上；
+   *  干净克隆里没有 ⇒ CI 的 build 红，而本机全绿）。
+   */
+  untrackedRunPath: (s) => {
+    s.untracked = ["src/_data/site.js"];
+  },
+  /** 夹具**不是** git 仓 ⇒ 索引读不到 ⇒ DR6b 的前提红因（判不出来 ≠ 没问题）。 */
+  noGitIndex: (s) => {
+    s.noGit = true;
+  },
 };
 
 /** 注入档：expect=null 表示期望判绿，否则期望判红且判据集合**恰为** expect。 */
@@ -434,6 +479,18 @@ const CASES = [
   { id: "DCR18", label: "现状断言里出现未登记的 token", mutate: MUT.planUnknownToken, expect: ["DR10"] },
   { id: "DCR19", label: "现状断言的取值与代码现实不一致", mutate: MUT.planValueStale, expect: ["DR11"] },
   { id: "DCR20", label: "计划文档里写死了会变的篇幅数", mutate: MUT.planHardcodedLength, expect: ["DR12"] },
+  {
+    id: "DCR21",
+    label: "活文档点名的路径磁盘上有、但没有被 git 跟踪",
+    mutate: MUT.untrackedRunPath,
+    expect: ["DR6"],
+  },
+  {
+    id: "DCR22",
+    label: "读不到 git 索引（夹具不是 git 仓）",
+    mutate: MUT.noGitIndex,
+    expect: ["DR6"],
+  },
 ];
 
 /* ========== 四、判据级负对照 ========== */
@@ -476,6 +533,20 @@ const NEG_CASES = [
   { id: "NC-DR4", crit: "DR4", case: "DCR4", label: "卸掉 DR4" },
   { id: "NC-DR5", crit: "DR5", case: "DCR8", label: "卸掉 DR5" },
   { id: "NC-DR6", crit: "DR6", cause: "DR6", case: "DCR11", label: "卸掉 DR6" },
+  {
+    id: "NC-DR6b",
+    crit: "DR6",
+    cause: "DR6b",
+    case: "DCR21",
+    label: "卸掉 DR6b（没有被跟踪那条）",
+  },
+  {
+    id: "NC-DR6c",
+    crit: "DR6",
+    cause: "DR6c",
+    case: "DCR22",
+    label: "卸掉 DR6c（索引读不到那条）",
+  },
   {
     id: "NC-DR7a",
     crit: "DR7",

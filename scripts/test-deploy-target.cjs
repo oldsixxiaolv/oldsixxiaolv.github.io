@@ -39,9 +39,13 @@ const CAUSES = [
   { id: "DP4b", crit: "DP4", frag: "一个远端都没检出" },
   { id: "DP4c", crit: "DP4", frag: "一处发布仓库声明都没检出" },
   { id: "DP4d", crit: "DP4", frag: "要扫的活文档不在" },
+  { id: "DP5a", crit: "DP5", frag: "没有钉到 commit SHA" },
+  { id: "DP5b", crit: "DP5", frag: "一个 action 引用都没检出" },
+  { id: "DP6a", crit: "DP6", frag: "顶层给了写权限" },
+  { id: "DP6b", crit: "DP6", frag: "顶层没有 permissions 声明" },
 ];
 /** 静态判据清单（门禁里应当且仅应当有这些判据）。 */
-const CRITERIA = ["DP1", "DP2", "DP3", "DP4"];
+const CRITERIA = ["DP1", "DP2", "DP3", "DP4", "DP5", "DP6"];
 
 /* ========== 工具 ========== */
 
@@ -130,6 +134,17 @@ const WORKFLOW_YML = [
   "permissions:",
   "  contents: read",
   "",
+  "jobs:",
+  "  build:",
+  "    runs-on: ubuntu-latest",
+  "    permissions:",
+  "      contents: read",
+  "    steps:",
+  "      - name: Checkout",
+  "        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4",
+  "      - name: Setup Node 22",
+  "        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4",
+  "",
 ].join("\n");
 
 /* ========== 副本构造 ========== */
@@ -209,6 +224,32 @@ const MUT = {
   docMissing: (s) => {
     s.deploy = null;
   },
+  /**
+   * action 只 pin 到 tag（可移动引用）⇒ DP5
+   * （OpenSSF Scorecard 的 Pinned-Dependencies 判据：GitHub workflows 在扫描面里）。
+   */
+  actionUnpinned: (s) => {
+    s.workflow = replaceOnce(
+      s.workflow,
+      "actions/checkout@11d5960a326750d5838078e36cf38b85af677262",
+      "actions/checkout@v4"
+    );
+  },
+  /** action 引用被删光 ⇒ DP5（覆盖度自证：判据从未被执行过）。 */
+  actionsWiped: (s) => {
+    s.workflow = s.workflow
+      .split("\n")
+      .filter((l) => !/^\s*uses:/.test(l))
+      .join("\n");
+  },
+  /** 顶层 permissions 给了写权限 ⇒ DP6（每个 job 都持有）。 */
+  topLevelWrite: (s) => {
+    s.workflow = replaceOnce(s.workflow, "permissions:\n  contents: read", "permissions:\n  contents: write");
+  },
+  /** 顶层 permissions 整个没写 ⇒ DP6（用仓库默认权限，可能 read-write）。 */
+  noTopLevelPermissions: (s) => {
+    s.workflow = replaceOnce(s.workflow, "permissions:\n  contents: read\n\n", "");
+  },
 };
 
 /** 注入档：expect=null 表示期望判绿，否则期望判红且判据集合**恰为** expect。 */
@@ -222,9 +263,20 @@ const CASES = [
   { id: "N6", label: "远端全空（且发布命令删光）", mutate: MUT.noRemotes, expect: ["DP4"] },
   { id: "N7", label: "发布仓库声明被删光", mutate: MUT.declarationWiped, expect: ["DP4"] },
   { id: "N8", label: "活文档缺一份（docs/DEPLOY.md 不在）", mutate: MUT.docMissing, expect: ["DP4"] },
+  { id: "N10", label: "action 只 pin 到 tag（没钉到 SHA）", mutate: MUT.actionUnpinned, expect: ["DP5"] },
+  { id: "N11", label: "action 引用被删光", mutate: MUT.actionsWiped, expect: ["DP5"] },
+  { id: "N12", label: "顶层 permissions 给了写权限", mutate: MUT.topLevelWrite, expect: ["DP6"] },
+  { id: "N13", label: "顶层 permissions 整个没写", mutate: MUT.noTopLevelPermissions, expect: ["DP6"] },
 ];
 
 /* ========== 四、判据级负对照 ========== */
+
+/** 判据级负对照：卸掉某条判据后，对应夹具必须转绿。 */
+const NEG_CASES = [
+  { id: "N9", crit: "DP2", case: "N2", label: "卸掉 DP2" },
+  { id: "N14", crit: "DP5", case: "N10", label: "卸掉 DP5" },
+  { id: "N15", crit: "DP6", case: "N12", label: "卸掉 DP6" },
+];
 
 /** 在门禁副本里卸掉某条判据：给它每一条 fail() 调用**同行**加 `if (false) ` 前缀。 */
 function unloadCriterion(src, calls, crit) {
@@ -370,43 +422,48 @@ for (const spec of CASES) {
 console.log("\n四、判据级负对照");
 {
   /* 卸掉 DP2：N2 夹具（远端存在但指向别的仓库）必须转绿 ⇒ 证明那条红确实是 DP2 判出来的。 */
-  const targets = calls.filter((c) => c.crit === "DP2");
-  if (targets.length === 0) {
-    bad("N9 → 门禁里找不到判据 DP2 的 fail() 调用");
-  } else {
-    const patched = unloadCriterion(gateSrc, calls, "DP2");
+  for (const nc of NEG_CASES) {
+    const targets = calls.filter((c) => c.crit === nc.crit);
+    if (targets.length === 0) {
+      bad(`${nc.id} → 门禁里找不到判据 ${nc.crit} 的 fail() 调用`);
+      continue;
+    }
+    const patched = unloadCriterion(gateSrc, calls, nc.crit);
     const beforeLines = gateSrc.split("\n");
     const afterLines = patched.src.split("\n");
     if (beforeLines.length !== afterLines.length) {
-      bad(`N9 → 卸判据改变了行数（${beforeLines.length} → ${afterLines.length}）`);
+      bad(`${nc.id} → 卸判据改变了行数（${beforeLines.length} → ${afterLines.length}）`);
+      continue;
+    }
+    const diff = beforeLines.filter((l, i) => l !== afterLines[i]).length;
+    if (diff !== patched.count) {
+      bad(`${nc.id} → 差异行数 ${diff} != 该判据的 fail() 调用数 ${patched.count}`);
+      continue;
+    }
+    const gateDir = fs.mkdtempSync(path.join(tmp, "gate-"));
+    const mirror = path.join(gateDir, "check-deploy-target.cjs");
+    fs.writeFileSync(mirror, patched.src);
+    const base = runGate(GATE, fixtures[nc.case]);
+    const baseAttr = attribute(base.out);
+    if (baseAttr.crits.join(",") !== nc.crit) {
+      bad(
+        `${nc.id} → 基线 ${nc.case} 的判据集合应为恰为 {${nc.crit}}，` +
+          `实测 {${baseAttr.crits.join(", ") || "空"}}`
+      );
+      continue;
+    }
+    const r = runGate(mirror, fixtures[nc.case]);
+    const a = attribute(r.out);
+    if (r.code !== 0 || !r.out.includes("发布落点门禁通过")) {
+      bad(`${nc.id} → 卸掉 ${nc.crit} 后 ${nc.case} 夹具必须转绿（exit 0），实测 exit ${r.code}`);
+      console.log(r.out.split("\n").filter((l) => l.includes("✗")).join("\n"));
+    } else if (a.rows.length !== 0) {
+      bad(`${nc.id} → 卸掉 ${nc.crit} 后 ${nc.case} 夹具判绿但仍有 ${a.rows.length} 条红因`);
     } else {
-      const diff = beforeLines.filter((l, i) => l !== afterLines[i]).length;
-      if (diff !== patched.count) {
-        bad(`N9 → 差异行数 ${diff} != 该判据的 fail() 调用数 ${patched.count}`);
-      } else {
-        const gateDir = fs.mkdtempSync(path.join(tmp, "gate-"));
-        const mirror = path.join(gateDir, "check-deploy-target.cjs");
-        fs.writeFileSync(mirror, patched.src);
-        const base = runGate(GATE, fixtures.N2);
-        const baseAttr = attribute(base.out);
-        if (baseAttr.crits.join(",") !== "DP2") {
-          bad(`N9 → 基线 N2 的判据集合应为恰为 {DP2}，实测 {${baseAttr.crits.join(", ") || "空"}}`);
-        } else {
-          const r = runGate(mirror, fixtures.N2);
-          const a = attribute(r.out);
-          if (r.code !== 0 || !r.out.includes("发布落点门禁通过")) {
-            bad(`N9 → 卸掉 DP2 后 N2 夹具必须转绿（exit 0），实测 exit ${r.code}`);
-            console.log(r.out.split("\n").filter((l) => l.includes("✗")).join("\n"));
-          } else if (a.rows.length !== 0) {
-            bad(`N9 → 卸掉 DP2 后 N2 夹具判绿但仍有 ${a.rows.length} 条红因`);
-          } else {
-            ok(
-              `N9 卸掉 DP2（${patched.count} 处 fail() 调用，差异 ${diff} 行，行数不变）→ ` +
-                `基线 {DP2} ⇒ 同一夹具转绿，零红因`
-            );
-          }
-        }
-      }
+      ok(
+        `${nc.id} 卸掉 ${nc.crit}（${patched.count} 处 fail() 调用，差异 ${diff} 行，行数不变）→ ` +
+          `基线 {${nc.crit}} ⇒ 同一夹具转绿，零红因`
+      );
     }
   }
 }

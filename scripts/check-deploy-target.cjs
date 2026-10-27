@@ -19,6 +19,18 @@
  *      （推到不触发的分支 ⇒ 推了也不会部署，且**不报错**，最难发现）。
  *   DP4 覆盖度自证 —— 至少检出 1 条发布命令、1 个远端、1 处发布仓库声明，
  *      且要扫的活文档都在；防「改空了通过」。
+ *   DP5 部署工作流里的 action 必须钉到 **commit SHA** ——
+ *      tag（`@v4`）是**可移动引用**：上游改 tag 就换了要跑的代码，
+ *      而本仓库收不到任何通知 ⇒ 「发到公网域名上的字节」由第三方仓库的
+ *      tag 决定，而不是由本仓库的提交决定。
+ *      口径对齐 **OpenSSF Scorecard 的 Pinned-Dependencies 判据**（Risk: Medium，
+ *      它明确把 GitHub workflows 列入扫描面）；`./本地路径` 天然钉死，豁免。
+ *   DP6 部署工作流**顶层**的 permissions 必须只读 ——
+ *      顶层不写 = 用**仓库默认**的 token 权限（可能 read-write）；
+ *      顶层写 = **每个 job** 都持有（含跑完整条 build 链、也就是执行仓内代码的那个）。
+ *      写权限要收窄到具体 job（deploy job 需要 `pages: write` + `id-token: write`，
+ *      官方 deploy-pages 文档写明「执行部署的 job 至少需要这两个」）。
+ *      口径对齐 **OpenSSF Scorecard 的 Token-Permissions 判据**（Risk: High）。
  *
  * ⚠️ 为什么只扫 README.md 与 docs/DEPLOY.md（**历史记录不扫**）：
  *   docs/IMPROVEMENT-LOG.md、docs/DEFECT-BACKLOG.md、docs/ROADMAP.md 是**历史记录** ——
@@ -241,9 +253,11 @@ const declared = findDeclaredRepos(docs);
 const remotes = readRemotes(ROOT);
 
 let wf = { state: "no-file" };
+let wfText = null;
 const wfFile = path.join(ROOT, WORKFLOW);
 if (fs.existsSync(wfFile)) {
-  wf = workflowPushBranches(fs.readFileSync(wfFile, "utf8"));
+  wfText = fs.readFileSync(wfFile, "utf8");
+  wf = workflowPushBranches(wfText);
 }
 
 /* ---------------- DP1 / DP2 / DP3 ---------------- */
@@ -316,6 +330,101 @@ if (declared.size < 1) {
   );
 }
 
+/* ---------------- DP5 / DP6：部署工作流本身的钉法与权限 ---------------- */
+
+/**
+ * 工作流里所有 `uses:` 引用的 action。
+ * 口径（对齐 **OpenSSF Scorecard 的 Pinned-Dependencies** 判据，Risk: Medium）：
+ *   · `owner/repo@<ref>` —— 必须是 **40 位十六进制的 commit SHA**。
+ *     tag（`@v4`）是**可移动引用**：上游把 tag 指到别的 commit，
+ *     要跑的代码就变了，而你**不会收到任何通知** ⇒
+ *     「发到公网域名上的字节」由一个第三方仓库的 tag 决定，
+ *     而不是由本仓库的提交决定。
+ *   · `./local/path` —— 本仓自己的 action，内容就在仓库里 ⇒ 天然钉死；
+ *   · `docker://…` —— 容器镜像，另说（本仓当前不用）。
+ */
+function actionRefs(text) {
+  const out = [];
+  const re = /^[ \t]*uses:[ \t]*(\S+)(?:[ \t]+#.*)?$/gm;
+  let m;
+  while ((m = re.exec(text)) !== null) {
+    const ref = m[1];
+    const at = ref.lastIndexOf("@");
+    out.push({
+      raw: ref,
+      lineNo: text.slice(0, m.index).split("\n").length,
+      kind: ref.startsWith("./") ? "local" : ref.startsWith("docker://") ? "docker" : at >= 0 ? "remote" : "other",
+      pinned: at >= 0 && /^[0-9a-f]{40}$/.test(ref.slice(at + 1)),
+    });
+  }
+  return out;
+}
+
+/**
+ * 工作流**顶层**（列 0）的 permissions 块。
+ * ⚠️ 只看顶层 —— job 级带 `write` 是**有意为之**（deploy job 需要
+ *   `pages: write` + `id-token: write`，官方 deploy-pages 文档写明
+ *   「执行部署的 job 至少需要这两个」）。
+ * 返回 { present, entries }：present=false ⇒ **顶层根本没写 permissions**
+ *   ⇒ GitHub 用**仓库默认**的 token 权限（可能�� read-write）⇒ 那才是真的没设防。
+ */
+function topLevelPermissions(text) {
+  const lines = text.split("\n");
+  for (let i = 0; i < lines.length; i++) {
+    const m = /^permissions[ \t]*:[ \t]*(.*)$/.exec(lines[i]);
+    if (!m) continue;
+    const inline = m[1].trim();
+    if (inline.startsWith("{")) {
+      return { present: true, entries: [{ lineNo: i + 1, text: inline }] };
+    }
+    const entries = [];
+    for (let j = i + 1; j < lines.length; j++) {
+      if (!/^[ \t]+\S/.test(lines[j])) break;
+      entries.push({ lineNo: j + 1, text: lines[j].trim() });
+    }
+    return { present: true, entries };
+  }
+  return { present: false, entries: [] };
+}
+
+if (wfText !== null) {
+  const refs = actionRefs(wfText);
+  const unpinned = refs.filter((r) => r.kind === "remote" && !r.pinned);
+  if (unpinned.length) {
+    fail(
+      `DP5 部署工作流里有 action 没有钉到 commit SHA（${unpinned.length} 处）：` +
+        unpinned.map((r) => `${WORKFLOW}:${r.lineNo} 的「${r.raw}」`).join("；") +
+        ` —— tag 是可移动引用：上游改了 tag，要跑的代码就变了，而本仓库收不到任何通知。` +
+        `请钉到 40 位 commit SHA（升级命令见该文件末尾的「action 版本钉法」）。`
+    );
+  }
+  if (refs.length < 1) {
+    fail(
+      `DP5 一个 action 引用都没检出 —— 「工作流里的 action 有没有钉到 SHA」这件事判不了，` +
+        `要么工作流写法变了（门禁要跟着更新），要么 action 引用被删光了。`
+    );
+  }
+
+  const perms = topLevelPermissions(wfText);
+  if (!perms.present) {
+    fail(
+      `DP6 部署工作流顶层没有 permissions 声明 —— 顶层不写就是用**仓库默认**的 token 权限，` +
+        `而仓库默认可能是 read-write ⇒ 跑完整条 build 链的 job 会握着一把能改仓库的钥匙。` +
+        `顶层至少要写 contents: read（写权限只给真正需要的 job）。`
+    );
+  } else {
+    const writes = perms.entries.filter((e) => /:[ \t]*write\b/.test(e.text));
+    if (writes.length) {
+      fail(
+        `DP6 部署工作流顶层给了写权限（${writes.length} 处）：` +
+          writes.map((e) => `${WORKFLOW}:${e.lineNo} 的「${e.text}」`).join("；") +
+          ` —— 顶层写权限 = **每个 job** 都持有（含跑完整条 build 链、也就是执行仓内代码的那个）。` +
+          `写权限要收窄到具体 job（deploy job 需要 pages: write + id-token: write）。`
+      );
+    }
+  }
+}
+
 /* ---------------- 汇总 ---------------- */
 if (problems.length) {
   console.error("发布落点门禁未通过：\n");
@@ -339,4 +448,8 @@ console.log(
 console.log(
   `  · 部署工作流 ${WORKFLOW} 的 push 触发分支：` +
     `${wf.state === "ok" ? `[${wf.branches.join(", ")}]` : wf.state}。`
+);
+console.log(
+  `  · 工作流里的 action 全部钉到 commit SHA（tag 是可移动引用）；顶层 permissions 只读，` +
+    `写权限只留在具体 job 上。`
 );

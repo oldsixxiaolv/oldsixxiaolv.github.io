@@ -55,6 +55,17 @@
  *        · 不以 "/" 开头；不以 `_site` 开头（build 链里产物目录可能还不存在）；
  *        · **首段必须是仓库根下的真实条目** ⇒ 局部相对写法
  *          （`layouts/detail.njk` / `partials/hero.njk` / `assets/fonts/`）自动跳过。
+ *   DR6b 活文档点名的仓内路径必须**也被 git 跟踪** ——
+ *      DR6 只问「磁盘上有没有」，而**磁盘上有 ≠ 仓库里有**：
+ *      git **不跟踪空目录** ⇒ 一个只在作者本机磁盘上存在的目录
+ *      （本仓的 `src/assets/fonts/` 就是这么丢过一次，见缺陷 D100）
+ *      在**干净克隆**里不存在 ⇒ CI 的 build 会红在 DR6 上，而**本机全绿**。
+ *      ⇒ 「在仓库里存在」这句话只有按**版本控制**口径问才作数。
+ *      口径：路径本身是被跟踪的文件，**或**它是个目录且目录下有被跟踪的文件；
+ *      被 .gitignore 忽略的路径**豁免**（本仓的 `data/`、`.claude/` 是**有意**
+ *      不入库的，按「漏提交」判红是误报）。
+ *      前提：git 索引读得到；读不到 ⇒ 报一条前提红因，本判据整段跳过
+ *      （判不出来 ≠ 没问题）。
  *   DR7 覆盖度自证 —— HOW_TO_RUN.md 必须在（它是这份「第二份副本」）；
  *      且**每份在的活文档**各自检出的仓内路径候选数不得低于下限
  *      （扫描面被收窄、或文档被改空 ⇒ DR6 就基本不生效）。
@@ -100,6 +111,9 @@
  *     这类）也不查 —— 换句话说，它查的是「照着这条路径去改文件会不会落空」。
  *   · DR6 **分不清**「文档在说某路径已经不存在」与「文档以为它存在」：
  *     文档要提到已删除的路径时，不要把它放进反引号 —— 那样 DR6 一定会把它当漂移报出来。
+ *   · DR6b 按**索引**（`git ls-files`）判定「被跟踪」，不是按 HEAD ——
+ *     git commit 提交的是索引；「这次提交会带进去哪些文件」的答案在索引里
+ *     （与 check-tracked-refs 的 TR1/TR5 同一口径）。
  *   · DR7 的下限数的是**候选路径数**，不是路径真值数：一份文档如果通篇用相对写法，
  *     候选数会低于下限而被判红 —— 这是有意的（扫描面收窄本身就是风险）。
  *   · DR8 只管 HOW_TO_RUN.md（接入指南）；docs/implementation-notes.md 的论文篇数
@@ -112,6 +126,7 @@
  */
 const fs = require("fs");
 const path = require("path");
+const { execFileSync } = require("child_process");
 
 const ROOT = path.resolve(process.env.DR_ROOT || path.join(__dirname, ".."));
 
@@ -508,6 +523,108 @@ if (missingPaths.length) {
   );
 }
 
+/* ---------------- DR6b：活文档点名的仓内路径必须也被 git 跟踪 ---------------- */
+
+/**
+ * 读 git 索引里的跟踪集合（`git ls-files`，cwd = ROOT ⇒ 路径是仓库根相对）。
+ * 返回 { ok, set, error }：**ok=false 表示读不到索引**（前提不在场，不是"没问题"）。
+ *
+ * 为什么用**索引**而不是 HEAD：git commit 提交的是索引；「这次提交会带进去哪些
+ * 文件」的答案在索引里（与 check-tracked-refs 的 TR1/TR5 同一口径）。
+ */
+function readTrackedSet() {
+  try {
+    const out = execFileSync("git", ["ls-files", "-z"], {
+      cwd: ROOT,
+      encoding: "utf8",
+      maxBuffer: 64 * 1024 * 1024,
+    });
+    return { ok: true, set: new Set(out.split("\0").filter(Boolean)), error: "" };
+  } catch (e) {
+    return { ok: false, set: new Set(), error: (e && e.message) || String(e) };
+  }
+}
+
+/**
+ * 某个路径是否「在版本控制里」：
+ *   · 它本身是一个被跟踪的**文件** ⇒ 是；
+ *   · 它是个**目录**，且目录下**有**被跟踪的文件 ⇒ 是。
+ *     ⚠️ git **不跟踪空目录** ⇒ 空目录要靠 `.gitkeep` 之类才入库
+ *        （这正是缺陷 D100 的形状：目录只在作者本机磁盘上）。
+ */
+function isTrackedPath(norm, tracked) {
+  if (tracked.has(norm)) return true;
+  for (const t of tracked) if (t.startsWith(norm + "/")) return true;
+  return false;
+}
+
+/**
+ * 哪些候选路径被 .gitignore 忽略 —— 那是**有意**不入库的东西
+ * （本仓的 `data/`、`.claude/` 等），不该按「漏提交」判红。
+ * 一次调用问完 git（check-ignore 接受多个路径）。
+ * 返回 null = 问不到（前提不在场，调用方整段跳过）。
+ */
+function readIgnoredPaths(norms) {
+  if (!norms.length) return new Set();
+  try {
+    const out = execFileSync("git", ["check-ignore", "-z", "--stdin"], {
+      cwd: ROOT,
+      input: norms.join("\0") + "\0",
+      encoding: "utf8",
+      maxBuffer: 8 * 1024 * 1024,
+    });
+    return new Set(out.split("\0").filter(Boolean));
+  } catch (e) {
+    // exit 1 = 一个都没被忽略（不是错误）；其它非零 = 前提不在场
+    if (e && e.status === 1) {
+      return new Set(e.stdout ? String(e.stdout).split("\0").filter(Boolean) : []);
+    }
+    return null;
+  }
+}
+
+const trackedInfo = readTrackedSet();
+// 候选：磁盘上**存在**的（磁盘上没有的由 DR6 报，同一处不重复报）
+// 去重按「去掉尾斜杠后的路径」—— 同一条路径被点两次只算一处。
+const diskExisting = new Map();
+for (const rel of PATH_DOC_RELS) {
+  for (const c of pathCandidatesByDoc.get(rel) || []) {
+    if (!c.exists) continue;
+    const norm = c.tok.replace(/\/+$/, "");
+    if (!diskExisting.has(norm)) diskExisting.set(norm, { rel: c.rel, lineNo: c.lineNo });
+  }
+}
+const norms = [...diskExisting.keys()];
+
+// 两条 git 查询任一条问不到 ⇒ 前提不在场 ⇒ 判据整段跳过（不是"没问题"）。
+let precondition = "";
+let ignored = new Set();
+if (!trackedInfo.ok) {
+  precondition = `git ls-files 读不到索引（${trackedInfo.error}）`;
+} else {
+  ignored = readIgnoredPaths(norms);
+  if (ignored === null) precondition = "git check-ignore 问不到 .gitignore";
+}
+
+if (precondition) {
+  fail(
+    `DR6 读不到 git 的跟踪信息（${precondition}）—— ` +
+      `本门禁无法判定「活文档点名的路径有没有被跟踪」。` +
+      `没有 git 就判不出来 = 判据不存在，不是「没问题」。`
+  );
+} else {
+  const untracked = norms.filter((n) => !ignored.has(n) && !isTrackedPath(n, trackedInfo.set));
+  if (untracked.length) {
+    fail(
+      `DR6 活文档点名的仓内路径没有被 git 跟踪（${untracked.length} 处）：` +
+        untracked
+          .map((n) => where(diskExisting.get(n).rel, diskExisting.get(n).lineNo) + " 的「" + n + "」")
+          .join("；") +
+        ` —— 磁盘上有、仓库里没有：**干净克隆（CI 就是干净克隆）里这个路径不存在**，照着它去改文件会落空。`
+    );
+  }
+}
+
 /* ---------------- DR7：覆盖度自证 ---------------- */
 
 if (!fs.existsSync(path.join(ROOT, RUN_DOC_REL))) {
@@ -866,7 +983,8 @@ console.log(
 );
 console.log(
   `  · 仓内路径候选：${PATH_DOC_RELS.map((r) => r + " " + (pathCandidatesByDoc.get(r) || []).length + " 个").join(" / ")}` +
-    `（下限 ${MIN_PATH_CANDIDATES} 个）—— 文档用行内反引号点名的仓库根相对路径都真实存在。`
+    `（下限 ${MIN_PATH_CANDIDATES} 个）—— 文档用行内反引号点名的仓库根相对路径都真实存在` +
+    `，且**都已被 git 跟踪**（干净克隆里也在）。`
 );
 console.log(`  · 论文元数据的真源是 ${SITE_JS_REL} 的 publications 条目，front matter 只用 pubKey 指回去。`);
 console.log(

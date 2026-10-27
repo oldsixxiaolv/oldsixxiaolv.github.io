@@ -132,13 +132,16 @@ const SLOTS = {
     "DT8", "DT9", "DT10"
   ],
   "test-deploy-target.cjs": [
-    "N0", "N1", "N2", "N3", "N4", "N5", "N6", "N7", "N8", "N9"
+    "N0", "N1", "N2", "N3", "N4", "N5", "N6", "N7", "N8", "N9",
+    "N10", "N11", "N12", "N13", "N14", "N15"
   ],
   "test-doc-reality.cjs": [
     "DCR0", "DCR1", "DCR2", "DCR3", "DCR4", "DCR5", "DCR6", "DCR7",
     "DCR8", "DCR9", "DCR10", "DCR11", "DCR12", "DCR13", "DCR14",
     "DCR15", "DCR16", "DCR17", "DCR18", "DCR19", "DCR20",
-    "NC-DR1", "NC-DR2", "NC-DR3", "NC-DR4", "NC-DR5", "NC-DR6", "NC-DR7a",
+    "DCR21", "DCR22",
+    "NC-DR1", "NC-DR2", "NC-DR3", "NC-DR4", "NC-DR5", "NC-DR6",
+    "NC-DR6b", "NC-DR6c", "NC-DR7a",
     "NC-DR7b", "NC-DR8", "NC-DR9a", "NC-DR9b", "NC-DR9c",
     "NC-DR10", "NC-DR11", "NC-DR12"
   ],
