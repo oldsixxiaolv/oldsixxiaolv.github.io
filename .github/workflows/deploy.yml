@@ -98,7 +98,19 @@ jobs:
           (google-chrome --version || chromium --version || echo "no chrome found in PATH")
 
       - name: Install dependencies
+        # ⚠️ **CI 必须从 npm 官方源取包**（D106）。
+        # 为什么：package-lock.json 里 **130 条 resolved 全部**指向
+        # registry.npmmirror.com（本机为了境内速度用的镜像）⇒ 不改这一条，
+        # **GitHub 的 runner 就是去第三方镜像取包** —— 镜像不可用 / 被限速时
+        # 站点就发不出去（把发布管线架在别人的可用性上）。
+        # 怎么改的：`replace-registry-host=always` 让 npm 把锁文件里 resolved
+        # 的**主机**换成配置的 registry（npm ≥ 8.3 支持）⇒ 取包主机变了，
+        # 但**内容一字不变**（integrity 哈希还是锁文件里那份，校验照旧）。
+        # 本地开发不受影响（仍走镜像；锁文件本身一个字节都没改）。
         run: npm ci
+        env:
+          NPM_CONFIG_REGISTRY: https://registry.npmjs.org
+          NPM_CONFIG_REPLACE_REGISTRY_HOST: always
 
       - name: Build (Eleventy → _site/)
         run: npm run build

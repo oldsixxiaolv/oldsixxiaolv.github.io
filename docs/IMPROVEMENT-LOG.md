@@ -30378,3 +30378,136 @@ DP9 是 D104 的**配套兜底**：既然不再杀在途，就得防住「挂死
   要不要处理**未代拍**；③ DR6b 只扫**两份活文档**（`docs/implementation-notes.md` 与 `HOW_TO_RUN.md`）——
   `README.md` / `docs/DEPLOY.md` / `docs/design-system.md` 里点名的路径**还没有**这道看守，
   要不要扩面属**取舍**（扩面要防历史记录里的「已删路径」被当成漂移），未代拍。
+
+---
+## 2026-10-27 · 巡检轮次：把**依赖供应链**的两个洞补上 —— D105（依赖漏洞检查从来没真正跑过）＋ D106（CI 在替第三方镜像跑发布管线）
+
+### A. 本轮定位
+
+上一轮治的是**发布管线本身**（action 运行时、并发语义）。本轮往下走一层：**那条管线装的依赖**。
+
+体检时撞见的第一个事实不是"某个包有洞"，而是**「检查从来没生效过」**：
+
+- 本机（CI 同款）的 npm registry 是 `registry.npmmirror.com`；
+- 该镜像**不实现 advisories 接口** —— 实测 `npm audit` 在它上面返回
+  `404 Not Found - POST /-/npm/v1/security/advisories/bulk [NOT_IMPLEMENTED]`；
+- ⇒ **`npm audit` 永远报不出任何漏洞，却长得像「已经查过了」**。
+  这比没有检查更坏：它给的是**假安全感**，而且是那种「CI 一路绿、看着就放心」的假安全感。
+
+换成官方源再跑，第一次看见真相 ⇒ 见 B。
+
+### B. 证据（2026-10-27 逐项实测）
+
+**① 依赖树里确实有一个 high 级漏洞**（官方源 `npm audit`）：
+`markdown-it` 14.3.2 落在两条公告的受影响区间内 ——
+- **GHSA-gfr2-rv44-r23c**（high，**cvss 7.5**）：多行链接引用定义渲染的**二次时间 DoS**，
+  受影响区间 `>=14.1.0 <14.3.3`（14.0 起的回归）；
+- **GHSA-vfgh-jcmw-g37q**（low，cvss 3.7）：**开启 html 时**内联 HTML 解析的二次时间 DoS，
+  受影响区间 `<14.3.3` —— 而本仓的 markdown-it **正是开了 html** 的
+  （`eleventy.config.js` 的 markdown filter，见 `scripts/check-paper-interaction.cjs` 的注释）。
+
+**② 声明范围本身就允许易受攻击的版本**：`package.json` 写的是 `^14.1.0` ⇒ 下界 14.1.0 落在公告区间内
+⇒ 只升锁文件不够，**放松范围就会静默退回去**。
+
+**③ lockfile 的完整性是好的**：130 个包条目**全部**带 `integrity` 哈希（0 个缺）⇒ tarball 被替换时 npm 认得出。
+
+**④ 但 CI 在替一个第三方镜像跑发布管线**：lockfile 里 **130 条 `resolved` 全部**指向
+`registry.npmmirror.com` ⇒ npm 装包时照用锁文件里的主机 ⇒ **GitHub 的 runner 是去那个镜像取包的**。
+内容安全没问题（哈希照旧校验），但**可用性系在别人的服务上** ⇒ 镜像抽风 / 限速时站点发不出去
+——「发不出去」正是本仓最难恢复的一类故障（D6 至今挂着）。
+
+**⑤ 实测换主机不改内容**：隔离副本里 `npm ci` 两次 ——
+默认（继承本机全局 registry）⇒ 130 个包全部从 `registry.npmmirror.com` 取；
+加 `NPM_CONFIG_REGISTRY=官方源` ＋ `NPM_CONFIG_REPLACE_REGISTRY_HOST=always`
+⇒ 130 个包全部从 `registry.npmjs.org` 取，**integrity 校验照旧通过**。
+
+**⑥ 顺带订正一条上轮的口误**：上轮我说「lockfile 0 个带 install script」——**不准确**，
+实测是 **1 个**：`fsevents@2.3.3`（**darwin-only + optional + dev**）⇒ Linux 的 CI 上它**根本不装**、
+脚本不会执行；本机 macOS 上会执行（fsevents 要编原生模块，正常）。
+仓内文档没有写过这个数字（只有对话里说过），故此处订正留痕。
+
+### C. 改动
+
+| 文件 | 改动 |
+|---|---|
+| `package.json` | `markdown-it` 声明范围 `^14.1.0` → `^14.3.3`；新增 `check:deps` / `check:deps-selftest`（**接进 build 链**）与 `check:dep-audit`（**不接**） |
+| `package-lock.json` | markdown-it 锁定 14.3.2 → 14.3.3（integrity 已更新）；根条目的 `engines` 由陈旧的 `>=18` 同步为 `>=22`（`npm install --package-lock-only` 顺带修的） |
+| `scripts/check-deps.cjs` | **新建**：离线门禁，判据 **DEP1–DEP4** ＋ **依赖下限表**（记 markdown-it ≥ 14.3.3，附两条公告编号与 cvss） |
+| `scripts/test-deps.cjs` | **新建**：自测 **9** 档（DA0–DA4 注入 ＋ DA5–DA8 判据级负对照）；夹具**从门禁源码里读下限表** ⇒ 下限表改了夹具自动跟着改 |
+| `scripts/check-dep-audit.cjs` | **新建**：联网审计（**DA1**），registry **写死**官方源（镜像源不实现 advisories 接口，在镜像源上跑等于没跑） |
+| `scripts/check-gates-wired.cjs` | 豁免登记：`check-dep-audit.cjs` 必须联网 ⇒ 不进零网络依赖的 build 链（理由写在源码里，不是写在日志里） |
+| `.github/workflows/deploy.yml` | 安装步骤加 `env`：`NPM_CONFIG_REGISTRY=https://registry.npmjs.org` ＋ `NPM_CONFIG_REPLACE_REGISTRY_HOST=always`；**锁文件与本地配置零改动** |
+| `scripts/check-deploy-target.cjs` | 新增 **DP10**（CI 依赖安装必须 `npm ci`）＋ **DP11**（必须指向官方源且配 `replace-registry-host=always`） |
+| `scripts/test-deploy-target.cjs` | 自测 **28 → 34** 档：注入 **N28–N31** ＋ 负对照 **N32 / N33** |
+| `scripts/lib/selftest-slots.cjs` | 登记 **DA0–DA8** 与 **N28–N33** |
+| `README.md` | 命令表补 `check:deps` / `check:deps-selftest` / `check:dep-audit` 三行；`check:deploy-target` 行补 DP10 / DP11 |
+
+### D. 两处设计要点
+
+**① 下限表为什么独立于「当前锁了哪一版」**：表记的是「**低于这一版就中过招**」这个上游事实
+⇒ 有人放松范围（`^14.1.0`）并顺手改锁文件，DEP1 仍拦得住。
+这与上一轮 D103 的「node24 底线表」是同一个做法：**底线表负责「不许退」，基线表负责「现在是什么」**，
+两张表分开，才不会被「一起改」糊弄过去。
+
+**② 联网那一半为什么不接进 build 链**：漏洞公告库必须联网，而本仓的 build 链要保持
+**零网络依赖**（CI 里没有凭据、构建要可离线复现）⇒ `check:dep-audit` 登记为豁免，
+**由巡检每轮手动跑**；build 链里跑的是它的**离线那一半**（DEP1–DEP4）。
+这个分工写进了两处源码：门禁的头部注释（说明自己判不了什么）与豁免登记的理由。
+
+### E. 验证
+
+- **真仓**：`check:deps` exit 0（130 个条目全带 integrity、锁文件与 package.json 逐字一致）；
+  `check:dep-audit` exit 0（**漏洞统计全 0**；升级前是 high 1）；
+  `check:deploy-target` exit 0；`test-deploy-target` **34** 档全过（红因 **22** 条、判据 **11/11**、
+  负对照 **8** 档）；`test-deps` **9** 档全过；`check:selftest-guard` 通过（58 个自测 / 1392 条档位号）；
+  `check:gates` exit 0（57 道门禁全部可达 + 1 条豁免）；`check:readme` exit 0（119 个命令、判据对账 14 组）。
+- **隔离克隆**：基线（markdown-it 14.3.2）与改动后（14.3.3）各跑一次整链 `npm run build`（均 exit 0），
+  **产物 `_site` 35 个文件逐文件比对：33 个逐字节一致**，仅 2 处差异是**构建时刻**本身
+  （`robots.txt` 的 `generated-at`、`feed.xml` 的 `lastBuildDate`，两次构建相隔 10 秒）
+  ⇒ 这次升级是**纯安全修复**，不改渲染。
+- **取包主机实测**：见 B⑤。
+
+### F. 顺手发现
+
+- **`npm audit` 在镜像源上"跑过了"的假象**是本轮最值钱的一条：它让一个 high 级漏洞
+  在仓里躺了半年而没人看见 ⇒ **凡是"检查通过"的输出，都要问一句"它是不是真跑了"**。
+- **声明范围与锁文件是两处**：升锁文件不等于堵住漏洞（`^14.1.0` 仍允许退回去）⇒
+  依赖升级要**两处一起改**（范围 + 锁文件），门禁也要**两处一起看**（DEP1 / DEP2）。
+- **`replace-registry-host` 是 npm ≥ 8.3 才有的**：不配这一条，`registry` 设了也白设
+  （npm 默认只替换官方源的主机，改不动锁文件里指向第三方镜像的那 130 条）⇒ 这类"设了但不生效"的
+  陷阱，值得在门禁里查它有没有配，而不只是查 registry 那一行。
+- **`npm install --package-lock-only` 会顺手修陈旧元数据**：本轮它把锁文件根条目里
+  陈旧的 `engines: >=18` 同步成了 `>=22`（与 `package.json` 一致）—— 顺带说明
+  **锁文件的根元数据也会漂**，只是不影响 `npm ci`（它只比依赖声明）。
+
+### G. 文档
+
+- `docs/DEFECT-BACKLOG.md`：新增 **D105 / D106** 两行（位置 / 现象 / 可判定的验收条件 / 状态格逐条兑现）。
+- `docs/ROADMAP.md`：进度区新增本轮条目。
+- `docs/IMPROVEMENT-LOG.md`：本小节；中央「待决策」台账**不新增**待拍板项（最高仍是待拍板 57）。
+- `README.md`：命令表补三行与 DP10 / DP11。
+
+### H. 本轮纪律
+
+- 提交走**私有索引 + commit-tree + update-ref CAS**，只提交本轮自己改的路径；**不 push**。
+- 探针与临时产物放 `/tmp/mh_d105/`（**不入库**）。
+- **不写死会变的存量数**；**不编造**任何数据、结论或引用（漏洞条目的公告编号与 cvss 取自
+  官方源 `npm audit` 的实测输出；取包主机数取自 `npm ci --loglevel=http` 的实测日志）。
+- 取舍类**不代拍**：本轮**没有新的待拍板项**。
+- 上轮口述里的一个不准确数字（install script 计数）**就地订正**并留痕，不悄悄改口。
+
+### 下一轮入口
+
+- **D105 / D106 的线上那半仍只差 push**：线上仍是 2026-10-16 旧部署 ⇒ **仍从第三方镜像取包**，
+  与 **D6** 同一个前置。
+- **D5 / D12 / D93–D106** 同样卡在 push；**D9 / D10 / D26 / D32 / D57** 仍挂本人拍板；
+  **待拍板 57**（Cloudflare 与安全响应头）**不代拍**。
+- **本轮记下的候选**：① `configure-pages` 的输出**一个都没被消费**（本仓的 `pathPrefix` 由
+  `src/_data/site.js` 的 `site.url` 派生）⇒ 它现在只为一个读不到的元数据付一次 API 调用；删不删属**取舍**，未代拍；
+  ② 线上那条 GitHub 自带的 `pages-build-deployment` 失败（本仓工作流是成功的）—— 属 GitHub 侧旧管线，
+  要不要处理**未代拍**；③ DR6b 只扫**两份活文档**（`docs/implementation-notes.md` 与 `HOW_TO_RUN.md`）——
+  `README.md` / `docs/DEPLOY.md` / `docs/design-system.md` 里点名的路径**还没有**这道看守，
+  要不要扩面属**取舍**（扩面要防历史记录里的「已删路径」被当成漂移），未代拍；
+  ④ **依赖下限表目前只登记了 markdown-it 一个包** —— 机制已就位（登记新包只需加一条表项），
+  但「要不要把审计脚本接进 CI 的独立 job（每周自动跑）」属**取舍**（会新增一条工作流 =
+  新增一条供应链面），未代拍。

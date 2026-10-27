@@ -741,6 +741,106 @@ if (wfText !== null) {
   }
 }
 
+/* ---------------- DP10 / DP11：CI 的依赖安装方式与取包来源 ---------------- */
+
+/** npm 官方源（CI 取包必须指向它）。 */
+const OFFICIAL_NPM_REGISTRY = "https://registry.npmjs.org";
+
+/**
+ * 工作流里 npm 的 registry 配置。
+ * 三种写法都吃：YAML `env:` 块、行内 shell 前缀、`npm config set`。
+ * ⚠️ 扫**整份工作流**而不只扫某一步：YAML 的 `env` 可以挂在 workflow / job / step
+ *   三级，任何一级设了都对该步骤生效 ⇒ 扫全文才是语义正确的口径。
+ */
+function npmRegistryConfig(text) {
+  const registries = [];
+  const replaces = [];
+  const grab = (re, into) => {
+    for (const m of text.matchAll(re)) into.push(m[1]);
+  };
+  grab(/NPM_CONFIG_REGISTRY\s*[:=]\s*["']?([^\s"'#]+)/g, registries);
+  grab(/npm\s+config\s+set\s+registry\s+["']?([^\s"'#]+)/g, registries);
+  grab(/NPM_CONFIG_REPLACE_REGISTRY_HOST\s*[:=]\s*["']?([^\s"'#]+)/g, replaces);
+  grab(/npm\s+config\s+set\s+replace-registry-host\s+["']?([^\s"'#]+)/g, replaces);
+  return { registries, replaces };
+}
+
+/** 工作流里跑 npm 安装的命令（只看 `run:` 行，正文里的说明不算）。 */
+function npmInstallCommands(text) {
+  const out = [];
+  const lines = text.split("\n");
+  lines.forEach((line, i) => {
+    const m = /^[ \t]*run:[ \t]*(.*)$/.exec(line);
+    if (!m) return;
+    for (const cmd of m[1].matchAll(/\bnpm\s+(ci|install)\b/g)) {
+      out.push({ cmd: cmd[1], line: m[1].trim(), lineNo: i + 1 });
+    }
+  });
+  return out;
+}
+
+if (wfText !== null) {
+  const installs = npmInstallCommands(wfText);
+  const usedInstall = installs.filter((x) => x.cmd === "install");
+  const usedCi = installs.filter((x) => x.cmd === "ci");
+
+  const dp10 = [];
+  if (usedInstall.length) {
+    dp10.push(
+      `用了 npm install（${usedInstall.length} 处：${usedInstall.map((x) => x.line).join("；")}）—— ` +
+        `npm install 会**绕过锁文件**去重新解析版本范围（还能顺手改写锁文件）⇒ ` +
+        `构建不再可复现，一个未经审核的新版本会直接进入生产构建`
+    );
+  }
+  if (!usedCi.length) {
+    dp10.push(
+      `找不到用 npm ci 安装依赖的步骤 —— 依赖安装必须走**锁文件安装**` +
+        `（npm ci 严格按 package-lock.json 装，并逐个校验 integrity 哈希）`
+    );
+  }
+  if (dp10.length) {
+    fail(
+      `DP10 CI 的依赖安装方式不对（${dp10.length} 处）：` + dp10.join("；") +
+        ` —— 本仓的锁文件是「发出去的字节」的一部分，安装方式必须锁死。`
+    );
+  }
+
+  const reg = npmRegistryConfig(wfText);
+  const dp11 = [];
+  if (!reg.registries.length) {
+    dp11.push(
+      `工作流里没有指定 npm registry —— 而锁文件里 **130 条 resolved 全部**指向 ` +
+        `registry.npmmirror.com（本机用的第三方镜像）⇒ 不显式指定，GitHub 的 runner ` +
+        `就会去那个第三方镜像取包（发布管线架在别人的可用性上）`
+    );
+  } else {
+    const thirdParty = reg.registries.filter((r) => r !== OFFICIAL_NPM_REGISTRY);
+    if (thirdParty.length) {
+      dp11.push(
+        `npm registry 指向了非官方源（${thirdParty.join("、")}）—— CI 取包必须指向 ` +
+          `${OFFICIAL_NPM_REGISTRY}`
+      );
+    }
+  }
+  if (!reg.replaces.length) {
+    dp11.push(
+      `没有设 NPM_CONFIG_REPLACE_REGISTRY_HOST=always —— 光设 registry 不够：` +
+        `npm 默认**照用锁文件里 resolved 的主机**（npm ≥ 8.3 才支持把它换成配置的 registry）`
+    );
+  } else if (!reg.replaces.includes("always")) {
+    dp11.push(
+      `NPM_CONFIG_REPLACE_REGISTRY_HOST 的值不是 always（是「${reg.replaces.join("、")}」）—— ` +
+        `默认的 npmjs 只替换官方源的主机，改不动锁文件里指向第三方镜像的那 130 条`
+    );
+  }
+  if (dp11.length) {
+    fail(
+      `DP11 CI 的取包来源不对（${dp11.length} 处）：` + dp11.join("；") +
+        ` —— 换主机**不改内容**（integrity 哈希照旧校验），只是不让发布管线依赖第三方镜像。`
+    );
+  }
+}
+
 /* ---------------- 汇总 ---------------- */
 if (problems.length) {
   console.error("发布落点门禁未通过：\n");

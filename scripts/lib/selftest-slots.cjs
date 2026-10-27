@@ -131,10 +131,14 @@ const SLOTS = {
     "DT0", "DT1", "DT2", "DT3", "DT4", "DT5", "DT6", "DT7",
     "DT8", "DT9", "DT10"
   ],
+  "test-deps.cjs": [
+    "DA0", "DA1", "DA2", "DA3", "DA4", "DA5", "DA6", "DA7", "DA8"
+  ],
   "test-deploy-target.cjs": [
     "N0", "N1", "N2", "N3", "N4", "N5", "N6", "N7", "N8", "N9",
     "N10", "N11", "N12", "N13", "N14", "N15", "N16", "N17", "N18",
-    "N19", "N20", "N21", "N22", "N23", "N24", "N25", "N26", "N27"
+    "N19", "N20", "N21", "N22", "N23", "N24", "N25", "N26", "N27",
+    "N28", "N29", "N30", "N31", "N32", "N33"
   ],
   "test-doc-reality.cjs": [
     "DCR0", "DCR1", "DCR2", "DCR3", "DCR4", "DCR5", "DCR6", "DCR7",

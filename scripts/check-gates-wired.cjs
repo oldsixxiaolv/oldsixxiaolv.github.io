@@ -94,6 +94,13 @@ const EXEMPT = {
     "把「部署还没发生」误报成「代码坏了」。" +
     "它的正确位置是**部署之后**：.github/workflows/deploy.yml 的 verify-live job" +
     "（needs: deploy）是唯一的自动调用点；本地手动跑 npm run check:live。",
+  "check-dep-audit.cjs":
+    "必须联网取漏洞公告库（npm advisories），而 build 链必须保持**零网络依赖**" +
+    "（CI 里没有凭据，构建要可离线复现）⇒ 它是**周期性手动检查**，不进 build 链。" +
+    "它的离线那一半在 scripts/check-deps.cjs，那个接在 build 链上。" +
+    "⚠️ 还有一个具体理由：npm 镜像源不实现 advisories 接口" +
+    "（实测返回 404 NOT_IMPLEMENTED），本脚本把 registry 写死成官方源，" +
+    "跑出来的结论才作数。本地手动跑 npm run check:dep-audit。",
 };
 
 /* ---------- 自测脚本家族（GW4） ----------

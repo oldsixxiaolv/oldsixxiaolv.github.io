@@ -53,9 +53,11 @@ const CAUSES = [
   { id: "DP8b", crit: "DP8", frag: "cancel-in-progress 不是 false" },
   { id: "DP9a", crit: "DP9", frag: "没有声明 timeout-minutes" },
   { id: "DP9b", crit: "DP9", frag: "读不到任何 job" },
+  { id: "DP10", crit: "DP10", frag: "CI 的依赖安装方式不对" },
+  { id: "DP11", crit: "DP11", frag: "CI 的取包来源不对" },
 ];
 /** 静态判据清单（门禁里应当且仅应当有这些判据）。 */
-const CRITERIA = ["DP1", "DP2", "DP3", "DP4", "DP5", "DP6", "DP7", "DP8", "DP9"];
+const CRITERIA = ["DP1", "DP2", "DP3", "DP4", "DP5", "DP6", "DP7", "DP8", "DP9", "DP10", "DP11"];
 
 /* ========== 工具 ========== */
 
@@ -164,6 +166,11 @@ const WORKFLOW_YML = [
   "        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7",
   "      - name: Setup Node 22",
   "        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7",
+  "      - name: Install dependencies",
+  "        run: npm ci",
+  "        env:",
+  "          NPM_CONFIG_REGISTRY: https://registry.npmjs.org",
+  "          NPM_CONFIG_REPLACE_REGISTRY_HOST: always",
   "",
 ].join("\n");
 
@@ -326,6 +333,35 @@ const MUT = {
   jobsMissing: (s) => {
     s.workflow = replaceOnce(s.workflow, "jobs:\n  build:\n", "");
   },
+  /** 依赖安装改成 npm install（绕过锁文件）⇒ DP10（构建不再可复现）。 */
+  installNotCi: (s) => {
+    s.workflow = replaceOnce(s.workflow, "        run: npm ci", "        run: npm install");
+  },
+  /** registry 整块没写 ⇒ DP11（CI 会照用锁文件里指向第三方镜像的 resolved）。 */
+  registryEnvMissing: (s) => {
+    s.workflow = replaceOnce(
+      s.workflow,
+      "        env:\n          NPM_CONFIG_REGISTRY: https://registry.npmjs.org\n" +
+        "          NPM_CONFIG_REPLACE_REGISTRY_HOST: always\n",
+      ""
+    );
+  },
+  /** registry 指向第三方镜像 ⇒ DP11（发布管线架在别人的可用性上）。 */
+  registryThirdParty: (s) => {
+    s.workflow = replaceOnce(
+      s.workflow,
+      "NPM_CONFIG_REGISTRY: https://registry.npmjs.org",
+      "NPM_CONFIG_REGISTRY: https://registry.npmmirror.com"
+    );
+  },
+  /** 只设了 registry、没设 replace-registry-host ⇒ DP11（npm 默认不改 resolved 的主机）。 */
+  replaceHostMissing: (s) => {
+    s.workflow = replaceOnce(
+      s.workflow,
+      "          NPM_CONFIG_REPLACE_REGISTRY_HOST: always\n",
+      ""
+    );
+  },
 };
 
 /** 注入档：expect=null 表示期望判绿，否则期望判红且判据集合**恰为** expect。 */
@@ -351,6 +387,10 @@ const CASES = [
   { id: "N21", label: "cancel-in-progress 写回 true", mutate: MUT.concurrencyCancels, expect: ["DP8"] },
   { id: "N22", label: "某个 job 不写 timeout-minutes", mutate: MUT.jobNoTimeout, expect: ["DP9"] },
   { id: "N23", label: "jobs 段整个没写", mutate: MUT.jobsMissing, expect: ["DP9"] },
+  { id: "N28", label: "依赖安装改成 npm install", mutate: MUT.installNotCi, expect: ["DP10"] },
+  { id: "N29", label: "registry 的 env 整块没写", mutate: MUT.registryEnvMissing, expect: ["DP11"] },
+  { id: "N30", label: "registry 指向第三方镜像", mutate: MUT.registryThirdParty, expect: ["DP11"] },
+  { id: "N31", label: "只设 registry、没设 replace-registry-host", mutate: MUT.replaceHostMissing, expect: ["DP11"] },
 ];
 
 /* ========== 四、判据级负对照 ========== */
@@ -363,6 +403,8 @@ const NEG_CASES = [
   { id: "N24", crit: "DP7", case: "N16", label: "卸掉 DP7" },
   { id: "N25", crit: "DP8", case: "N21", label: "卸掉 DP8" },
   { id: "N26", crit: "DP9", case: "N22", label: "卸掉 DP9" },
+  { id: "N32", crit: "DP10", case: "N28", label: "卸掉 DP10" },
+  { id: "N33", crit: "DP11", case: "N29", label: "卸掉 DP11" },
 ];
 
 /** 在门禁副本里卸掉某条判据：给它每一条 fail() 调用**同行**加 `if (false) ` 前缀。 */
