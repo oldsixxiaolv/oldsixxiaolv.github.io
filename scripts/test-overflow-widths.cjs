@@ -54,9 +54,31 @@ function bad(label, detail) {
   failures++;
   console.log(`  ✗ ${label}${detail ? `  ${detail}` : ""}`);
 }
+/**
+ * 跳过（不是「红」）。
+ *
+ * 为什么要有第三档（D109）：**工具层面的故障不能被记成被测对象失败**。
+ * 浏览器层坏掉时（起不来 / 连不上 / 等不到回音），门禁一次测量都没做成 ⇒
+ * 下面那些「M2 至少跑了 3 档」「M3 断点两侧都被测到」全会红 ——
+ * 一次**工具故障**被伪装成「九条判据都坏了」，读报告的人会去查判据，
+ * 而真正坏的是浏览器那一环。
+ * ⇒ 三档分明：**绿 / 判红 / 跳过**。跳过用 `⊘` 记号
+ *   （静态清单守卫只认 `✓/✔/·` 三种行首标记，`⊘` 行不进档位比对）。
+ */
+function skip(label, detail) {
+  console.log(`  ⊘ ${label}（跳过）${detail ? `  ${detail}` : ""}`);
+}
 function assert(cond, label, detail) {
   cond ? ok(label, detail) : bad(label, detail);
 }
+
+/**
+ * 「浏览器层失败 ⇒ 提前收场」的信号。
+ *
+ * 用异常把控制流从中间那段断言里带出来，但**不**当作失败计入 ——
+ * 真正的失败已经由 bad() 记过了，这里只负责跳出那一大段连锁断言。
+ */
+class BrowserLayerAbort extends Error {}
 
 /* ---------- 造两个临时页面：一个干净、一个超宽 ---------- */
 const VIEWPORT_META = '<meta name="viewport" content="width=device-width, initial-scale=1.0" />';
@@ -205,10 +227,10 @@ const EXT_SERVER_SRC = [
   '});',
 ].join("\n");
 
-function runGate(dir, extraArgs, gatePath) {
+function runGate(dir, extraArgs, gatePath, envExtra) {
   const r = spawnSync(process.execPath, [gatePath || GATE, ...(extraArgs || [])], {
     cwd: ROOT,
-    env: { ...process.env, SITE_DIR: dir },
+    env: { ...process.env, SITE_DIR: dir, ...(envExtra || {}) },
     encoding: "utf8",
     maxBuffer: 32 * 1024 * 1024,
   });
@@ -318,6 +340,43 @@ try {
   const dirty = runGate(dirtyDir);
   const dp = parseGateOutput(dirty.out);
   const widths = dp.widths;
+
+  /* ---------- 前置条件：门禁到底量到东西了没有 ----------
+   *
+   * 为什么要有这一段（D109）：**工具层面的故障不能被记成被测对象失败**。
+   * 浏览器层坏掉时（起不来 / 连不上 / 等不到回音），门禁**一次测量都没做成** ⇒
+   * 下面 M1/M2/M3 会**连锁全红**：
+   *   M2「门禁实际跑了至少 3 档宽度」红（宽度集合是空的）、
+   *   M3 每一条 CSS 断点断言也红（匹配侧与不匹配侧都是空的）……
+   * ⇒ 一次**工具故障**被伪装成「九条判据都坏了」，
+   *   读报告的人会去查判据，而真正坏的是浏览器那一环。
+   * 修法：先分三档 —— **绿 / 判红 / 跳过**。
+   *   量不到任何宽度时，只报**一条**红，并说清是「浏览器层失败」还是
+   *   「门禁在测量之前就判红了」，其余断言标成**跳过**而不是红。
+   */
+  if (widths.length === 0) {
+    const browserLayer = /浏览器层失败/.test(dirty.out);
+    if (browserLayer) {
+      bad(
+        "M0 前置条件：门禁一次宽度都没量到 —— **浏览器层失败**（不是判据坏了）",
+        `exit=${dirty.code}`
+      );
+      skip("M1 每一档都抓到溢出", "门禁没量到任何宽度");
+      skip("M2 档位集合", "门禁没量到任何宽度");
+      skip("M3 CSS 断点两侧都被测到", "门禁没量到任何宽度");
+    } else {
+      /* 不是浏览器层 ⇒ 门禁在**测量之前**就判红了（覆盖度自证那一类）。
+         那也是真红，但红因在门禁自己的输出里，不该在这里重复叙述成九条。 */
+      bad(
+        "M0 前置条件：门禁一次宽度都没量到 —— 门禁在**测量之前**就判红了（不是判据坏了）",
+        `exit=${dirty.code}`
+      );
+      skip("M1 每一档都抓到溢出", "门禁没量到任何宽度");
+      skip("M2 档位集合", "门禁没量到任何宽度");
+      skip("M3 CSS 断点两侧都被测到", "门禁没量到任何宽度");
+    }
+    throw new BrowserLayerAbort("门禁没量到任何宽度");
+  }
 
   assert(
     dirty.code === 1,
@@ -698,6 +757,220 @@ try {
       `exit=${m10Copy.code}`
     );
   }
+
+  /* ---------- M11：门禁的浏览器与本机代理配置解耦（D109 的行为级对照） ----------
+   *
+   * 这一档证的是 BR1：Chrome 必须**不走代理**。
+   *
+   * 怎么在**不碰机器全局设置**的前提下造出「这台机器配了代理」的场景：
+   *   给 Chrome 注入两枚旗标：
+   *     --proxy-bypass-list=<-loopback>          取消 Chrome 对回环地址的隐式豁免
+   *     --proxy-server=http://127.0.0.1:<端口>    把请求交给代理
+   *   而那个代理是**挂死**的（接受连接但永不回话）⇒ 走代理的请求会一直挂着。
+   *   ⇒ 于是「门禁访问本机临时服务」这件事被代理接管 ⇒ 页面永远加载不完。
+   *   （这两枚旗标是本机实测有效的，见 check-overflow.cjs 文件头的 D109 说明；
+   *     实测：同组旗标加 `--no-proxy-server` ⇒ 直连成功。）
+   *
+   * 两档必须**一起**跑，缺一不可：
+   *   · 真门禁副本（保留 `--no-proxy-server`）⇒ 必须**判绿**：
+   *     证明 BR1 真的把代理压住了（这一档是「新代码有效」的证明）。
+   *   · 摘掉 `--no-proxy-server` 的副本 ⇒ 必须**判红**、且红因是**浏览器层**：
+   *     证明这个场景**有牙齿**（不是恒绿、也不是恒红）。
+   *     只有「摘掉修复就红」这一半，红才真的是这条判据判出来的。
+   */
+  const PROXY_SRC = [
+    'const http = require("http");',
+    'const fs = require("fs");',
+    'const readyFile = process.argv[2];',
+    '/* 正规的 HTTP 服务（**不要**用裸 TCP 直接切断连接：',
+    '   那样 Chrome 会以为连接被重置而**重试**，启动被拖慢 ⇒',
+    '   「副本 A 判绿」那条断言会偶发红 —— 测的又变成启动速度了）。 */',
+    'const server = http.createServer((req, res) => {',
+    '  res.writeHead(502, { "content-type": "text/plain" });',
+    '  res.end("proxy is not working");',
+    '});',
+    'server.listen(0, "127.0.0.1", () => {',
+    '  fs.writeFileSync(readyFile, String(server.address().port));',
+    '});',
+  ].join("\n");
+
+  const proxySrcPath = path.join(tmp, "hanging-proxy.cjs");
+  const proxyReadyPath = path.join(tmp, "hanging-proxy-port.txt");
+  fs.writeFileSync(proxySrcPath, PROXY_SRC);
+  const proxyChild = spawn(process.execPath, [proxySrcPath, proxyReadyPath], { stdio: "ignore" });
+  try {
+    let proxyPort = null;
+    for (let i = 0; i < 100 && proxyPort === null; i++) {
+      syncSleep(100);
+      if (fs.existsSync(proxyReadyPath)) {
+        const t = fs.readFileSync(proxyReadyPath, "utf8").trim();
+        if (/^\d+$/.test(t)) proxyPort = Number(t);
+      }
+    }
+    if (proxyPort === null) {
+      bad("M11 「不工作的代理」起来了（立刻回 502）", "等 10s 也没拿到它的端口");
+    } else {
+      ok("M11 「不工作的代理」起来了（立刻回 502）", `端口 ${proxyPort}`);
+      /* 两个注入点：旗标插在哪儿、摘除哪一行 —— 都必须**恰好出现一次**，
+         否则注入会落到别的地方（或根本没生效），红因就会串味。 */
+      const INJECT_POINT = '      "--headless=new",';
+      const NO_PROXY_LINE = '      "--no-proxy-server",';
+      const injectCount = gateSource.split(INJECT_POINT).length - 1;
+      const noProxyCount = gateSource.split(NO_PROXY_LINE).length - 1;
+      assert(
+        injectCount === 1,
+        "M11 门禁源码里「注入代理旗标」的位置**恰好出现一次**（注入点唯一）",
+        `实际 ${injectCount} 次`
+      );
+      assert(
+        noProxyCount === 1,
+        "M11 门禁源码里 `--no-proxy-server` **恰好出现一次**（摘除点唯一）",
+        `实际 ${noProxyCount} 次`
+      );
+      if (injectCount === 1 && noProxyCount === 1) {
+        const proxyFlags =
+          `      "--proxy-bypass-list=<-loopback>",\n` +
+          `      "--proxy-server=http://127.0.0.1:${proxyPort}",`;
+        const withProxy = gateSource.replace(INJECT_POINT, `${INJECT_POINT}\n${proxyFlags}`);
+
+        /* 副本 A：注入代理旗标，保留真门禁的 `--no-proxy-server` */
+        const copyADir = path.join(tmp, "gate-copy-m11a");
+        fs.mkdirSync(copyADir);
+        const copyAPath = path.join(copyADir, "check-overflow.cjs");
+        fs.writeFileSync(copyAPath, withProxy);
+
+        /* 副本 B：同样注入代理旗标，但把 `--no-proxy-server` 摘掉 */
+        const copyBDir = path.join(tmp, "gate-copy-m11b");
+        fs.mkdirSync(copyBDir);
+        const copyBPath = path.join(copyBDir, "check-overflow.cjs");
+        fs.writeFileSync(copyBPath, withProxy.replace(NO_PROXY_LINE, ""));
+
+        const m11a = runGate(cleanDir, ["--timeout", "8000"], copyAPath);
+        assert(
+          m11a.code === 0,
+          "M11 注入代理旗标后门禁仍判绿（BR1：浏览器不碰代理）",
+          m11a.code === 0
+            ? ""
+            : `exit=${m11a.code}；输出末段：${(m11a.out.trim().split("\n").filter((l) => l.trim()).slice(-4).join(" / ") || "").slice(0, 260)}`
+        );
+        const m11b = runGate(cleanDir, ["--timeout", "8000"], copyBPath);
+        assert(
+          m11b.code === 1,
+          "M11 摘掉 `--no-proxy-server` 后同一场景判红（这个场景有牙齿）",
+          `exit=${m11b.code}`
+        );
+        assert(
+          /浏览器层失败/.test(m11b.out),
+          "M11 那一档的红因是**浏览器层**（不是页面判红）",
+          /* 红因回显：断言红的时候要能一眼看出**它**红在哪，
+             而不是让人再去手动复现一遍。 */
+          /浏览器层失败/.test(m11b.out)
+            ? ""
+            : `输出末段：${(m11b.out.trim().split("\n").slice(-6).join(" / ") || "").slice(0, 300)}`
+        );
+        assert(
+          !/横向溢出/.test(m11b.out),
+          "M11 那一档的红因不含「横向溢出」（与页面判红可区分）",
+          ""
+        );
+      }
+    }
+  } finally {
+    try {
+      proxyChild.kill("SIGTERM");
+    } catch {
+      /* 子进程已经退出了，kill 报错不影响判定 */
+    }
+  }
+
+  /* ---------- M12：浏览器层失败的红因归属（D109 的 BR2 / BR3 / BR4） ----------
+   *
+   * 造一个**接得上、却不回话**的浏览器：假浏览器起一个永不回应的 HTTP 服务，
+   * 把它的端口写进 DevToolsActivePort ⇒ 门禁「起浏览器、拿端口」都成功，
+   * 但连调试端点时会**一直挂着** ⇒ 门禁必须靠**有界等待**兜住（BR2），
+   * 并给出浏览器层的专属红因（BR3）。
+   * 这一档证五件事：
+   *   ① 门禁**判红**（不是悄悄跳过、不是悄悄绿），而且**没有挂住**（BR2）；
+   *   ② 红因**点名「浏览器层」**；
+   *   ③ 红因**不含「横向溢出」**，也**不是一整页未捕获异常的栈回溯**
+   *      —— 否则读报告的人会照着「页面有问题」去查产品，而问题在测量这一环；
+   *   ④ 红因**说得出是「等超时了」**（证明是有界等待兜住的，不是别的失败）；
+   *   ⑤ 失败之后**浏览器进程已被回收**（不留垃圾进程在机器上）。
+   * ⚠️ 假浏览器要能直接执行（shebang + 可执行位）——
+   *   macOS / Linux 才有这个形态；本仓的 CI 是 ubuntu，本机是 macOS。
+   */
+  const FAKE_CHROME_SRC = [
+    "#!/usr/bin/env node",
+    '/* 假浏览器：起一个**永不回话**的 HTTP 服务，把它的端口写进 DevToolsActivePort。',
+    "   ⇒ 门禁「起浏览器、拿端口」都成功，但连调试端点时会一直挂着 ⇒",
+    "   门禁必须靠有界等待兜住，并给出浏览器层的专属红因。 */",
+    'const http = require("http");',
+    'const fs = require("fs");',
+    'const path = require("path");',
+    "const args = process.argv.slice(2);",
+    'const dirArg = args.find((a) => a.startsWith("--user-data-dir="));',
+    'const dir = dirArg ? dirArg.slice("--user-data-dir=".length) : null;',
+    "const server = http.createServer(() => { /* 接受请求但永不回应 */ });",
+    'server.listen(0, "127.0.0.1", () => {',
+    '  /* 先记「我起来了」与自己的 pid（门禁失败后要能查它有没有被回收），',
+    "   再写端口文件 —— 顺序不能反：门禁是看到端口文件才继续的。 */",
+    '  fs.writeFileSync(path.join(__dirname, "fake-chrome-started.txt"), String(process.pid));',
+    '  if (dir) fs.writeFileSync(path.join(dir, "DevToolsActivePort"), String(server.address().port) + "\\n");',
+    "});",
+    "setInterval(() => {}, 1000);",
+  ].join("\n");
+
+  const fakeChrome = path.join(tmp, "fake-chrome.cjs");
+  const fakeMarker = path.join(tmp, "fake-chrome-started.txt");
+  fs.writeFileSync(fakeChrome, FAKE_CHROME_SRC);
+  fs.chmodSync(fakeChrome, 0o755);
+
+  const m12 = runGate(cleanDir, ["--timeout", "3000"], undefined, {
+    CHROME_PATH: fakeChrome,
+  });
+  assert(
+    fs.existsSync(fakeMarker),
+    "M12 假浏览器真的被门禁启动了（这一档的场景确实被演练到）",
+    fs.existsSync(fakeMarker) ? "" : "没有留下启动标记 —— 这一档没真跑起来"
+  );
+  assert(m12.code === 1, "M12 浏览器层失败时门禁判红（而且**没有挂住**）", `exit=${m12.code}`);
+  assert(/浏览器层失败/.test(m12.out), "M12 红因点名「浏览器层」", "");
+  assert(
+    /超时/.test(m12.out),
+    "M12 红因说得出是「等超时了」（BR2：有界等待兜住了，没有挂死）",
+    ""
+  );
+  assert(
+    !/横向溢出/.test(m12.out),
+    "M12 红因不含「横向溢出」（与页面判红可区分）",
+    ""
+  );
+  assert(
+    !/^\s+at\s/m.test(m12.out),
+    "M12 红因不是一整页未捕获异常的栈回溯",
+    ""
+  );
+  /* BR4：失败之后浏览器进程必须被回收（此前失败路径直接抛出去 ⇒ 进程留在机器上）。 */
+  let fakeAlive = false;
+  let fakePid = null;
+  if (fs.existsSync(fakeMarker)) {
+    fakePid = Number(fs.readFileSync(fakeMarker, "utf8").trim());
+    try {
+      process.kill(fakePid, 0);
+      fakeAlive = true;
+    } catch {
+      fakeAlive = false; // 进程已经不在了
+    }
+  }
+  assert(
+    fakePid !== null && !fakeAlive,
+    "M12 失败后浏览器进程已被回收（不留垃圾进程）",
+    fakePid === null ? "没有 pid 可查" : `pid ${fakePid} ${fakeAlive ? "还在" : "已回收"}`
+  );
+} catch (e) {
+  /* 「浏览器层失败 ⇒ 提前收场」是**有意的提前退出**，不是意外：
+     失败已经由 bad() 记过了，这里只负责别把栈回溯打出来。 */
+  if (!(e instanceof BrowserLayerAbort)) throw e;
 } finally {
   try {
     fs.rmSync(tmp, { recursive: true, force: true });

@@ -154,10 +154,49 @@
  *   并加一道**覆盖度自证**：产物里引用的每个外域主机都必须在实际交给 CDP 的
  *   阻断清单里 —— 推导一旦被摘掉或算漏，这道自证当场红（见自测的 M9 负对照）。
  *
+ * ⚠️ 为什么浏览器必须与本机代理配置解耦（2026-10-27 修缺陷清单 **D109**）：
+ *   D74 把「外网资源」从测量前提里拿掉了，但**漏了另一条通往网络的路**：
+ *   浏览器自己也会用**这台机器的代理配置**（macOS 上是系统代理设置，
+ *   `scutil --proxy` 说了算；Linux/CI 上还有环境变量那一套）。
+ *   而门禁要访问的正是**本机临时服务器**（`http://127.0.0.1:<随机端口>`）——
+ *   只要代理配置**没有把回环地址豁免掉**，这个本机请求也会被交给代理：
+ *     代理不可达或卡住 ⇒ 页面永远加载不完 ⇒ `Page.loadEventFired` 永不触发
+ *     ⇒ 门禁 20 秒后以「等待超时」收场。
+ *   ⇒ **门禁的结论会随「这台机器此刻的代理配置」漂移**：
+ *     同一份产物，配了代理的机器上红、没配的机器上绿，
+ *     而两份结论都声称自己在量页面的排版。
+ *   ⚠️ 实测证据（本机，2026-10-27，别再改回去）：
+ *     · Chrome 在 macOS 上**不读** `http_proxy` / `all_proxy` 环境变量
+ *       （实测：非回环地址 + 指向死端口的 `all_proxy`，页面照样加载）
+ *       ⇒ 真正的代理源是**系统代理设置**，不是环境变量。
+ *       （上一轮把这条归因成「环境变量」，是错的，已订正。）
+ *     · `--proxy-bypass-list=<-loopback>` + `--proxy-server=http://127.0.0.1:<挂死端口>`
+ *       ⇒ 回环请求被代理接管 ⇒ Chrome 挂住（实测 15 秒被外部闹钟杀掉）。
+ *     · 同样的旗标再加 `--no-proxy-server` ⇒ 直连成功，页面照常加载。
+ *       ⇒ **`--no-proxy-server` 的优先级压得住 `--proxy-server`**，
+ *         这就是修法（BR1）的依据。
+ *
+ *   本轮新增的四条判据：
+ *   BR1 **浏览器不碰代理** —— Chrome 必须带 `--no-proxy-server`：
+ *        测量**不需要网络**（外域全在浏览器层被拦掉，页面来自本机），
+ *        所以「这台机器配了什么代理」与测量**没有任何关系**，
+ *        门禁必须自己把这条关系掐断，而不是指望系统配置恰好豁免了回环。
+ *   BR2 **等浏览器处处有上限** —— 每一处等待（CDP 调用、load 事件、
+ *        WebSocket 握手）都有上限，不许无限挂住：挂住等于卡死整条 build 链。
+ *   BR3 **浏览器层失败有专属红因** —— 浏览器层坏了（起不来 / 连不上 /
+ *        页面加载失败 / 等不到回音），红因必须**点名「浏览器层」**，
+ *        并明确说明「本次一次测量都没做成」；
+ *        **不许**与「页面真的越界」的红因混说（那会让读报告的人查错方向）。
+ *   BR4 **失败路径回收浏览器** —— 门禁退出时，浏览器进程与临时目录
+ *        **必须**被回收。此前超时路径直接抛出去 ⇒ 浏览器进程留在机器上
+ *        （本机实测堆积了 245 个 `/var/folders/.../mh-cdp-*` 的 Chrome，
+ *        机器越跑越慢，而机器越慢越容易超时 —— 越滚越糟）。
+ *
  * 用法：
  *   node scripts/check-overflow.cjs                # 全部默认档位
  *   node scripts/check-overflow.cjs --width 320    # 只测某一档（调试用）
  *   node scripts/check-overflow.cjs --widths 390,768   # 只测指定的几档
+ *   node scripts/check-overflow.cjs --timeout 8000 # 每次等浏览器的上限（毫秒）
  *
  * 环境变量：
  *   SITE_DIR —— 覆盖产物目录（故障注入用；与 scripts/check-jsonld.cjs 同一约定）。
@@ -666,11 +705,57 @@ function parseWidths(argv) {
 }
 
 let WIDTHS;
+/**
+ * 每次等浏览器的上限（毫秒）—— D109 的 BR2。
+ *
+ * 为什么要有这个参数：等待必须有上限（挂住 = 卡死整条 build 链），
+ * 但上限本身不该写死：自测要跑「浏览器层失败」那一档，
+ * 每次都等满默认的 20 秒会让自测慢得没法用 ⇒ 留一个可调的旋钮。
+ */
+const DEFAULT_WAIT_MS = 20000;
+let WAIT_MS = DEFAULT_WAIT_MS;
+
+/**
+ * 解析 `--timeout <ms>`。
+ * ⚠️ 解析失败**直接判红退出**：与宽度参数同一口径 ——
+ *   把一个拼错的超时当成「没传」而悄悄用默认值，等于换了个没告诉人的默认值。
+ */
+function parseWaitMs(argv) {
+  for (let i = 0; i < argv.length; i++) {
+    if (argv[i] === "--timeout") {
+      const raw = argv[i + 1];
+      const v = Number(raw);
+      if (raw === undefined || !Number.isFinite(v) || v <= 0) {
+        throw new Error(`--timeout 需要一个正整数（毫秒），收到：${raw === undefined ? "(缺值)" : raw}`);
+      }
+      return v;
+    }
+  }
+  return DEFAULT_WAIT_MS;
+}
+
+/**
+ * 浏览器层失败 —— 与「页面判据判红」是**两回事**（D109 的 BR3）。
+ *
+ * 为什么要单开一个类型：门禁跑绿跑红的理由必须能一眼分开。
+ *   · 页面判红 = 页面**确实**有问题（排版越界、触点过小……）⇒ 改产品。
+ *   · 浏览器层失败 = **测量根本没做成** ⇒ 改门禁或改环境，别去改产品。
+ * 此前两者混在同一条「检查失败：等待 … 超时」里，读报告的人只能去猜。
+ */
+class BrowserLayerError extends Error {
+  constructor(message, detail) {
+    super(message);
+    this.name = "BrowserLayerError";
+    this.detail = detail || null;
+  }
+}
+
 try {
   WIDTHS = parseWidths(process.argv.slice(2));
+  WAIT_MS = parseWaitMs(process.argv.slice(2));
 } catch (e) {
   console.error("✗ " + e.message);
-  console.error("  用法：node scripts/check-overflow.cjs [--width N | --widths a,b,c]");
+  console.error("  用法：node scripts/check-overflow.cjs [--width N | --widths a,b,c] [--timeout 毫秒]");
   process.exit(1);
 }
 
@@ -706,6 +791,81 @@ function startServer() {
 }
 
 /* ---------- 2. 起 Chrome 并连上 CDP ---------- */
+/**
+ * 已经在跑的浏览器与它的临时目录（模块级）。
+ *
+ * 为什么要在模块级记一份：D109 的 BR4 —— 此前失败路径是**直接抛出去**的，
+ * 于是 `chrome.proc.kill()` 与临时目录清理那几行**根本没跑到**，
+ * 浏览器进程留在机器上（实测堆积了 245 个）⇒ 机器越跑越慢，
+ * 而机器越慢越容易触发等待超时 ⇒ 越滚越糟。
+ * 记在这里，异常路径就能把它们收回来。
+ */
+let liveChrome = null;   // { proc, dir }
+let liveServer = null;   // http.Server
+
+/**
+ * 回收浏览器与临时服务器（可重复调用；失败路径与正常路径都走它）。
+ *
+ * ⚠️ 为什么必须**升级到 SIGKILL**（实测）：只发 SIGTERM 时，
+ *   **卡在启动阶段的 Chrome 扛着 SIGTERM 不退**（实测：代理把它的启动拖住时，
+ *   那个进程能一直活着）⇒ 于是浏览器留在机器上（实测机器上堆到 **56 个**、
+ *   负载冲到 **44**）⇒ 机器越忙越容易超时 ⇒ 越滚越糟。
+ * ⇒ SIGTERM → 等 2 秒 → 还活着就 SIGKILL → 再等 → 然后才删临时目录
+ *   （目录删不掉是因为 Chrome 还在写盘）。
+ *
+ * @returns {Promise<void>}
+ */
+async function releaseBrowser() {
+  if (liveChrome) {
+    const { proc, dir } = liveChrome;
+    liveChrome = null;
+    try {
+      proc.kill("SIGTERM");
+    } catch {
+      /* 已经退了，kill 报错不影响判定 */
+    }
+    const exited = await new Promise((resolve) => {
+      let settled = false;
+      const done = (v) => {
+        if (!settled) {
+          settled = true;
+          resolve(v);
+        }
+      };
+      proc.once("exit", () => done(true));
+      setTimeout(() => done(false), 2000);
+    });
+    if (!exited) {
+      try {
+        proc.kill("SIGKILL");
+      } catch {
+        /* 已经退了 */
+      }
+      await new Promise((r) => {
+        proc.once("exit", r);
+        setTimeout(r, 2000);
+      });
+    }
+    /* 删目录：Chrome 可能还在收尾写盘 ⇒ 最多试三次。 */
+    for (let i = 0; i < 3; i++) {
+      try {
+        fs.rmSync(dir, { recursive: true, force: true });
+        break;
+      } catch {
+        await new Promise((r) => setTimeout(r, 200));
+      }
+    }
+  }
+  if (liveServer) {
+    try {
+      liveServer.close();
+    } catch {
+      /* 关不掉不影响判定 */
+    }
+    liveServer = null;
+  }
+}
+
 async function startChrome(chromeBin) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mh-cdp-"));
   /* CI（Linux）上要额外两枚旗标：容器的沙箱常常起不来，
@@ -714,26 +874,55 @@ async function startChrome(chromeBin) {
   const linuxOnly = process.platform === "linux"
     ? ["--no-sandbox", "--disable-dev-shm-usage"]
     : [];
-  const proc = spawn(
-    chromeBin,
-    [
-      "--headless=new",
-      "--remote-debugging-port=0",
-      `--user-data-dir=${dir}`,
-      "--no-first-run",
-      "--no-default-browser-check",
-      "--disable-gpu",
-      "--hide-scrollbars",
-      "--disable-extensions",
-      ...linuxOnly,
-    ],
-    { stdio: "ignore" }
-  );
+  let proc;
+  try {
+    proc = spawn(
+      chromeBin,
+      [
+        "--headless=new",
+        /* ⚠️ BR1（D109）：**不许碰任何代理**。
+           测量不需要网络（外域在浏览器层被拦掉，页面来自本机临时服务），
+           而这台机器的代理配置会把「访问本机临时服务」这件事也交给代理 ——
+           实测（`--proxy-bypass-list=<-loopback>` + 挂死代理）会让 Chrome 挂住，
+           页面永远加载不完 ⇒ 门禁以「等待超时」收场。
+           这枚旗标的优先级压得住 `--proxy-server`（实测），
+           所以测量从此与「这台机器此刻配了什么代理」无关。 */
+        "--no-proxy-server",
+        "--remote-debugging-port=0",
+        `--user-data-dir=${dir}`,
+        "--no-first-run",
+        "--no-default-browser-check",
+        "--disable-gpu",
+        "--hide-scrollbars",
+        "--disable-extensions",
+        ...linuxOnly,
+      ],
+      { stdio: "ignore" }
+    );
+  } catch (e) {
+    /* ⚠️ BR3：浏览器**起不来**也是浏览器层失败。
+       此前这里是未捕获异常 ⇒ 直接抛一整页栈回溯，读报告的人看不出
+       「这是测量环境坏了」还是「页面有问题」。 */
+    throw new BrowserLayerError(
+      `浏览器起不来：${e.message}`,
+      `浏览器：${chromeBin}`
+    );
+  }
+  /* 登记起来：失败路径要能把它收回去（BR4）。 */
+  liveChrome = { proc, dir };
 
   // Chrome 把实际端口写在 user-data-dir/DevToolsActivePort
   const portFile = path.join(dir, "DevToolsActivePort");
   let port = null;
-  for (let i = 0; i < 100; i++) {
+  /* BR2：等待有上限 —— 但**取端口是「浏览器启动」**，不是「测量」，
+     两者的时间尺度不同：Chrome 冷启动（尤其机器正忙时）可能要十几秒。
+     ⇒ 这里取「WAIT_MS 与 20s 里的较大者」，不跟着测量等待一起收窄
+       （实测：收窄到 8–10s 时，机器稍忙就会偶发「没拿到调试端口」——
+         那不是浏览器坏了，是给它的时间不够）。
+     ⚠️ 上限仍然是**有**的（BR2 的本意就是「不许无限挂住」）。 */
+  const tries = Math.max(200, Math.ceil(WAIT_MS / 100));
+  const portWaitMs = tries * 100;
+  for (let i = 0; i < tries; i++) {
     await new Promise((r) => setTimeout(r, 100));
     if (fs.existsSync(portFile)) {
       const t = fs.readFileSync(portFile, "utf8").split("\n");
@@ -743,7 +932,12 @@ async function startChrome(chromeBin) {
       }
     }
   }
-  if (!port) throw new Error("Chrome 启动超时，没拿到调试端口");
+  if (!port) {
+    throw new BrowserLayerError(
+      `Chrome 启动超时：${portWaitMs}ms 内没拿到调试端口`,
+      `浏览器：${chromeBin}`
+    );
+  }
   return { proc, port, dir };
 }
 
@@ -772,13 +966,43 @@ class CDP {
   send(method, params = {}, sessionId) {
     const id = ++this.id;
     return new Promise((resolve, reject) => {
-      this.pending.set(id, { resolve, reject });
+      /* ⚠️ BR2（D109）：**每一处等待都有上限**。
+         此前 `send()` 没有任何超时 ⇒ 浏览器接了连接但不回话时，
+         门禁会**永远**挂在那里（不是慢，是挂住）⇒ 整条 build 链卡死。 */
+      const timer = setTimeout(() => {
+        this.pending.delete(id);
+        reject(
+          new BrowserLayerError(
+            `等浏览器回话超时：${WAIT_MS}ms 内没等到 ${method} 的应答`,
+            `浏览器接了连接但没回话（这台机器资源吃紧、或这台机器的代理/网络把它卡住时最常见）`
+          )
+        );
+      }, WAIT_MS);
+      this.pending.set(id, {
+        resolve: (v) => {
+          clearTimeout(timer);
+          resolve(v);
+        },
+        reject: (e) => {
+          clearTimeout(timer);
+          reject(e);
+        },
+      });
       this.ws.send(JSON.stringify({ id, method, params, ...(sessionId ? { sessionId } : {}) }));
     });
   }
-  once(method, timeoutMs = 20000) {
-    return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error(`等待 ${method} 超时`)), timeoutMs);
+  once(method, timeoutMs = WAIT_MS) {
+    const promise = new Promise((resolve, reject) => {
+      const timer = setTimeout(
+        () =>
+          reject(
+            new BrowserLayerError(
+              `等待 ${method} 超时：${timeoutMs}ms 内浏览器没有回音`,
+              `浏览器连上了但没把页面加载完（页面加载失败、或这台机器的网络/代理把它卡住了）`
+            )
+          ),
+        timeoutMs
+      );
       const fn = (msg) => {
         if (msg.method === method) {
           clearTimeout(timer);
@@ -788,6 +1012,16 @@ class CDP {
       };
       this.listeners.push(fn);
     });
+    /* ⚠️ D109：**这一条等待可能被「放弃」**。
+       典型场景：等 load 事件的承诺先建好，随后另一个等待先超时并抛出 ⇒
+       调用方已经不再 `await` 这条承诺 ⇒ 它稍后自己 reject 时就成了
+       **未处理的拒绝** ⇒ Node 直接以「未捕获异常」结束进程，
+       把本该是「浏览器层失败」的红因变成一整页栈回溯。
+       ⇒ 这里给它挂一个**空处理器**：承诺本身仍然会 reject
+       （`await` 它的人照样拿到那个异常），但 Node 不再认为它「没人管」。
+       （这不是吞异常 —— 异常照样传给真正 await 它的那一处。） */
+    promise.catch(() => {});
+    return promise;
   }
 }
 
@@ -1082,13 +1316,51 @@ const measureScript = (contentSelector) => `(() => {
   }
 
   const { server, port } = await startServer();
+  liveServer = server;   // BR4：登记起来，失败路径要能把它关掉
   const chrome = await startChrome(chromeBin);
-  const wsUrl = `ws://127.0.0.1:${chrome.port}/devtools/browser/${(await fetch(`http://127.0.0.1:${chrome.port}/json/version`).then((r) => r.json())).webSocketDebuggerUrl.split("/").pop()}`;
+
+  /* 取 CDP 端点。⚠️ BR2：这一步也必须有上限 ——
+     浏览器进程起来了但端口上没人应答时，不能无限等下去。 */
+  let wsUrl;
+  try {
+    const verRes = await fetch(`http://127.0.0.1:${chrome.port}/json/version`, {
+      signal: AbortSignal.timeout(WAIT_MS),
+    });
+    const ver = await verRes.json();
+    wsUrl = `ws://127.0.0.1:${chrome.port}/devtools/browser/${ver.webSocketDebuggerUrl.split("/").pop()}`;
+  } catch (e) {
+    throw new BrowserLayerError(
+      `连不上浏览器的调试端点（等 ${WAIT_MS}ms 超时）：${e.message}`,
+      `浏览器：${chromeBin}`
+    );
+  }
 
   const ws = new WebSocket(wsUrl);
   await new Promise((res, rej) => {
-    ws.addEventListener("open", res);
-    ws.addEventListener("error", rej);
+    /* ⚠️ BR2：握手也要有上限（此前这里能无限挂着）。 */
+    const timer = setTimeout(
+      () =>
+        rej(
+          new BrowserLayerError(
+            `连浏览器超时：${WAIT_MS}ms 内没完成 WebSocket 握手`,
+            `浏览器：${chromeBin}`
+          )
+        ),
+      WAIT_MS
+    );
+    ws.addEventListener("open", () => {
+      clearTimeout(timer);
+      res();
+    });
+    ws.addEventListener("error", (e) => {
+      clearTimeout(timer);
+      rej(
+        new BrowserLayerError(
+          `连浏览器失败：${(e && e.message) || "WebSocket 握手被拒绝"}`,
+          `浏览器：${chromeBin}`
+        )
+      );
+    });
   });
   const cdp = new CDP(ws);
 
@@ -1124,6 +1396,7 @@ const measureScript = (contentSelector) => `(() => {
   const requestUrls = new Map();       // requestId → url
   const externalResponded = new Map(); // url → HTTP 状态码（只记「不是本机产物服务」的）
   const escapedHosts = new Map();     // host → 第一个请求地址（向「没被阻断的外域」发过的）
+  const documentStatus = new Map();   // url → 主文档的 HTTP 状态码（BR3：页面到底加载成功没有）
   cdp.onAny = (msg) => {
     if (msg.method === "Network.requestWillBeSent") {
       const r = msg.params.request;
@@ -1142,6 +1415,15 @@ const measureScript = (contentSelector) => `(() => {
     if (msg.method === "Network.responseReceived") {
       const url = requestUrls.get(msg.params.requestId);
       if (!url) return;
+      /* ⚠️ BR3（D109）：**主文档**的响应状态码必须记账。
+         实测（2026-10-27）：请求被代理打掉时，Chrome 会把代理返回的**错误响应体**
+         **当成页面渲染出来** —— 地址栏仍是原地址、`location.origin` 也是原 origin
+         （⇒ 靠 origin 判不出来），但那个文档**根本不是我们的页面**
+         （没有 viewport meta ⇒ 量到 980px 的布局视口）。
+         ⇒ 唯一可靠的判据是**状态码**：主文档不是 200 ⇒ 页面没加载出来。 */
+      if (msg.params.type === "Document") {
+        documentStatus.set(url, msg.params.response.status);
+      }
       if (isLocalResource(url)) return; // 本机产物服务提供的资源 ⇒ 允许
       externalResponded.set(url, msg.params.response.status);
     }
@@ -1180,8 +1462,49 @@ const measureScript = (contentSelector) => `(() => {
     for (const route of routes) {
       const url = `http://127.0.0.1:${port}${route}`;
       const loaded = cdp.once("Page.loadEventFired");
-      await cdp.send("Page.navigate", { url }, sessionId);
+      const nav = await cdp.send("Page.navigate", { url }, sessionId);
+      /* ⚠️ BR3（D109）：**页面没加载出来**是浏览器层的事，不是页面判据的事。
+         此前这种情形会一路走到「正文列选择器没命中」——
+         读报告的人会以为页面结构变了，实际上页面根本没加载出来。
+         `Page.navigate` 的应答里带 errorText ⇒ 导航本身失败了 ⇒ 归浏览器层。 */
+      if (nav && nav.errorText) {
+        throw new BrowserLayerError(
+          `页面没加载出来：${nav.errorText}`,
+          `地址 ${url}（页面加载失败 ⇒ 这次没有关于这个页面的任何结论）`
+        );
+      }
       await loaded;
+      /* ⚠️ BR3（D109）：确认**加载到的确实是我们要的那个页面**。
+         实测（2026-10-27）：请求被代理打掉时，Chrome 会显示自己的**错误页**，
+         而 `Page.navigate` 的 errorText **不一定**有值 ⇒ 门禁于是去量了那个错误页
+         （错误页没有 viewport meta ⇒ 量到 980px 的布局视口）
+         ⇒ 门禁给出的红因是「请求的视口宽度与实际量到的对不上」——
+         而真相是「页面压根没加载出来」。
+         ⇒ 判据：加载后的 document 仍须落在**本机产物服务**这个 origin 上
+           （错误页的 origin 是 `null`，一测便知）。 */
+      const locRes = await cdp.send(
+        "Runtime.evaluate",
+        { expression: "location.origin", returnByValue: true },
+        sessionId
+      );
+      const origin = locRes.result && locRes.result.value;
+      if (origin !== localOrigin) {
+        throw new BrowserLayerError(
+          `页面没加载出来：加载后落在 ${origin || "(空 origin，多半是浏览器的错误页)"}` +
+            `，不是本机产物服务 ${localOrigin}`,
+          `地址 ${url}`
+        );
+      }
+      /* 主文档的**状态码**才是可靠的判据（实测：代理的错误响应体会被当成页面渲染，
+         地址栏与 origin 都还是原地址 ⇒ 靠 origin 判不出来）。
+         本机产物服务对存在的文件一律回 200 ⇒ 别的状态码就说明页面没加载出来。 */
+      const docStatus = documentStatus.get(url);
+      if (docStatus !== undefined && docStatus !== 200) {
+        throw new BrowserLayerError(
+          `页面没加载出来：主文档响应状态码是 ${docStatus}（本机产物服务只会回 200）`,
+          `地址 ${url}`
+        );
+      }
       await new Promise((r) => setTimeout(r, 250)); // 等字体/布局稳定
 
       const rule = contentColumnRule(route);
@@ -1466,18 +1789,9 @@ const measureScript = (contentSelector) => `(() => {
   }
 
   ws.close();
-  chrome.proc.kill();
-  server.close();
-  // Chrome 退出前还在写盘，直接删会报 ENOTEMPTY；等它真的退出再清理。
-  await new Promise((r) => {
-    chrome.proc.once("exit", r);
-    setTimeout(r, 3000);
-  });
-  try {
-    fs.rmSync(chrome.dir, { recursive: true, force: true });
-  } catch {
-    /* 临时目录清不掉不影响结果，交给系统回收 */
-  }
+  /* 正常路径的回收也走同一个函数（BR4）：两条路径回收的是同一批东西，
+     免得「正常路径清一次、失败路径漏一次」。 */
+  await releaseBrowser();
 
   const widthList = WIDTHS.join(" / ");
   if (problems.length) {
@@ -1558,7 +1872,29 @@ const measureScript = (contentSelector) => `(() => {
       `门禁量的是布局盒宽度，不随字宽改变，只有断词类横向溢出可能有细微差别）`
   );
   process.exit(0);
-})().catch((e) => {
+})().catch(async (e) => {
+  /* ⚠️ BR4（D109）：**失败路径也要回收**。
+     此前这里只有一句 `process.exit(1)` ⇒ 浏览器进程与临时目录留在机器上
+     （实测堆积了 245 个 Chrome）⇒ 机器越跑越慢 ⇒ 越容易再触发等待超时。 */
+  await releaseBrowser();
+  if (e instanceof BrowserLayerError) {
+    /* ⚠️ BR3（D109）：浏览器层失败要**专属红因**，
+       且必须与「页面真的越界」的红因**措辞可区分** ——
+       否则读报告的人会照着「页面有问题」去查产品，而问题其实在测量这一环。 */
+    console.error("\n✗ 窄屏溢出门禁未通过（**浏览器层失败**，不是页面判据判红）：\n");
+    console.error(`  ✗ BR3 浏览器层：${e.message}`);
+    if (e.detail) console.error(`    · ${e.detail}`);
+    console.error(
+      "  ✗ BR3 本次**一次测量都没做成** ⇒ 这一轮**没有关于页面的任何结论**；" +
+        "这是「测量没做成」，不是「页面有问题」。"
+    );
+    console.error(
+      "  ⇒ 查法：先看浏览器本身能不能用（起得来吗、连得上吗），" +
+        "再看这台机器的代理/网络有没有把它卡住（BR1：门禁已要求浏览器不走代理）。"
+    );
+    console.error("");
+    process.exit(1);
+  }
   console.error("检查失败：", e.message);
   process.exit(1);
 });
