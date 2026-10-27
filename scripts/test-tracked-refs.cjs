@@ -93,6 +93,7 @@ const { execFileSync } = require("child_process");
 
 const ROOT = path.join(__dirname, "..");
 const GATE = path.join(ROOT, "scripts", "check-tracked-refs.cjs");
+const SHARED_LIB = path.join(__dirname, "lib", "js-refs.cjs");
 
 function sha256(p) {
   return crypto.createHash("sha256").update(fs.readFileSync(p)).digest("hex");
@@ -171,6 +172,34 @@ function makeSandbox() {
   fs.mkdirSync(path.join(repo, "scripts", "lib"), { recursive: true });
   fs.mkdirSync(path.join(repo, "docs"), { recursive: true });
   fs.copyFileSync(GATE, path.join(repo, "scripts", "check-tracked-refs.cjs"));
+  /* 门禁现在把"遮罩扫描"外包给 scripts/lib/js-refs.cjs（一条真源，两处引用）——
+     沙箱里必须把它一起放进去，否则门禁副本 require 不到 ⇒ 直接崩在启动阶段。
+     ⚠️ 刻意把它放在**仓库之外**（<base>/lib/），并把门禁副本里那句 require 改成
+     指向仓外（../../lib/js-refs.cjs）—— 理由是 T2b 那一档：
+     它要测「一处**仓内**引用都没比对过 ⇒ TR2 判红」，而门禁自己那条 require
+     就在仓内 ⇒ 仓内引用恒 ≥ 1 ⇒ 那一档的前提永远不成立。
+     把夹具用的共享库挪到仓外，那一档的前提就重新可达了 ——
+     **断言没变、只改驱动**（真仓里那条 require 是仓内且被跟踪的，
+     由真仓上的门禁自己守着；沙箱只负责把 TR2 的分支练到）。 */
+  fs.mkdirSync(path.join(base, "lib"), { recursive: true });
+  const libCopy = path.join(base, "lib", "js-refs.cjs");
+  fs.copyFileSync(SHARED_LIB, libCopy);
+  {
+    const gateSrc = fs.readFileSync(path.join(repo, "scripts", "check-tracked-refs.cjs"), "utf8");
+    /* 指向**绝对路径**，而不是仓外相对路径（../../lib/js-refs.cjs）：
+       相对路径会被 TR1 认成一处「指向仓库外的本地引用」⇒ 门禁报出的
+       「仓外引用数」比夹具真实值多 1 ⇒ COV-A 的覆盖度自证对不上。
+       绝对路径**不是相对路径** ⇒ TR1 那条只认以 "." 开头的 specifier 的正则
+       压根不认它 ⇒ 夹具的真实数量不变 ⇒ **断言一个字不用改（只改驱动）**。 */
+    const patched = gateSrc.replace(
+      'require("./lib/js-refs.cjs")',
+      `require(${JSON.stringify(libCopy)})`
+    );
+    if (patched === gateSrc) {
+      throw new Error("沙箱搭建失败：门禁副本里找不到那句 require（坏跑）");
+    }
+    fs.writeFileSync(path.join(repo, "scripts", "check-tracked-refs.cjs"), patched);
+  }
   write(path.join(repo, "scripts", "app.cjs"), APP_SRC);
   write(path.join(repo, "scripts", "lib", "helper.cjs"), HELPER_SRC);
   write(path.join(base, "outside", "x.cjs"), OUTSIDE_SRC);
@@ -190,6 +219,8 @@ function makeSandbox() {
 const appOf = (s) => path.join(s.repo, "scripts", "app.cjs");
 const htmlOf = (s) => path.join(s.repo, "docs", "demo.html");
 const gateOf = (s) => path.join(s.repo, "scripts", "check-tracked-refs.cjs");
+/* 共享库副本放在**仓库之外**（见 makeSandbox 的注释）⇒ 它不在跟踪集合里。 */
+const libOf = (s) => path.join(s.base, "lib", "js-refs.cjs");
 
 /* ================= 跑门禁 / 解析红因 ================= */
 
@@ -287,6 +318,11 @@ function appendFile(file, text, expectLines) {
 /** 改**门禁副本**，并断言「这一处改动恰好动了 expectDiff 行」。 */
 function patchGate(s, from, to, expectDiff) {
   patchFile(gateOf(s), from, to, expectDiff);
+}
+
+/** 改**共享库副本**（沙箱里那份 scripts/lib/js-refs.cjs），并断言改动行数。 */
+function patchLib(s, from, to, expectDiff) {
+  patchFile(libOf(s), from, to, expectDiff);
 }
 
 const results = [];
@@ -416,9 +452,13 @@ function repointHtmlCodeRefs(s) {
   );
 }
 
-/** T4a/T4b：破坏遮罩（行注释不再被剥）。 */
+/** T4a/T4b：破坏遮罩（行注释不再被剥）。
+ * ⚠️ 遮罩实现现在住在**共享库** scripts/lib/js-refs.cjs 里（一条真源，两处引用），
+ *    所以这一处注入要打在沙箱里那份**共享库副本**上，而不是门禁副本上
+ *    —— 打错地方的话，注入点根本不存在（夹具会当场抛错，而不是"悄悄没打上"）。
+ *    断言一个字没改：TR4 的语义（遮罩坏了 ⇒ 遮罩自证失败 ⇒ 整段跳过）完全没变。 */
 function breakMask(s) {
-  patchGate(s, 'if (c === "/" && c2 === "/") {', 'if (false && c === "/" && c2 === "/") {', 1);
+  patchLib(s, 'if (c === "/" && c2 === "/") {', 'if (false && c === "/" && c2 === "/") {', 1);
 }
 
 /** T5a：HTML 引用的目标磁盘上**不存在** ⇒ 这个页面打开就是坏样式 / 坏脚本。 */

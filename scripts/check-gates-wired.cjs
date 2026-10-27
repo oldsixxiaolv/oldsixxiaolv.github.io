@@ -15,7 +15,7 @@
  *   门禁汇总句照抄通过时的断言），它们都属于同一族：
  *   **"看起来在、其实不生效"**。
  *
- * 四条判据：
+ * 六条判据：
  *   GW1 全覆盖 —— scripts/ 下每个门禁脚本（check-*.cjs / verify-*.cjs）都必须
  *                  从 `npm run build` **可达**。可达 = build 直接 `npm run X`，
  *                  或 build → X → Y 这样间接引用（build → check:css → 两个脚本）。
@@ -34,6 +34,33 @@
  *                  （"未声明" = 不在 package.json 的依赖里 ⇒ 干净克隆里 npm ci 不会装它
  *                  ⇒ 那个脚本在干净克隆里**跑不起来**）。没点名 ⇒ "它需要什么"这句话是空的。
  *                  接在 build 链上的手工脚本则**不许**有未声明的第三方包（那会让 build 挂）。
+ *   GW7 接线必须是**逐字执行** —— 每道门禁必须有一个**可达**的 npm script，
+ *                  它的命令里有一段**逐字**等于 `node scripts/<门禁>`。
+ *                  （"命令里提到了文件名"≠"它真的跑了"：`| true` 架空退出码、
+ *                   注释掉、带参数、`;`/`&` 串联，都会让门禁红了链也不知道。）
+ *   GW8 **幽灵依赖**看守 —— 门禁 / 自测 / scripts/lib 下的共享库 require 的第三方包
+ *                  必须**在 package.json 里声明**。今天能 require 到却只是因为
+ *                  **别的包捎带装了它**（npm 扁平化布局）⇒ 上游换版或换严格布局的
+ *                  包管理器时它会**静默消失** ⇒ **本机全绿、CI 直接崩**。
+ *
+ * ⚠️ GW7 为什么要加（2026-10-27 实测出来的洞，不是假想）：
+ *   本轮实测：**全仓 17 道门禁**的"门禁自己没被卸掉"判据都是
+ *   `(SCRIPTS[n] || "").includes(SELF)` —— 只看**文件名有没有出现**。
+ *   于是把命令改成 `node scripts/check-x.cjs || true`（退出码被架空）、
+ *   `# node scripts/check-x.cjs`（注释掉）、`node scripts/check-x.cjs --x`（带参数），
+ *   那道门禁**仍然判绿说自己接上了** —— 而它其实已经不生效了。
+ *   （`scripts/check-url-safety.cjs` 的 US4 早就把这条口径升级成"逐字相等"，
+ *     GW7 把那一份**正确的做法推广到全仓**，一处判据盖住 17 处弱判据。）
+ *   ⚠️ 口径：只按 `&&` 分段 —— `||` / `;` / `&` 都会**改掉退出码的语义**，
+ *     所以"提到了文件名"与"它真的跑了"不是一回事。
+ *
+ * ⚠️ GW8 为什么要加（2026-10-27 实测坐实的洞，不是假想）：
+ *   `check-blog-frontmatter.cjs` / `check-jsonld.cjs` require `gray-matter`、
+ *   `check-citation-cff.cjs` require `js-yaml`、`check-tag-leak.cjs` require `nunjucks`
+ *   —— 而这三个包**既不在 package.json、也不在锁文件的根声明里**：
+ *   它们今天能 require 到，只是因为 **@11ty/eleventy 捎带装了它们**。
+ *   ⇒ 这就是**幽灵依赖**（与 D100「本机全绿、干净克隆红」同族）。
+ *   本轮已把三个包**显式声明**进 devDependencies（锁文件同步），GW8 守住不再退化。
  *
  * ⚠️ GW5 / GW6 为什么要加（2026-10-27 实测出来的洞，不是假想）：
  *   GW1 的文件名形状是 `^(check|verify)-.*\.cjs$`，GW4 的是 `^test-.*\.(cjs|sh)$` ——
@@ -231,14 +258,9 @@ const MANUAL_TOOLS = {
     "只用标准库（实测无第三方 import），不需要额外安装任何东西。",
 };
 
-/* Node 内置模块 —— 不算第三方依赖。 */
-const BUILTIN_MODULES = new Set([
-  "assert", "buffer", "child_process", "cluster", "console", "constants", "crypto",
-  "dgram", "dns", "domain", "events", "fs", "http", "http2", "https", "inspector",
-  "module", "net", "os", "path", "perf_hooks", "process", "punycode", "querystring",
-  "readline", "repl", "stream", "string_decoder", "sys", "timers", "tls", "trace_events",
-  "tty", "url", "util", "v8", "vm", "wasi", "worker_threads", "zlib",
-]);
+/* 第三方包的提取（遮罩后扫，注释与夹具字符串里的字样都不算数）——
+   遮罩规则由 scripts/lib/js-refs.cjs 独家持有（与 check-tracked-refs.cjs 同源）。 */
+const { thirdPartyPackages } = require("./lib/js-refs.cjs");
 
 /** 一个脚本 require 的**第三方包**（去重、排序；内置与本地文件不算）。 */
 function thirdPartyRequires(file) {
@@ -248,20 +270,7 @@ function thirdPartyRequires(file) {
   } catch (e) {
     return [];
   }
-  const re = /require\(\s*["']([^"']+)["']\s*\)/g;
-  const out = new Set();
-  let m;
-  while ((m = re.exec(src)) !== null) {
-    const spec = m[1];
-    if (spec.startsWith(".") || spec.startsWith("/")) continue; // 本地文件
-    if (spec.startsWith("node:")) continue; // node: 前缀的内置模块
-    const name = spec.startsWith("@")
-      ? spec.split("/").slice(0, 2).join("/")
-      : spec.split("/")[0];
-    if (BUILTIN_MODULES.has(name)) continue;
-    out.add(name);
-  }
-  return [...out].sort();
+  return thirdPartyPackages(src);
 }
 
 /* ---------- 读 package.json ---------- */
@@ -570,8 +579,160 @@ function checkManualToolHonesty(files) {
   return out;
 }
 
+/* ---------- GW7：接线必须是「逐字执行」 ---------- */
+
+/**
+ * 一个 npm script 的命令里，**逐字**执行某道门禁的那几段。
+ *
+ * 只按 `&&` 分段（**不**按 `;` / `&` / `||` 分）：
+ *   · `&&` 分出来的每一段都是**独立的**命令 ⇒ 某一段逐字等于 `node scripts/<门禁>` 时，
+ *     那道门禁**真的被跑了**，而且它的退出码决定后面还跑不跑。
+ *   · `||` / `;` / `&` 都会**改掉退出码的语义**（`|| true` 把失败直接吞掉、
+ *     `;` 让后一条命令的退出码盖掉前一条、`&` 让两条并行）⇒
+ *     整条命令里**没有**逐字段，就说明"提到文件名"与"它真的跑了"不是一回事。
+ */
+function verbatimSegments(cmd) {
+  return (cmd || "")
+    .split("&&")
+    .map((s) => s.trim())
+    .filter((s) => s !== "");
+}
+
+/**
+ * GW7：每道门禁必须有一个**逐字执行**的可达入口。
+ *
+ * 为什么要有这条（一次成族实测，不是假想）：
+ *   此前**全仓 17 道门禁**的"门禁自己没被卸掉"判据都是
+ *   `(SCRIPTS[n] || "").includes(SELF)` —— 只看**文件名有没有出现**。
+ *   于是把命令改成 `node scripts/check-x.cjs || true`（退出码被架空）、
+ *   `# node scripts/check-x.cjs`（注释掉）、`node scripts/check-x.cjs --x`（带参数），
+ *   那道门禁**仍然判绿说自己接上了** —— 而它其实已经不生效了。
+ *   （`scripts/check-url-safety.cjs` 的 US4 早就把这条口径升级成"逐字相等"，
+ *     本条把那一份正确的做法**推广到全仓**，一处判据盖住 17 处弱判据。）
+ *
+ * 抽成独立函数是为了让**判据级负对照**能干净地把它摘掉。
+ */
+function checkVerbatimWiring(files) {
+  const out = [];
+  for (const file of files) {
+    if (EXEMPT[file] !== undefined) continue; // 豁免的本来就不在 build 链上（GW2 负责）
+    const refs = referencingScripts(file);
+    if (!refs.length) continue; // 压根没人提 ⇒ GW1 负责
+    const live = refs.filter((n) => REACHABLE.has(n));
+    if (!live.length) continue; // 提到了但不在 build 链上 ⇒ GW1 负责
+    const expect = `node scripts/${file}`;
+    const exact = live.filter((n) => verbatimSegments(SCRIPTS[n]).includes(expect));
+    if (exact.length) continue;
+    out.push(
+      `门禁 scripts/${file} 在 build 链上的入口**不是逐字执行** —— ` +
+        `可达的 npm script：${live
+          .map((n) => `「${n}」= ${JSON.stringify((SCRIPTS[n] || "").trim())}`)
+          .join("；")}；` +
+        `而「提到文件名」**不等于**它真的跑了：命令里带着「|| true」/ 注释 / 参数、` +
+        `或用「;」「&」串起来，都会**改掉退出码的语义** ⇒ 门禁红了链也不知道。` +
+        `改法：让某个可达的 npm script 的命令里有一段**逐字**等于「${expect}」。`
+    );
+  }
+  return out;
+}
+
+/* ---------- GW8：在 CI 里会跑的脚本，其第三方依赖必须已声明 ---------- */
+
+/** scripts/ 下所有 .cjs/.js 文件（递归，含 lib/）。 */
+function allScriptFiles(dir = SCRIPTS_DIR) {
+  const out = [];
+  for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+    if (e.name.startsWith("._")) continue; // exFAT 旁挂文件（不是仓里的文件）
+    const p = path.join(dir, e.name);
+    if (e.isDirectory()) out.push(...allScriptFiles(p));
+    else if (e.isFile() && /\.(cjs|mjs|js)$/.test(e.name)) out.push(p);
+  }
+  return out;
+}
+
+/**
+ * 这个文件是不是 scripts/ **顶层**的手工工具族
+ * （既不叫 check- 前缀，也不叫 test- 前缀）—— 那一族的依赖问题归 GW6 独占。
+ *
+ * ⚠️ 只看**顶层**：scripts/lib/ 下的共享库虽然也不属于那两个家族，
+ *   但它们**CI 一定跑**（被门禁 require）⇒ 必须归 GW8 管。
+ */
+function isTopLevelManual(rel) {
+  const parts = rel.split(path.sep);
+  if (parts.length !== 2) return false; // 不在 scripts/ 顶层（lib/ 下的库不算）
+  const name = parts[1];
+  if (GATE_FILE_RE.test(name)) return false;
+  if (SELFTEST_FILE_RE.test(name)) return false;
+  return true;
+}
+
+/**
+ * GW8：**幽灵依赖**看守 —— 脚本 require 的第三方包必须在 package.json 里声明。
+ *
+ * 为什么要有这条（一次实测坐实的洞）：
+ *   `scripts/check-blog-frontmatter.cjs` / `check-jsonld.cjs` require `gray-matter`、
+ *   `check-citation-cff.cjs` require `js-yaml`、`check-tag-leak.cjs` require `nunjucks` ——
+ *   而这三个包**既不在 package.json、也不在锁文件的根声明里**：
+ *   它们今天能 require 到，只是因为 **@11ty/eleventy 捎带装了它们**（npm 的扁平化布局）。
+ *   ⇒ 这就是**幽灵依赖**：本机 node_modules 里在，**干净克隆里也在**（今天），
+ *   但上游换一版、或换用严格 node_modules 布局的包管理器，它就**静默消失** ⇒
+ *   **本机 build 全绿、CI 直接崩**（与 D100「本机全绿、干净克隆红」同族）。
+ *
+ * ⚠️ 管辖范围（与 GW6 的分工，写清楚免得两条判据报同一件事）：
+ *   · **本条管**：门禁家族（check- 与 verify- 前缀）、自测家族（test- 前缀）、
+ *     以及 scripts/lib/ 下的共享库 —— 它们**CI 一定跑**，缺依赖就是 CI 崩。
+ *   · **GW6 管**：scripts/ **顶层**的手工工具（既不叫 check-* 也不叫 test-*）——
+ *     GW6 已经分成两支把这一族覆盖完整了：
+ *       ① 接在 build 链上的手工脚本 ⇒ 不许有未声明的包（直接判红）；
+ *       ② 没接在链上的 ⇒ 必须在 MANUAL_TOOLS 的登记里**点名**它需要什么。
+ *     ⇒ 同一件事若两条判据都报，红因归属就不纯了（实测：M13 那一档
+ *       会同时出现 GW6 与 GW8 两条一模一样的红因）⇒ **本条跳过手工工具族**。
+ *
+ * ⚠️ 边界：只判**未声明**的包（不在 package.json 的任何依赖段里）；
+ *   「声明了但版本不对」由 `check-deps.cjs` 的 DEP1 / DEP2 管。
+ */
+function checkDeclaredDeps() {
+  const out = [];
+  const declared = new Set();
+  for (const key of [
+    "dependencies",
+    "devDependencies",
+    "optionalDependencies",
+    "peerDependencies",
+  ]) {
+    for (const name of Object.keys(pkg[key] || {})) declared.add(name);
+  }
+  const files = allScriptFiles();
+  if (!files.length) {
+    out.push(
+      `[GW8] scripts/ 下一个 .cjs/.js 文件都认不出来 —— 扫描逻辑空跑（空跑的门禁等于没有门禁），判红。`
+    );
+    return out;
+  }
+  for (const f of files) {
+    const rel = path.relative(ROOT, f);
+    /* scripts/ 顶层的手工工具族 ⇒ 归 GW6 独占（见文件头注释里的分工）。 */
+    if (isTopLevelManual(rel)) continue;
+    const undeclared = thirdPartyPackages(fs.readFileSync(f, "utf8")).filter(
+      (p) => !declared.has(p)
+    );
+    if (!undeclared.length) continue;
+    out.push(
+      `${rel} require 了**未在 package.json 里声明**的第三方包：` +
+        `${undeclared.join("、")} —— 它今天在本机 node_modules 里能 require 到，` +
+        `只是因为**别的包捎带装了它**（幽灵依赖）⇒ 上游换版本、或换用严格 ` +
+        `node_modules 布局的包管理器时它会**静默消失** ⇒ ` +
+        `**本机 build 全绿、干净克隆/CI 直接崩**（与 D100 同族）。` +
+        `改法：把它声明进 package.json 的依赖（并更新锁文件），或删掉这个 require。`
+    );
+  }
+  return out;
+}
+
 for (const p of checkManualTools(manualFiles)) problems.push(p);
 for (const p of checkManualToolHonesty(manualFiles)) problems.push(p);
+for (const p of checkVerbatimWiring(gateFiles)) problems.push(p);
+for (const p of checkDeclaredDeps()) problems.push(p);
 
 /* ---------- 汇总 ---------- */
 if (problems.length) {

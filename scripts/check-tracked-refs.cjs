@@ -119,63 +119,14 @@ function note(id, msg) {
 }
 
 /* ---------- 遮罩：只让**代码**参与判定 ----------
-   ① 注释整体遮掉（行注释与块注释）；字符串里的双斜杠不是注释 ⇒
-      先认字符串（' " `），整段跳过。
-   ② 字符串**不在引用位**时，连内容一起遮掉：
-      「字符串里存着 require 字样」只是文字；require 语句里那个
-      字符串才是路径 —— 引用位 = 前面紧挨着 require( / import( / from / import。
-   遮罩只把字符换成空格、保留换行 ⇒ 行号与列位置不变。 */
-const REF_POS_RE = /(?:\b(?:require|import)\s*\(\s*|\b(?:from|import)\s*)$/;
-
-function inRefPosition(maskedSoFar, at) {
-  const from = Math.max(0, at - 120);
-  return REF_POS_RE.test(maskedSoFar.slice(from, at).join(""));
-}
-
-function maskForScan(text) {
-  const out = text.split("");
-  const n = text.length;
-  const blank = (from, to) => {
-    for (let k = from; k < to && k < n; k++) if (out[k] !== "\n") out[k] = " ";
-  };
-  let i = 0;
-  while (i < n) {
-    const c = text[i];
-    const c2 = i + 1 < n ? text[i + 1] : "";
-    if (c === "/" && c2 === "/") {
-      let j = i;
-      while (j < n && text[j] !== "\n") j++;
-      blank(i, j);
-      i = j;
-      continue;
-    }
-    if (c === "/" && c2 === "*") {
-      const end = text.indexOf("*/", i + 2);
-      const j = end === -1 ? n : end + 2;
-      blank(i, j);
-      i = j;
-      continue;
-    }
-    if (c === '"' || c === "'" || c === "`") {
-      const quote = c;
-      let j = i + 1;
-      while (j < n) {
-        if (text[j] === "\\") {
-          j += 2;
-          continue;
-        }
-        if (text[j] === quote) break;
-        j++;
-      }
-      const close = Math.min(j, n);
-      if (!inRefPosition(out, i)) blank(i + 1, close);
-      i = j + 1;
-      continue;
-    }
-    i++;
-  }
-  return out.join("");
-}
+   遮罩规则（注释整体遮掉；**不在引用位**上的字符串连内容一起遮掉）现在
+   由 **scripts/lib/js-refs.cjs** 独家持有 —— 另一道门禁（GW6 / GW8）要问
+   「这个脚本 require 的第三方包是不是已声明」，用的必须是**同一份**剥法：
+   否则本门禁认"注释里写的 require 不算数"、那道门禁认"字符串里写的 require 算数"
+   ⇒ 两边口径漂移 ⇒ 一边假红、一边漏报，且没人知道。
+   （本门禁的 TR1 自测里有专门一档：注释里 / 字符串里写着本地 require 的字样
+     都不算引用 ⇒ 换实现后那一档仍绿，即证明行为没变。） */
+const { maskForScan } = require("./lib/js-refs.cjs");
 
 /* ---------- HTML 侧：注释遮罩 + 本地资源引用提取 ---------- */
 

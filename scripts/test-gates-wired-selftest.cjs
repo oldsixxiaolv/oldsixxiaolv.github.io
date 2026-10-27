@@ -16,7 +16,7 @@
  *   所以每档都断言**红因文案**（不只看退出码）：
  *   红了但红因不是设计的那一条 → 同样算失败。
  *
- * 十五档（M0–M6 沿用，GW5 / GW6 那一族是 M7–M14）：
+ * 二十三档（M0–M6 沿用，GW5 / GW6 那一族是 M7–M14，GW7 / GW8 那一族是 M15–M22）：
  *   M0  基线：全绿
  *   M1  新增门禁脚本却没接进 build 链 → GW1
  *   M2  新增自测脚本，既没接 build 链也没登记 → GW4
@@ -33,6 +33,14 @@
  *   M13 接在 build 链上的手工脚本 require 了**未声明**的包 → GW6 另一支
  *   M14 **判据级负对照**：把 GW5 的调用整行摘掉 → M7 那个注入**必须转绿**
  *       （证明那条红确实是 GW5 判出来的，不是别的判据碰巧撞出来的）
+ *   M15 门禁接在链上，但命令是 `node … || true`（退出码被架空）→ GW7
+ *   M16 门禁接在链上，但命令带参数（不是逐字）→ GW7
+ *   M17 门禁**逐字**接在链上 → 放行（防 GW7 变成假红）
+ *   M18 **判据级负对照**：把 GW7 的调用整行摘掉 → M15 那个注入**必须转绿**
+ *   M19 脚本 require 了**未声明**的第三方包（幽灵依赖）→ GW8
+ *   M20 同一个包**已声明** → 放行（防 GW8 变成假红）
+ *   M21 require 字样只出现在**注释**里 → 放行（遮罩口径与 TR1 同源）
+ *   M22 **判据级负对照**：把 GW8 的调用整行摘掉 → M19 那个注入**必须转绿**
  *
  * 用法：node scripts/test-gates-wired-selftest.cjs
  *   沙箱建在 mktemp 风格的临时目录里，**不碰仓库工作树**。
@@ -86,23 +94,18 @@ function sh(cmd, cwd) {
 }
 
 /* ---------- 沙箱 ---------- */
-function pkgFor(scripts) {
-  return JSON.stringify(
-    { name: "sandbox", private: true, version: "0.0.0", scripts },
-    null,
-    2
-  );
-}
 
 /**
  * @param {string} dir      沙箱目录
  * @param {object} opt
- *   files        —— 要放进 scripts/ 的文件名数组（内容随便，门禁只看文件名与接线）
+ *   files        —— 要放进 scripts/ 的文件名数组（内容随便，门禁只看文件名与接线）；
+ *                   也接受 {name, content} 形式（GW8 要看文件里 require 了什么）
  *   extra        —— 额外的 npm script（键值对）
  *   buildExtra   —— build 链上额外要跑的 npm script 名
  *   register     —— 往真门禁副本的 EXEMPT_SELFTEST 里注入的登记行
  *   manual       —— 要放进 scripts/ 的手工工具 [{name, content}]
  *   registerManual —— 往真门禁副本的 MANUAL_TOOLS 里注入的登记行
+ *   deps         —— 沙箱 package.json 的 devDependencies（GW8 的"已声明"档要用）
  *   patchGate    —— [from, to]：改门禁副本的源码（判据级负对照）
  */
 function makeSandbox(dir, opt) {
@@ -114,6 +117,7 @@ function makeSandbox(dir, opt) {
       register: null,
       manual: [],
       registerManual: null,
+      deps: null,
       patchGate: null,
     },
     opt
@@ -146,6 +150,14 @@ function makeSandbox(dir, opt) {
   }
   fs.writeFileSync(path.join(dir, GATE_REL), gate);
 
+  /* ⚠️ 门禁副本 require 了 scripts/lib/js-refs.cjs（遮罩与第三方包提取的**一条真源**）
+     —— 沙箱里必须把它一起放进去，否则门禁副本 require 不到 ⇒ 直接崩在启动阶段，
+     每一档都会变成"红但红因不是设计的那一条"。
+     ⚠️ 它放在 scripts/lib/ 下（与真仓同位置）⇒ 门禁副本那句 require 的相对路径不用改。
+        而且 GW8 也会扫到它 —— 它只用标准库 ⇒ 不会被误报成幽灵依赖。 */
+  fs.mkdirSync(path.join(dir, "scripts", "lib"), { recursive: true });
+  fs.copyFileSync(path.join(ROOT, "scripts", "lib", "js-refs.cjs"), path.join(dir, "scripts", "lib", "js-refs.cjs"));
+
   /* 已登记的自测脚本：给它们建壳（内容不重要） */
   for (const f of REGISTERED_SELFTESTS) {
     fs.writeFileSync(path.join(dir, "scripts", f), "// 沙箱占位\n");
@@ -160,7 +172,9 @@ function makeSandbox(dir, opt) {
   }
   /* 本档要考察的文件 */
   for (const f of o.files) {
-    fs.writeFileSync(path.join(dir, "scripts", f), "// 沙箱占位\n");
+    const name = typeof f === "string" ? f : f.name;
+    const content = typeof f === "string" ? "// 沙箱占位\n" : f.content || "// 沙箱占位\n";
+    fs.writeFileSync(path.join(dir, "scripts", name), content);
   }
   /* 本档要考察的手工工具（内容可指定：GW6 要看它 require 了什么） */
   for (const m of o.manual) {
@@ -179,7 +193,10 @@ function makeSandbox(dir, opt) {
       .map((n) => `npm run ${n}`)
       .join(" && ")}`;
   }
-  fs.writeFileSync(path.join(dir, "package.json"), pkgFor(scripts));
+  const pkg = { name: "sandbox", private: true, version: "0.0.0", scripts };
+  /* GW8 的"已声明"档：沙箱 package.json 里要真的声明那个包。 */
+  if (o.deps) pkg.devDependencies = o.deps;
+  fs.writeFileSync(path.join(dir, "package.json"), JSON.stringify(pkg, null, 2));
 }
 
 function runGate(dir) {
@@ -409,6 +426,128 @@ const CASES = [
         ],
       }),
   },
+
+  /* ---------- GW7：接线必须是「逐字执行」 ---------- */
+
+  {
+    id: "M15",
+    desc: "门禁接在 build 链上，但命令是 `node scripts/check-demo.cjs || true`（退出码被架空）",
+    expect: "red",
+    mustContain: ["check-demo.cjs", "不是逐字执行"],
+    build: () =>
+      makeSandbox(path.join(TMP, "m15"), {
+        files: ["check-demo.cjs"],
+        extra: { "check:demo": "node scripts/check-demo.cjs || true" },
+        buildExtra: ["check:demo"],
+      }),
+  },
+  {
+    id: "M16",
+    desc: "门禁接在 build 链上，但命令是 `node scripts/check-demo.cjs --x`（带参数，不是逐字）",
+    expect: "red",
+    mustContain: ["check-demo.cjs", "不是逐字执行"],
+    build: () =>
+      makeSandbox(path.join(TMP, "m16"), {
+        files: ["check-demo.cjs"],
+        extra: { "check:demo": "node scripts/check-demo.cjs --x" },
+        buildExtra: ["check:demo"],
+      }),
+  },
+  {
+    id: "M17",
+    desc: "门禁**逐字**接在 build 链上 —— 必须放行（防 GW7 变成假红）",
+    expect: "green",
+    mustContain: [],
+    build: () =>
+      makeSandbox(path.join(TMP, "m17"), {
+        files: ["check-demo.cjs"],
+        extra: { "check:demo": "node scripts/check-demo.cjs" },
+        buildExtra: ["check:demo"],
+      }),
+  },
+  {
+    id: "M18",
+    desc: "判据级负对照：把 GW7 的调用整行摘掉 → M15 那个注入必须转绿",
+    expect: "green",
+    mustContain: [],
+    build: () =>
+      makeSandbox(path.join(TMP, "m18"), {
+        files: ["check-demo.cjs"],
+        extra: { "check:demo": "node scripts/check-demo.cjs || true" },
+        buildExtra: ["check:demo"],
+        patchGate: [
+          "for (const p of checkVerbatimWiring(gateFiles)) problems.push(p);",
+          "// （判据级负对照：GW7 已被摘掉）",
+        ],
+      }),
+  },
+
+  /* ---------- GW8：幽灵依赖看守 ---------- */
+
+  {
+    id: "M19",
+    desc: "脚本 require 了**未在 package.json 里声明**的第三方包（幽灵依赖）",
+    expect: "red",
+    mustContain: ["ghost-pkg", "幽灵依赖"],
+    build: () =>
+      makeSandbox(path.join(TMP, "m19"), {
+        files: [
+          { name: "check-demo.cjs", content: "require('ghost-pkg');\n" },
+        ],
+        extra: { "check:demo": "node scripts/check-demo.cjs" },
+        buildExtra: ["check:demo"],
+      }),
+  },
+  {
+    id: "M20",
+    desc: "同一个包**已经声明**在 package.json 里 —— 必须放行（防 GW8 变成假红）",
+    expect: "green",
+    mustContain: [],
+    build: () =>
+      makeSandbox(path.join(TMP, "m20"), {
+        files: [
+          { name: "check-demo.cjs", content: "require('ghost-pkg');\n" },
+        ],
+        extra: { "check:demo": "node scripts/check-demo.cjs" },
+        buildExtra: ["check:demo"],
+        deps: { "ghost-pkg": "^1.0.0" },
+      }),
+  },
+  {
+    id: "M21",
+    desc: "包里只出现在**注释**里的 require 字样 —— 必须放行（遮罩口径与 TR1 同源）",
+    expect: "green",
+    mustContain: [],
+    build: () =>
+      makeSandbox(path.join(TMP, "m21"), {
+        files: [
+          {
+            name: "check-demo.cjs",
+            content: "// 这里只是举例：require('ghost-pkg')\nmodule.exports = 1;\n",
+          },
+        ],
+        extra: { "check:demo": "node scripts/check-demo.cjs" },
+        buildExtra: ["check:demo"],
+      }),
+  },
+  {
+    id: "M22",
+    desc: "判据级负对照：把 GW8 的调用整行摘掉 → M19 那个注入必须转绿",
+    expect: "green",
+    mustContain: [],
+    build: () =>
+      makeSandbox(path.join(TMP, "m22"), {
+        files: [
+          { name: "check-demo.cjs", content: "require('ghost-pkg');\n" },
+        ],
+        extra: { "check:demo": "node scripts/check-demo.cjs" },
+        buildExtra: ["check:demo"],
+        patchGate: [
+          "for (const p of checkDeclaredDeps()) problems.push(p);",
+          "// （判据级负对照：GW8 已被摘掉）",
+        ],
+      }),
+  },
 ];
 
 /* ---------- 跑矩阵 ---------- */
@@ -503,8 +642,8 @@ for (const r of results) {
 }
 console.log(
   failed
-    ? "\n✗ 有档不符合预期——GW4 / GW5 / GW6 可能已被卸掉或判据有洞（红因文案也要看，不只看退出码）"
-    : "\n✓ 全部符合预期：GW4 / GW5 / GW6 还活着，且能抓住它们本该抓的缺陷"
+    ? "\n✗ 有档不符合预期——GW4 / GW5 / GW6 / GW7 / GW8 可能已被卸掉或判据有洞（红因文案也要看，不只看退出码）"
+    : "\n✓ 全部符合预期：GW4 / GW5 / GW6 / GW7 / GW8 还活着，且能抓住它们本该抓的缺陷"
 );
 
 if (!failed) {
