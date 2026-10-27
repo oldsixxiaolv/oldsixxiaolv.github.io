@@ -30804,6 +30804,10 @@ el("a", { href: l.url, target: "_blank", rel: "noopener noreferrer" }, `${l.labe
 **② 更早一次也红过**：门禁最初接在 build 链里 `eleventy` **之前** ⇒ 门禁读的是**上一次的旧产物**
 ⇒ 「产物文本文件 0 个 / 站点 JS 0 个 + 找不到白名单模块」⇒ US4 判红（提交 `4abeab7` 把门禁移到 `eleventy` 之后）。
 
+**③ 第三轮复核之后还有一次**：README 的 US4 说明里写了 `|| true` ⇒ **裸竖线**把 Markdown 表格的
+那一格切开了 ⇒ `check-markdown-tables` 的 **TBL2** 判红（提交 `a390f7d` 转义竖线）。
+⇒ **行内代码 span 里的竖线也要转义** —— 这道门禁此前一直是对的，是我自己踩的。
+
 ### G. 验证
 
 - **真仓**：`check:url-safety` exit 0 —— 产物 **28** 个文本文件、**9** 个站点 JS、**10** 个 HTML/SVG、
@@ -30814,8 +30818,11 @@ el("a", { href: l.url, target: "_blank", rel: "noopener noreferrer" }, `${l.labe
 - **相关门禁**：`check:readme`（RD6 判据对账）、`check:selftest-guard`、`check:gates`、`check:site-js`、
   `check:tracked-refs`、`check:css`、`check:dead-css-selftest`、`check:doc-reality`、
   `check:writing-contract`、`check:lang`、`check:deps`、`check:log-sections`、`check:decision-ids` —— **全部 exit 0**。
-- **隔离克隆**（HEAD `0d38fce`）：整链 `npm run build` **exit 0**、工作树干净、产物 **36** 个文件
-  ⇒ 这道门禁只依赖仓库里的东西，不靠作者本机的残留。
+- **隔离克隆**（HEAD `0d38fce` 与最终 HEAD `a390f7d`）：整链 `npm run build` **exit 0**、
+  工作树干净、产物 **36** 个文件 ⇒ 这道门禁只依赖仓库里的东西，不靠作者本机的残留。
+- ⚠️ 整链 build 需带 `CHROME_PATH=<chrome-headless-shell>`（**D109** 的绕行）：
+  窄屏溢出 / 点击区那几道 CDP 门禁用**真 Google Chrome.app**，本机实测在「用户自己的 Chrome 在跑」时
+  会卡在 `Page.loadEventFired` 超时 ⇒ 与本轮改动无关的**既有**问题，已登记 **D109**。
 
 ### H. 文档与纪律
 
