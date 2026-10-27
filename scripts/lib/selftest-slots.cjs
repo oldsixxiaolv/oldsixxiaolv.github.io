@@ -354,6 +354,9 @@ const SLOTS = {
     "N-TR2", "N-TR3", "N-TR4", "N-TR5", "N-TR6", "P-TR4", "P-TR3",
     "COV-A", "COV-B"
   ],
+  "test-url-safety.cjs": [
+    "SA0", "SA1", "SA2", "SA3", "SA4", "SA5", "SA6", "SA7", "SA8"
+  ],
   "test-verify-site.cjs": [
     "G-BASE", "INJ-0", "NEG-0", "INJ-1", "NEG-1", "INJ-2", "NEG-2", "INJ-3",
     "NEG-3", "INJ-4b", "NEG-4b", "INJ-4c", "NEG-4c", "INJ-5", "NEG-5", "INJ-6",

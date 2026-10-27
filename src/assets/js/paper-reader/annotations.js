@@ -10,6 +10,8 @@
  * live in highlight.js; this module owns DOM structure + data only.
  * ------------------------------------------------------------------------- */
 
+import { isSafeLinkUrl } from "./url-safety.js";
+
 const KIND_LABELS = {
   question: "Question",
   insight:  "Insight",
@@ -29,13 +31,21 @@ const KIND_ICONS = {
 };
 
 // ---- DOM helpers (shared) ----
+/**
+ * 建元素。
+ *
+ * ⚠ **不提供**「把字符串当 HTML 解析」的入口：以前这里有个 `html:` 分支
+ * （走 innerHTML），全仓**零处使用**（实测 `grep -rn "html:" src/` = 0），
+ * 却是个现成的注入原语 —— 数据一旦流进去就是脚本执行。
+ * ⇒ 已删除；站内文本一律走 `createTextNode` / `textContent`，
+ *    这条线由门禁守着（scripts/check-url-safety.cjs 的「字符串不当 HTML 解析」那条）。
+ */
 function el(tag, attrs = {}, ...children) {
   const node = document.createElement(tag);
   for (const [k, v] of Object.entries(attrs)) {
     if (v === null || v === undefined || v === false) continue;
     if (k === "class") node.className = v;
     else if (k === "dataset") Object.assign(node.dataset, v);
-    else if (k === "html") node.innerHTML = v;
     else if (k.startsWith("on") && typeof v === "function") node.addEventListener(k.slice(2).toLowerCase(), v);
     else if (k === "aria" && typeof v === "object") for (const [ak, av] of Object.entries(v)) node.setAttribute(`aria-${ak}`, av);
     else node.setAttribute(k, v === true ? "" : v);
@@ -273,9 +283,17 @@ export async function init(ctx) {
     if (a.links && a.links.length) {
       bodyContent.appendChild(
         el("ul", { class: "annot-links" },
-          ...a.links.map((l) =>
-            el("li", {}, el("a", { href: l.url, target: "_blank", rel: "noopener noreferrer" }, `${l.label} →`))
-          ))
+          ...a.links.map((l) => {
+            const label = `${l.label} →`;
+            /* 外链 URL 走**协议白名单**（src/assets/js/paper-reader/url-safety.js）：
+               只放行 http/https。脚本协议与 data: 一律**不渲染成可点链接** ——
+               一条脚本协议的 href 在被点击时就会执行。
+               白名单的放行集合由门禁实测盯着（scripts/check-url-safety.cjs）。 */
+            return isSafeLinkUrl(l.url)
+              ? el("li", {}, el("a", { href: l.url, target: "_blank", rel: "noopener noreferrer" }, label))
+              : el("li", {}, el("span", { class: "annot-link--unsafe" }, label));
+          })
+        )
       );
     }
 
