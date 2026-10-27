@@ -2498,6 +2498,29 @@ CSDN 521 并列）。那个归类对 ResearchGate / CSDN 成立，但对这一�
   ⇒ 候选 ②③ 的「加头」**只能靠 Cloudflare 代理**（或 meta，而 meta 补不齐）
   ⇒ **没有第三条「零第三方成本」的路**（原先隐含的设想是「在仓库里放一个 `_headers` 就行」——实测不成立）。
   （本场次不代拍，待拍板 57 的三个候选维持原样。）
+- **待拍板 58（新增）｜要不要给 `github-pages` 环境加部署保护规则：把「能推到 main」与「能改线上站点」分开**
+  事实（2026-10-27 场次实测官方文档）：GitHub Pages 的官方自定义工作流文档明写 ——
+  「**An `environment` must be established to enforce branch/deployment protection rules.**
+  The default environment is `github-pages`.」
+  （https://github.com/github/docs/blob/main/content/pages/getting-started-with-github-pages/using-custom-workflows-with-github-pages.md）
+  ⇒ 本仓的 deploy job 已经在用 `environment: github-pages`（正是那个默认环境）⇒
+  **保护规则的位置本来就在**，只是没配。
+  另：`custom deployment protection rules`（用第三方服务做自动批准）官方写明
+  **在公开仓库里所有套餐都可用**（private/internal 需要企业版）—— 本仓是公开仓库。
+  收益：**把「能往 main 推代码」与「能改变线上站点」分成两把钥匙** ——
+  账号被撞、token 泄漏、或者任何拿到了写权限的入侵者，**推得上代码、却发不出站点**
+  （deployment 被规则挡住，线上仍是上一次部署）⇒ 这是本仓当前**唯一一条不依赖第三方服务**的
+  「部署级」防线（对照：待拍板 57 的 Cloudflare 是 DNS+反代级的，代价大得多）。
+  代价：① **required reviewer（需本人点批准）** ⇒ 每次 push 后的部署都要本人在 UI 里点一次
+  （单人站：等于把「推完就走」变成「推完要回来点一下」，急用时站点会晚几分钟上线）；
+  ② **wait timer（等待计时器）** ⇒ 部署自动延后 N 分钟，防「连推多次刷部署」，同样牺牲及时性；
+  ③ 规则本身是**仓库设置**（不是代码）⇒ 改它不需要提交、不在版本控制里 ⇒ 别人看不到这个决定。
+  候选：① **不配**（现状：能推到 main 就能改站点）② **只配分支限制**（只允许 main 触发部署，
+  防分支名混淆；摩擦最小）③ **配 required reviewer**（防攻击收益最大，摩擦是每次点一下）
+  ④ **配 wait timer**（防连推，牺牲及时性）。
+  ⚠️ **本轮不代拍**：配不配、配哪一种，属本人取舍（这是**唯一一条**会改变本人日常发布节奏的选项，
+  与其它待拍板项不同 —— 它要么给你一把新钥匙，要么给你加一道手续）。
+  （本场次不代拍，登记为待拍板 58）
 ---
 ## 2026-10-19 · 第十一轮（12:22–12:47 场次）：订阅源时间戳说真话 + 404 身份开关落地
 
