@@ -53,7 +53,7 @@
  *   T2b   有代码文件，但一处**仓内**引用都没比对过        ⇒ TR2
  *   T3    索引读不到                                      ⇒ TR3（红因**恰为** {TR3}）
  *   T4a   遮罩被破坏（行注释不再被剥）                    ⇒ TR4
- *   T4b   遮罩被破坏 + 夹具也脏                          ⇒ **恰好** {TR4}（TR1/TR2 整段跳过）
+ *   T4b   遮罩被破坏 + 夹具也脏                          ⇒ 只红 {TR4}（TR1/TR2 整段跳过）
  *   T5a   HTML 引用的目标磁盘上不存在                    ⇒ TR5
  *   T5b   HTML 引用的目标磁盘上有、但**没有被 git 跟踪**  ⇒ TR5
  *   T6a   索引里一个 HTML 文件都没有                      ⇒ TR6
@@ -104,7 +104,7 @@ function sha256(p) {
 const GATE_SHA_AT_START = sha256(GATE);
 
 /* 关键字拼出来：本文件源码里不许出现字面量的本地 require（见文件头）。 */
-const KW = { req: "requ" + "ire" };
+const KW = { req: "requ" + "ire", imp: "im" + "port" };
 const reqText = (p) => `${KW.req}("${p}")`;
 
 /* ---------- HTML 夹具 ----------
@@ -353,6 +353,34 @@ function expectRed(id, s, want, opts) {
   );
 }
 
+/**
+ * 一档「注入 ⇒ 应当红，且红因**全部**属于某一族**（至少一条）**」。
+ *
+ * ⚠️ 为什么要有这个变体（不是"恰好一条"）：
+ *   TR4 的遮罩自证有**多条**样例（注释里的 require / 注释里的动态 import …），
+ *   遮罩被破坏时**有几条坏就红几条** ⇒ 红因条数会随样例表增长而变化。
+ *   ⇒ 断言"恰好一条"会把"样例表变长了"误判成"门禁坏了"。
+ *   ⇒ 正确断言是：**红因全部是 TR4，且至少一条**（归属仍纯净：
+ *   没有任何**别的**判据替它说话）。
+ */
+function expectRedAllOf(id, s, want, opts) {
+  const o = opts || {};
+  const r = runGate(s);
+  const got = redIds(r.out);
+  const allOf = got.length > 0 && got.every((x) => want.includes(x));
+  const textOk = !o.mustContain || r.out.includes(o.mustContain);
+  const ok = r.code === 1 && allOf && textOk;
+  record(
+    id,
+    ok,
+    ok
+      ? `红了，${got.length} 条红因全部属于 ${fmtIds(want)}（归属纯净）` +
+        `${o.note ? "；" + o.note : ""}`
+      : `期望红因全部属于 ${fmtIds(want)} 且至少一条，` +
+        `实际 code=${r.code} 红因 ${fmtIds(got)}\n${r.out}`
+  );
+}
+
 /** 一档「负对照：卸掉某条判定 ⇒ 应当完全转绿，一个红因都不许剩」。 */
 function expectGreen(id, s, note) {
   const r = runGate(s);
@@ -415,6 +443,24 @@ function injectMissingTarget(s) {
 function injectUntrackedTarget(s) {
   write(path.join(s.repo, "scripts", "lib", "ghost.cjs"), "module.exports = 3;\n");
   patchFile(appOf(s), reqText("./lib/helper.cjs"), reqText("./lib/ghost.cjs"), 1);
+}
+
+/**
+ * T1c：引用形态换成**动态 import**（`import("./x")` 带括号的那种），
+ * 而目标磁盘上有、但**没进索引** ⇒ 应当仍然红 TR1。
+ *
+ * ⚠️ 这一档是缺陷 D114 的守卫：旧口径**认不出** `import(` ⇒ 那一次注入会**静默通过**
+ *   ⇒ 而这正是 TR1 存在的根本理由（"引用方进了提交、被引用方没进" ⇒ 提交后那棵树会断）
+ *   在动态 import 形态下**完全失效**。
+ */
+function injectUntrackedTargetViaDynamicImport(s) {
+  write(path.join(s.repo, "scripts", "lib", "ghost.cjs"), "module.exports = 3;\n");
+  patchFile(
+    appOf(s),
+    reqText("./lib/helper.cjs"),
+    `const g = await ${KW.imp}("./lib/ghost.cjs");`,
+    1
+  );
 }
 
 /** T3：把索引弄坏（.git 变成一个不是 gitdir 的文件）。 */
@@ -567,6 +613,19 @@ function untrackHtml(s) {
   fs.rmSync(s.base, { recursive: true, force: true });
 }
 
+/* T1c：引用形态是**动态 import**，目标没进索引 ⇒ 仍然红 TR1（缺陷 D114 的守卫）。
+   ⚠️ **旧口径这一档是绿的** —— 旧正则认不出 `import(`（带括号）⇒ 注入静默通过
+   ⇒ TR1 的核心承诺在动态 import 形态下失效。 */
+{
+  const s = makeSandbox();
+  injectUntrackedTargetViaDynamicImport(s);
+  expectRed("T1c 动态 import 的目标没被 git 跟踪 ⇒ TR1", s, ["TR1"], {
+    mustContain: "没有被 git 跟踪",
+    note: "旧口径认不出 import( ⇒ 动态 import 形态下 TR1 形同虚设",
+  });
+  fs.rmSync(s.base, { recursive: true, force: true });
+}
+
 /* ================= 注入档 T2a / T2b ================= */
 
 /* T2a：索引里一个代码文件都没有 ⇒ 判据从未被真正执行过。 */
@@ -613,7 +672,7 @@ function untrackHtml(s) {
 {
   const s = makeSandbox();
   breakMask(s);
-  expectRed("T4a 遮罩被破坏 ⇒ TR4", s, ["TR4"], {
+  expectRedAllOf("T4a 遮罩被破坏 ⇒ TR4", s, ["TR4"], {
     mustContain: "遮罩自证失败",
     note: "遮罩坏了却没人管 ⇒ 门禁会安静地给出错的结论",
   });
@@ -626,7 +685,7 @@ function untrackHtml(s) {
   const s = makeSandbox();
   breakMask(s);
   injectUntrackedTarget(s);
-  expectRed("T4b 遮罩坏了 + 夹具也脏 ⇒ 恰好红 TR4（TR1 整段跳过）", s, ["TR4"], {
+  expectRedAllOf("T4b 遮罩坏了 + 夹具也脏 ⇒ 只红 TR4（TR1 整段跳过）", s, ["TR4"], {
     mustContain: "遮罩自证失败",
     note: "前提不在场 ⇒ 依赖它的判据整段跳过，不拿不可信的结论凑数",
   });

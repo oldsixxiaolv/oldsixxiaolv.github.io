@@ -89,8 +89,28 @@
  *   查的却是**索引里的跟踪集合** —— 于是“本地改了引用、但目标还没进索引”
  *   这种状态（也就是那个 P0）在提交前就被抓住。
  *
- * ⚠️ 已知盲区（不假装扫全了）：动态 import（带括号的那种）、require.resolve、
- *   模板字符串拼出来的路径，都不被下面那条正则认出来。
+ * ⚠️ 已知盲区（不假装扫全了，2026-10-27 实测）：
+ *   · **动态 import（带括号的那种）已经认得了**（缺陷 D114 已修）—— 旧口径漏了它，
+ *     而本仓 `src/assets/js/paper-reader/main.js` 里恰恰有 4 条动态 import
+ *     ⇒ 那 4 条引用此前一条都不被认 ⇒ **动态 import 形态下 TR1 的核心承诺
+ *     （"引用方进了提交、被引用方没进" ⇒ 提交后那棵树会断）完全失效**。
+ *     现在提取器搬到 scripts/lib/js-refs.cjs（一条真源），它认得动态 import。
+ *   · **仍然认不出的**：`require.resolve(...)`、模板字符串拼出来的路径、
+ *     以及写成变量的 specifier（`import(someVar)`）—— 这三类需要静态分析，
+ *     本门禁不做（不假装扫全了）。
+ *   · **`.njk` 模板不在本门禁的扫描面内**（`CODE_EXT` 只有 .cjs/.js/.mjs）——
+ *     模板里的引用形态与本门禁的解析模型**不兼容**，实测扩扫描面会假红：
+ *     ① 模板里的 `{{ '/assets/...' | relUrl }}` 出的是**页相对 URL**，
+ *        不是「相对引用方文件所在目录」的路径 ⇒ TR1 的解析模型用不了；
+ *     ② 18 条站点绝对/仓根字面量里**有 7 条在仓内没有对应文件**
+ *        （5 条路由产物 /404.html、/feed.xml、/publications.bib、/publications.ris、
+ *        /sitemap.xml ＋ 构建期生成的 /assets/css/components.css
+ *        ＋ Nunjucks 注释里的一张图）⇒ 一律判红就是假红。
+ *     ⇒ **本轮刻意不扩扫描面**（不为了"看起来扫全了"而制造假红）。
+ *     那两处模板里的动态 import（src/_includes/layouts/paper.njk:452、
+ *     src/_includes/partials/extreme-precip.njk:137）目前**无人看守**，
+ *     但它们指向的文件**恰好**被 DR6 / DR6b（活文档点名）与产物层兜住
+ *     ⇒ 记在这里，不假装扫全了，也不假装没有风险。
  *
  * 用法：node scripts/check-tracked-refs.cjs   （有错 exit 1）
  */
@@ -126,7 +146,7 @@ function note(id, msg) {
    ⇒ 两边口径漂移 ⇒ 一边假红、一边漏报，且没人知道。
    （本门禁的 TR1 自测里有专门一档：注释里 / 字符串里写着本地 require 的字样
      都不算引用 ⇒ 换实现后那一档仍绿，即证明行为没变。） */
-const { maskForScan } = require("./lib/js-refs.cjs");
+const { maskForScan, localRefs } = require("./lib/js-refs.cjs");
 
 /* ---------- HTML 侧：注释遮罩 + 本地资源引用提取 ---------- */
 
@@ -191,22 +211,22 @@ function htmlLocalRefsOf(html) {
 }
 
 /* 静态 require / import 的本地相对路径。
-   只认字面量；模板字符串等动态写法扫不出来（这一点在汇总里说明，不假装扫全了）。 */
-const LOCAL_REF_RE = /\brequire\(\s*["'](\.[^"']+)["']\s*\)|(?:\bfrom|\bimport)\s*["'](\.[^"']+)["']/g;
-
+ * 只认字面量；模板字符串等动态写法扫不出来（这一点在汇总里说明，不假装扫全了）。
+ * ⚠️ 提取器现在住在 **scripts/lib/js-refs.cjs**（一条真源，与 GW6 / GW8 共用同一份遮罩与口径）——
+ *    旧口径只认 `require(` / `from ` / `import `，**认不出 `import(`（动态 import）**，
+ *    而本仓 `src/assets/js/paper-reader/main.js` 里恰恰有 4 条动态 import
+ *    ⇒ 那 4 条引用一条都不被认 ⇒ 目标没被提交时没有任何门禁会红（缺陷 D114）。
+ * ⚠️ 返回的是**有序数组、保留重复** —— 下面 TR2 的「比对过几处」与 COV-A 的覆盖度自证
+ *    都依赖这个计数口径（同一目标被引用两次算两处）⇒ 提取器不许去重。 */
 /** 遮罩之后还剩几处本地引用。 */
 function countLocalRefs(text) {
-  LOCAL_REF_RE.lastIndex = 0;
-  let n = 0;
-  let m;
-  while ((m = LOCAL_REF_RE.exec(text)) !== null) n++;
-  return n;
+  return localRefs(text).length;
 }
 
 /* ---------- TR4：遮罩自证（合成样例必须命中） ---------- */
 
 /* 合成样例里的关键字是**拼**出来的：门禁扫自己时不能把自己当成一处引用。 */
-const KW = { req: "requ" + "ire", from: "fr" + "om" };
+const KW = { req: "requ" + "ire", from: "fr" + "om", imp: "im" + "port" };
 
 const MASK_PROOFS = [
   {
@@ -238,6 +258,20 @@ const MASK_PROOFS = [
     name: "字符串里的双斜杠不是注释",
     text: `const u = "a // b";\nconst a = ${KW.req}("./lib/x.cjs");`,
     want: 1,
+  },
+  /* ⚠️ 动态 import（`import("./x")` 带括号的那种）——
+   *   旧口径**认不出**它 ⇒ 本仓 src/assets/js/paper-reader/main.js 里那 4 条
+   *   动态 import 一条都不被认 ⇒ 目标没被提交时没有任何门禁会红（缺陷 D114）。
+   *   这一档就是那道修复的"它真的认得出"的自证。 */
+  {
+    name: "动态 import 的引用仍被认出",
+    text: `const m = await ${KW.imp}("./lib/x.cjs");`,
+    want: 1,
+  },
+  {
+    name: "注释里的动态 import 字样不算引用",
+    text: `// ${KW.imp}("./lib/x.cjs")`,
+    want: 0,
   },
 ];
 
@@ -366,11 +400,12 @@ if (!skipScan) {
       continue;
     }
 
-    const masked = maskForScan(text);
-    LOCAL_REF_RE.lastIndex = 0;
-    let m;
-    while ((m = LOCAL_REF_RE.exec(masked)) !== null) {
-      const rel = m[1] || m[2];
+    /* 本地引用（遮罩后扫 ⇒ 注释与字符串里的字样不算数）。
+     * ⚠️ 用共享提取器 localRefs()：它认得**动态 import**（`import("./x.js")`）——
+     *    旧口径只认 `require(` / `from ` / `import `，认不出带括号的那种
+     *    ⇒ 而 `src/assets/js/paper-reader/main.js` 里有 4 条动态 import
+     *    ⇒ 那 4 条引用此前**一条都不被认**（缺陷 D114）。 */
+    for (const rel of localRefs(text)) {
       refsFound++;
 
       const cands = resolveTarget(file, rel);

@@ -202,4 +202,50 @@ function thirdPartyPackages(src) {
   return [...out].sort();
 }
 
-module.exports = { maskForScan, thirdPartyPackages, packageNameOf, BUILTIN_MODULES };
+/**
+ * 源码里引用的**本地相对路径**（以 "." 开头）。
+ *
+ * 与 `thirdPartyPackages()` 的分工：那边只管**第三方包**（本地路径被过滤掉），
+ * 这边只管**本地文件**（第三方包名被过滤掉）⇒ 两边合起来才是"这个文件依赖什么"。
+ *
+ * ⚠️ 认得哪些形态（**逐条实测过**，不是推演）：
+ *   ✓ `require("./x.js")`                    —— 静态 require
+ *   ✓ `import x from "./x.js"`                —— 默认 / 具名 / 命名空间导入
+ *   ✓ `import "./x.js"`                      —— 副作用导入
+ *   ✓ `export { x } from "./x.js"`           —— 重导出
+ *   ✓ `await import("./x.js")`               —— **动态 import**（`import(...)` 带括号）
+ *   ✗ `require(某个变量)` / `import(某个变量)` —— 非字面量，扫不出来（不假装扫全了）
+ *   ✗ 模板字符串拼出来的路径                  —— 同上
+ *
+ * ⚠️ **动态 import 之前是漏的**（实测）：旧口径只认 `require(` / `from ` / `import `，
+ *   认不出 `import(`（带括号）⇒ 而本仓 `src/assets/js/paper-reader/main.js` 里
+ *   **恰恰有 4 条动态 import**（./toc.js / ./theme.js / ./annotations.js / ./highlight.js）
+ *   ⇒ 那 4 条引用**一条都不被 TR1 认** ⇒ 目标没被提交时**没有任何门禁会红**。
+ *
+ * ⚠️ 遮罩后再扫 ⇒ 注释里的字样与夹具字符串里的字样都不算数（与第三方包那边同口径）。
+ *
+ * ⚠️ **返回的是有序数组、保留重复**（不是去重集合）：调用方里有判据在数
+ *   「比对过**几处**引用」（TR2 的自证存活、COV-A 的覆盖度自证）⇒
+ *   同一目标被引用两次必须算**两处** ⇒ 去重会让那个计数口径悄悄变掉。
+ *
+ * @param {string} src 源码
+ * @returns {string[]} 本地相对路径（按出现顺序；同一路径可重复出现）
+ */
+function localRefs(src) {
+  const masked = maskForScan(src);
+  const out = [];
+  const patterns = [
+    /\brequire\s*\(\s*["'](\.[^"']+)["']\s*\)/g, // require("./x.js")
+    /\bimport\s*\(\s*["'](\.[^"']+)["']\s*\)/g, // import("./x.js")（**动态** import）
+    /\bfrom\s*["'](\.[^"']+)["']/g, // import x from "./x.js" / export … from "./x.js"
+    /\bimport\s*["'](\.[^"']+)["']/g, // import "./x.js"（副作用导入）
+  ];
+  for (const re of patterns) {
+    re.lastIndex = 0;
+    let m;
+    while ((m = re.exec(masked)) !== null) out.push(m[1]);
+  }
+  return out;
+}
+
+module.exports = { maskForScan, thirdPartyPackages, packageNameOf, localRefs, BUILTIN_MODULES };
