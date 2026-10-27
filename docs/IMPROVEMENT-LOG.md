@@ -31176,7 +31176,8 @@ macOS 上是**系统代理设置**（`scutil --proxy`），Linux / CI 上还有�
 - **真仓门禁**（exit 0）：`check:gates` / `check:readme` / `check:log-sections` / `check:decision-ids`；`scripts/test-gates-wired-selftest.cjs` **M0–M22 共 23 档 ＋ P0 基线全绿**；`scripts/test-tracked-refs.cjs` **25 档全绿**（含 COV-A 覆盖度自证：报出的扫描数量与夹具真实数量一致）。
 - **红因归属纯净**：M13 那一档修后**只剩 GW6 一条**（分工前是 GW6 ＋ GW8 两条一模一样的）；M19 那一档**只有 GW8 一条**。
 - **判据级负对照**：M18（摘掉 GW7 ⇒ 同一注入转绿）、M22（摘掉 GW8 ⇒ 同一注入转绿）⇒ 那两条红**确实是这两条判据**判出来的。
-- **隔离克隆整链 build**：见本节提交后的验证记录（`npm ci` exit 0 → `npm run build` exit 0 → 产物齐全、工作树干净）。
+- **隔离克隆整链 build**：提交 `c452077`（代码）与 `7bf5618`（含本节文档）**两个提交上** —— `npm ci` exit 0 → `npm run build` **exit 0** → 产物齐全、工作树干净；克隆里 `npm ci` 之后 `gray-matter` / `js-yaml` / `nunjucks` **三个都在 `node_modules` 里**（4.0.3 / 4.3.2 / 3.2.4）⇒ 幽灵依赖已消除。
+- **GW7 的行为级验证（在隔离克隆里实测，不是推理）**：把 `check:wrap` 的命令改成 `node scripts/check-wrapping.cjs || true`（退出码被架空）⇒ ① `node scripts/check-gates-wired.cjs` **判红**，红因点名「`check:wrap` 在 build 链上的入口**不是逐字执行**」并把该 npm script 的原文一并打出来；② **同时** `node scripts/check-wrapping.cjs` 自己那道弱判据 **exit 0**（它仍说自己接上了）⇒ 弱点的真实危害坐实：**旧判据看不见，新判据看得见**。改回 `package.json` 后整链复跑仍 exit 0。
 - ⚠️ **锁文件 diff 已实测**：`npm install --package-lock-only --save-dev` 只落**根声明段一处** —— 无新增/消失的包条目、无版本漂移（这三个包本来就作为传递依赖存在于锁文件里）。
 
 ### E. 未验 / 线上那半
