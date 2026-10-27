@@ -301,7 +301,7 @@ export async function init(ctx) {
                   "span",
                   {
                     class: "annot-link--unsafe",
-                    title: "这条链接的协议不在允许清单里，未做成链接",
+                    title: "This link's scheme is not on the allow list, so it is not clickable",
                   },
                   l.label
                 )
