@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * 待拍板编号唯一性门禁的**自测**（注入矩阵）—— 证明 DI0/DI1/DI2 每一条都**能变红**。
+ * 编号唯一性门禁的**自测**（注入矩阵）—— 证明 DI0/DI1/DI2/DI3/DI4 每一条都**能变红**。
  *
  * 为什么要有这个自测：
  *   一条**永远不会红**的判据，给出的是"看起来很确定的绿"——它比没有判据更坏，
@@ -8,14 +8,15 @@
  *   （遮罩把目标文本本身吃掉、覆盖度只覆盖一半还照样打印"通过"）。
  *   所以"这条判据结构上能不能触发"本身必须**被证明**，而不是假定。
  *
- * 做法：把日志**复制**一份到临时目录，在副本上逐个注入缺陷，
- *   用 `LOG_PATH` 环境变量把门禁指向副本，然后断言门禁**确实**报出了
- *   对应编号的红因。
- *   ⚠️ 全程**不动仓库里真的那份日志** —— 注入必须在副本上做。
- *     （这正是门禁里加 `LOG_PATH` 这个开关的原因：没有它，自测就只能去改
- *       仓库文件，改坏了就是事故 —— 而这个日志每天被并发场次追加。）
+ * 做法：把日志**与缺陷台账**各**复制**一份到临时目录，在副本上逐个注入缺陷，
+ *   用 `LOG_PATH` / `BACKLOG_PATH` 环境变量把门禁指向副本，然后断言门禁**确实**
+ *   报出了对应编号的红因。
+ *   ⚠️ 全程**不动仓库里真的那两份文件** —— 注入必须在副本上做。
+ *     （这正是门禁里加 `LOG_PATH` / `BACKLOG_PATH` 这两个开关的原因：
+ *       没有它们，自测就只能去改仓库文件，改坏了就是事故 ——
+ *       而这两份文件每天都被并发场次追加。）
  *
- * 十四档：
+ * 十八档：
  *   M0 基线（原样）                    → 必须**全绿**（证明这套判据不是空跑）
  *   M1 台账里那条被换成**不相干**的事   → DI1
  *   M2 台账里多出一条认领同号的登记     → DI2
@@ -38,9 +39,16 @@
  *      "**同一条登记被写了两遍**"、改法必须是"**删掉重复的那一条**"，
  *      **不能**说成"一个号两件事"、**不能**让改法变成"改成下一个空号"
  *      （那等于给同一件事造第二个号，本人就会以为有两件事要拍）
+ *   M14 缺陷台账里**同一条 D 登记被逐字写了两遍** → DI3 判红，且红因必须是
+ *      "**同一条被写了两遍**"、改法必须是"**删掉重复的那一行**"
+ *   M15 缺陷台账里**同一个 D 号被两条不同的登记认领** → DI3 判红，红因必须是
+ *      "**一个号两件事**"、改法必须点名"**下一个空号**"
+ *   M16 缺陷台账 §1 的标题被改掉（定位不到那张表） → DI4 判红（判据自证）
+ *   M17 **判据级负对照**：把门禁副本里 DI3 / DI4 的调用整行摘掉 → M14 那个注入
+ *      **必须转绿**（证明那条红确实是 DI3 判出来的，不是别的判据碰巧撞出来的）
  *
- * 注入锚点**从真实日志里现取**（不写死编号、不写死标题）：
- *   日志每天被并发场次追加，写死的锚点随时会失效 → 锚点失效必须是**当场报错**，
+ * 注入锚点**从真实文件里现取**（不写死编号、不写死标题）：
+ *   这两份文件每天被并发场次追加，写死的锚点随时会失效 → 锚点失效必须是**当场报错**，
  *   不能变成"这一档是坏跑却记成测过了"。
  *
  * 用法：node scripts/test-decision-ids.cjs
@@ -53,20 +61,33 @@ const { spawnSync } = require("child_process");
 const ROOT = path.resolve(__dirname, "..");
 const GATE = path.join(__dirname, "check-decision-ids.cjs");
 const LOG = path.join(ROOT, "docs", "IMPROVEMENT-LOG.md");
+const BACKLOG = path.join(ROOT, "docs", "DEFECT-BACKLOG.md");
 const CENTRAL_TITLE = "## 待决策（需要本人拍板，任务不会自己动）";
 const SAME_THING_LCS = 12; // 与门禁同口径（同一件事的判定门槛）
 
 if (!fs.existsSync(LOG)) {
-  console.error("待拍板编号自测失败：找不到 docs/IMPROVEMENT-LOG.md。");
+  console.error("编号唯一性自测失败：找不到 docs/IMPROVEMENT-LOG.md。");
+  process.exit(1);
+}
+if (!fs.existsSync(BACKLOG)) {
+  console.error("编号唯一性自测失败：找不到 docs/DEFECT-BACKLOG.md。");
   process.exit(1);
 }
 
 const original = fs.readFileSync(LOG, "utf8");
+const originalBacklog = fs.readFileSync(BACKLOG, "utf8");
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "mh-decision-selftest-"));
 const copyPath = path.join(tmp, "IMPROVEMENT-LOG.md");
+const backlogCopyPath = path.join(tmp, "DEFECT-BACKLOG.md");
 
-/** 在副本上注入 → 跑门禁 → 返回 {code, out} */
-function run(mutate) {
+/**
+ * 在副本上注入 → 跑门禁 → 返回 {code, out}
+ *
+ * opts.backlogMutate —— 在**缺陷台账副本**上注入（DI3 / DI4 那一族）
+ * opts.gatePatch      —— 改门禁**源码副本**（判据级负对照：把某条判据整行摘掉）
+ */
+function run(mutate, opts) {
+  const o = opts || {};
   let text = original;
   if (mutate) {
     const next = mutate(text);
@@ -74,8 +95,27 @@ function run(mutate) {
     text = next;
   }
   fs.writeFileSync(copyPath, text);
-  const r = spawnSync(process.execPath, [GATE], {
-    env: { ...process.env, LOG_PATH: copyPath },
+
+  let bkText = originalBacklog;
+  if (o.backlogMutate) {
+    const next = o.backlogMutate(bkText);
+    if (next === bkText) throw new Error("台账副本的注入没有改变内容 —— 锚点不存在，这一档是坏跑");
+    bkText = next;
+  }
+  fs.writeFileSync(backlogCopyPath, bkText);
+
+  let gate = GATE;
+  if (o.gatePatch) {
+    const src = fs.readFileSync(GATE, "utf8");
+    const patched = o.gatePatch(src);
+    if (patched === src) throw new Error("门禁副本的补丁没生效 —— 锚点不存在，这一档是坏跑");
+    gate = path.join(tmp, "scripts", "check-decision-ids.cjs");
+    fs.mkdirSync(path.dirname(gate), { recursive: true });
+    fs.writeFileSync(gate, patched);
+  }
+
+  const r = spawnSync(process.execPath, [gate], {
+    env: { ...process.env, LOG_PATH: copyPath, BACKLOG_PATH: backlogCopyPath },
     encoding: "utf8",
   });
   return { code: r.status, out: `${r.stdout || ""}${r.stderr || ""}` };
@@ -240,7 +280,7 @@ const cases = [];
 const m0 = run(null);
 cases.push([
   "M0 基线（原样日志）",
-  m0.code === 0 && m0.out.includes("待拍板编号唯一性门禁通过") && m0.out.includes("认领的号："),
+  m0.code === 0 && m0.out.includes("编号唯一性门禁通过") && m0.out.includes("认领的号："),
   m0.out.trim().split("\n").slice(-1)[0],
 ]);
 
@@ -440,9 +480,97 @@ cases.push([
   m13.out.trim().split("\n").slice(-1)[0],
 ]);
 
+/* ---------- 缺陷台账这一族（DI3 / DI4）---------- */
+
+/** 台账里一行 D 登记（内容锚：现取，不写死编号）。 */
+const BACKLOG_ROW_RE = /^\|\s*\*\*D(\d{1,4})\*\*\s*\|/;
+function findBacklogRow(text) {
+  const lines = text.split("\n");
+  for (let i = 0; i < lines.length; i++) {
+    const m = lines[i].match(BACKLOG_ROW_RE);
+    if (m) return { line: i, text: lines[i], n: Number(m[1]) };
+  }
+  return null;
+}
+const bkRow = findBacklogRow(originalBacklog);
+if (!bkRow) {
+  console.error("编号唯一性自测失败：真实缺陷台账里找不到一行「| **D<N>** |」。");
+  console.error("  —— DI3 那一档就没有基准了（这一整套矩阵会是坏跑）。");
+  process.exit(1);
+}
+
+/** 在台账副本里把某一行 D 登记复制一份（verbatim = 逐字；altered = 改词句）。 */
+function duplicateBacklogRow(text, mode) {
+  const lines = text.split("\n");
+  const idx = lines.findIndex((l) => BACKLOG_ROW_RE.test(l));
+  if (idx < 0) throw new Error("台账副本里找不到 D 行（坏跑）");
+  const row = lines[idx];
+  const copy = mode === "verbatim" ? row : row.slice(0, -1) + "（注入：另一条不同的登记） |";
+  lines.splice(idx + 1, 0, copy);
+  return lines.join("\n");
+}
+
+/* M14：缺陷台账里**同一条 D 登记被逐字写了两遍** → DI3 必须是"重复登记"形态：
+   红因不能说"一个号两件事"（本人只面对一件），改法也不能是"改成下一个空号"。 */
+const m14 = run(null, { backlogMutate: (t) => duplicateBacklogRow(t, "verbatim") });
+cases.push([
+  `M14 缺陷台账里同一条 D${bkRow.n} 登记被逐字写了两遍 → DI3 必须是"重复登记"形态`,
+  m14.code === 1 &&
+    m14.out.includes("DI3") &&
+    m14.out.includes("同一条被写了两遍") &&
+    m14.out.includes("删掉重复的那一行") &&
+    !m14.out.includes("一个号两件事"),
+  m14.out.trim().split("\n").slice(-1)[0],
+]);
+
+/* M15：同一个 D 号被**两条不同的登记**认领 → DI3 必须是"同号两义"形态：
+   改法必须点名"下一个空号"，且不能退化成"删掉重复的那一行"。 */
+const m15 = run(null, { backlogMutate: (t) => duplicateBacklogRow(t, "altered") });
+cases.push([
+  `M15 缺陷台账里同一个 D${bkRow.n} 号被两条不同的登记认领 → DI3 必须是"同号两义"形态`,
+  m15.code === 1 &&
+    m15.out.includes("DI3") &&
+    m15.out.includes("一个号两件事") &&
+    m15.out.includes("下一个空号") &&
+    !m15.out.includes("删掉重复的那一行"),
+  m15.out.trim().split("\n").slice(-1)[0],
+]);
+
+/* M16：缺陷台账 §1 的标题被改掉 → 定位不到那张表 → DI4（判据自证）。 */
+const m16 = run(null, {
+  backlogMutate: (t) => {
+    const lines = t.split("\n");
+    const i = lines.findIndex((l) => /^##\s+1\.\s/.test(l));
+    if (i < 0) throw new Error("M16 注入锚点不存在（坏跑）");
+    lines[i] = lines[i].replace(/^##\s+1\.\s*/, "## 一、");
+    return lines.join("\n");
+  },
+});
+cases.push([
+  "M16 缺陷台账 §1 的标题被改掉（定位不到那张表）→ DI4",
+  m16.code === 1 && m16.out.includes("DI4") && m16.out.includes("找不到「## 1."),
+  m16.out.trim().split("\n").slice(-1)[0],
+]);
+
+/* M17：**判据级负对照** —— 把门禁副本里 DI3 / DI4 的调用整行摘掉，
+   M14 那个注入**必须转绿**（证明那条红确实是 DI3 判出来的，不是别的判据碰巧撞出来的）。 */
+const m17 = run(null, {
+  backlogMutate: (t) => duplicateBacklogRow(t, "verbatim"),
+  gatePatch: (src) =>
+    src.replace(
+      "for (const p of checkBacklogProblems(backlog)) problems.push(p);",
+      "// （判据级负对照：DI3 / DI4 已被摘掉）"
+    ),
+});
+cases.push([
+  "M17 判据级负对照：摘掉 DI3 / DI4 后，M14 那个注入必须转绿",
+  m17.code === 0,
+  m17.out.trim().split("\n").slice(-1)[0],
+]);
+
 /* ---------- 汇总 ---------- */
 let failed = 0;
-console.log("待拍板编号唯一性门禁 · 本地注入矩阵：\n");
+console.log("编号唯一性门禁 · 本地注入矩阵：\n");
 for (const [label, ok, detail] of cases) {
   console.log(`  ${ok ? "✓" : "✗"} ${label}`);
   if (!ok) {

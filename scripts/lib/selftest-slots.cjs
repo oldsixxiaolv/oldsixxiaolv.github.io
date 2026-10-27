@@ -120,7 +120,8 @@ const SLOTS = {
   ],
   "test-decision-ids.cjs": [
     "M0", "M1", "M2", "M3", "M4", "M5", "M6", "M7",
-    "M8", "M9", "M10", "M11", "M12", "M13"
+    "M8", "M9", "M10", "M11", "M12", "M13", "M14", "M15",
+    "M16", "M17"
   ],
   "test-design-components.cjs": [
     "DCXR0", "DCXR1", "DCXR2", "DCXR3", "DCXR4", "DCXR5", "DCXR6", "DCXR7",

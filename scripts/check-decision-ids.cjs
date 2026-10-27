@@ -1,6 +1,12 @@
 #!/usr/bin/env node
 /**
- * 待拍板编号唯一性门禁 —— 守住"一个编号只能指一件事"这件事。
+ * 编号唯一性门禁 —— 守住"一个编号只能指一件事"这件事。
+ *
+ * 覆盖两套**互不相干**的编号命名空间（台账文件开头也是这么写的）：
+ *   · **待拍板 N** —— 本日志中央「待决策」台账里的编号 ⇒ 判据 DI0 / DI1 / DI2
+ *   · **缺陷 D<N>** —— docs/DEFECT-BACKLOG.md §1 缺陷清单里的编号 ⇒ 判据 DI4 / DI3
+ * 两套号**互不引用、不可混用**（台账里的「缺陷号」与日志里的「待拍板号」是两回事），
+ * 所以本门禁对两套号**分别**判红，**不做跨套比对**。
  *
  * 为什么要有这个门禁：
  *   2026-10-19 18:20 场次把「README 门禁 RD1 是单向的」登记为**待拍板 29**，
@@ -33,6 +39,22 @@
  *   DI0 **判据自证**：台账必须定位得到，且必须**至少认领一个编号**。
  *       认领数为 0 说明写法变了、判据已经空跑 —— 空跑的门禁等于没有门禁，所以判红。
  *       （这一档是"覆盖度假绿"那一族缺陷的直接对策。）
+ *   DI3 **缺陷编号同样一号一条**：docs/DEFECT-BACKLOG.md §1 的缺陷清单里，
+ *       同一个 `| **D<N>** |` 被**多行**认领 → 判红。
+ *       为什么要补这一条（一次实测坐实，不是假想）：上一场次往台账里插一条新缺陷时
+ *       **重复插了一行**，台账里某条 `| **D<N>** |` 出现了**两行**（逐字相同）——
+ *       而当时**没有任何门禁**能发现它：本门禁只管待拍板号，缺陷号是**另一套命名空间**。
+ *       缺陷号一旦撞了，按号查会查到错的那一条，而且**台账本身看不出异样**。
+ *       两种形态与 DI2 **同口径**（红因与改法分开说）：
+ *         ① **同一条被写了两遍**（归一化后逐字相同）→ 这是"重复登记"、**不是同号两义**：
+ *            改法：**删掉重复的那一行**（⚠️ 改成新号是错的 —— 给同一件事造第二个号，
+ *            本人就会以为有两件事要看）。
+ *         ② 两条说的**不是同一件事** → 这才是真正的同号两义，改法：改成**下一个空号**。
+ *       ⚠️ "下一个空号" = **现有最大号 + 1**，**不是**填补空缺 ——
+ *         实测台账里有一号已被并进相邻号的那一行（**没有独立的行**），
+ *         填补空缺会造出一个**从没存在过**的号。
+ *   DI4 **判据自证（缺陷台账这一族）**：台账文件必须读得到、§1 必须定位得到，
+ *       且必须**至少认领一个 D 编号** —— 认领数为 0 说明写法变了、判据已经空跑。
  *
  * ⚠️ 覆盖度（**通过文案里如实写明，不含糊**）：
  *   · 本门禁只对**台账里显式写了编号**的登记生效。台账里那 30 条早期条目
@@ -53,12 +75,14 @@
  *
  * 环境变量：
  *   LOG_PATH —— 覆盖要读的日志路径（供 scripts/test-decision-ids.cjs 的注入矩阵在副本上跑）。
+ *   BACKLOG_PATH —— 覆盖要读的缺陷台账路径（同上，供注入矩阵在副本上注入重复的 D 行）。
  */
 const fs = require("fs");
 const path = require("path");
 
 const ROOT = path.resolve(__dirname, "..");
 const LOG = process.env.LOG_PATH || path.join(ROOT, "docs", "IMPROVEMENT-LOG.md");
+const BACKLOG = process.env.BACKLOG_PATH || path.join(ROOT, "docs", "DEFECT-BACKLOG.md");
 const CENTRAL_TITLE = "## 待决策（需要本人拍板，任务不会自己动）";
 
 /** 判"同一件事"的阈值（实测标定，见文件头）。 */
@@ -144,7 +168,7 @@ function claimTarget(line, m) {
 
 /* ---------- 读日志 ---------- */
 if (!fs.existsSync(LOG)) {
-  console.error("待拍板编号唯一性门禁未通过：\n");
+  console.error("编号唯一性门禁未通过：\n");
   console.error(`  ✗ 读不到日志文件：${LOG}`);
   process.exit(1);
 }
@@ -252,6 +276,119 @@ function entryText(e) {
     .join("\n");
 }
 
+/* ---------- 缺陷台账（D 编号）这一族的工具 ---------- */
+
+/** 缺陷清单表所在小节的标题形状（**内容锚**，不用行号）。 */
+const BACKLOG_SECTION_RE = /^##\s+1\.\s/;
+/** 台账里一行缺陷登记的**首格**形态：`| **D<N>** |`。 */
+const BACKLOG_ROW_RE = /^\|\s*\*\*D(\d{1,4})\*\*\s*\|/;
+
+/**
+ * 一行台账登记的**归一化全文**（逐格去首尾空白 + 压掉内部空白串）。
+ * 用来判"两行是不是同一条被写了两遍"：
+ * 空白差异**不算**内容不同（复制粘贴时空白常被吃掉），词句不同就是**两件事** ——
+ * 两种形态的改法不一样，红因必须分开说（与 DI2 同口径）。
+ */
+function normBacklogRow(line) {
+  return line
+    .split("|")
+    .map((s) => s.trim().replace(/\s+/g, " "))
+    .join(" | ");
+}
+
+/** 读缺陷台账 §1，取出认领了 D 编号的登记行。 */
+function readBacklogRows() {
+  if (!fs.existsSync(BACKLOG)) {
+    return { error: `读不到缺陷台账文件：${BACKLOG}` };
+  }
+  const lines = fs.readFileSync(BACKLOG, "utf8").split("\n");
+  const sec = lines.findIndex((l) => BACKLOG_SECTION_RE.test(l));
+  if (sec < 0) {
+    return {
+      error: `缺陷台账里找不到「## 1. …」小节（缺陷清单那一节）`,
+    };
+  }
+  let end = lines.length;
+  for (let i = sec + 1; i < lines.length; i++) {
+    if (/^##\s/.test(lines[i])) {
+      end = i;
+      break;
+    }
+  }
+  const rows = [];
+  for (let i = sec + 1; i < end; i++) {
+    const m = lines[i].match(BACKLOG_ROW_RE);
+    if (!m) continue;
+    rows.push({ n: Number(m[1]), line: i + 1, text: lines[i] });
+  }
+  return { rows, sec, end };
+}
+
+const backlog = readBacklogRows();
+
+/**
+ * 缺陷台账这一族的判据（**DI3** 唯一性 / **DI4** 判据自证）。
+ *
+ * 抽成独立函数是**为了让判据级负对照能干净地把它摘掉**：
+ * 自测里把门禁源码复制到 tmp、把调用它的那一行换掉 ⇒ 同一注入必须转绿，
+ * 证明那条红**确实是它**判出来的（而不是别的判据碰巧撞出来的）。
+ */
+function checkBacklogProblems(bk) {
+  const out = [];
+  if (bk.error) {
+    out.push(
+      `[DI4] ${bk.error} —— D 编号这一族没有比对对象，` +
+        `本门禁此时对缺陷号**空跑**，空跑的门禁等于没有门禁，所以判红。`
+    );
+    return out;
+  }
+  if (!bk.rows.length) {
+    out.push(
+      `[DI4] 缺陷台账 §1（第 ${bk.sec + 1}–${bk.end} 行）里一条「| **D<N>** |」都认不出来 —— ` +
+        `要么台账的写法变了，要么认领格式被改掉了。此时 D 编号这一族的判据**空跑**，` +
+        `空跑的门禁等于没有门禁，所以判红。`
+    );
+    return out;
+  }
+  const byNum = new Map();
+  for (const row of bk.rows) {
+    if (!byNum.has(row.n)) byNum.set(row.n, []);
+    byNum.get(row.n).push(row);
+  }
+  const maxN = Math.max(...bk.rows.map((r) => r.n));
+  for (const [n, list] of byNum) {
+    if (list.length < 2) continue;
+    /* 两种形态，红因和改法必须分开说（与 DI2 同口径，见文件头）：
+       ① 归一化后逐字相同 ⇒ **同一条被写了两遍**（重复登记）→ 删掉重复的那一行；
+       ② 词句不同 ⇒ 真正的同号两义 → 把其中一条改成下一个空号（最大号 + 1）。 */
+    const texts = [...new Set(list.map((r) => normBacklogRow(r.text)))];
+    const where = list.map((r) => r.line).join(" / ");
+    if (texts.length === 1) {
+      out.push(
+        `[DI3] 缺陷 **D${n}** 在台账 §1 里被 ${list.length} 行认领，` +
+          `而这几行**是同一条被写了两遍**（归一化后逐字相同；第 ${where} 行）—— ` +
+          `这**不是同号两义**：按号查只查得到**一件**事，多出来那行是纯冗余，` +
+          `但它会让"这一号对应几件事"算错、也让台账白占一个位置。` +
+          `改法：**删掉重复的那一行**（⚠️ 不要改成下一个空号 —— ` +
+          `给同一件事造第二个号，本人会以为有两件事要看）。`
+      );
+      continue;
+    }
+    out.push(
+      `[DI3] 缺陷 **D${n}** 在台账 §1 里被 ${list.length} 行**不同的登记**认领` +
+        `（第 ${where} 行）：` +
+        list
+          .map((r) => `「${r.text.replace(BACKLOG_ROW_RE, "").trim().slice(0, 40)}」`)
+          .join(" ｜ ") +
+        ` —— 一个号两件事，按号查会查到错的那一条。` +
+        `改法：把其中一条改成**下一个空号 D${maxN + 1}**` +
+        `（若有多条要改号，按 D${maxN + 1}、D${maxN + 2}… 顺次取），` +
+        `并同步它在台账别处的引用。`
+    );
+  }
+  return out;
+}
+
 /* ---------- DI2：台账内一个编号只能被一条登记认领 ---------- */
 if (ledger) {
   const byNum = new Map();
@@ -314,9 +451,12 @@ if (ledger) {
   }
 }
 
+/* ---------- DI3 / DI4：缺陷台账（D 编号）这一族 ---------- */
+for (const p of checkBacklogProblems(backlog)) problems.push(p);
+
 /* ---------- 汇总 ---------- */
 if (problems.length) {
-  console.error("待拍板编号唯一性门禁未通过：\n");
+  console.error("编号唯一性门禁未通过：\n");
   problems.forEach((p) => console.error(`  ✗ ${p}`));
   console.error("");
   process.exit(1);
@@ -389,13 +529,32 @@ lines.forEach((l, i) => {
 const declFormA = decls.filter((d) => d.form === "A").length;
 const declFormB = decls.filter((d) => d.form === "B").length;
 
+/* 缺陷台账这一族的**统计**（与判据分开算：统计是"事实"，判据是"该不该红"）。
+   ⚠️ 统计**不依赖 DI3 是否被摘掉** —— 这样"把判据摘掉"这种负对照跑出来的
+   通过文案仍然如实报出"有几个号被多行认领"，不会因为判据没了就跟着说"没问题"。 */
+const bkRows = backlog.rows || [];
+const bkNums = [...new Set(bkRows.map((r) => r.n))].sort((a, b) => a - b);
+const bkDupNums = [...new Set(bkRows.map((r) => r.n))]
+  .filter((n) => bkRows.filter((r) => r.n === n).length > 1)
+  .sort((a, b) => a - b);
+const bkMaxN = bkNums.length ? bkNums[bkNums.length - 1] : 0;
+
 console.log(
-  `待拍板编号唯一性门禁通过：中央待决策段（第 ${ledger.start}–${ledger.end} 行）` +
+  `编号唯一性门禁通过：中央待决策段（第 ${ledger.start}–${ledger.end} 行）` +
     `共 ${ledger.entries.length} 条登记条目，其中 ${claims.length} 条**显式写了编号**` +
     `（认领的号：${ledgerNums.join("、") || "无"}）；` +
     `台账内一个编号只被一条登记认领；` +
     `这 ${ledgerNums.length} 个号与日志别处的同号声明逐条比对了 ${comparedPairs} 对，` +
     `没有一对指向两件不同的事（"同一件事"门槛 = 最长公共子串 ≥ ${SAME_THING_LCS} 字，实测同一件事 ≥ 15、真同号两义 = 6）。`
+);
+console.log(
+  `  · 缺陷台账（docs/DEFECT-BACKLOG.md）§1：${backlog.error ? "**读不到/定位不到**" : ""}` +
+    `${bkRows.length} 行登记、${bkNums.length} 个号` +
+    (bkNums.length ? `（D${bkNums[0]}–D${bkMaxN}）` : "") +
+    `，其中被多行认领的号 ${bkDupNums.length} 个` +
+    (bkDupNums.length ? `（${bkDupNums.join("、")}）` : "") +
+    ` —— 缺陷号是**另一套命名空间**（与「待拍板 N」互不引用、不可混用），` +
+    `本门禁对两套号分别判红，**不做跨套比对**。`
 );
 console.log(
   `  ⚠️ 覆盖度（写实，不含糊）：\n` +

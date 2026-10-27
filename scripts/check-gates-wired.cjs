@@ -26,6 +26,38 @@
  *   GW4 自测脚本也要有人跑 —— scripts/ 下每个**自测脚本**
  *                  （test-*.cjs / test-*.sh）同样必须从 build 可达；
  *                  接不了的必须在本文件里显式登记（EXEMPT_SELFTEST）并写明理由。
+ *   GW5 手工脚本也要有人管 —— scripts/ 顶层那些**既不是门禁、也不是自测**的脚本
+ *                  （GW1 与 GW4 的文件名形状之间留着的那条缝）必须**二选一**：
+ *                  接在 build 链上，或登记在 MANUAL_TOOLS 里并写明它需要什么。
+ *                  登记不许留空理由、不许留已不存在的文件、不许既登记又接线。
+ *   GW6 登记必须**诚实** —— 登记项必须**点名**它 require 的每一个**未声明**第三方包
+ *                  （"未声明" = 不在 package.json 的依赖里 ⇒ 干净克隆里 npm ci 不会装它
+ *                  ⇒ 那个脚本在干净克隆里**跑不起来**）。没点名 ⇒ "它需要什么"这句话是空的。
+ *                  接在 build 链上的手工脚本则**不许**有未声明的第三方包（那会让 build 挂）。
+ *
+ * ⚠️ GW5 / GW6 为什么要加（2026-10-27 实测出来的洞，不是假想）：
+ *   GW1 的文件名形状是 `^(check|verify)-.*\.cjs$`，GW4 的是 `^test-.*\.(cjs|sh)$` ——
+ *   **两者之间留着一条缝**：顶层那些既不是门禁、也不是自测的脚本，谁都不管。
+ *   本轮实测缝里躺着这几个：`lighthouse-runner.js` / `slow3g-runner.js` /
+ *   `screenshot.js` / `screenshot-paper.js`（另有两个 Python 小工具）。
+ *   其中两个**在干净克隆里根本跑不起来**：
+ *     · `lighthouse-runner.js` 依赖**仓外**的 lighthouse（实测装在 /tmp/screenshot-tool/node_modules，
+ *       本轮该路径已被清空）；
+ *     · `slow3g-runner.js` / `screenshot.js` / `screenshot-paper.js` 依赖 `puppeteer-core`，
+ *       而它**既不在 package.json、也不在 package-lock.json 里**，只在本机 node_modules 里存在
+ *       ⇒ `npm ci` 会把它清掉 ⇒ 干净克隆里一跑就炸。
+ *   更要命的是：这几个脚本内部**带着自己的自检**（"绝不记下一组属于 404 页的 FCP/LCP" 那种），
+ *   跑不起来 ⇒ 那几行自检是**死代码**，而**没有任何门禁能发现**（GW1 只管 check-*，
+ *   GW4 只管 test-*）⇒ 又是一例"看起来在、其实不生效"。
+ *   ⇒ GW5 要求它们**有人管**，GW6 要求那份登记**说的是真话**（机器可核对，不是靠人自觉）。
+ *
+ * ⚠️ GW6 的诚实边界（不写清楚就成了过度声称）：
+ *   机器能核对的只有一件事：**脚本 require 的包名 vs package.json 里声明过的包名**。
+ *   它**不能**核对"这个包在本机到底装没装"、"脚本跑起来对不对" ——
+ *   那些要真跑一次才知道。所以 GW6 判的是**登记与声明对不对得上**，
+ *   不是"这个工具现在能不能用"。
+ *   ⚠️ 依赖核对只覆盖 **Node 脚本的 require()**；Python 小工具本轮只登记、
+ *     不做依赖核对（实测它们的 import 全是标准库）。
  *
  * ⚠️ GW4 为什么要加（2026-10-20 实测出来的洞，不是假想）：
  *   GW1 的文件名形状是 `^(check|verify)-.*\.cjs$` —— **自测脚本不在它的视野里**。
@@ -140,6 +172,97 @@ const EXEMPT_SELFTEST = {
     "本门禁自己的自测：在临时沙箱里反复起门禁跑注入矩阵，手动跑。" +
     "同属「自测要不要进 build 链」那一族待决事项。",
 };
+
+/* ---------- 手工工具（GW5 / GW6） ----------
+   GW1 管 check- 与 verify- 开头的，GW4 管 test- 开头的 —— **两者之间那条缝**里躺着
+   scripts/ 顶层的其它可执行脚本。它们既不是门禁、也不是自测，
+   但**确实会被跑**（手动跑），而且内部往往带着自己的自检。
+   GW5：它们要么接在 build 链上，要么登记在这里并写明它需要什么。 */
+
+const MANUAL_FILE_RE = /\.(cjs|mjs|js|py|sh)$/;
+
+/* 手工工具的显式登记：接不进 build 链的那些，必须在这里登记并写明理由，
+   **并且点名它 require 的每一个未声明第三方包**（GW6 机器核对）。
+   理由写在源码里（不是日志里）—— 日志不会被 CI 读到。
+
+   ⚠️ 登记 = "承认它现在没人自动跑"，**不等于**"它该接进 build 链"。
+   接不接是本人拍板（"自测/手工工具要不要进 build 链"那一族待决事项），
+   本门禁只登记事实、不代拍。
+
+   2026-10-27（GW5 / GW6 落地时）逐条登记 —— 全是**实测**出来的：
+     · lighthouse-runner.js —— 依赖**仓外**的 lighthouse 包（实测装在
+       /tmp/screenshot-tool/node_modules，本轮该路径已被清空 ⇒ 现在跑不起来），
+       还需要本机 Chrome 与一个本地静态服务器。
+     · slow3g-runner.js / screenshot.js / screenshot-paper.js —— 依赖
+       puppeteer-core，而它**既不在 package.json、也不在 package-lock.json 里**，
+       只在本机 node_modules 里存在 ⇒ `npm ci` 会清掉 ⇒ 干净克隆里跑不起来；
+       三个脚本都把本机 Chrome 路径写死在 macOS 的 app bundle 路径上。
+     · contrast_check.py —— 纯标准库（实测 import 只有 os / re / sys），
+       读 src/assets/css/tokens.css 现场算对比度；不进 build 链
+       （build 链里的对比度判定是 Node 那一套，两边口径不同，本轮不合并）。
+     · _contrast_predict.py —— 一次性的预演脚本（带一组 PROPOSED 取值），
+       纯标准库；不进 build 链。 */
+const MANUAL_TOOLS = {
+  "lighthouse-runner.js":
+    "手工工具（不进 build 链）：需要**仓外**的 lighthouse 包 —— 实测装在 " +
+    "/tmp/screenshot-tool/node_modules（本轮该路径已被清空 ⇒ 现在跑不起来），" +
+    "lighthouse 既不在 package.json 的依赖里、也不在锁文件里；" +
+    "还需要本机 Chrome（CDP 端口）与一个本地静态服务器" +
+    "（先 `cd _site && python3 -m http.server 8765`）。",
+  "slow3g-runner.js":
+    "手工工具（不进 build 链）：需要 puppeteer-core 与本机 Chrome" +
+    "（脚本把 Chrome 路径写死在 macOS 的 app bundle 路径上）。" +
+    "⚠️ puppeteer-core **既不在 package.json、也不在 package-lock.json 里** —— " +
+    "它只在本机 node_modules 里存在 ⇒ `npm ci` 会把它清掉 ⇒ 干净克隆里跑不起来。",
+  "screenshot.js":
+    "手工工具（不进 build 链）：需要 puppeteer-core 与本机 Chrome" +
+    "（脚本把 Chrome 路径写死在 macOS 的 app bundle 路径上）。" +
+    "⚠️ puppeteer-core **既不在 package.json、也不在 package-lock.json 里** —— " +
+    "它只在本机 node_modules 里存在 ⇒ `npm ci` 会把它清掉 ⇒ 干净克隆里跑不起来。",
+  "screenshot-paper.js":
+    "手工工具（不进 build 链）：需要 puppeteer-core 与本机 Chrome。" +
+    "⚠️ puppeteer-core **既不在 package.json、也不在 package-lock.json 里** —— " +
+    "它只在本机 node_modules 里存在 ⇒ `npm ci` 会把它清掉 ⇒ 干净克隆里跑不起来。",
+  "contrast_check.py":
+    "手工工具（不进 build 链）：读 src/assets/css/tokens.css 现场算 WCAG 对比度，" +
+    "只用标准库（实测 import 只有 os / re / sys），不需要额外安装任何东西。",
+  "_contrast_predict.py":
+    "手工工具（不进 build 链）：一次性预演脚本（带一组 PROPOSED 取值），" +
+    "只用标准库（实测无第三方 import），不需要额外安装任何东西。",
+};
+
+/* Node 内置模块 —— 不算第三方依赖。 */
+const BUILTIN_MODULES = new Set([
+  "assert", "buffer", "child_process", "cluster", "console", "constants", "crypto",
+  "dgram", "dns", "domain", "events", "fs", "http", "http2", "https", "inspector",
+  "module", "net", "os", "path", "perf_hooks", "process", "punycode", "querystring",
+  "readline", "repl", "stream", "string_decoder", "sys", "timers", "tls", "trace_events",
+  "tty", "url", "util", "v8", "vm", "wasi", "worker_threads", "zlib",
+]);
+
+/** 一个脚本 require 的**第三方包**（去重、排序；内置与本地文件不算）。 */
+function thirdPartyRequires(file) {
+  let src = "";
+  try {
+    src = fs.readFileSync(path.join(SCRIPTS_DIR, file), "utf8");
+  } catch (e) {
+    return [];
+  }
+  const re = /require\(\s*["']([^"']+)["']\s*\)/g;
+  const out = new Set();
+  let m;
+  while ((m = re.exec(src)) !== null) {
+    const spec = m[1];
+    if (spec.startsWith(".") || spec.startsWith("/")) continue; // 本地文件
+    if (spec.startsWith("node:")) continue; // node: 前缀的内置模块
+    const name = spec.startsWith("@")
+      ? spec.split("/").slice(0, 2).join("/")
+      : spec.split("/")[0];
+    if (BUILTIN_MODULES.has(name)) continue;
+    out.add(name);
+  }
+  return [...out].sort();
+}
 
 /* ---------- 读 package.json ---------- */
 if (!fs.existsSync(PKG)) {
@@ -311,6 +434,145 @@ for (const [file, reason] of Object.entries(EXEMPT_SELFTEST)) {
   }
 }
 
+/* ---------- GW5 / GW6：手工脚本也要有人管，而且登记得诚实 ---------- */
+
+/* scripts/ 顶层既不是门禁（GW1 家族）也不是自测（GW4 家族）的可执行脚本。
+   ⚠️ 这个集合是**形状**决定的（文件名），不是"我认得的那几个" ——
+   形状决定 ⇒ 以后新加一个脚本会**自动**落进 GW5 的管辖，不靠人记得登记。 */
+const manualFiles = fs
+  .readdirSync(SCRIPTS_DIR, { withFileTypes: true })
+  .filter((e) => e.isFile() && MANUAL_FILE_RE.test(e.name))
+  .filter((e) => !GATE_FILE_RE.test(e.name) && !SELFTEST_FILE_RE.test(e.name))
+  /* ⚠️ 排除 AppleDouble 旁挂文件（`._*`）：exFAT 卷上 macOS 会给每个文件生成一份
+     元数据副本（本机实测 scripts/ 下有 132 份）。它们**不在版本控制里**
+     （.gitignore 的 `._*` 命中），是卷的产物、不是仓库的文件 ——
+     不排除的话，门禁会去管一堆"仓里根本没有的文件"。 */
+  .filter((e) => !e.name.startsWith("._"))
+  .map((e) => e.name)
+  .sort();
+
+const manualWired = [];
+const manualRegistered = [];
+
+/** 每个手工脚本的**未声明第三方依赖**（不在 package.json 的依赖里）。 */
+function undeclaredDepsOf(files) {
+  const declared = new Set();
+  for (const key of [
+    "dependencies",
+    "devDependencies",
+    "optionalDependencies",
+    "peerDependencies",
+  ]) {
+    for (const name of Object.keys(pkg[key] || {})) declared.add(name);
+  }
+  const out = new Map();
+  for (const file of files) {
+    const un = thirdPartyRequires(file).filter((p) => !declared.has(p));
+    if (un.length) out.set(file, un);
+  }
+  return out;
+}
+
+/**
+ * GW5：手工脚本要么接在 build 链上、要么登记在 MANUAL_TOOLS 里并写明理由。
+ *
+ * 抽成独立函数是为了让**判据级负对照**能干净地把它摘掉：
+ * 自测里把门禁源码复制到 tmp、把调用它的那一行换掉 ⇒ 同一注入必须转绿，
+ * 证明那条红**确实是它**判出来的（而不是别的判据碰巧撞出来的）。
+ */
+function checkManualTools(files) {
+  const out = [];
+  if (!files.length) {
+    out.push(
+      `[GW5] scripts/ 顶层一个「既不是门禁、也不是自测」的脚本都认不出来 —— ` +
+        `扫描逻辑可能已经空跑（空跑的门禁等于没有门禁），判红。`
+    );
+    return out;
+  }
+  for (const file of files) {
+    const live = referencingScripts(file).filter((n) => REACHABLE.has(n));
+    if (live.length) {
+      manualWired.push(`${file}（${live.length} 个 npm script 引用）`);
+      continue;
+    }
+    if (MANUAL_TOOLS[file] !== undefined) {
+      manualRegistered.push(file);
+      continue;
+    }
+    out.push(
+      `scripts/${file} 既不是门禁（check-*/verify-*）、也不是自测（test-*），` +
+        `却**既不在 build 链上、也没在 MANUAL_TOOLS 里登记** —— ` +
+        `没有任何自动流程会碰它，源码里也没写清"它现在靠谁跑、它需要什么"。` +
+        `请在 package.json 里加一个 script 指向它并接进 build 链，` +
+        `或在 MANUAL_TOOLS 里登记并写明理由（GW5）。`
+    );
+  }
+  /* 登记必须有效、且不自相矛盾（与 GW2 / GW4 同一套纪律） */
+  for (const [file, reason] of Object.entries(MANUAL_TOOLS)) {
+    if (!files.includes(file)) {
+      out.push(
+        `MANUAL_TOOLS 里登记的 scripts/${file} 在 scripts/ 下已经不存在了 —— ` +
+          `删掉这条登记，别让名单烂在里面。`
+      );
+      continue;
+    }
+    if (typeof reason !== "string" || !reason.trim()) {
+      out.push(
+        `MANUAL_TOOLS 里登记的 scripts/${file} 没有写理由 —— ` +
+          `登记必须写明它需要什么、靠谁跑。`
+      );
+      continue;
+    }
+    const live = referencingScripts(file).filter((n) => REACHABLE.has(n));
+    if (live.length) {
+      out.push(
+        `scripts/${file} 既是 MANUAL_TOOLS 的登记项、又被接在 build 链上` +
+          `（${live.join(" / ")}）—— 状态自相矛盾。既然它已经接上了，` +
+          `就把这条登记删掉。`
+      );
+    }
+  }
+  return out;
+}
+
+/**
+ * GW6：登记必须**诚实** —— 脚本 require 的每一个**未声明**第三方包
+ * （不在 package.json 的依赖里 ⇒ 干净克隆里 `npm ci` 不会装它 ⇒ 那个脚本跑不起来）
+ * 都必须在登记里**被点名**；接在 build 链上的手工脚本则**不许**有未声明的包。
+ */
+function checkManualToolHonesty(files) {
+  const out = [];
+  const undeclaredMap = undeclaredDepsOf(files);
+  for (const [file, undeclared] of undeclaredMap) {
+    const live = referencingScripts(file).filter((n) => REACHABLE.has(n));
+    if (live.length) {
+      out.push(
+        `scripts/${file} 接在 build 链上（${live.join(" / ")}），` +
+          `却 require 了**未在 package.json 里声明**的包：${undeclared.join("、")} —— ` +
+          `干净克隆里 npm ci 不会装它 ⇒ build 会挂。` +
+          `改法：把它声明进 dependencies / devDependencies（并更新锁文件），` +
+          `或把这个脚本移出 build 链。`
+      );
+      continue;
+    }
+    const reason = MANUAL_TOOLS[file];
+    if (reason === undefined) continue; // 覆盖问题由 GW5 报（红因归属：不在这里重复报）
+    const unnamed = undeclared.filter((p) => !reason.includes(p));
+    if (unnamed.length) {
+      out.push(
+        `MANUAL_TOOLS 里 scripts/${file} 的登记**没有写明**它需要 ${unnamed.join("、")} —— ` +
+          `这些包它 require 了，却不在 package.json 的依赖里（只在本机 node_modules 里存在 ⇒ ` +
+          `npm ci 会清掉 ⇒ 干净克隆里跑不起来）。` +
+          `登记必须**点名每一个**未声明的第三方包，否则"它需要什么"这句话是空的（GW6）。`
+      );
+    }
+  }
+  return out;
+}
+
+for (const p of checkManualTools(manualFiles)) problems.push(p);
+for (const p of checkManualToolHonesty(manualFiles)) problems.push(p);
+
 /* ---------- 汇总 ---------- */
 if (problems.length) {
   console.error("门禁接线门禁未通过：\n");
@@ -333,8 +595,38 @@ const selfTestSummary =
   `⚠️ 该事项在日志里有**两个号**，而其中一个号在别处还指另外三件事，` +
   `**按号找会找错**，请按文字认领）——本门禁只保证它们不会变成` +
   `没人知道的孤儿，不代拍。`;
+const manualSummary =
+  `scripts/ 顶层「既不是门禁、也不是自测」的脚本 ${manualFiles.length} 个：` +
+  `${manualWired.length} 个接在 build 链上` +
+  (manualWired.length ? `（${manualWired.join("、")}）` : "") +
+  `，${manualRegistered.length} 个登记在 MANUAL_TOOLS 里` +
+  (manualRegistered.length ? `（${manualRegistered.join("、")}）` : "") +
+  `。`;
+/** GW6 的覆盖度自证：把"哪些脚本有未声明依赖、哪些已在登记里点名"写出来，
+ *  不许只报"通过" —— 没人看得见这一族到底被核过没有。 */
+const undeclaredMap = undeclaredDepsOf(manualFiles);
+const namedInRegistry = [...undeclaredMap.entries()].filter(([f, ps]) => {
+  const reason = MANUAL_TOOLS[f] || "";
+  return ps.every((p) => reason.includes(p));
+});
+const manualHonesty =
+  `GW6 逐个核对了这 ${manualFiles.length} 个脚本的第三方依赖：` +
+  `${undeclaredMap.size} 个脚本有**未声明**依赖（不在 package.json 里 ⇒ 干净克隆里 npm ci 不会装），` +
+  `其中 ${namedInRegistry.length} 个已在登记里**点名**` +
+  (undeclaredMap.size
+    ? `（${[...undeclaredMap.entries()]
+        .map(([f, ps]) => `${f} → ${ps.join("、")}`)
+        .join("；")}）`
+    : "") +
+  `。`;
 console.log(
   `门禁接线门禁通过：check-*/verify-* 家族的 ${wired.length + 1} 个门禁脚本` +
     `全部从 npm run build 可达（含本门禁自己）${exemptList}。` +
     `自测脚本：${selfTestSummary}`
+);
+console.log(`  · 手工工具：${manualSummary}${manualHonesty}`);
+console.log(
+  `  · ⚠️ 诚实边界：GW5 / GW6 判的是"**有没有人管**"与"**登记与声明对不对得上**"，` +
+    `**不判"这个工具现在能不能跑"**（那要真跑一次才知道）；` +
+    `登记的那些**仍然不会被 CI 自动跑**（手工工具要不要进 build 链属本人拍板）。`
 );
