@@ -31,6 +31,11 @@
  *        URL 属性值在匹配前会**解码 HTML 实体**并去掉制表符/换行
  *        （浏览器解析 href 时也是这么做的）⇒ `&#106;avascript:` 与 `java<TAB>script:`
  *        这类混淆**必须**一起抓住（实测它们在真实 Chrome 里会执行）。
+ *        ⚠ 协议必须落在**该位置的开头**（属性值的开头 / 字符串字面量的开头 / CSS 的
+ *        `url(` 后面）—— 早先那版是「整串搜子串」，于是正当写法被误伤
+ *        （第三轮独立复核实测 5 类假红：散文里提到 `javascript:`、正则字面量
+ *        `/javascript:/`、查询串里带这个词、`data-href`、`xlink:href`），
+ *        而那些误伤里的散文就在**已发布的 annotations.json**里 ⇒ 一句话就能把 build 弄红。
  *        ⚠ 事件处理属性这一族是 2026-10-27 独立复核**实测出来的回归**：
  *          早先只扫 URL 属性值 ⇒ `<button onclick="javascript:alert(1)">` 全绿，
  *          而它在真实 Chrome 里**会执行**（复核用 headless Chrome 实测 `__pwned=1`）。
@@ -44,6 +49,11 @@
  *      ⚠ 还必须**导出协议清单**（`SAFE_LINK_SCHEMES`）且**恰为** {http:, https:}：
  *        输入表是有限的 ⇒ 表外的协议（`intent:` 等）它抓不到；
  *        清单要是**数据**（导出出来可核对），藏在代码里就等于「判不出」⇒ 判红。
+ *      ⚠⚠ 清单**必须真被用上**：清单与行为可以**脱钩**（导出 {http:, https:}，
+ *        函数里却另写一份含 `intent:` 的数组）—— 第三轮独立复核实测：
+ *        那样清单检查全绿，而运行时 `isSafeLinkUrl("intent://…")` 实测返回 **true**。
+ *        ⇒ 静态再钉两条：模块源码里那个清单标识符必须**出现 ≥ 2 次**（声明 + 用在判定里），
+ *          且**不许读环境变量**（放行什么由环境决定 ⇒ 判据不是一个确定的函数）。
  *   US4 覆盖度自证 —— 产物里必须找得到那个纯模块、必须能 import 成功、产物 JS 文件数
  *      不得低于下限；**build 链里必须真的执行本门禁**（不是「提到过它的文件名」）；
  *      一处都没比过 / 判不出来 ⇒ **判红**（判不出 ≠ 没问题）。
@@ -51,11 +61,16 @@
  *      **不得产出 href**，除非它是**片段**链接（`#…`）。
  *      ⇒ 白名单模块是**唯一**能产出 href 的地方；渲染层一旦改回「把数据里的 URL
  *        直接写进 href」，这条判据当场判红。
- *      ⚠ 认的是**产出的写法**（对象键 `href:` / 属性赋值 `.href =` /
- *        `setAttribute("href", …)` / 拼出来的属性名），不是某一个正则 ——
- *        早先只认前两种 ⇒ `setAttribute("href", …)` 与 `{"href": …}` 能绕过去
- *        （独立复核实测：真实页面上真的渲染出了 `<a href="javascript:…">`，
- *        门禁却判绿并宣称 href 只来自白名单 —— 那是一句**不成立的结论**）。
+ *      ⚠ 认的是**产出的写法**，不是某一个正则 —— **五种**都要认：
+ *        对象键 `href:` / 下标赋值 `a["href"] =` / 属性赋值 `a.href =` /
+ *        `setAttribute("href", …)` / `setAttributeNS(null, "href", …)`（含大写属性名），
+ *        外加「拼出来的属性名」。
+ *        早先只认前两种 ⇒ 其余几种能绕过去（独立复核实测：真实页面上真的渲染出了
+ *        `<a href="javascript:…">`，门禁却判绿并宣称 href 只来自白名单 ——
+ *        那是一句**不成立的结论**；第三轮复核又补出下标赋值 / `setAttributeNS` /
+ *        大写属性名三种，headless Chrome **受信点击实测都会执行**）。
+ *      ⚠ 但要**放过正当写法**：站内跳转 `location.href = "…"`（那是导航）、
+ *        数据属性 `dataset.href` / `{"data-href": …}`、SVG 的 `xlink:href`、片段链接。
  *      ⚠ 这条判据是「形状级」的：它证的是「href 只来自白名单」，
  *        不证白名单本身放行了什么 —— 那是 US3 的活（两者互补）。
  *
@@ -131,18 +146,55 @@ const URL_CASES = [
   ["", false],
 ];
 
-/** 会**执行**的 URL 形态（`data:image/png` 这类只是显示的，不算）。 */
+/**
+ * 必须被**拒绝**的协议（实测行为，不靠表里那几条）。
+ * ⚠ 这张表是给「导出的清单」兜底的：清单说只放行 {http:, https:}，
+ *   但函数完全可以**另写一份数组**（导出的是清单、用的是另一份）⇒ 清单与行为脱钩。
+ *   ⇒ 这张表把「表外的危险协议」也钉一遍：只要函数放行了其中任何一个，就判红。
+ */
+const MUST_REJECT_SCHEMES = [
+  "javascript:",
+  "vbscript:",
+  "data:",
+  "file:",
+  "blob:",
+  "intent:",
+  "chrome:",
+  "chrome-extension:",
+  "about:",
+  "ftp:",
+  "mailto:",
+  "tel:",
+  "ws:",
+  "wss:",
+];
+
+/**
+ * 会**执行**的 URL 形态（`data:image/png` 这类只是显示的，不算）。
+ *
+ * ⚠ 只给「核心片段」，三种上下文各配一种**边界**（2026-10-27 第三轮独立复核的 F7 / F8 假红）：
+ *   · value —— HTML 属性值：协议必须在**值的开头**（`href="?q=javascript:x"` 的协议其实是相对 URL）；
+ *   · lit   —— 脚本体 / JS / JSON / XML 全文：协议必须在**字符串字面量的开头**
+ *     （散文里写一句「不要用 javascript: 链接」不是注入面；正则字面量 `/javascript:/` 也不是）；
+ *   · css   —— CSS：协议必须在 `url(` 后面。
+ *   ⇒ 早先那版是「整串搜子串」，于是**正当写法**被误伤（复核实测 5 类假红），
+ *     而那些误伤里的散文就在**已发布的 annotations.json**里 ⇒ 一句话就能把 build 弄红。
+ */
 const EXECUTABLE_URLS = [
-  { id: "js", re: /javascript\s*:/i, why: "javascript: —— 点开/加载即执行脚本" },
-  { id: "vbscript", re: /vbscript\s*:/i, why: "vbscript: —— 旧式脚本协议" },
-  { id: "data-html", re: /data\s*:\s*text\/html/i, why: "data:text/html —— 内联 HTML 文档，脚本照跑" },
+  { id: "js", core: "(?:javascript|vbscript)\\s*:", why: "javascript: —— 点开/加载即执行脚本" },
+  { id: "data-html", core: "data\\s*:\\s*text\\/html", why: "data:text/html —— 内联 HTML 文档，脚本照跑" },
   {
     id: "data-script",
-    re: /data\s*:\s*application\/(?:x-)?(?:java|ecma)script/i,
+    core: "data\\s*:\\s*application\\/(?:x-)?(?:java|ecma)script",
     why: "data:application/*script —— 内联脚本",
   },
-  { id: "data-svg", re: /data\s*:\s*image\/svg\+xml/i, why: "data:image/svg+xml —— SVG 里可以带脚本" },
+  { id: "data-svg", core: "data\\s*:\\s*image\\/svg\\+xml", why: "data:image/svg+xml —— SVG 里可以带脚本" },
 ];
+
+/** 三种上下文各自的边界（见上面那条注释）。 */
+const EXEC_VALUE_RE = EXECUTABLE_URLS.map((p) => ({ id: p.id, why: p.why, re: new RegExp("^\\s*" + p.core, "i") }));
+const EXEC_LIT_RE = EXECUTABLE_URLS.map((p) => ({ id: p.id, why: p.why, re: new RegExp("[\"'`]\\s*" + p.core, "i") }));
+const EXEC_CSS_RE = EXECUTABLE_URLS.map((p) => ({ id: p.id, why: p.why, re: new RegExp("url\\(\\s*[\"'`]?\\s*" + p.core, "i") }));
 
 /** 把字符串当 HTML 解析的 API（只看**赋值/调用**，不看裸词 —— 注释里提到不算）。 */
 const HTML_PARSING_APIS = [
@@ -179,6 +231,7 @@ const TEXT_EXT = new Set([
   ".htm",
   ".js",
   ".mjs",
+  ".cjs",
   ".css",
   ".json",
   ".xml",
@@ -379,7 +432,7 @@ function collectTextFiles() {
 }
 
 const textFiles = collectTextFiles();
-const jsFiles = textFiles.filter((f) => f.ext === ".js" || f.ext === ".mjs");
+const jsFiles = textFiles.filter((f) => f.ext === ".js" || f.ext === ".mjs" || f.ext === ".cjs");
 const htmlFiles = textFiles.filter((f) => f.ext === ".html" || f.ext === ".htm" || f.ext === ".svg");
 
 /* ================= US1：产物里不得有可执行 URL ================= */
@@ -391,7 +444,10 @@ if (US1_ON) {
       /* HTML / SVG：按**上下文**扫 —— URL 属性值、事件处理属性、内联脚本体、内联 style、srcdoc。 */
       for (const ctx of htmlContexts(stripBlockComments(f.text, f.ext))) {
         const normalized = stripUrlNoise(decodeEntities(ctx.text));
-        for (const p of EXECUTABLE_URLS) {
+        /* 「值」上下文（属性值 / 事件处理属性 / srcdoc）：协议必须在**值的开头**；
+           「脚本体」上下文：协议必须在**字符串字面量的开头**。 */
+        const table = ctx.kind === "内联脚本" ? EXEC_LIT_RE : EXEC_VALUE_RE;
+        for (const p of table) {
           /* `<img src="data:image/svg+xml,…">` 里的 SVG 是**惰性图片**：
              图片上下文里 SVG 不跑脚本（浏览器实测）⇒ 放过。
              ⚠ 只放过 `<img src>`；`<a href="data:image/svg+xml,…">` 点开是**导航**
@@ -406,17 +462,17 @@ if (US1_ON) {
         }
       }
     } else if (f.ext === ".css") {
-      /* CSS：全文扫，但**放过** data:image/svg+xml（CSS 里的 SVG 图片不执行脚本）。 */
+      /* CSS：扫 `url(` 后面；**放过** data:image/svg+xml（CSS 里的 SVG 图片不执行脚本）。 */
       const normalized = stripBlockComments(f.text, f.ext);
-      for (const p of EXECUTABLE_URLS) {
+      for (const p of EXEC_CSS_RE) {
         if (p.id === "data-svg") continue; // data:image/svg+xml 在 CSS 里合法
         if (p.re.test(normalized)) hits.push(`CSS：${p.why}`);
       }
     } else {
-      /* JS / JSON / XML / 文本：全文扫（JS 先剥注释）。 */
-      const base = f.ext === ".js" || f.ext === ".mjs" ? stripJsComments(f.text) : f.text;
+      /* JS / JSON / XML / 文本：全文扫，但协议必须在**字符串字面量的开头**。 */
+      const base = f.ext === ".js" || f.ext === ".mjs" || f.ext === ".cjs" ? stripJsComments(f.text) : f.text;
       const normalized = stripBlockComments(base, f.ext);
-      for (const p of EXECUTABLE_URLS) {
+      for (const p of EXEC_LIT_RE) {
         if (p.re.test(normalized)) hits.push(p.why);
       }
     }
@@ -468,11 +524,19 @@ if (!fs.existsSync(allowlistAbs)) {
   const probe = [
     `import * as mod from ${JSON.stringify(pathToFileURL(allowlistAbs).href)};`,
     `const cases = ${JSON.stringify(URL_CASES)};`,
+    `const mustReject = ${JSON.stringify(MUST_REJECT_SCHEMES)};`,
     `const out = {`,
     `  __hasFn__: typeof mod.isSafeLinkUrl === "function",`,
     `  __schemes__: Array.isArray(mod.SAFE_LINK_SCHEMES) ? mod.SAFE_LINK_SCHEMES : null,`,
+    `  __listedAllowed: null,`,
+    `  __mustReject: {},`,
     `};`,
-    `for (const c of cases) out[c[0]] = mod.isSafeLinkUrl ? mod.isSafeLinkUrl(c[0]) : null;`,
+    `const call = (u) => { try { return mod.isSafeLinkUrl(u); } catch (e) { return null; } };`,
+    `for (const c of cases) out[c[0]] = mod.isSafeLinkUrl ? call(c[0]) : null;`,
+    `if (mod.isSafeLinkUrl && Array.isArray(mod.SAFE_LINK_SCHEMES)) {`,
+    `  out.__listedAllowed = mod.SAFE_LINK_SCHEMES.map((s) => call(s + "//probe.invalid"));`,
+    `}`,
+    `for (const s of mustReject) out.__mustReject[s] = mod.isSafeLinkUrl ? call(s + "//probe.invalid") : null;`,
     `process.stdout.write("__US_PROBE__" + JSON.stringify(out));`,
   ].join("\n");
   const r = spawnSync(process.execPath, ["--input-type=module", "--eval", probe], {
@@ -527,7 +591,64 @@ if (US3_ON && allowlistState === "ok") {
     }
   }
 
-  /* ② 逐条核对输入表的放行/拒绝。 */
+  /* ② 导出的清单必须**真的被用上**（不许「导出一份、用另一份」）。
+     ⚠ 为什么要这条（2026-10-27 第三轮独立复核实测）：
+       复核把模块改成「导出的清单仍是 {http:, https:}，但函数里另写一份
+       ["http:", "https:", "intent:"]」⇒ 清单检查全绿，
+       而运行时 `isSafeLinkUrl("intent://…")` 实测返回 **true**（真放行了）。
+       ⇒ 清单与行为可以**脱钩**，光查清单等于没查。
+       ⇒ 静态再钉一条：模块源码里那个清单标识符必须**被用到**（出现 ≥ 2 次：
+         一次声明、一次用在判定里）—— 另写一份数组就绕不过去。
+       （行为侧另有「必须拒绝的协议」那张表兜底 ⇒ 两条一起才够。） */
+  let allowlistSrc = "";
+  try {
+    allowlistSrc = stripJsComments(fs.readFileSync(allowlistAbs, "utf8"));
+  } catch (e) {
+    reasons.push(`读不到白名单模块源码（${e.message}）—— 判不出清单有没有真被用上`);
+  }
+  if (allowlistSrc) {
+    /* ⚠ 白名单**不许读环境**（`process.env` / `import.meta.env`）：
+       放行什么由环境决定 ⇒ 门禁在构建机上判绿、在别的机器上判红（或者反过来），
+       「判据」本身就不是一个确定的函数（第三轮独立复核的 N4d 实测）。
+       ⇒ 静态判红。 */
+    if (
+      /\bprocess\s*(?:\?\.)?\s*env\b/.test(allowlistSrc) ||
+      /\bimport\s*(?:\?\.)?\s*meta\s*(?:\?\.)?\s*env\b/.test(allowlistSrc)
+    ) {
+      reasons.push(
+        `白名单模块读了环境变量（process.env / import.meta.env）—— ` +
+          `「放行什么」由环境决定 ⇒ 判据不是一个确定的函数（构建机上绿、别的机器上可能红）`
+      );
+    }
+    const uses = (allowlistSrc.match(/SAFE_LINK_SCHEMES/g) || []).length;
+    if (uses < 2) {
+      reasons.push(
+        `白名单模块里的协议清单标识符只出现了 ${uses} 次（只声明、没被判定用上）—— ` +
+          `清单与实际行为可能**脱钩**（实测：导出 {http:, https:} 而函数另放行 intent: 的模块能骗过清单检查）`
+      );
+    }
+  }
+
+  /* ③ 清单里的每个协议都必须**真的被放行**（清单说有、函数却不认 = 清单是假的）。 */
+  if (Array.isArray(probed.__listedAllowed)) {
+    probed.__listedAllowed.forEach((ok, i) => {
+      const s = probed.__schemes__[i];
+      if (ok === true) return;
+      reasons.push(`清单里的协议「${s}」实测**不被放行** —— 清单与行为不一致`);
+    });
+  }
+
+  /* ④ 表外的危险协议必须**实测被拒**（清单与行为脱钩时，这里会抓住）。 */
+  for (const s of MUST_REJECT_SCHEMES) {
+    const got = probed.__mustReject[s];
+    if (got === false) continue;
+    reasons.push(
+      `协议「${s}」实测**被放行**了${got === true ? "" : "（读不出）"} —— ` +
+        `白名单只该放行 http/https`
+    );
+  }
+
+  /* ⑤ 逐条核对输入表的放行/拒绝。 */
   for (const [u, expected] of URL_CASES) {
     const actual = probed[u];
     if (actual === expected) continue;
@@ -601,16 +722,24 @@ if (US4_ON) {
         if (SCRIPTS[m[1]] !== undefined) queue.push(m[1]);
       }
     }
-    /* ⚠ 判据是「build 链里**真的执行**本门禁」，不是「提到过它的文件名」——
+    /* ⚠ 判据是「build 链里**真的执行**本门禁，**而且它的退出码真的能停住 build**」——
        只看文件名的话，`echo "scripts/check-url-safety.cjs"` 也能骗过（实测复现：
        那样改完，check-gates-wired 与本门禁**双双判绿**，而门禁从未运行）。
-       ⇒ 要求可达脚本的命令里真的写着 `node scripts/<本门禁>`。 */
-    const invokedRe = new RegExp(`node\\s+(?:\\./)?scripts/${SELF.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`);
-    const invoked = Object.keys(SCRIPTS).filter((n) => seen.has(n) && invokedRe.test(SCRIPTS[n] || ""));
+       ⚠⚠ 只看「命令里含这句」**同样**能骗过（2026-10-27 第三轮独立复核实测）：
+         `node scripts/check-url-safety.cjs || true` ← 门禁判红了，build 照样过（退出码被吞）；
+         `# node scripts/check-url-safety.cjs`      ← 整条被注释掉，门禁**从不运行**；
+       这两种改法下旧口径的 US4 都判绿 ⇒ 「看起来在守、其实不生效」。
+       ⇒ 因此要求那条脚本的命令**逐字**等于 `node scripts/<本门禁>`
+         （本门禁不接受任何参数 ⇒ 多的每一个 token 都可疑 ⇒ 判红）。 */
+    const expectCmd = `node scripts/${SELF}`;
+    const invoked = Object.keys(SCRIPTS).filter(
+      (n) => seen.has(n) && (SCRIPTS[n] || "").trim() === expectCmd
+    );
     if (!invoked.length) {
       us4Reasons.push(
-        `门禁自己被卸掉了：package.json 的 build 链里没有任何可达脚本真的执行 ` +
-          `node scripts/${SELF}（光提到文件名不算）`
+        `门禁自己被卸掉了：package.json 的 build 链里没有任何可达脚本的命令**逐字**等于 ` +
+          `「${expectCmd}」（光提到文件名不算；带「|| true」、注释、参数也不算 —— ` +
+          `那几种都让门禁的退出码失效或根本不运行）`
       );
     }
   }
@@ -636,30 +765,58 @@ if (US5_ON) {
      早先只认 `href:` 与 `href =` ⇒ `setAttribute("href", …)` 与 `{"href": …}`
      这两种**同样自然**的写法能绕过去（2026-10-27 独立复核实测：把渲染层改成
      绕道后，真实页面上真的渲染出了 `<a href="javascript:…">`，门禁却判绿，
-     还宣称「href 只来自白名单模块」—— 那是一句**不成立的结论**）。 */
+     还宣称「href 只来自白名单模块」—— 那是一句**不成立的结论**）。
+     ⚠ 第三轮复核又补出三种同样自然的写法：`a["href"] = u`、大小写不同的
+     `setAttribute("HREF", u)`、`setAttributeNS(null, "href", u)`
+     （复核用 headless Chrome 受信点击实测：三者**都会执行**）⇒ 一并认。
+     ⚠ 同时要**放过正当写法**（复核实测的假红）：
+       `location.href = "/en/papers/"`（那是**导航**，不是 href 属性）、
+       `dataset.href = u`（那是 `data-href`）、`{"data-href": u}`、`{"xlink:href": u}`
+       （SVG 的 xlink:href 在现代浏览器里是惰性的）。 */
   const SHAPES = [
-    /* 对象键：`href:` / `"href":` / `'href':` / `` `href`: `` —— 引号是**键的一部分**，
-       漏掉它就漏掉了 `{"href": …}` 这种同样自然的写法（独立复核实测的 N2）。 */
-    { re: /\bhref\b["'`]?\s*:/g, why: "对象字面量里的 href 键" },
-    { re: /\.href\s*=/g, why: "href 属性赋值" },
-    { re: /setAttribute\s*\(\s*(["'`])\s*href\s*\1/g, why: 'setAttribute("href", …)' },
+    /* 对象键：href: / "href": / 'href': / `href`:（引号必须成对 ⇒ `data-href` / `xlink:href` 不会命中） */
+    { re: /(?<![\w.\-:])(["'`]?)href\1\s*:/gi, why: "对象字面量里的 href 键" },
+    /* 下标赋值：a["href"] = u / a['href'] = u / a[`href`] = u */
+    { re: /(?<![\w.\-:])["'`]href["'`]\s*\]\s*=(?!=)/gi, why: "href 下标赋值" },
+    /* 点赋值：a.href = u（放过 location.href = 与 dataset.href =） */
+    {
+      re: /([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*)\.href\s*=(?!=)/g,
+      why: "href 属性赋值",
+      exempt: (m) => /(?:^|\.)(location|dataset)$/i.test(m[1]),
+    },
+    /* setAttribute / setAttributeNS 的第一个参数是 "href"（大小写不敏感） */
+    { re: /setAttribute(?:NS)?\s*\(\s*(?:null\s*,\s*)?["'`]href["'`]/gi, why: 'setAttribute("href", …)' },
+    /* setAttribute 的属性名是拼出来的（静态看不出它是不是 href ⇒ 一律判红） */
     { re: /setAttribute\s*\(\s*(["'`][^"'`]*["'`]\s*\+\s*)+/g, why: "setAttribute 的属性名是拼出来的" },
   ];
 
-  for (const f of jsFiles) {
-    if (path.resolve(f.abs) === path.resolve(allowlistAbs)) continue; // 白名单模块自身除外
-    const code = stripJsComments(f.text);
+  const scanCode = (code, where) => {
     for (const shape of SHAPES) {
       shape.re.lastIndex = 0;
       let m;
       while ((m = shape.re.exec(code)) !== null) {
+        if (shape.exempt && shape.exempt(m)) continue; // 正当写法（如 location.href = 导航）
         const tail = code.slice(m.index + m[0].length, m.index + m[0].length + 160);
         /* 只放过**片段**链接（"#…"）；其余一律判红 ——
            片段是站内锚点，写死在前端代码里；把数据里的 URL 写进 href 就是绕过白名单。 */
-        if (/^\s*[:,]?\s*["'`]#/.test(tail)) continue;
+        if (/^\s*[:,=]?\s*["'`]#/.test(tail)) continue;
         const line = code.slice(0, m.index).split("\n").length;
-        offenders.push(`${f.rel}:${line}（${shape.why}：${tail.trim().slice(0, 40)}）`);
+        offenders.push(`${where}:${line}（${shape.why}：${tail.trim().slice(0, 40)}）`);
       }
+    }
+  };
+
+  for (const f of jsFiles) {
+    if (path.resolve(f.abs) === path.resolve(allowlistAbs)) continue; // 白名单模块自身除外
+    scanCode(stripJsComments(f.text), f.rel);
+  }
+  /* ⚠ 还要扫 **HTML 内联脚本**：渲染层完全可能整块挪进页面里的
+   *   `<script type="module">` ⇒ 只扫 .js 文件就失管了（第三轮独立复核实测）。
+   *   内联脚本里不可能有「白名单模块」那个文件路径 ⇒ 一律按「非白名单」处理。 */
+  for (const f of htmlFiles) {
+    for (const ctx of htmlContexts(f.text)) {
+      if (ctx.kind !== "内联脚本") continue;
+      scanCode(stripJsComments(ctx.text), `${f.rel}（内联脚本）`);
     }
   }
   if (offenders.length) {

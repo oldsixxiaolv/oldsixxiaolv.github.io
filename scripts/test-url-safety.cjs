@@ -213,6 +213,21 @@ const MUT = {
     pkg.scripts.build = `echo "scripts/${path.basename(GATE)}"`;
     fs.writeFileSync(p, JSON.stringify(pkg, null, 2));
   },
+  /** build 链里的门禁命令被「|| true」架空 ⇒ 只有 US4 应当红
+   *  （门禁判红了，build 的退出码却仍是 0 ⇒ 门禁形同虚设）。 */
+  wiringExitCodeSwallowed: ({ dir }) => {
+    const p = path.join(dir, "package.json");
+    const pkg = JSON.parse(fs.readFileSync(p, "utf8"));
+    pkg.scripts.build = `node scripts/${path.basename(GATE)} || true`;
+    fs.writeFileSync(p, JSON.stringify(pkg, null, 2));
+  },
+  /** build 链里的门禁命令被注释掉 ⇒ 只有 US4 应当红（门禁**从不运行**）。 */
+  wiringCommentedOut: ({ dir }) => {
+    const p = path.join(dir, "package.json");
+    const pkg = JSON.parse(fs.readFileSync(p, "utf8"));
+    pkg.scripts.build = `# node scripts/${path.basename(GATE)}`;
+    fs.writeFileSync(p, JSON.stringify(pkg, null, 2));
+  },
   /** 产物里只剩白名单模块（站点 JS 数量不足）⇒ 只有 US4 应当红。
    *  ⚠ 刻意**保留**白名单模块：早先那一档把整个 `assets/js` 删掉 ⇒ 那一档会**同时**
    *    触发「找不到白名单模块」⇒ 单独关掉「站点 JS 数量」那条子判据时它仍然判红
@@ -322,6 +337,80 @@ const MUT = {
       )
     );
   },
+  /** 白名单**导出**的清单与**实际行为**脱钩：导出仍是 {http:, https:}，
+   *  函数里却另写一份含 intent: 的数组 ⇒ 清单检查全绿，而运行时真放行 intent:。 */
+  allowlistDecoupledFromExport: ({ site }) => {
+    patch(site, ALLOWLIST_REL, (s) =>
+      s.replace(
+        "return SAFE_LINK_SCHEMES.includes(parsed.protocol);",
+        'return ["http:", "https:", "intent:"].includes(parsed.protocol);'
+      )
+    );
+  },
+  /** 渲染层整块挪进 **HTML 内联脚本**并直接写 href ⇒ 只有 US5 应当红
+   *  （只扫 .js 文件的话，渲染层挪进页面就失管了）。 */
+  renderInInlineScript: ({ site }) => {
+    patch(site, "index.html", (s) =>
+      s.replace(
+        "</body>",
+        "<script type=\"module\">\n" +
+          "const a = document.createElement(\"a\");\n" +
+          "a.href = \"https://example.com/paper\";\n" +
+          "</script>\n</body>"
+      )
+    );
+  },
+  /** 渲染层用下标赋值 a["href"] = u 绕过白名单 ⇒ 只有 US5 应当红。 */
+  renderBracketHref: ({ site }) => {
+    patch(site, path.join(PAPER_READER_REL, "annotations.js"), (s) =>
+      s.replace(
+        'el("a", attrs, `${l.label} →`)',
+        '(() => { const a = document.createElement("a"); a["href"] = l.url; return a; })()'
+      )
+    );
+  },
+  /** 渲染层用 setAttributeNS(null, "href", u) 绕过白名单 ⇒ 只有 US5 应当红。 */
+  renderSetAttributeNsHref: ({ site }) => {
+    patch(site, path.join(PAPER_READER_REL, "annotations.js"), (s) =>
+      s.replace(
+        'el("a", attrs, `${l.label} →`)',
+        '(() => { const a = document.createElement("a"); a.setAttributeNS(null, "href", l.url); return a; })()'
+      )
+    );
+  },
+  /** 渲染层用**大写**属性名 setAttribute("HREF", u) 绕过白名单 ⇒ 只有 US5 应当红。 */
+  renderUpperCaseHref: ({ site }) => {
+    patch(site, path.join(PAPER_READER_REL, "annotations.js"), (s) =>
+      s.replace(
+        'el("a", attrs, `${l.label} →`)',
+        '(() => { const a = document.createElement("a"); a.setAttribute("HREF", l.url); return a; })()'
+      )
+    );
+  },
+  /** 站内跳转 location.href = "…" ⇒ 期望**判绿**（那是导航，不是 href 属性）。 */
+  locationNavigation: ({ site }) => {
+    patch(site, path.join("assets", "js", "main.js"), (s) =>
+      `${s}\nlocation.href = "/en/papers/";\n`
+    );
+  },
+  /** 数据属性 data-href / dataset.href ⇒ 期望**判绿**（那不是 href 属性）。 */
+  dataHrefAttribute: ({ site }) => {
+    patch(site, path.join("assets", "js", "main.js"), (s) =>
+      `${s}\nconst a = { "data-href": "/x" }; a.dataset.href = "/y";\n`
+    );
+  },
+  /** 散文里出现 "javascript:" 这个词 ⇒ 期望**判绿**（那是文档，不是注入面）。 */
+  proseMentionsScheme: ({ site }) => {
+    patch(site, path.join("assets", "js", "main.js"), (s) =>
+      `${s}\nconst note = "never emit javascript: URLs";\n`
+    );
+  },
+  /** 查询串里带 "javascript:"（协议其实是相对 URL）⇒ 期望**判绿**。 */
+  queryStringMentionsScheme: ({ site }) => {
+    patch(site, "index.html", (s) =>
+      s.replace("https://example.com/paper", "?q=javascript:foo")
+    );
+  },
   /** `<img src="data:image/svg+xml,…">` 里的 SVG 是惰性图片 ⇒ 期望**判绿**（不许假红）。 */
   inertSvgImage: ({ site }) => {
     patch(site, "index.html", (s) =>
@@ -358,6 +447,19 @@ const CASES = [
   { id: "SA24", label: "srcdoc 内联文档里带 <script>", mutate: MUT.srcdocInlineScript, expect: ["US1"] },
   { id: "SA25", label: "`<img src=data:image/svg+xml>` 是惰性图片（判绿对照，不许假红）", mutate: MUT.inertSvgImage, expect: null },
   { id: "SA26", label: "产物里一个 JS 文件都没有（连白名单模块都没了）", mutate: MUT.noJsFiles, expect: ["US4"] },
+  /* —— 2026-10-27 第三轮独立复核实测出来的洞 —— */
+  { id: "SA28", label: "接线被「|| true」架空（门禁红了 build 照样过）", mutate: MUT.wiringExitCodeSwallowed, expect: ["US4"] },
+  { id: "SA29", label: "接线被注释掉（门禁从不运行）", mutate: MUT.wiringCommentedOut, expect: ["US4"] },
+  { id: "SA30", label: "白名单导出清单与实际行为脱钩（函数另放行 intent:）", mutate: MUT.allowlistDecoupledFromExport, expect: ["US3"] },
+  { id: "SA31", label: "渲染层挪进 HTML 内联脚本并直接写 href", mutate: MUT.renderInInlineScript, expect: ["US5"] },
+  { id: "SA32", label: "渲染层用下标赋值 a[\"href\"] = u 绕过白名单", mutate: MUT.renderBracketHref, expect: ["US5"] },
+  { id: "SA33", label: "渲染层用 setAttributeNS(null, \"href\", u) 绕过白名单", mutate: MUT.renderSetAttributeNsHref, expect: ["US5"] },
+  { id: "SA34", label: "渲染层用大写属性名绕过白名单", mutate: MUT.renderUpperCaseHref, expect: ["US5"] },
+  /* —— 判绿对照：正当写法必须保持绿（第三轮复核指出「没有一档测假红」）—— */
+  { id: "SA35", label: "判绿对照：站内跳转 location.href = …", mutate: MUT.locationNavigation, expect: null },
+  { id: "SA36", label: "判绿对照：数据属性 data-href / dataset.href", mutate: MUT.dataHrefAttribute, expect: null },
+  { id: "SA37", label: "判绿对照：散文里提到 javascript: 这个词", mutate: MUT.proseMentionsScheme, expect: null },
+  { id: "SA38", label: "判绿对照：查询串里带 javascript:（协议其实是相对 URL）", mutate: MUT.queryStringMentionsScheme, expect: null },
 ];
 
 /* ========== 四、判据级负对照 ========== */

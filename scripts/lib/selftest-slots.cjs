@@ -357,7 +357,8 @@ const SLOTS = {
   "test-url-safety.cjs": [
     "SA0", "SA1", "SA2", "SA3", "SA4", "SA5", "SA6", "SA7", "SA8",
     "SA9", "SA10", "SA11", "SA12", "SA13", "SA14", "SA15", "SA16", "SA17",
-    "SA18", "SA19", "SA20", "SA21", "SA22", "SA23", "SA24", "SA25", "SA26", "SA27"
+    "SA18", "SA19", "SA20", "SA21", "SA22", "SA23", "SA24", "SA25", "SA26", "SA27",
+    "SA28", "SA29", "SA30", "SA31", "SA32", "SA33", "SA34", "SA35", "SA36", "SA37", "SA38"
   ],
   "test-verify-site.cjs": [
     "G-BASE", "INJ-0", "NEG-0", "INJ-1", "NEG-1", "INJ-2", "NEG-2", "INJ-3",
