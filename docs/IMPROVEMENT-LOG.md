@@ -31106,7 +31106,7 @@ macOS 上是**系统代理设置**（`scutil --proxy`），Linux / CI 上还有�
 - **自测**：`scripts/test-decision-ids.cjs` **18 档全绿**，静态清单守卫对账 **18/18**（少跑 / 多跑都没有）；`scripts/test-gates-wired-selftest.cjs` **15 档全绿** ＋ P0。
 - **红因归属纯净**（自测内断言）：M14 的输出**不含**“一个号两件事”、M15 的输出**不含**“删掉重复的那一行” ⇒ 两种形态的红因不会串。
 - **判据级负对照**：M17（摘掉 DI3 / DI4 ⇒ 同一注入转绿）、M14 of gates（摘掉 GW5 ⇒ 同一注入转绿）⇒ 那两条红**确实是这两条判据**判出来的。
-- **隔离克隆整链 build**：提交 `d857852` 上 —— `npm ci` exit 0 → `npm run build` **exit 0** → **36** 个产物、工作树干净；同一克隆里**顺手坐实了幽灵依赖**：`npm ci` 之后 `node_modules/puppeteer-core` **不存在**、`require('puppeteer-core')` **抛错**、`lighthouse` 本就不在本仓 `node_modules` 里。
+- **隔离克隆整链 build**：提交 `d857852`（代码）与 `5424c12`（含本节文档）**两个提交上均** —— `npm ci` exit 0 → `npm run build` **exit 0** → 各 **36** 个产物、工作树干净；同一克隆里**顺手坐实了幽灵依赖**：`npm ci` 之后 `node_modules/puppeteer-core` **不存在**、`require('puppeteer-core')` **抛错**、`lighthouse` 本就不在本仓 `node_modules` 里。
 
 ### E. 未验 / 线上那半
 
