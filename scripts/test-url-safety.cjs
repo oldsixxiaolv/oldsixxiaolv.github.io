@@ -213,7 +213,25 @@ const MUT = {
     pkg.scripts.build = `echo "scripts/${path.basename(GATE)}"`;
     fs.writeFileSync(p, JSON.stringify(pkg, null, 2));
   },
-  /** 产物里一个 JS 文件都没有 ⇒ 只有 US4 应当红。 */
+  /** 产物里只剩白名单模块（站点 JS 数量不足）⇒ 只有 US4 应当红。
+   *  ⚠ 刻意**保留**白名单模块：早先那一档把整个 `assets/js` 删掉 ⇒ 那一档会**同时**
+   *    触发「找不到白名单模块」⇒ 单独关掉「站点 JS 数量」那条子判据时它仍然判红
+   *    ⇒ 自测**证不了**那条子判据自己在起作用（2026-10-27 独立复核实测）。 */
+  tooFewJsFiles: ({ site }) => {
+    const jsDir = path.join(site, "assets", "js");
+    for (const name of fs.readdirSync(jsDir)) {
+      const p = path.join(jsDir, name);
+      if (fs.statSync(p).isDirectory()) {
+        for (const sub of fs.readdirSync(p)) {
+          if (path.join(p, sub) === path.join(site, ALLOWLIST_REL)) continue;
+          fs.rmSync(path.join(p, sub));
+        }
+      } else if (p !== path.join(site, ALLOWLIST_REL)) {
+        fs.rmSync(p);
+      }
+    }
+  },
+  /** 产物里一个 JS 文件都没有（连白名单模块都没了）⇒ 只有 US4 应当红。 */
   noJsFiles: ({ site }) => {
     fs.rmSync(path.join(site, "assets", "js"), { recursive: true, force: true });
   },
@@ -225,6 +243,33 @@ const MUT = {
         'el("a", { href: l.url, target: "_blank", rel: "noopener noreferrer" }, `${l.label} →`)'
       )
     );
+  },
+  /** 渲染层用 setAttribute("href", …) 绕过白名单 ⇒ 只有 US5 应当红。 */
+  renderSetAttributeHref: ({ site }) => {
+    patch(site, path.join(PAPER_READER_REL, "annotations.js"), (s) =>
+      s.replace(
+        'el("a", attrs, `${l.label} →`)',
+        '(() => { const a = document.createElement("a"); a.setAttribute("href", l.url); return a; })()'
+      )
+    );
+  },
+  /** 渲染层用带引号的对象键 {"href": …} 绕过白名单 ⇒ 只有 US5 应当红。 */
+  renderQuotedObjectHref: ({ site }) => {
+    patch(site, path.join(PAPER_READER_REL, "annotations.js"), (s) =>
+      s.replace(
+        'el("a", attrs, `${l.label} →`)',
+        'el("a", { "href": l.url }, `${l.label} →`)'
+      )
+    );
+  },
+  /** 渲染层**挪出 paper-reader 目录** ⇒ 仍要判红（目录不是护栏）。 */
+  renderMovedOutOfPaperReader: ({ site }) => {
+    const src = path.join(site, PAPER_READER_REL, "annotations.js");
+    const code = fs
+      .readFileSync(src, "utf8")
+      .replace('el("a", attrs, `${l.label} →`)', 'el("a", { href: l.url }, `${l.label} →`)');
+    fs.writeFileSync(path.join(site, "assets", "js", "reader.js"), code);
+    fs.rmSync(src);
   },
   /** HTML 内联脚本里出现 innerHTML ⇒ 只有 US2 应当红（真实浏览器里会执行）。 */
   inlineScriptParsesHtml: ({ site }) => {
@@ -250,6 +295,42 @@ const MUT = {
       `${s}\nconst CDN = "//cdn.example.com"; const u = "javascript:alert(1)";\n`
     );
   },
+  /** 事件处理属性里的脚本协议 ⇒ 只有 US1 应当红（真实 Chrome 里会执行）。 */
+  eventHandlerExecutableUrl: ({ site }) => {
+    patch(site, "index.html", (s) =>
+      s.replace("</body>", '<button onclick="javascript:alert(1)">x</button>\n</body>')
+    );
+  },
+  /** SVG 的 onload 里的脚本协议 ⇒ 只有 US1 应当红。 */
+  svgEventHandlerExecutableUrl: ({ site }) => {
+    patch(site, "index.html", (s) =>
+      s.replace("</body>", '<svg onload="javascript:alert(1)"></svg>\n</body>')
+    );
+  },
+  /** srcdoc 的内容会被当作文档执行 ⇒ 只有 US1 应当红。 */
+  srcdocInlineScript: ({ site }) => {
+    patch(site, "index.html", (s) =>
+      s.replace("</body>", '<iframe srcdoc="<script>alert(1)</script>"></iframe>\n</body>')
+    );
+  },
+  /** 白名单多放行一个**输入表以外**的协议 ⇒ 只有 US3 应当红（表抓不到，靠导出的清单抓）。 */
+  allowlistSchemeOutsideTable: ({ site }) => {
+    patch(site, ALLOWLIST_REL, (s) =>
+      s.replace(
+        'export const SAFE_LINK_SCHEMES = ["http:", "https:"];',
+        'export const SAFE_LINK_SCHEMES = ["http:", "https:", "intent:"];'
+      )
+    );
+  },
+  /** `<img src="data:image/svg+xml,…">` 里的 SVG 是惰性图片 ⇒ 期望**判绿**（不许假红）。 */
+  inertSvgImage: ({ site }) => {
+    patch(site, "index.html", (s) =>
+      s.replace(
+        "</body>",
+        '<img src="data:image/svg+xml,%3Csvg%3E%3C/svg%3E" alt="x">\n</body>'
+      )
+    );
+  },
 };
 
 /** 注入档：expect=null 表示期望判绿，否则期望判红且判据集合**恰为** expect。 */
@@ -266,7 +347,17 @@ const CASES = [
   { id: "SA9", label: "同一行里 `//` 之后的注入点", mutate: MUT.sameLineAfterSlashes, expect: ["US1"] },
   { id: "SA10", label: "白名单多放行 mailto:", mutate: MUT.allowlistExtraScheme, expect: ["US3"] },
   { id: "SA11", label: "build 链只提到门禁名、并不真的执行", mutate: MUT.wiringGutted, expect: ["US4"] },
-  { id: "SA12", label: "产物里一个 JS 文件都没有", mutate: MUT.noJsFiles, expect: ["US4"] },
+  { id: "SA12", label: "产物里只剩白名单模块（站点 JS 数量不足）", mutate: MUT.tooFewJsFiles, expect: ["US4"] },
+  /* —— 2026-10-27 第二轮独立复核实测出来的洞（F1–F10 修完后又暴露的）—— */
+  { id: "SA18", label: "事件处理属性 onclick 里出现脚本协议", mutate: MUT.eventHandlerExecutableUrl, expect: ["US1"] },
+  { id: "SA19", label: "SVG 的 onload 里出现脚本协议", mutate: MUT.svgEventHandlerExecutableUrl, expect: ["US1"] },
+  { id: "SA20", label: "渲染层用 setAttribute(\"href\", …) 绕过白名单", mutate: MUT.renderSetAttributeHref, expect: ["US5"] },
+  { id: "SA21", label: "渲染层用带引号的对象键 {\"href\": …} 绕过白名单", mutate: MUT.renderQuotedObjectHref, expect: ["US5"] },
+  { id: "SA22", label: "渲染层挪出 paper-reader 目录（目录不是护栏）", mutate: MUT.renderMovedOutOfPaperReader, expect: ["US5"] },
+  { id: "SA23", label: "白名单多放行输入表以外的协议", mutate: MUT.allowlistSchemeOutsideTable, expect: ["US3"] },
+  { id: "SA24", label: "srcdoc 内联文档里带 <script>", mutate: MUT.srcdocInlineScript, expect: ["US1"] },
+  { id: "SA25", label: "`<img src=data:image/svg+xml>` 是惰性图片（判绿对照，不许假红）", mutate: MUT.inertSvgImage, expect: null },
+  { id: "SA26", label: "产物里一个 JS 文件都没有（连白名单模块都没了）", mutate: MUT.noJsFiles, expect: ["US4"] },
 ];
 
 /* ========== 四、判据级负对照 ========== */
@@ -285,6 +376,26 @@ function unloadCriterion(src, crit) {
   if (!re.test(src)) return null;
   return src.replace(re, `const ${crit}_ON = false;`);
 }
+
+/* ========== 五、子判据级负对照 ========== */
+
+/**
+ * 判据级负对照只到 USn 这一级；US4 里面其实有**好几条**子判据
+ * （产物文件数 / 白名单模块找得到 / import 成功 / build 链真的执行 / 站点 JS 数量）。
+ * ⚠ 早先「站点 JS 数量」那条**没有独立负对照** ⇒ 把它关掉，自测仍然全绿
+ *   （2026-10-27 独立复核实测：关掉它，SA12 仍因别的子条件判红 ⇒ 自测证不了它）
+ *   ⇒ 那就等于没人知道它到底在不在。
+ * ⇒ 这一层把那条子判据**单独**卸掉，对应夹具必须转绿。
+ */
+const SUB_NEG_CASES = [
+  {
+    id: "SA27",
+    case: "SA12",
+    label: "卸掉 US4 的「站点 JS 数量」子判据",
+    target: "if (jsFiles.length < MIN_JS_FILES) {",
+    replace: "if (false) {",
+  },
+];
 
 /* ========== 执行 ========== */
 
@@ -470,6 +581,37 @@ console.log("\n四、判据级负对照");
         `${nc.id} 卸掉 ${nc.crit}（差异 ${diff} 行，行数不变）→ ` +
           `基线 {${nc.crit}} ⇒ 同一夹具转绿，零红因`
       );
+    }
+  }
+}
+
+/* ---- 五、子判据级负对照 ---- */
+console.log("\n五、子判据级负对照");
+{
+  for (const nc of SUB_NEG_CASES) {
+    if (!gateSrc.includes(nc.target)) {
+      bad(`${nc.id} → 门禁里找不到要卸掉的那条子判据（${nc.target}）`);
+      continue;
+    }
+    const patched = gateSrc.replace(nc.target, nc.replace);
+    const gateDir = fs.mkdtempSync(path.join(tmp, "gate-"));
+    const mirror = path.join(gateDir, "check-url-safety.cjs");
+    fs.writeFileSync(mirror, patched);
+    const base = runGate(GATE, fixtures[nc.case]);
+    const baseAttr = attribute(base.out);
+    if (!baseAttr.crits.includes("US4")) {
+      bad(`${nc.id} → 基线 ${nc.case} 的判据集合应含 {US4}，实测 {${baseAttr.crits.join(", ") || "空"}}`);
+      continue;
+    }
+    const r = runGate(mirror, fixtures[nc.case]);
+    const a = attribute(r.out);
+    if (r.code !== 0 || !r.out.includes("注入面门禁通过")) {
+      bad(`${nc.id} → ${nc.label} 后 ${nc.case} 夹具必须转绿（exit 0），实测 exit ${r.code}`);
+      console.log(r.out.split("\n").filter((l) => l.includes("✗")).join("\n"));
+    } else if (a.rows.length !== 0) {
+      bad(`${nc.id} → ${nc.label} 后 ${nc.case} 夹具判绿但仍有 ${a.rows.length} 条红因`);
+    } else {
+      ok(`${nc.id} ${nc.label} → 基线含 {US4} ⇒ 同一夹具转绿，零红因`);
     }
   }
 }
