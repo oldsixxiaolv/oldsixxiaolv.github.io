@@ -30656,3 +30656,163 @@ Node 22 撑到 2027-04-30、Node 24 撑到 2028-04-30）⇒ 继续用它跑部�
   更新动作就是**改门禁源码里的表**（改表不改声明才会被 DEP6 抓住）；
   ④ **依赖下限表目前只登记了 markdown-it 一个包**，CI Node 底线表也只有一条 ——
   机制已就位（登记新条只需加一行），但「要不要把依赖审计接进 CI 的独立 job」属**取舍**，未代拍。
+
+## 2026-10-27 · 巡检轮次：给**注入面**装上第一道看守 —— D108（注释外链走协议白名单 + 产物不得有可执行 URL）
+
+### A. 本轮定位
+
+上一轮治的是**依赖供应链**（漏洞检查从未生效、CI 在替第三方镜像取包、CI 用哪个 Node 没人管）。
+本轮往**产物本身**走一格：**注入面** —— 站点里那些「数据会变成 HTML」的地方。
+
+体检的结论是一句否定：**这一族零门禁看守。**
+
+### B. 体检（2026-10-27 逐项实测）
+
+**① 注释层把 URL 原样写进 `href`**（`src/assets/js/paper-reader/annotations.js`，改前）：
+
+```js
+el("a", { href: l.url, target: "_blank", rel: "noopener noreferrer" }, `${l.label} →`)
+```
+
+⇒ 一条**脚本协议**的 URL 会在**被点击时执行脚本**；`data:` 能把任意文档内联进来。
+
+**② 没有任何协议白名单**：`href` 直接取 JSON 里的字符串。
+
+**③ 全仓没有任何一道门禁查「可执行 URL」** —— 实测
+`grep -rn "javascript:" scripts/*.cjs` 只命中 `scripts/check-overflow.cjs` 的一句无关注释
+（那里讲的是「这类 URL 没有主机名」，与「能不能执行」无关）。
+
+**④ 渲染层还留着一条现成的注入原语**：`el()` 里有个走 `innerHTML` 的 `html:` 分支，
+**全仓零处使用**（实测 `grep -rn "html:" src/` = 0）却仍在 —— 数据一旦流进去就是脚本执行。
+
+**⑤ 但现状不是「正被攻击」**：本站注释数据是**仓库里的 `annotations.json`**（本人可控），
+实测 **12 条注释 / 6 条 links，协议全 https**；产物 35 个文件里可执行 URL **0 处**。
+
+⇒ 这是**看护缺口**，不是入侵。而缺口正是 D105 那类「检查从来没真正跑过」的温床：
+等它变成真实入侵面时，已经没有任何门禁会红。
+
+**⑥ 顺带扫了产物暴露面**（35 个文件）：`/Volumes/`、`yihanglv`、`127.0.0.1`、`npmmirror`、
+密钥/私钥/token 形态 —— **0 命中**；`localhost` 1 处（`_site/assets/js/main.js` 的注释）、
+`password` 1 处（CSS 的 `input[type="password"]`），均无害。
+
+### C. 修法：白名单实现 ＋ 门禁看守（两半都要）
+
+**① 白名单实现** —— 新建 `src/assets/js/paper-reader/url-safety.js`：
+
+- **无 DOM 依赖的纯函数模块**（不碰 `document`）⇒ 门禁能在 Node 里**真的 import 它**、喂一表输入、核对放行集合；
+- 用 **URL 解析器**判协议（不是字符串前缀比对）⇒ 空白、大小写、制表符、换行都绕不过
+  （URL 规范在解析前会去掉制表符与换行，所以 `"java\tscript:alert(1)"` 解析出来就是脚本协议）；
+- 导出 `SAFE_LINK_SCHEMES` / `isSafeLinkUrl(url)` / `externalLinkAttrs(url)`；
+- 渲染层改走 `externalLinkAttrs(l.url)`；不合格的链接**降级**成
+  `<span class="annot-link--unsafe">`（**不画箭头** —— 箭头会让人以为它能点；无下划线；`cursor: default`），
+  并用 `title` 说明为什么不可点；
+- `el()` 的 `html:` / innerHTML 分支**删除**（附「全仓零使用」的理由注释）。
+
+**② 门禁看守** —— 新建 `scripts/check-url-safety.cjs`（判据 **US1–US5**）+ 自测
+`scripts/test-url-safety.cjs`：
+
+| 判据 | 管什么 |
+|---|---|
+| **US1** | 产物里不得出现「点开/加载就会执行」的 URL（脚本协议 / `data:text/html` / `data:application/*script` / `data:image/svg+xml`）；扫描**按上下文**进行 |
+| **US2** | 站内 JS **与 HTML 内联脚本**不得把字符串当 HTML 解析（`innerHTML` / `outerHTML` / `insertAdjacentHTML` / `document.write` / `setHTMLUnsafe` / `document["write"]`） |
+| **US3** | 外链白名单**只放行 http/https**：在 Node 里**真的 import 产物里的那一份**、喂 **20** 条输入逐条核对；且白名单必须**导出协议清单**且**恰为** {http:, https:} |
+| **US4** | 覆盖度自证：产物里找得到那个模块、import 得动、站点 JS 文件数不低于下限，且 **build 链里真的执行** `node scripts/check-url-safety.cjs`（只提到文件名**不算**） |
+| **US5** | **全站** JS 里（白名单模块除外）**不得产出 href**（对象键 / 属性赋值 / `setAttribute` 三种写法都认；片段链接除外） |
+
+口径与 OWASP *Cross Site Scripting Prevention Cheat Sheet* 一致：不可信 URL 进 `href`/`src` 的样本防御就是
+「**Allow-list http and HTTPS URLs only (Avoid the JavaScript Protocol to Open a new Window)**」；
+其「Safe Sinks」把 `textContent` / `insertAdjacentText` / `createTextNode` 列为安全写法，
+并把 `setAttribute(safeName, …)` 列为安全 sink —— **前提是属性名是常量**（这一条直接支撑 US5 的形状级规则）。
+
+### D. 第一轮独立复核：**VERDICT: FAIL**（F1–F10）⇒ 逐条修完才提交
+
+本轮**先让 `verifier` 子代理独立复核**（它自己造探针、在副本上注入、并在 headless Chrome 里实测执行行为），
+第一轮结论 **FAIL**，10 条发现逐条处理：
+
+| | 严重度 | 发现 | 修法 |
+|---|---|---|---|
+| **F1** | 高 | 渲染层可**整体绕过**白名单，而门禁仍全绿 | 新增 **US5**（形状级规则把渲染层绑在白名单上） |
+| **F2** | 高 | US4 的接线只验「文件名出现过」 | 改成要求可达脚本命令里真的写着 `node scripts/check-url-safety.cjs` |
+| **F3** | 中 | 13 条探针 ≠「恰为 {http:, https:}」 | 探针表扩到 **20** 条（加 mailto:/tel:/ftp:/file:/blob:/data:image/svg+xml/含换行的脚本协议） |
+| **F4** | 中 | HTML 实体与制表符混淆漏检 | US1 改**按上下文**扫；URL 值匹配前**解码 HTML 实体**并**去制表符/换行** —— 复核用**真实 Chrome** 实测这 3 种混淆**都会执行** |
+| **F5** | 中 | 注释剥离正则吃掉同一行后面的注入点 | 改成**字符串感知**的迷你词法（字符串里的 `//` 不算注释） |
+| **F6** | 中 | HTML 内联脚本没扫 | US2 现在也扫 HTML 内联脚本体 |
+| **F7** | 低 | API 列表不全 | 补 `setHTMLUnsafe`、`document["write"]` |
+| **F8** | 低 | 假红（SVG 纯文本、CSS 的 `url(data:image/svg+xml)`） | 上下文化后不再误报；CSS 明确放过 svg+xml |
+| **F9** | 低 | US4 子判据只测了 1 个 | 自测补 SA11（接线被掏空）、SA12（产物无 JS） |
+| **F10** | 低 | 降级链接样式与误导箭头 | 新增 `.annot-link--unsafe`（无箭头、无下划线、`cursor: default`） |
+
+**F2 的关键证据**：把 build 链改成只 `echo "scripts/check-url-safety.cjs"`（**提到但从不执行**）后，
+旧的 US4 与自测**双双判绿** —— 而门禁从未运行过。改完后同一夹具立刻判红（SA11）。
+
+### E. 第二轮独立复核：**仍然 FAIL**（N1–N4）⇒ 再逐条修完才提交
+
+让**同一个**复核方用**同一批假绿探针**重跑修好后的门禁，结论仍是 FAIL，4 条新发现：
+
+| | 严重度 | 发现 | 修法 |
+|---|---|---|---|
+| **N1** | 高（**确认回归**） | US1 上下文化之后**丢了事件处理属性**：`<button onclick="javascript:alert(1)">`、`<svg onload="javascript:alert(1)">` 判绿，而复核用 headless Chrome 实测两者**都会执行**（`__pwned=1`）—— 比更早那版「全文扫」**还退了一步** | US1 的 HTML 上下文改为**按标签扫**（标签名＋属性名一起带出来），**事件处理属性**成为一等上下文；顺带把 `srcdoc` 单独当成「会被当作文档执行的 HTML」扫；放过 `<img src>` 里的惰性 SVG |
+| **N2** | 中 | US5 的判据形状可被两种**同样自然**的写法绕过：正则只认 `href:` / `href =` ⇒ `setAttribute("href", …)` 与 `{"href": …}` 能过；复核把渲染层改成绕道后，**真实页面真的渲染出了 `<a href="javascript:…">`**，而门禁判绿并宣称「href 只来自白名单模块」—— 那是一句**不成立的结论** | US5 改为认「**产出 href 的写法**」：对象键（引号包不包都认）/ 属性赋值 / `setAttribute` 的字面量属性名 / 拼出来的属性名 |
+| **N3** | 低 | US5 只扫 `assets/js/paper-reader/` ⇒ 渲染层**挪出该目录**即失管 | 改为扫**全站** JS（目录不是护栏，是当时的实现细节） |
+| **N4** | 低 | US3 是探针表 ⇒ 表外的协议（`intent:`）仍放行 | US3 增加断言：白名单必须**导出协议清单**且**恰为** {http:, https:} —— 输入表是有限的，表外协议只能靠清单抓；清单要藏在代码里就等于「判不出」⇒ 判红 |
+
+**另外两处残留也一并修掉**：
+
+- **US4 的「站点 JS 数量」子判据没有独立负对照** ⇒ 把它关掉，自测**仍然全绿**（那一档同时被
+  「找不到白名单模块」触发）⇒ **没人知道那条子判据在不在**。
+  ⇒ `MIN_JS_FILES` 提到 2、SA12 改成「只剩白名单模块」把那条子判据**单独**逼红，
+  并新增**子判据级负对照 SA27**（卸掉那条子判据 ⇒ SA12 必须转绿）。
+- `<img src="data:image/svg+xml,…">` 会被判红（SVG 在 `<img>` 里是**惰性图片**，浏览器不跑它的脚本）
+  ⇒ 放过，并加**判绿对照 SA25**（不许假红）。
+
+### F. 隔离克隆的整链 build 抓到的两个**本轮自己引入**的真缺陷
+
+**① 降级链接的提示文案是中文**（提交 `fe3b584`）。
+`title: "这条链接的协议不在允许清单里，未做成链接"` —— 而站内语言约定是**全站英文**
+（`src/_data/site.js` 的 locale 说明）⇒ `scripts/check-lang.cjs` 的 **LG1** 判红
+（`src/assets/js/paper-reader/annotations.js:304`）。
+⇒ 改成英文：`This link's scheme is not on the allow list, so it is not clickable`。
+**其余中文都在注释里**（LG1 剥掉注释后不判），不动。
+
+**这一条正是「先在隔离克隆里跑整链 build」的价值**：我在真仓只跑了逐个门禁，**没跑 `check:lang`** ⇒ 漏网了。
+克隆里那一次 build 的红因就指向它。
+
+**② 更早一次也红过**：门禁最初接在 build 链里 `eleventy` **之前** ⇒ 门禁读的是**上一次的旧产物**
+⇒ 「产物文本文件 0 个 / 站点 JS 0 个 + 找不到白名单模块」⇒ US4 判红（提交 `4abeab7` 把门禁移到 `eleventy` 之后）。
+
+### G. 验证
+
+- **真仓**：`check:url-safety` exit 0 —— 产物 **28** 个文本文件、**9** 个站点 JS、**10** 个 HTML/SVG、
+  **20** 条输入逐条核对过、白名单导出的协议清单恰为 http:/https:。
+- **自测** `scripts/test-url-safety.cjs` **28 档全过**：红因归属 **5** 条 / 判据 **5/5** /
+  注入 **21** 档（SA0–SA12 ＋ SA18–SA26）/ 判据级负对照 **5** 档（SA13–SA17）/
+  **子判据级负对照 1** 档（SA27）；仓库真源指纹前后一致（注入全程只在临时副本上做）。
+- **相关门禁**：`check:readme`（RD6 判据对账）、`check:selftest-guard`、`check:gates`、`check:site-js`、
+  `check:tracked-refs`、`check:css`、`check:dead-css-selftest`、`check:doc-reality`、
+  `check:writing-contract`、`check:lang`、`check:deps`、`check:log-sections`、`check:decision-ids` —— **全部 exit 0**。
+- **隔离克隆**（HEAD `0d38fce`）：整链 `npm run build` **exit 0**、工作树干净、产物 **36** 个文件
+  ⇒ 这道门禁只依赖仓库里的东西，不靠作者本机的残留。
+
+### H. 文档与纪律
+
+- `docs/DEFECT-BACKLOG.md`：新增 **D108** 一行（位置 / 现象 / 可判定的验收条件 / 状态逐条兑现）。
+- `docs/ROADMAP.md`：进度区新增本轮条目。
+- `docs/IMPROVEMENT-LOG.md`：本小节；中央「待决策」台账**不新增**待拍板项（最高仍是待拍板 58）。
+- `README.md`：命令表补 `check:url-safety` / `check:url-safety-selftest` 两行。
+- 提交走**私有索引 + commit-tree + update-ref CAS**，只提交本轮自己改的路径；**不 push**。
+- 探针与临时产物放 `/tmp/mh_d108/`（**不入库**）；提交拆成五步
+  （`b248fe6` 首版 → `4abeab7` build 链顺序 → `28b4cd5` 第一轮复核后重写 → `fe3b584` 中文文案 → `0d38fce` 第二轮复核后重写），
+  每次都**先在隔离克隆里验证过**再落下一步。
+- **不写死会变的存量数**；**不编造**任何数据、结论或引用。
+
+### 下一轮入口
+
+- **D105 / D106 / D107 / D108 的线上那半仍只差 push**：线上仍是 2026-10-16 旧部署 ⇒ CI 仍从第三方镜像取包、
+  仍**没有任何门禁**看着它用哪个 Node，线上产物里也**还没有**白名单模块与这道注入面门禁 ⇒ 与 **D6** 同一个前置。
+- **D5 / D12 / D93–D108** 同样卡在 push；**D9 / D10 / D26 / D32 / D57** 仍挂本人拍板；
+  **待拍板 56**（Google Fonts 自托管）、**待拍板 57**（Cloudflare 与安全响应头）、
+  **待拍板 58**（`github-pages` 环境的部署保护规则）**都不代拍**。
+- **本轮记下的候选**（不代拍）：① 仓库既有的 `check-site-js` 的 **JS6** 仍是「只看文件名」的旧口径
+  —— 与本轮 US4 的接线判据**同族问题**，但那是**仓库级系统性问题**（改它要连带改该门禁的既有语义与自测），
+  宜单独一轮处理；② `runs-on: ubuntu-latest`（三个 job）没钉具体镜像版本 ⇒ 构建环境不可复现；
+  ③ `package.json` 没有 `packageManager` 字段（npm 版本未钉）；④ 依赖下限表目前只登记了 markdown-it 一个包。
