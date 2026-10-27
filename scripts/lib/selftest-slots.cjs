@@ -132,7 +132,8 @@ const SLOTS = {
     "DT8", "DT9", "DT10"
   ],
   "test-deps.cjs": [
-    "DA0", "DA1", "DA2", "DA3", "DA4", "DA5", "DA6", "DA7", "DA8"
+    "DA0", "DA1", "DA2", "DA3", "DA4", "DA5", "DA6", "DA7", "DA8",
+    "DA9", "DA10", "DA11", "DA12", "DA13", "DA14", "DA15"
   ],
   "test-deploy-target.cjs": [
     "N0", "N1", "N2", "N3", "N4", "N5", "N6", "N7", "N8", "N9",

@@ -86,7 +86,7 @@ Cloudflare Pages、Nginx 等任意静态服务。详细运行 / 调试见 `HOW_T
 | `npm run check:tracked-refs` | TR1–TR6：已跟踪文件里引用的本地文件必须也已被 git 跟踪（代码文件的静态 require/import 与 HTML 页面的本地资源引用都在内，各带一条自证存活） |
 | `npm run check:tracked-refs-selftest` | 上面那道门禁的本地夹具自测（注入矩阵，在**临时 git 仓**上跑，证明它能变红；含 **判据级负对照**（逐条卸掉 TR1–TR6 后对应注入必须转绿）、**精准性负对照**、**覆盖度自证**（代码侧与 HTML 侧的数量都与夹具真实数量对账）、**故意判绿**（注释里 / 字符串里写着本地 require 的字样、HTML 里的站内绝对 URL、HTML 注释里的资源引用都不算引用 —— 补之前这几档是红的）；**红因归属纯净性断言**（每档红只许出现自己那一条判据的编号）） |
 | `npm run check:log-sections` | 改进日志的 `##` 节**只增不减**（历史全量核对） |
-| `npm run check:deps` | **依赖体检**（离线）：声明下限不得低于下限表（DEP1 —— 表记的是「低于这一版就中过招」的上游事实，与现在锁哪一版无关）、锁文件实际锁定的版本不得低于下限表（DEP2）、锁文件每个包条目都必须带 `integrity` 哈希（DEP3）、锁文件根声明必须与 `package.json` 逐字一致（DEP4 —— 不一致时 `npm ci` 直接失败、CI 会红，而本机看不出来） |
+| `npm run check:deps` | **依赖与运行时体检**（离线）：声明下限不得低于下限表（DEP1 —— 表记的是「低于这一版就中过招」的上游事实，与现在锁哪一版无关）、锁文件实际锁定的版本不得低于下限表（DEP2）、锁文件每个包条目都必须带 `integrity` 哈希（DEP3）、锁文件根声明必须与 `package.json` 逐字一致（DEP4 —— 不一致时 `npm ci` 直接失败、CI 会红，而本机看不出来）、**CI 用的 Node 版本必须同时满足 `package.json` 的 `engines` 与依赖树各包的 `engines` 下限**（DEP5 —— npm 对 engines 不匹配默认只警告不报错 ⇒ 声明与实际跑的运行时脱节没人看得见；各 setup-node 步骤还必须是同一个版本）、**CI 用的 Node 不得低于底线表**（DEP6 —— Node 20 已于 2026-04-30 结束支持；底线表独立于当前钉的版本，声明被放松也拦得住） |
 | `npm run check:deps-selftest` | 上面那道门禁的本地夹具自测（注入矩阵，在**副本**上注入，证明它能变红；含判据级负对照） |
 | `npm run check:dep-audit` | **依赖漏洞审计（联网，不在 build 链上）**：用 npm 官方源跑 `npm audit`，依赖树里有 high / critical 级公告就判红（DA1）。⚠️ 必须显式指定官方源 —— npm 镜像源**不实现 advisories 接口**（实测 404），在镜像源上跑 `npm audit` 永远报不出漏洞，却给人「已经查过了」的错觉 |
 | `npm run check:decision-ids` | 待拍板编号唯一性：一个编号只能指一件事（台账内外同号必须是同一件事） |

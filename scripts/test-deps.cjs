@@ -2,7 +2,7 @@
 /**
  * 依赖体检门禁的**自测** —— 四件套。
  *
- * 这道门禁判的是「依赖声明 / 锁文件 / 下限表」三者的一致性，
+ * 这道门禁判的是「依赖声明 / 锁文件 / 下限表 / **CI 用的 Node 版本**」四者的一致性，
  * 而「注入没生效」「改的是副本还是原件」「门禁自己被卸掉了」恰恰是最容易发生、
  * 也最不容易看出来的失败模式。所以自测必须回答四件事：
  *
@@ -37,9 +37,11 @@ const CAUSES = [
   { id: "DEP2", crit: "DEP2", frag: "实际锁定的版本低于下限表" },
   { id: "DEP3", crit: "DEP3", frag: "没有 integrity 哈希" },
   { id: "DEP4", crit: "DEP4", frag: "锁文件与 package.json 的声明不一致" },
+  { id: "DEP5", crit: "DEP5", frag: "CI 用的 Node 版本与声明/依赖树的要求对不上" },
+  { id: "DEP6", crit: "DEP6", frag: "CI 用的 Node 版本低于底线表" },
 ];
 /** 静态判据清单（门禁里应当且仅应当有这些判据）。 */
-const CRITERIA = ["DEP1", "DEP2", "DEP3", "DEP4"];
+const CRITERIA = ["DEP1", "DEP2", "DEP3", "DEP4", "DEP5", "DEP6"];
 
 /* ========== 工具 ========== */
 
@@ -102,13 +104,44 @@ const FLOOR_MIN = DEP_FLOORS[FLOOR_NAME].min;
 const LOW = belowVersion(FLOOR_MIN);
 const HIGH = aboveVersion(FLOOR_MIN);
 
-/** 夹具的 package.json / package-lock.json（合成，但形状与真仓一致）。 */
+/**
+ * 夹具的部署工作流（最小形态，但形状与真仓一致：两个 job、两个 setup-node 步骤）。
+ * CI 用的 Node 版本从**这里**读 ⇒ DEP5 / DEP6 的夹具改的就是这份文件。
+ */
+const FIXTURE_WORKFLOW = `name: Deploy MeteoHub to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Setup Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: 22
+          cache: npm
+
+  verify-live:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Setup Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: 22
+`;
+
+/** 夹具的 package.json / package-lock.json / 部署工作流（合成，但形状与真仓一致）。 */
 function fixtureState() {
   return {
     pkg: {
       name: "fixture",
       version: "1.0.0",
       private: true,
+      engines: { node: ">=22" },
       devDependencies: { [FLOOR_NAME]: `^${FLOOR_MIN}` },
     },
     lock: {
@@ -120,6 +153,7 @@ function fixtureState() {
         "": {
           name: "fixture",
           version: "1.0.0",
+          engines: { node: ">=22" },
           devDependencies: { [FLOOR_NAME]: `^${FLOOR_MIN}` },
         },
         [`node_modules/${FLOOR_NAME}`]: {
@@ -132,10 +166,12 @@ function fixtureState() {
           version: "1.0.0",
           resolved: "https://registry.npmjs.org/other-dep/-/other-dep-1.0.0.tgz",
           integrity: "sha512-BBBB",
+          engines: { node: ">=18" },
           dev: true,
         },
       },
     },
+    workflow: FIXTURE_WORKFLOW,
   };
 }
 
@@ -143,13 +179,16 @@ function fixtureState() {
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "mh-deps-selftest-"));
 
-/** 建一个夹具目录（只含门禁要读的两个文件），在副本上注入。 */
+/** 建一个夹具目录（门禁要读的三个文件），在副本上注入。 */
 function buildFixture(mutate) {
   const state = fixtureState();
   if (mutate) mutate(state);
   const dir = fs.mkdtempSync(path.join(tmp, "case-"));
   fs.writeFileSync(path.join(dir, "package.json"), JSON.stringify(state.pkg, null, 2));
   fs.writeFileSync(path.join(dir, "package-lock.json"), JSON.stringify(state.lock, null, 2));
+  const wfDir = path.join(dir, ".github", "workflows");
+  fs.mkdirSync(wfDir, { recursive: true });
+  fs.writeFileSync(path.join(wfDir, "deploy.yml"), state.workflow);
   return dir;
 }
 
@@ -183,7 +222,39 @@ const MUT = {
   desyncLock: (s) => {
     s.pkg.devDependencies[FLOOR_NAME] = `^${HIGH}`;
   },
+  /** CI 的 Node 降到 20（声明与依赖树只要求 18）⇒ 只有 DEP6 应当红。 */
+  ciBelowFloor: (s) => {
+    s.pkg.engines.node = ">=18";
+    s.lock.packages[""].engines.node = ">=18";
+    setCiNode(s, 20);
+  },
+  /** 依赖树里某个包要求 Node ≥ 24，CI 仍是 22 ⇒ 只有 DEP5 应当红。 */
+  depTreeNeedsNewer: (s) => {
+    s.lock.packages["node_modules/other-dep"].engines.node = ">=24";
+  },
+  /** package.json 自己要求 Node ≥ 24，CI 仍是 22 ⇒ 只有 DEP5 应当红。 */
+  pkgEnginesNeedNewer: (s) => {
+    s.pkg.engines.node = ">=24";
+    s.lock.packages[""].engines.node = ">=24";
+  },
+  /** 两个 setup-node 步骤用了不同的 Node 版本 ⇒ 只有 DEP5 应当红。 */
+  stepsDisagree: (s) => {
+    const idx = s.workflow.lastIndexOf("node-version: 22");
+    s.workflow =
+      s.workflow.slice(0, idx) +
+      "node-version: 24" +
+      s.workflow.slice(idx + "node-version: 22".length);
+  },
+  /** 某个 setup-node 步骤没写 node-version ⇒ 只有 DEP5 应当红。 */
+  missingNodeVersion: (s) => {
+    s.workflow = s.workflow.replace(/^[ \t]*node-version:[^\n]*\n/m, "");
+  },
 };
+
+/** 把工作流里**所有** `node-version: N` 改成 N。 */
+function setCiNode(s, v) {
+  s.workflow = s.workflow.replace(/node-version:[ \t]*\S+/g, `node-version: ${v}`);
+}
 
 /** 注入档：expect=null 表示期望判绿，否则期望判红且判据集合**恰为** expect。 */
 const CASES = [
@@ -192,6 +263,31 @@ const CASES = [
   { id: "DA2", label: "锁文件锁定的版本低于下限", mutate: MUT.staleLockedVersion, expect: ["DEP2"] },
   { id: "DA3", label: "某个包条目没有 integrity", mutate: MUT.dropIntegrity, expect: ["DEP3"] },
   { id: "DA4", label: "package.json 与锁文件声明对不上", mutate: MUT.desyncLock, expect: ["DEP4"] },
+  { id: "DA9", label: "CI 的 Node 降到 20（低于底线表）", mutate: MUT.ciBelowFloor, expect: ["DEP6"] },
+  {
+    id: "DA10",
+    label: "依赖树要求 Node ≥ 24，CI 仍是 22",
+    mutate: MUT.depTreeNeedsNewer,
+    expect: ["DEP5"],
+  },
+  {
+    id: "DA11",
+    label: "package.json 要求 Node ≥ 24，CI 仍是 22",
+    mutate: MUT.pkgEnginesNeedNewer,
+    expect: ["DEP5"],
+  },
+  {
+    id: "DA12",
+    label: "两个 setup-node 步骤的 Node 版本不一致",
+    mutate: MUT.stepsDisagree,
+    expect: ["DEP5"],
+  },
+  {
+    id: "DA13",
+    label: "某个 setup-node 步骤没写 node-version",
+    mutate: MUT.missingNodeVersion,
+    expect: ["DEP5"],
+  },
 ];
 
 /* ========== 四、判据级负对照 ========== */
@@ -201,6 +297,8 @@ const NEG_CASES = [
   { id: "DA6", crit: "DEP2", case: "DA2", label: "卸掉 DEP2" },
   { id: "DA7", crit: "DEP3", case: "DA3", label: "卸掉 DEP3" },
   { id: "DA8", crit: "DEP4", case: "DA4", label: "卸掉 DEP4" },
+  { id: "DA14", crit: "DEP5", case: "DA10", label: "卸掉 DEP5" },
+  { id: "DA15", crit: "DEP6", case: "DA9", label: "卸掉 DEP6" },
 ];
 
 /** 在门禁副本里卸掉某条判据：给它每一条 fail() 调用**同行**加 `if (false) ` 前缀。 */
@@ -234,6 +332,7 @@ function repoDigest() {
     GATE,
     path.join(ROOT, "package.json"),
     path.join(ROOT, "package-lock.json"),
+    path.join(ROOT, ".github/workflows/deploy.yml"),
   ]) {
     h.update(p).update(fs.existsSync(p) ? fs.readFileSync(p) : "<missing>");
   }
