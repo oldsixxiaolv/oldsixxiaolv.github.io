@@ -6,7 +6,7 @@
  * 而「注入没生效」「改的是副本还是原件」「门禁自己被卸掉了」恰恰是最容易发生、
  * 也最不容易看出来的失败模式。所以自测必须回答四件事：
  *
- *   一、红因归属表 —— 门禁的 8 处 fail() 调用逐条登记判据号与**唯一文案片段**。
+ *   一、红因归属表 —— 门禁的 20 处 fail() 调用逐条登记判据号与**唯一文案片段**。
  *   二、归属纯净 —— 运行时的每一条红因必须**恰好**被一条归属认领；
  *      判据集合必须**恰为**期望值（多一条、少一条都算失败）。
  *   三、覆盖度自证 —— 门禁的 fail() 调用点与归属表**双向**对齐；
@@ -14,6 +14,8 @@
  *   四、判据级负对照 —— 在门禁**副本**里把某条判据卸掉
  *      （给它那一条 fail() 调用同行加 `if (false) ` 前缀，**行数不变**），
  *      对应夹具必须转绿 ⇒ 证明那条红确实是它判出来的，而不是别的判据顺带报出来的。
+ *   五、防「自证闭环」—— 把门禁副本里的**基线表**也降级（模拟「有人同时改了
+ *      工作流与基线表」），底线表仍必须判红 ⇒ 证明 DP7 的底线表不是摆设。
  *
  * 注入全程只在 /tmp 副本上做；仓库里的文件一个字节都不动（末尾有 sha256 自证）。
  *
@@ -43,9 +45,17 @@ const CAUSES = [
   { id: "DP5b", crit: "DP5", frag: "一个 action 引用都没检出" },
   { id: "DP6a", crit: "DP6", frag: "顶层给了写权限" },
   { id: "DP6b", crit: "DP6", frag: "顶层没有 permissions 声明" },
+  { id: "DP7a", crit: "DP7", frag: "运行时低于 node24 底线" },
+  { id: "DP7b", crit: "DP7", frag: "判不出 node24 运行时" },
+  { id: "DP7c", crit: "DP7", frag: "钉的 SHA 与基线表不一致" },
+  { id: "DP7d", crit: "DP7", frag: "行尾注释里的版本与基线表不一致" },
+  { id: "DP8a", crit: "DP8", frag: "没有 concurrency 段" },
+  { id: "DP8b", crit: "DP8", frag: "cancel-in-progress 不是 false" },
+  { id: "DP9a", crit: "DP9", frag: "没有声明 timeout-minutes" },
+  { id: "DP9b", crit: "DP9", frag: "读不到任何 job" },
 ];
 /** 静态判据清单（门禁里应当且仅应当有这些判据）。 */
-const CRITERIA = ["DP1", "DP2", "DP3", "DP4", "DP5", "DP6"];
+const CRITERIA = ["DP1", "DP2", "DP3", "DP4", "DP5", "DP6", "DP7", "DP8", "DP9"];
 
 /* ========== 工具 ========== */
 
@@ -123,6 +133,11 @@ const DEPLOY_BASE = [
   "",
 ].join("\n");
 
+/**
+ * 夹具里的部署工作流 —— 与真仓同构：钉到 SHA 的 action、带行尾版本注释、
+ * 顶层只读 permissions、concurrency（不杀在途）、每个 job 都有 timeout-minutes。
+ * ⚠️ 这里写的 SHA 必须与门禁里的**基线表**一致，否则基线档（N0）会被 DP7 判红。
+ */
 const WORKFLOW_YML = [
   "name: Deploy MeteoHub",
   "",
@@ -134,16 +149,21 @@ const WORKFLOW_YML = [
   "permissions:",
   "  contents: read",
   "",
+  "concurrency:",
+  "  group: pages",
+  "  cancel-in-progress: false",
+  "",
   "jobs:",
   "  build:",
   "    runs-on: ubuntu-latest",
+  "    timeout-minutes: 30",
   "    permissions:",
   "      contents: read",
   "    steps:",
   "      - name: Checkout",
-  "        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4",
+  "        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7",
   "      - name: Setup Node 22",
-  "        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4",
+  "        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7",
   "",
 ].join("\n");
 
@@ -231,8 +251,8 @@ const MUT = {
   actionUnpinned: (s) => {
     s.workflow = replaceOnce(
       s.workflow,
-      "actions/checkout@11d5960a326750d5838078e36cf38b85af677262",
-      "actions/checkout@v4"
+      "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+      "actions/checkout@v7"
     );
   },
   /** action 引用被删光 ⇒ DP5（覆盖度自证：判据从未被执行过）。 */
@@ -249,6 +269,62 @@ const MUT = {
   /** 顶层 permissions 整个没写 ⇒ DP6（用仓库默认权限，可能 read-write）。 */
   noTopLevelPermissions: (s) => {
     s.workflow = replaceOnce(s.workflow, "permissions:\n  contents: read\n\n", "");
+  },
+  /**
+   * 换成 node20 时代的 action（checkout v4 = node20）⇒ DP7（运行时低于 node24 底线）。
+   * 夹具用的 SHA 就是仓库上一轮钉过的那串（11d5960a…，v4）。
+   */
+  actionNode20: (s) => {
+    s.workflow = replaceOnce(
+      s.workflow,
+      "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7",
+      "actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4"
+    );
+  },
+  /**
+   * 换一串**仍是 node24**、但没登记进基线表的字节（checkout v5）⇒ DP7（钉的 SHA 与基线表不一致）。
+   * 这一档要证的是「版本判不出来」这件事也会被报出来 —— 不是所有不一致都长得像「降级」。
+   */
+  actionPinDrift: (s) => {
+    s.workflow = replaceOnce(
+      s.workflow,
+      "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7",
+      "actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5"
+    );
+  },
+  /** 引入一个不在底线表/基线表里的 action ⇒ DP7（判不出它的运行时）。 */
+  actionUnknown: (s) => {
+    s.workflow = replaceOnce(
+      s.workflow,
+      "      - name: Setup Node 22",
+      "      - name: Some Unknown Action\n" +
+        "        uses: actions/some-unknown-action@0123456789abcdef0123456789abcdef01234567 # v1\n" +
+        "      - name: Setup Node 22"
+    );
+  },
+  /** 字节没变、而行尾注释的版本号与基线表对不上 ⇒ DP7（注释会撒谎）。 */
+  actionTagLie: (s) => {
+    s.workflow = replaceOnce(
+      s.workflow,
+      "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7",
+      "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6"
+    );
+  },
+  /** concurrency 段整个没写 ⇒ DP8（并发部署 ⇒ 旧部署可能后到、覆盖新部署）。 */
+  concurrencyMissing: (s) => {
+    s.workflow = replaceOnce(s.workflow, "concurrency:\n  group: pages\n  cancel-in-progress: false\n\n", "");
+  },
+  /** 又把 cancel-in-progress 写回 true ⇒ DP8（会杀掉在途的生产部署）。 */
+  concurrencyCancels: (s) => {
+    s.workflow = replaceOnce(s.workflow, "cancel-in-progress: false", "cancel-in-progress: true");
+  },
+  /** 某个 job 不写 timeout-minutes ⇒ DP9（挂死时能独占 concurrency group 六小时）。 */
+  jobNoTimeout: (s) => {
+    s.workflow = replaceOnce(s.workflow, "    timeout-minutes: 30\n", "");
+  },
+  /** jobs 段整个没写 ⇒ DP9（读不到任何 job ⇒ 挂死兜底判不了）。 */
+  jobsMissing: (s) => {
+    s.workflow = replaceOnce(s.workflow, "jobs:\n  build:\n", "");
   },
 };
 
@@ -267,6 +343,14 @@ const CASES = [
   { id: "N11", label: "action 引用被删光", mutate: MUT.actionsWiped, expect: ["DP5"] },
   { id: "N12", label: "顶层 permissions 给了写权限", mutate: MUT.topLevelWrite, expect: ["DP6"] },
   { id: "N13", label: "顶层 permissions 整个没写", mutate: MUT.noTopLevelPermissions, expect: ["DP6"] },
+  { id: "N16", label: "action 换成 node20 时代的版本（checkout v4）", mutate: MUT.actionNode20, expect: ["DP7"] },
+  { id: "N17", label: "action 钉了没登记进基线表的字节（checkout v5）", mutate: MUT.actionPinDrift, expect: ["DP7"] },
+  { id: "N18", label: "引入不在底线表里的 action", mutate: MUT.actionUnknown, expect: ["DP7"] },
+  { id: "N19", label: "行尾注释的版本号与基线表对不上", mutate: MUT.actionTagLie, expect: ["DP7"] },
+  { id: "N20", label: "concurrency 段整个没写", mutate: MUT.concurrencyMissing, expect: ["DP8"] },
+  { id: "N21", label: "cancel-in-progress 写回 true", mutate: MUT.concurrencyCancels, expect: ["DP8"] },
+  { id: "N22", label: "某个 job 不写 timeout-minutes", mutate: MUT.jobNoTimeout, expect: ["DP9"] },
+  { id: "N23", label: "jobs 段整个没写", mutate: MUT.jobsMissing, expect: ["DP9"] },
 ];
 
 /* ========== 四、判据级负对照 ========== */
@@ -276,6 +360,9 @@ const NEG_CASES = [
   { id: "N9", crit: "DP2", case: "N2", label: "卸掉 DP2" },
   { id: "N14", crit: "DP5", case: "N10", label: "卸掉 DP5" },
   { id: "N15", crit: "DP6", case: "N12", label: "卸掉 DP6" },
+  { id: "N24", crit: "DP7", case: "N16", label: "卸掉 DP7" },
+  { id: "N25", crit: "DP8", case: "N21", label: "卸掉 DP8" },
+  { id: "N26", crit: "DP9", case: "N22", label: "卸掉 DP9" },
 ];
 
 /** 在门禁副本里卸掉某条判据：给它每一条 fail() 调用**同行**加 `if (false) ` 前缀。 */
@@ -465,6 +552,44 @@ console.log("\n四、判据级负对照");
           `基线 {${nc.crit}} ⇒ 同一夹具转绿，零红因`
       );
     }
+  }
+}
+
+/* ---- 五、防「自证闭环」：基线表被降级时，底线表仍必须判红 ---- */
+console.log("\n五、防「自证闭环」");
+{
+  /* 模拟「有人同时把工作流与基线表降级到 node20 时代的 checkout v4」：
+     这时门禁里的基线表自己就写着 v4 ⇒ 若只有基线表，版本判出来是 v4 ⇒ 绿灯。
+     底线表（checkout ≥ v5）必须独立把它抓出来。 */
+  const downgraded = replaceOnce(
+    gateSrc,
+    `  "actions/checkout": {
+    tag: "v7",
+    sha: "3d3c42e5aac5ba805825da76410c181273ba90b1",
+  },`,
+    `  "actions/checkout": {
+    tag: "v4",
+    sha: "11d5960a326750d5838078e36cf38b85af677262",
+  },`
+  );
+  const gateDir = fs.mkdtempSync(path.join(tmp, "gate-downgrade-"));
+  const mirror = path.join(gateDir, "check-deploy-target.cjs");
+  fs.writeFileSync(mirror, downgraded);
+  /* 夹具也要降到 v4（与基线表一致）—— 只有这样才走得进「基线表自己低于底线」那条路。 */
+  const fixture = buildFixture(MUT.actionNode20);
+  const r = runGate(mirror, fixture);
+  const a = attribute(r.out);
+  if (r.code !== 1) {
+    bad(`N27 → 基线表被降级到 v4 后必须判红（exit 1），实测 exit ${r.code} —— 底线表没抓住`);
+  } else if (a.crits.join(",") !== "DP7") {
+    bad(`N27 → 判据集合应为恰为 {DP7}，实测 {${a.crits.join(", ") || "空"}}`);
+  } else if (!a.rows.some((x) => x.line.includes("运行时低于 node24 底线"))) {
+    bad(`N27 → 红因必须点名「运行时低于 node24 底线」，实测：${a.rows.map((x) => x.line.trim().slice(0, 100)).join(" / ")}`);
+  } else {
+    ok(
+      `N27 工作流与基线表**同时**降到 checkout v4（node20）→ 底线表（checkout ≥ v5）仍判红：` +
+        `判据集合恰为 {DP7}，红因点名「运行时低于 node24 底线」`
+    );
   }
 }
 

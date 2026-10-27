@@ -2492,6 +2492,12 @@ CSDN 521 并列）。那个归类对 ResearchGate / CSDN 成立，但对这一�
   折中：代理的信任成本照付，头补得不齐全。
   ⚠️ **本轮不代拍**：套不套代理、加哪几个头，属本人取舍。
   （本场次不代拍，登记为待拍板 57）
+  ⚠️ **2026-10-27 场次补强的一条事实**：**`_headers` 文件不是 GitHub Pages 的能力** ——
+  `github/docs` 全树（29 个 `content/pages/**` 文件）里**没有**任何 custom-headers / `_headers` 页面，
+  `docs.github.com/.../managing-custom-headers-for-your-github-pages-site` 实测 **404**
+  ⇒ 候选 ②③ 的「加头」**只能靠 Cloudflare 代理**（或 meta，而 meta 补不齐）
+  ⇒ **没有第三条「零第三方成本」的路**（原先隐含的设想是「在仓库里放一个 `_headers` 就行」——实测不成立）。
+  （本场次不代拍，待拍板 57 的三个候选维持原样。）
 ---
 ## 2026-10-19 · 第十一轮（12:22–12:47 场次）：订阅源时间戳说真话 + 404 身份开关落地
 
@@ -30228,5 +30234,147 @@ README 命令表 / GW1 / GW4）：
   `src/_data/site.js` 的 `site.url` 派生）⇒ 它现在只为一个读不到的元数据付一次 API 调用；删不删属**取舍**，未代拍；
   ② 线上那条 GitHub 自带的 `pages-build-deployment` 失败（本仓工作流是成功的）—— 属 GitHub 侧旧管线，
   要不要处理**未代拍**；③ 本轮的 DR6b 只扫**两份活文档**（`docs/implementation-notes.md` 与 `HOW_TO_RUN.md`）——
+  `README.md` / `docs/DEPLOY.md` / `docs/design-system.md` 里点名的路径**还没有**这道看守，
+  要不要扩面属**取舍**（扩面要防历史记录里的「已删路径」被当成漂移），未代拍。
+
+---
+## 2026-10-27 · 巡检轮次：把发布管线的两个**防攻击**根问题修掉 —— D103（action 运行时 node20 → node24）＋ D104（不再杀掉在途的生产部署）
+
+### A. 本轮定位
+
+上一轮给发布管线补了 **DP5**（action 必须钉到 commit SHA）与 **DP6**（顶层 permissions 只读）——
+这两条治的是「**跑哪份代码**」与「**拿着什么权限**」。本轮接着治**同一条管线**上两个更靠底层的洞：
+
+1. **跑在哪个 Node 运行时上**（D103）—— 运行时由**上游 action.yml 的 `runs.using`** 决定，
+   **不由本仓库决定** ⇒ 钉 SHA 只钉住了「跑哪份代码」，管不了「跑在哪个 Node 上」。
+2. **推送时会不会把正在跑的生产部署杀掉**（D104）—— 这不是可用性问题，是**没有失败告警**的静默失败。
+
+两条都是**防攻击**属性，不是洁癖：EOL 运行时 = **不再有安全补丁**的代码在执行部署与产物上传；
+杀在途 = 部署可以**半途而废**（artifact 已上传、部署没走完），而 run 在 GitHub 上只显示
+**cancelled 而不是 failed** ⇒ 没有任何告警会响。
+
+### B. 证据（2026-10-27 逐项实测，不是推测）
+
+**① Node 20 已 EOL**（`nodejs/Release` 的 `schedule.json`）：`v20 end 2026-04-30`（已过）、
+`v22 end 2027-04-30`、`v24 end 2028-04-30`。
+
+**② 6 个 action 的执行运行时逐个实测**（拉上游 `action.yml` 看 `runs.using`）：
+
+| action | 实测 `runs.using` | node24 从哪版起 |
+|---|---|---|
+| `actions/checkout` | v4 = `node20` | **v5** |
+| `actions/setup-node` | v4 = `node20` | **v5** |
+| `actions/configure-pages` | v5 = `node20` | **v6** |
+| `actions/upload-pages-artifact` | v3/v4 = composite（内层 upload-artifact v4 = `node20`） | **v5**（内层 v7.0.0） |
+| `actions/deploy-pages` | v4 = `node20` | **v5** |
+| `actions/download-artifact` | v4/v5/v6 = `node20` | **v7** |
+
+⇒ 本仓那 6 个 action **全部**跑在 node20 上。
+
+**③ tag → SHA**：`git ls-remote --tags https://github.com/<repo> refs/tags/<tag>`
+（**REST API 本轮已 403 限流**，`git ls-remote` 与已登录的 `gh api` 照常返回 ⇒ 取 SHA 走 git 协议更稳）；
+commit 日期用 `gh api` 取。
+
+**④ concurrency 语义**：官方 starter workflow `actions/starter-workflows` 的 `pages/static.yml` 写的是
+`cancel-in-progress: false`，注释明写「**do NOT cancel in-progress runs as we want to allow these
+production deployments to complete**」；官方 concurrency 文档写明该组**默认**行为是
+「至多一个 running、一个 pending」，而 `cancel-in-progress: true` 才会**取消正在跑的 run**。
+
+**⑤ 本仓 build 实测约 4~5 分钟**（本地整链），而 GitHub 的 job 默认上限是 **360 分钟**。
+
+### C. 改动
+
+| 文件 | 改动 |
+|---|---|
+| `.github/workflows/deploy.yml` | 6 个 action 全部换到 **node24 当前大版本**并重钉 SHA（checkout v7 / setup-node v7 / configure-pages v6 / upload-pages-artifact v5 / deploy-pages v5 / download-artifact v8）；`concurrency.cancel-in-progress` 由 `true` 改为 **`false`**（附「为什么不能杀在途」的注释与官方出处）；三个 job 各加 `timeout-minutes`（build 30 / deploy 15 / verify-live 15）；末尾「action 版本钉法」一节重写（node24 底线表 + 五步升级流程 + 诚实边界） |
+| `scripts/check-deploy-target.cjs` | 新增判据 **DP7 / DP8 / DP9** ＋ **node24 底线表** ＋ **基线表** ＋ 三个解析器（`majorOf` / `topLevelConcurrency` / `workflowJobs`）；`actionRefs` 增读行尾注释里的版本 tag |
+| `scripts/test-deploy-target.cjs` | 自测 **24 → 28** 档：注入档 **N16–N23**、判据级负对照 **N24 / N25 / N26**、**N27**（防「自证闭环」档） |
+| `scripts/lib/selftest-slots.cjs` | 登记 **N16–N27**（N0–N27 共 28 档） |
+| `README.md` | 命令表补 **DP7 / DP8 / DP9**（`check:readme` 的 RD6 判据编号对账当场逼改） |
+| `docs/DEFECT-BACKLOG.md` | 新增 **D103 / D104** 两行 |
+| `docs/ROADMAP.md` | 进度区新增本轮条目 |
+
+### D. 门禁怎么设计的（这是本轮最费心思的部分）
+
+**DP7 要在**离线**的前提下判「运行时是不是 node24」** —— CI 里没有网络依赖，门禁也不该联网，
+所以它**不能**去读上游 `action.yml`。于是用仓内两张**离线静态表**：
+
+- **node24 底线表**（action → 允许的最低大版本）：记的是「**哪个大版本起才是 node24**」这个上游事实，
+  **与本仓库当前钉哪一版无关** ⇒ 有人降级版本并顺手改这张表骗不过它。
+- **基线表**（action → 当前批准的 tag 与 40 位 SHA）：它是 DP7 的**版本预言机** ——
+  工作流里那串 SHA 查它，才知道它对应哪个 tag、跑在哪个运行时上。
+  两张表与工作流构成**两份副本**，对不上就判红（DP7c）⇒ 「升级必须留一次有记录的提交」。
+
+三条判定口径：**低于底线**（DP7a）→ 判红；**判不出**（action 不在表里 / 不在基线表里 ⇒ DP7b）→ 判红
+（**判不了不等于没问题**）；**注释与基线表对不上**（DP7d）→ 判红（行尾注释是给人看的，它会撒谎）。
+DP7 只管**已钉 SHA** 的引用 —— 没钉 SHA 的归 DP5，**两条判据的红因不搅在一起**。
+
+**DP8**：`concurrency` 段必须存在（否则两次推送可能并发部署 ⇒ 先开始的后结束、**旧部署覆盖新部署**，
+站点内容回退且**不报错**）；`cancel-in-progress` 不得为 `true`，也不得写成 `${{ ... }}` 表达式
+（门禁静态看不见它在运行时求值成什么 ⇒ 判不出 ≠ 没问题）。
+**DP9**：每个 job 必须有 `timeout-minutes`；读不到任何 job ⇒ 判红（覆盖度自证）。
+DP9 是 D104 的**配套兜底**：既然不再杀在途，就得防住「挂死的部署独占并发组六小时、
+期间的推送全被折叠成唯一一个 pending」。
+
+**自测的第五节（N27）**是本轮特意加的一档：把门禁副本里的**基线表也降级**（模拟「有人同时改了
+工作流与基线表」），**底线表仍必须判红** ⇒ 证明 DP7 的底线表不是摆设、不是自证闭环。
+
+### E. 验证
+
+- **真仓门禁** `node scripts/check-deploy-target.cjs` → **exit 0**，报文含
+  `action 的执行运行时全是 node24 … 共核了 8 个已钉 SHA 的 action 引用`、
+  `concurrency：group=pages，cancel-in-progress=false`、
+  `每个 job 都声明了 timeout-minutes（3 个 job）：30 / 15 / 15 分钟`。
+- **自测** `node scripts/test-deploy-target.cjs` → **exit 0**：红因归属 **20** 条（互不包含）、
+  判据 **9/9**、注入档 **21** 档全过、判据级负对照 **6** 档全过、**N27** 绿。
+- **档位守卫** `npm run check:selftest-guard` → exit 0（57 个自测 / 1377 条档位号双向自洽）。
+- **README 对账** `npm run check:readme` → exit 0（RD6 判据编号对账 12 组）。
+- **隔离克隆**：整链 `npm run build` → **exit 0**（100+ 步）。
+
+### F. 顺手发现
+
+- **REST API 会限流，`git ls-remote` 不会**：本轮取 tag→SHA 时 GitHub API 直接 **403**
+  （rate limit exceeded），改用 `git ls-remote --tags` 一次全通 ⇒
+  「取上游 tag 的 SHA」这条动作的**默认路径应该是 git 协议**，不是 REST API。
+- **composite action 没有 `runs.using`**：`upload-pages-artifact` 自己没有运行时，
+  运行时在**内层** `uses:` 指向的那个 action ⇒ 判定 node24 必须**顺着内层看**，
+  否则会误判成「没有运行时信息」。
+- **v4 → v5 的破坏性变更要查产物**：upload-pages-artifact v4 起「隐藏文件不再打包」——
+  实测本仓 `_site` 下 **0 个 dotfile、0 个 `_` 前缀条目** ⇒ 对本仓产物**无影响**；
+  v5 另给 `include-hidden-files` 开关（默认 false）。
+- **把「注释」当证据会踩坑**：行尾 `# v7` 是**给人看的**，它与实际字节可能对不上 ⇒
+  版本必须按 **SHA 反查**（基线表），注释只能当候选与**对照物**（对不上就判红）。
+- **「不杀在途」有配套代价**：改了 `cancel-in-progress: false` 之后，挂死的部署能占住并发组
+  ⇒ `timeout-minutes` 不是可选的锦上添花，是**同一处修改的必要另一半**。
+
+### G. 文档
+
+- `docs/DEFECT-BACKLOG.md`：新增 **D103 / D104** 两行（位置 / 现象 / 可判定的验收条件 / 状态格逐条兑现）。
+- `docs/ROADMAP.md`：进度区新增本轮条目。
+- `docs/IMPROVEMENT-LOG.md`：本小节；中央「待决策」台账**不新增**待拍板项
+  （最高仍是待拍板 57），只给 57 **补强了一条事实**：`_headers` **不是** GitHub Pages 的能力
+  （`github/docs` 全树无该页面、官方文档页实测 404）⇒ 待拍板 57 **没有第三条「零第三方成本」的路**。
+- `README.md`：命令表补 DP7 / DP8 / DP9。
+
+### H. 本轮纪律
+
+- 提交走**私有索引 + commit-tree + update-ref CAS**，只提交本轮自己改的路径；**不 push**。
+- 探针与临时产物放 `/tmp/mh_d103/`（**不入库**）。
+- **不写死会变的存量数**；**不编造**任何数据、结论或引用（每个 SHA 都实测过 `runs.using`，
+  tag→SHA 用 `git ls-remote` 复核，日期用 `gh api` 取）。
+- 取舍类**不代拍**：本轮**没有新的待拍板项**。
+- 门禁红了先定位红因，**不放宽判据**；负对照断言**红因文案命中**且**红因归属纯净**。
+
+### 下一轮入口
+
+- **D103 / D104 的线上那半仍只差 push**：线上现在跑的**还是** 2026-10-16 旧部署
+  —— 即「node20 运行时」＋「`cancel-in-progress: true`」**两处都还在生效**。
+  与 **D6**（线上 3 条 404）同一个前置。
+- **D5 / D12 / D93–D102** 同样卡在 push；**D9 / D10 / D26 / D32 / D57** 仍挂本人拍板；
+  **待拍板 57**（Cloudflare 与安全响应头）**不代拍**。
+- **本轮记下的候选**：① `configure-pages` 的输出**一个都没被消费**（本仓的 `pathPrefix` 由
+  `src/_data/site.js` 的 `site.url` 派生）⇒ 它现在只为一个读不到的元数据付一次 API 调用；删不删属**取舍**，未代拍；
+  ② 线上那条 GitHub 自带的 `pages-build-deployment` 失败（本仓工作流是成功的）—— 属 GitHub 侧旧管线，
+  要不要处理**未代拍**；③ DR6b 只扫**两份活文档**（`docs/implementation-notes.md` 与 `HOW_TO_RUN.md`）——
   `README.md` / `docs/DEPLOY.md` / `docs/design-system.md` 里点名的路径**还没有**这道看守，
   要不要扩面属**取舍**（扩面要防历史记录里的「已删路径」被当成漂移），未代拍。
