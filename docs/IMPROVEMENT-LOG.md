@@ -30536,3 +30536,121 @@ DP9 是 D104 的**配套兜底**：既然不再杀在途，就得防住「挂死
   ④ **依赖下限表目前只登记了 markdown-it 一个包** —— 机制已就位（登记新包只需加一条表项），
   但「要不要把审计脚本接进 CI 的独立 job（每周自动跑）」属**取舍**（会新增一条工作流 =
   新增一条供应链面），未代拍。
+
+## 2026-10-27 · 巡检轮次：给 **CI 用的 Node 版本**装上第一道看守 —— D107（CI 的 `node-version` 从来没有任何门禁守着）
+
+### A. 本轮定位
+
+上一轮治的是**依赖从哪儿来**（漏洞检查从未生效、CI 在替第三方镜像取包）。
+本轮往里再走一格：**依赖装上之后，是用哪个 Node 跑起来的**。
+
+体检的结论是一句否定：**这个数从来没有任何门禁看守过。**
+
+### B. 证据（2026-10-27 逐项实测）
+
+**① CI 用的 Node 写在工作流里的两处**：`.github/workflows/deploy.yml` 的 build job 与
+verify-live job 各自的 `actions/setup-node` 步骤，写的是 `node-version: 22`。
+
+**② 没有任何一道门禁读这两个数**（逐个 grep 过 `scripts/`）：
+
+- `scripts/check-deploy-target.cjs` 的 **DP7** 管的是 action 的**执行运行时**
+  （上游 action.yml 里的 `runs.using`）—— **不是** CI 自己跑构建用的那个 Node；
+- `scripts/check-readme.cjs` 的 **RD2** 管的是 README 声明的 Node 下限与
+  `package.json` 的 `engines` 是否一致 —— **完全不涉及工作流**；
+- 其余门禁没有一条读 `node-version`。
+
+**③ `engines` 对 npm 只是建议**：引擎不匹配时 npm 默认只发一条 `EBADENGINE` 警告、
+**安装照样成功**（`engine-strict` 默认 false）⇒ 「把 CI 的 Node 降一级」是**静默**的。
+
+**④ 降级的后果不是「旧一点」，而是运行时已 EOL**：Node 20 已于 **2026-04-30 结束支持**
+（Node 官方 Release 日历 `https://github.com/nodejs/Release/blob/main/schedule.json`；
+Node 22 撑到 2027-04-30、Node 24 撑到 2028-04-30）⇒ 继续用它跑部署 =
+把整条发布管线建在不再收安全更新的运行时上。
+
+**⑤ 而且失败方式是看不懂的**：本仓 build 链里的多档溢出门禁
+（`scripts/check-overflow.cjs`）用 CDP over WebSocket，而 Node 20 没有全局 WebSocket
+⇒ 它会抛 `"WebSocket is not defined"`（该脚本第 1035 行本来就判这一条并给出提示），
+**不会**告诉人「你把 CI 的 Node 降级了」。
+
+**⑥ 三处现状是自洽的**（所以这是**看守缺失**、不是**现状已坏**）：
+`package.json` 的 `engines: ">=22"` ／ 工作流两处 `node-version: 22` ／
+依赖树里各包 `engines.node` 的最高下限是 `>=18`（`@11ty/eleventy` 等）。
+⇒ 本轮把这条线**钉住**，现状一个字都不改。
+
+### C. 改动
+
+| 文件 | 改动 |
+|---|---|
+| `scripts/check-deps.cjs` | 新增判据 **DEP5**（CI 的 Node 必须同时满足 `package.json` 的 `engines.node` 与依赖树各包的 `engines.node` 下限；各 `setup-node` 步骤必须写同一个版本；版本号读不出来 ⇒ 判红）＋ **DEP6**（CI 的 Node 不得低于底线表）；新增 **CI Node 底线表**（v22，附 EOL 时点出处）；新增 `ciNodeSteps()` / `parseNodeVersion()` 两个解析函数 |
+| `scripts/test-deps.cjs` | 自测 **9 → 16** 档：注入 **DA9–DA13** ＋ 负对照 **DA14 / DA15**；夹具新增一份**最小部署工作流**（CI 用的 Node 版本从那里读），并给锁文件里的依赖补上 `engines`（`>=18`）；仓库真源指纹也把工作流算进去 |
+| `scripts/lib/selftest-slots.cjs` | 登记 **DA9–DA15** |
+| `README.md` | 命令表 `check:deps` 行补 **DEP5 / DEP6**（判据编号真源是门禁源码，README 必须同步） |
+
+### D. 两处设计要点
+
+**① 为什么 DEP5 与 DEP6 是两条，而不是一条**：DEP5 拿 CI 的 Node 与「本仓自己声明的要求」比
+（`package.json` / 依赖树的 `engines`）；DEP6 拿它与「上游事实」比（底线表：低于这一版就不再收安全更新）。
+只留 DEP5 ⇒ 有人把 `engines` 放松到 `>=18`、再把 CI 一起降到 18，就双双通过；
+只留 DEP6 ⇒ 有人加了个要求 Node 24 的依赖、CI 仍停在 22，查不出来。
+⇒ **两张表分开守**，才不会被「一起改」糊弄过去 —— 与 D103 的 node24 底线表同一套做法。
+
+**② 为什么「读不出来」一律判红**：某个 `setup-node` 步骤没写 `node-version`（用的是 runner
+镜像自带的 Node，会随镜像漂移）、或写成了 `lts/*` / `${{ … }}` ⇒ 静态判不出它到底是哪一版
+⇒ **判红**（判不出 ≠ 没问题）。但**依赖**的 `engines.node` 读不出下限时**不**当约束 ——
+依赖的 engines 本来就只是 npm 的建议，默认只警告不报错，拿它当约束只会制造假红。
+
+### E. 验证
+
+- **真仓**：`check:deps` exit 0（工作流里 **2** 个 setup-node 步骤都写的是 Node **22**，
+  同时满足 `package.json` 的 `engines.node` 下限 v22、依赖树下限 v18、底线表 v22）；
+  `check:deps-selftest` **16** 档全过（红因归属 **6** 条、判据 **6/6**、注入 **11** 档、
+  负对照 **6** 档）；`check:selftest-guard` 通过（58 个自测 / 1399 条档位号）；
+  `check:readme` exit 0（判据对账 14 组）；`check:gates` / `check:log-sections` /
+  `check:decision-ids` 均 exit 0。
+- **隔离克隆**（HEAD `79a0f1e`）：`npm ci` 后整链 `npm run build` **exit 0**，
+  工作树干净、产物 35 个文件 ⇒ 这次改动**只依赖仓库里的东西**，不靠作者本机的残留。
+
+### F. 顺手发现
+
+- **`runs-on: ubuntu-latest` 是浮动标签**（三个 job 都是）⇒ runner 镜像会随时间换版本，
+  而**没有任何提交**记录着它换过 ⇒ 构建环境不是可复现的。**没动**（改成 `ubuntu-24.04`
+  之类的具体版本可能让 runner 不再自带 Chrome，而多档溢出门禁要真实浏览器）——
+  属**取舍**，留给下一轮或本人拍板。
+- **`package.json` 没有 `packageManager` 字段** ⇒ npm 自己的版本也没钉住。
+  同样属**取舍**（加它要连带确认本机与 CI 的 npm 版本对得上），本轮**不代拍**。
+- **`verify-live` job 没有装依赖** —— 本来看着像个洞，实测**不是**：
+  它只跑 `scripts/check-live-site.cjs`，而该脚本只 `require("fs")` 与 `require("path")`
+  （全是 Node 内置）⇒ 不需要 `npm ci`。**记一笔，免得下一轮又去查一遍。**
+
+### G. 文档
+
+- `docs/DEFECT-BACKLOG.md`：新增 **D107** 一行（位置 / 现象 / 可判定的验收条件 / 状态逐条兑现）。
+- `docs/ROADMAP.md`：进度区新增本轮条目。
+- `docs/IMPROVEMENT-LOG.md`：本小节；中央「待决策」台账**不新增**待拍板项（最高仍是待拍板 58）。
+- `README.md`：命令表补 DEP5 / DEP6。
+
+### H. 本轮纪律
+
+- 提交走**私有索引 + commit-tree + update-ref CAS**，只提交本轮自己改的路径；**不 push**。
+- 探针与临时产物放 `/tmp/mh_d107/`（**不入库**）。
+- **不写死会变的存量数**；**不编造**任何数据、结论或引用（EOL 时点取自 Node 官方 Release 日历，
+  与仓内 `deploy.yml` 既有注释同源；「Node 20 没有全局 WebSocket」取自
+  `scripts/check-overflow.cjs` 的既有判据）。
+- 取舍类**不代拍**：本轮**没有新的待拍板项**。
+- 提交拆成两次：先落代码（`79a0f1e`，隔离克隆验证就以它为基线），再落文档 ——
+  这样**验证结论里写的每一个数字都是实测出来的**，不是先写好再补。
+
+### 下一轮入口
+
+- **D105 / D106 / D107 的线上那半仍只差 push**：线上仍是 2026-10-16 旧部署 ⇒ CI 仍从第三方镜像取包、
+  仍**没有任何门禁**看着它用哪个 Node ⇒ 与 **D6** 同一个前置。
+- **D5 / D12 / D93–D107** 同样卡在 push；**D9 / D10 / D26 / D32 / D57** 仍挂本人拍板；
+  **待拍板 57**（Cloudflare 与安全响应头）与 **待拍板 58**（`github-pages` 环境的部署保护规则）
+  **都不代拍**。
+- **本轮记下的候选**：① `runs-on: ubuntu-latest`（三个 job）没有钉住具体镜像版本 ——
+  构建环境不可复现，但改具体版本可能让 runner 不再自带 Chrome（多档溢出门禁要真实浏览器）
+  ⇒ **取舍**，未代拍；② `package.json` 没有 `packageManager` 字段（npm 版本未钉）⇒ **取舍**，未代拍；
+  ③ **CI Node 底线表目前是 v22**（Node 22 撑到 2027-04-30）⇒ 届时需要随 EOL 时点更新这张表，
+  更新动作就是**改门禁源码里的表**（改表不改声明才会被 DEP6 抓住）；
+  ④ **依赖下限表目前只登记了 markdown-it 一个包**，CI Node 底线表也只有一条 ——
+  机制已就位（登记新条只需加一行），但「要不要把依赖审计接进 CI 的独立 job」属**取舍**，未代拍。
