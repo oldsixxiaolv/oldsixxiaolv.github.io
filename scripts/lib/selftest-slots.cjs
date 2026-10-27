@@ -352,7 +352,7 @@ const SLOTS = {
     "TT8", "TT9", "TT10", "TT11", "TT12", "TT13", "TT14"
   ],
   "test-tracked-refs.cjs": [
-    "G0", "G1", "G2", "G3", "G4", "T1a", "T1b", "T2a",
+    "G0", "G1", "G2", "G3", "G4", "T1a", "T1b", "T1c", "T2a",
     "T2b", "T3", "T4a", "T4b", "T5a", "T5b", "T6a", "N-TR1",
     "N-TR2", "N-TR3", "N-TR4", "N-TR5", "N-TR6", "P-TR4", "P-TR3",
     "COV-A", "COV-B"
