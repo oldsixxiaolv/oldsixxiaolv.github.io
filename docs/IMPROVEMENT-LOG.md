@@ -31200,3 +31200,72 @@ macOS 上是**系统代理设置**（`scutil --proxy`），Linux / CI 上还有�
 ### H. 技能盘点（本轮无高价值可复用项）
 
 本机约 **30 个技能**与 **1 个插件**（`nature-skills`）**没有一个与本轮的活儿对得上**：本轮要的是**仓库自身的门禁结构与注入矩阵** ⇒ `browser-use:control-in-app-browser` 是交互式页面控制（不能当测量器用）、`rea:reverse-engineer-anything` 面向二进制逆向 ⇒ **不适用**。⇒ 本轮既没有"装了技能却没用上"，也没有"本该用技能而没用"。
+
+---
+
+## 2026-10-27 · 巡检轮次：给**引用完整性**装上"动态 import"这一格 —— D114（TR1 认不出 `import("./x")`，而本仓恰恰有 4 条这样的引用）
+
+### A. 本轮定位
+
+上一场次（GW7 / GW8）把遮罩与第三方包提取抽成了 `scripts/lib/js-refs.cjs`（一条真源）。本轮接着查那条真源**还漏了什么**，查出来的是：**本地引用的提取器仍留在 TR1 门禁里**，而且它**认不出动态 import**。
+
+本轮**只做 1 个改进点**（D114）。理由：它不是一个"多一条判据"的事，而是**TR1 存在的根本理由在一种引用形态下完全失效**。
+
+### B. 体检（2026-10-27 逐项实测）
+
+**真问题（本轮修的一条）**
+
+1. **D114 —— TR1 认不出动态 import**：TR1 的提取器只认 `require(` / `from ` / `import `（**无括号**），认不出 `await import("./x.js")`（**带括号**）。而本仓 `src/assets/js/paper-reader/main.js` 里恰恰有 **4 条动态 import**（`./toc.js` / `./theme.js` / `./annotations.js` / `./highlight.js`）⇒ 那 4 条引用**一条都不被认**。
+   **危害不是"少查了几处"，而是 TR1 的核心承诺在这种形态下失效**：
+   - 实测（隔离克隆里）：引用方 `src/assets/js/host.js` 已 `git add`、目标 `src/assets/js/widget.js` 在磁盘上但**未 `git add`** ⇒ **TR1 判绿** —— 而这正是 TR1 存在的根本理由（2026-10-19 的 D100 P0「引用方进了提交、被引用方没进」⇒ 提交后那棵树会断）。
+   - 更糟的是那个形态下 TR1 给的是**语义完全错的红因**：新自测的 T1c 档跑在**旧门禁**上，实得红因是 **TR2**「一处仓内引用都没比对过 ⇒ 判据从未被真正执行过」⇒ 把"**漏检**"伪装成"**判据没跑**"。
+   - ⚠️ 静态 import 形态**一直是好的**（旧口径认 `from ` / `import `）⇒ 这个洞**只在动态 import 上露出来** ⇒ 一直没被发现。
+
+**已覆盖（本轮复查确认，不重复证明）**：注入面（US1–US5）、供应链（DP5–DP11）、依赖与运行时（DEP1–DEP6）、外链 `rel`、导航 / 可访问性 / SEO / JSON-LD / feed 门禁族、字体外链降级、产物暴露面（`_site/` 里**实测**无 `._*` / `.DS_Store`、无本机绝对路径 `/Users/` `/Volumes/`、无 `console.log` / `debugger`）。
+
+**线上那半（复查，不代拍）**：HTTP/2 200；有 HSTS `max-age=31556952`；**仍缺** CSP / X-Frame-Options / X-Content-Type-Options / Referrer-Policy / Permissions-Policy；`last-modified: Fri, 16 Oct 2026`（仍是旧部署）；`access-control-allow-origin: *`（GitHub Pages 默认）⇒ 待拍板 57 仍不代拍。
+
+**不适用 / 本轮明确不判**：① **草稿外泄** —— 站点没有 draft 机制。② **Python 小工具的依赖核对** —— 机器核对只覆盖 Node 脚本的 `require()`；实测两个 Python 工具的 import 全是标准库。③ **`.njk` 模板里的引用**（见下"明确不做"，有实测理由）。
+
+### C. 改了什么
+
+1. **`scripts/lib/js-refs.cjs` 新增 `localRefs()`** —— 本地相对路径提取器，认得五种形态：`require("./x")` / `import x from "./x"` / `import "./x"`（副作用导入）/ `export … from "./x"` / **`await import("./x")`（动态）**。
+   ⚠️ **返回有序数组、保留重复**（不是去重集合）：TR2 的「比对过几处」与自测 COV-A 的覆盖度自证都依赖这个计数口径（同一目标被引用两次必须算两处）⇒ 去重会让那个计数**悄悄变掉**。
+   ⚠️ 与 `thirdPartyPackages()` 的分工写进注释：那边只管**第三方包**（本地路径被过滤），这边只管**本地文件**（第三方包名被过滤）⇒ 两边合起来才是"这个文件依赖什么"。
+2. **`scripts/check-tracked-refs.cjs` 改用它**（旧的 `LOCAL_REF_RE` 删掉）⇒ 遮罩与引用提取**同一份真源**。
+3. **遮罩自证表补两档**：「动态 import 的引用仍被认出」/「注释里的动态 import 字样不算引用」⇒ 修复本身有自证。
+4. **自测 `scripts/test-tracked-refs.cjs` 25 → 26 档**：新增 **T1c**（动态 import 形态的 P0 注入：引用方已跟踪、目标未跟踪 ⇒ 必须红 TR1）。
+5. **T4a / T4b 的断言从"**恰好**红 TR4"改成"红因**全部**属于 TR4 且至少一条"** —— 遮罩自证有多条样例，坏几条红几条 ⇒ 条数会随样例表增长而变 ⇒ 断言"恰好一条"会把"样例表变长了"误判成"门禁坏了"。**这是判据的自然结果，不是放宽判据**：归属仍然纯净（没有任何**别的**判据替 TR4 说话）。
+6. **门禁文件头更新已知边界**：动态 import 那条已不成立（改写为已修 + 指向 D114）；**新增** `.njk` 模板不在扫描面内的说明（含实测出来的假红清单）。
+
+### D. 验证
+
+- **真仓门禁**（exit 0）：`check:tracked-refs` / `check:tracked-refs-selftest` / `check:gates` / `check:gates-selftest` / `check:readme` / `check:deps`。
+- **自测**：`scripts/test-tracked-refs.cjs` **26 档全绿**；`scripts/test-gates-wired-selftest.cjs` **23 档全绿**。
+- **决定性验证（新档有牙齿）**：把**新自测**跑在**旧门禁**（`HEAD` 版本）上 ⇒ **T1c 判红**，实得红因是 **TR2**（不是 TR1）⇒ 证明这一档真的能抓住那个缺陷，而不是恒绿。
+- **逐项对账（只许多认、不许少认）**：旧门禁实际认出的 **42 条**引用，新版**一条没丢**；新版只**多**认出 **4 条** —— 正是 `paper-reader/main.js` 的那 4 条动态 import。门禁报的仓内引用数 42 → 46。
+- **危害坐实（隔离克隆实测）**：引用方已 `git add`、目标在磁盘上但未 `git add` ⇒ **旧门禁判绿**、**新门禁判红**且红因是 TR1「没有被 git 跟踪」。
+
+### E. 明确不做（有实测理由，不假装扫全了）
+
+- **`.njk` 模板里的两处动态 import 仍无人看守**（`src/_includes/layouts/paper.njk:452`、`src/_includes/partials/extreme-precip.njk:137`）。**独立复核实测**：把 `.njk` 纳入 TR1 扫描面会**假红** ⇒ 本轮**刻意不做**：
+  ① 模板里的 `{{ '/assets/...' | relUrl }}` 出的是**页相对 URL**（实测首页渲染成 `./assets/js/home-chart.js`、论文页 `../../assets/js/paper-reader/main.js`），**不是**「相对引用方文件所在目录」的路径 ⇒ TR1 的解析模型用不了；
+  ② 18 条站点绝对/仓根字面量里**有 7 条在仓内没有对应文件** —— 5 条路由产物（`/404.html`、`/feed.xml`、`/publications.bib`、`/publications.ris`、`/sitemap.xml`）＋ 构建期生成的 `/assets/css/components.css` ＋ Nunjucks 注释里的一张图 ⇒ 一律判红就是假红；
+  ③ `{% inlineCss "src/assets/css/tokens.css" %}` 是**仓根相对**，按模板目录解析必假红。
+  ⇒ 已在门禁文件头**如实登记为已知边界**：那两处指向的文件**恰好**被 DR6 / DR6b（活文档点名）与产物层兜住 ⇒ **不假装扫全了，也不假装没有风险**。真要覆盖它，需要一条**独立**的判据（站点绝对 URL → 源文件须存在且被跟踪，映射走 `eleventy.config.js` 的 `assetGlobs`、白名单那 5 条路由产物与 `components.css`、先剥 `{# #}` 注释）⇒ 那是**下一轮**的候选，不与本轮混。
+
+### F. 外部学习（本轮**没有**可引用的官方口径）
+
+- 本轮 `web_search` 仍不可用（上一轮两次报 `MATRIX_TOOL_REQUEST_FAILED`）；npm 官方文档页是 Gatsby SPA，`web_fetch` 取不到正文 ⇒ 本轮**没有**可引用的官方口径，**不编造**。
+- ⇒ 继续走**行为实测**路线：克隆里造出"目标未跟踪"的形态，直接看门禁判不判红 —— 这比任何文档引用都硬。
+
+### G. 本轮记下的候选（不代拍）
+
+- **待拍板 7（push 时机）、56（Google Fonts 自托管）、57（套 Cloudflare 加安全响应头）、58（`github-pages` 部署保护）、59（手工工具的依赖要不要声明）** —— 本轮**仍不代拍**，保持原样。
+- **下一轮的候选（已定位、有实测依据）**：给**模板/数据文件**里的站点绝对 URL 立一条独立判据（源文件须存在**且被跟踪**），映射走 `assetGlobs`；⚠️ 它的红因要与 DR6b / 产物层的 JS4 **区分开**（复核指出：现在 DR6b 的红因指向 `docs/papers/reader-demo.html`、JS4 指向产物，**归属不准** ⇒ 同一事实会出三条红因）。
+- `scripts/check-site-js.cjs` 的 **JS6** 仍是旧弱口径 —— GW7 已在**元层**兜住，宜单独一轮改。
+- `runs-on: ubuntu-latest` 未钉具体镜像版本、`package.json` 无 `packageManager` —— 上一轮记下，本轮**未动**。
+
+### H. 技能盘点（本轮无高价值可复用项）
+
+本机约 **30 个技能**与 **1 个插件**（`nature-skills`）**没有一个与本轮的活儿对得上**：本轮要的是**仓库自身的门禁结构与引用提取口径** ⇒ `browser-use:control-in-app-browser` 是交互式页面控制（不能当测量器用）、`rea:reverse-engineer-anything` 面向二进制逆向 ⇒ **不适用**。⇒ 本轮既没有"装了技能却没用上"，也没有"本该用技能而没用"。
