@@ -2,8 +2,8 @@
 /**
  * 注入面门禁的**自测** —— 四件套。
  *
- * 这道门禁判的是「产物里没有可执行 URL / 站内 JS 不把字符串当 HTML 解析 /
- * 注释外链只放行 http/https」，而这三件事在真站上**都是好的**
+ * 这道门禁判的是「产物里没有可执行 URL / 站内不把字符串当 HTML 解析 /
+ * 注释外链只放行 http/https / 渲染层绑在白名单上」，而这四件事在真站上**都是好的**
  * （实测：产物 0 处可执行 URL、0 处 innerHTML、6 条注释链接全是 https）
  * ⇒ 它在真仓上**永远判绿** —— 一道「只在自己身上绿、没人知道它判红过没有」的门禁，
  * 等于没写（同族形态见 check-gates-wired.cjs 文件头：「看起来在、其实不生效」）。
@@ -18,12 +18,14 @@
  *      （把它那一个 `const USn_ON = true;` 改成 false，**行数不变**），
  *      对应夹具必须转绿 ⇒ 证明那条红确实是它判出来的，而不是别的判据顺带报出来的。
  *
- * 夹具是**一份合成的最小产物**（HTML + 站点 JS + 白名单模块 + package.json），
- * 门禁通过 SITE_DIR / PKG_PATH 指过去 ⇒ 注入全程不碰仓库里的任何文件
- * （末尾有仓库真源的 sha256 自证）。
+ * ⚠ 每一档的注入都是**照着真实事故形态**造的：
+ *   SA7（HTML 实体混淆）、SA8（制表符混淆）、SA9（同一行里 `//` 之后的注入点）
+ *   三档来自 2026-10-27 那次**独立复核**实测出来的假绿路径 ——
+ *   它们在真实 Chrome 里**真的会执行**，而当时的门禁全绿。
  *
- * 白名单模块的夹具**从仓库真源复制** ⇒ 改了真源，夹具自动跟着改
- * （与 scripts/test-deps.cjs 对下限表的同一做法）。
+ * 夹具是**一份合成的最小产物**（HTML + 站点 JS + **从仓库真源复制的 paper-reader 模块** +
+ * package.json），门禁通过 SITE_DIR / PKG_PATH 指过去 ⇒ 注入全程不碰仓库里的任何文件
+ * （末尾有仓库真源的 sha256 自证）。
  *
  * 用法：node scripts/test-url-safety.cjs
  */
@@ -37,8 +39,9 @@ const { spawnSync } = require("child_process");
 
 const ROOT = path.resolve(__dirname, "..");
 const GATE = path.join(__dirname, "check-url-safety.cjs");
-/** 真源里的白名单模块（夹具从它复制 ⇒ 改真源，夹具自动跟着改）。 */
-const ALLOWLIST_SRC = path.join(ROOT, "src", "assets", "js", "paper-reader", "url-safety.js");
+/** 真源里的白名单模块与 paper-reader 模块（夹具从它复制 ⇒ 改真源，夹具自动跟着改）。 */
+const ALLOWLIST_SRC = path.join(ROOT, "src/assets/js/paper-reader/url-safety.js");
+const PAPER_READER_SRC = path.join(ROOT, "src/assets/js/paper-reader");
 
 /* ========== 一、红因归属表：判据 → 唯一文案片段 ========== */
 
@@ -47,9 +50,10 @@ const CAUSES = [
   { id: "US2", crit: "US2", frag: "US2 " },
   { id: "US3", crit: "US3", frag: "US3 " },
   { id: "US4", crit: "US4", frag: "US4 " },
+  { id: "US5", crit: "US5", frag: "US5 " },
 ];
 /** 静态判据清单（门禁里应当且仅应当有这些判据）。 */
-const CRITERIA = ["US1", "US2", "US3", "US4"];
+const CRITERIA = ["US1", "US2", "US3", "US4", "US5"];
 
 /* ========== 工具 ========== */
 
@@ -102,8 +106,10 @@ export const ready = true;
   };
 }
 
+/** 夹具里 paper-reader 模块的相对目录（与门禁源码里那张表一致）。 */
+const PAPER_READER_REL = path.join("assets", "js", "paper-reader");
 /** 夹具里白名单模块的相对路径（与门禁源码里那张表一致）。 */
-const ALLOWLIST_REL = path.join("assets", "js", "paper-reader", "url-safety.js");
+const ALLOWLIST_REL = path.join(PAPER_READER_REL, "url-safety.js");
 
 /* ========== 副本构造 ========== */
 
@@ -118,15 +124,23 @@ function buildFixture(mutate) {
     fs.mkdirSync(path.dirname(p), { recursive: true });
     fs.writeFileSync(p, text);
   }
-  /* 白名单模块：从**仓库真源**复制（改了真源，夹具自动跟着改）。 */
-  const allow = path.join(site, ALLOWLIST_REL);
-  fs.mkdirSync(path.dirname(allow), { recursive: true });
-  fs.writeFileSync(allow, fs.readFileSync(ALLOWLIST_SRC, "utf8"));
-  /* 夹具的 package.json：build 链里必须有本门禁（覆盖度自证里那一条接线判据）。 */
+  /* paper-reader 模块：整目录从**仓库真源**复制（改了真源，夹具自动跟着改）。 */
+  const dst = path.join(site, PAPER_READER_REL);
+  fs.mkdirSync(dst, { recursive: true });
+  for (const name of fs.readdirSync(PAPER_READER_SRC)) {
+    if (!name.endsWith(".js")) continue;
+    fs.copyFileSync(path.join(PAPER_READER_SRC, name), path.join(dst, name));
+  }
+  /* 夹具的 package.json：build 链里必须**真的执行**本门禁（覆盖度自证里那条接线判据）。 */
   fs.writeFileSync(
     path.join(dir, "package.json"),
     JSON.stringify(
-      { name: "fixture", version: "1.0.0", private: true, scripts: { build: `node scripts/${path.basename(GATE)}` } },
+      {
+        name: "fixture",
+        version: "1.0.0",
+        private: true,
+        scripts: { build: `node scripts/${path.basename(GATE)}` },
+      },
       null,
       2
     )
@@ -146,24 +160,22 @@ function runGate(gatePath, fixtureDir) {
   return { code: r.status, out: `${r.stdout || ""}${r.stderr || ""}` };
 }
 
+/** 改夹具产物里的某个文件（按相对路径）。 */
+function patch(site, rel, fn) {
+  const p = path.join(site, rel);
+  fs.writeFileSync(p, fn(fs.readFileSync(p, "utf8")));
+}
+
 /* ========== 注入档 ========== */
 
 const MUT = {
-  /** 产物 HTML 里出现可执行 URL ⇒ 只有 US1 应当红。 */
+  /** 产物 HTML 的 href 里出现可执行 URL ⇒ 只有 US1 应当红。 */
   executableUrl: ({ site }) => {
-    const p = path.join(site, "index.html");
-    fs.writeFileSync(
-      p,
-      fs.readFileSync(p, "utf8").replace(
-        "https://example.com/paper",
-        "javascript:alert(1)"
-      )
-    );
+    patch(site, "index.html", (s) => s.replace("https://example.com/paper", "javascript:alert(1)"));
   },
-  /** 站点 JS 里把字符串当 HTML 解析 ⇒ 只有 US2 应当红。 */
+  /** 站点 JS 把字符串当 HTML 解析 ⇒ 只有 US2 应当红。 */
   parseStringAsHtml: ({ site }) => {
-    const p = path.join(site, "assets", "js", "main.js");
-    fs.writeFileSync(p, `${fs.readFileSync(p, "utf8")}\nnode.innerHTML = userInput;\n`);
+    patch(site, path.join("assets", "js", "main.js"), (s) => `${s}\nnode.innerHTML = userInput;\n`);
   },
   /**
    * 白名单模块**放行一切** ⇒ 只有 US3 应当红。
@@ -174,13 +186,19 @@ const MUT = {
    * 而且它证明 US3 判的是**行为**、不是文本长相。
    */
   allowlistTooLoose: ({ site }) => {
-    const p = path.join(site, ALLOWLIST_REL);
-    const src = fs.readFileSync(p, "utf8");
-    fs.writeFileSync(
-      p,
-      src.replace(
+    patch(site, ALLOWLIST_REL, (s) =>
+      s.replace(
         "return SAFE_LINK_SCHEMES.includes(parsed.protocol);",
         "return true; // 注入：白名单被放松成放行一切"
+      )
+    );
+  },
+  /** 白名单多放行一个协议（mailto:）⇒ 只有 US3 应当红（13 条旧探针抓不到它）。 */
+  allowlistExtraScheme: ({ site }) => {
+    patch(site, ALLOWLIST_REL, (s) =>
+      s.replace(
+        'export const SAFE_LINK_SCHEMES = ["http:", "https:"];',
+        'export const SAFE_LINK_SCHEMES = ["http:", "https:", "mailto:"];'
       )
     );
   },
@@ -188,24 +206,77 @@ const MUT = {
   allowlistMissing: ({ site }) => {
     fs.rmSync(path.join(site, ALLOWLIST_REL));
   },
+  /** build 链里只**提到**门禁名、并不真的执行它 ⇒ 只有 US4 应当红。 */
+  wiringGutted: ({ dir }) => {
+    const p = path.join(dir, "package.json");
+    const pkg = JSON.parse(fs.readFileSync(p, "utf8"));
+    pkg.scripts.build = `echo "scripts/${path.basename(GATE)}"`;
+    fs.writeFileSync(p, JSON.stringify(pkg, null, 2));
+  },
+  /** 产物里一个 JS 文件都没有 ⇒ 只有 US4 应当红。 */
+  noJsFiles: ({ site }) => {
+    fs.rmSync(path.join(site, "assets", "js"), { recursive: true, force: true });
+  },
+  /** 渲染层绕过白名单（把数据里的 URL 直接写进 href）⇒ 只有 US5 应当红。 */
+  renderBypassesAllowlist: ({ site }) => {
+    patch(site, path.join(PAPER_READER_REL, "annotations.js"), (s) =>
+      s.replace(
+        'el("a", attrs, `${l.label} →`)',
+        'el("a", { href: l.url, target: "_blank", rel: "noopener noreferrer" }, `${l.label} →`)'
+      )
+    );
+  },
+  /** HTML 内联脚本里出现 innerHTML ⇒ 只有 US2 应当红（真实浏览器里会执行）。 */
+  inlineScriptParsesHtml: ({ site }) => {
+    patch(site, "index.html", (s) =>
+      s.replace("</body>", "<script>document.body.innerHTML = userInput;</script>\n</body>")
+    );
+  },
+  /** HTML 实体混淆的脚本协议 ⇒ 只有 US1 应当红（浏览器会解码后执行）。 */
+  entityObfuscation: ({ site }) => {
+    patch(site, "index.html", (s) =>
+      s.replace("https://example.com/paper", "&#106;avascript:alert(1)")
+    );
+  },
+  /** 制表符混淆的脚本协议 ⇒ 只有 US1 应当红（URL 解析会去掉制表符）。 */
+  tabObfuscation: ({ site }) => {
+    patch(site, "index.html", (s) =>
+      s.replace("https://example.com/paper", "java\tscript:alert(1)")
+    );
+  },
+  /** 同一行里 `//` 之后的注入点 ⇒ 只有 US1 应当红（注释剥离不能吃掉它）。 */
+  sameLineAfterSlashes: ({ site }) => {
+    patch(site, path.join("assets", "js", "main.js"), (s) =>
+      `${s}\nconst CDN = "//cdn.example.com"; const u = "javascript:alert(1)";\n`
+    );
+  },
 };
 
 /** 注入档：expect=null 表示期望判绿，否则期望判红且判据集合**恰为** expect。 */
 const CASES = [
   { id: "SA0", label: "基线（健康的合成产物）", mutate: null, expect: null },
-  { id: "SA1", label: "产物 HTML 里出现可执行 URL", mutate: MUT.executableUrl, expect: ["US1"] },
+  { id: "SA1", label: "产物 HTML 的 href 里出现可执行 URL", mutate: MUT.executableUrl, expect: ["US1"] },
   { id: "SA2", label: "站点 JS 把字符串当 HTML 解析", mutate: MUT.parseStringAsHtml, expect: ["US2"] },
-  { id: "SA3", label: "白名单放行了不该放行的协议", mutate: MUT.allowlistTooLoose, expect: ["US3"] },
+  { id: "SA3", label: "白名单被放松成放行一切", mutate: MUT.allowlistTooLoose, expect: ["US3"] },
   { id: "SA4", label: "产物里没有白名单模块（判不出）", mutate: MUT.allowlistMissing, expect: ["US4"] },
+  { id: "SA5", label: "渲染层绕过白名单（href 直接写进渲染层）", mutate: MUT.renderBypassesAllowlist, expect: ["US5"] },
+  { id: "SA6", label: "HTML 内联脚本把字符串当 HTML 解析", mutate: MUT.inlineScriptParsesHtml, expect: ["US2"] },
+  { id: "SA7", label: "HTML 实体混淆的脚本协议", mutate: MUT.entityObfuscation, expect: ["US1"] },
+  { id: "SA8", label: "制表符混淆的脚本协议", mutate: MUT.tabObfuscation, expect: ["US1"] },
+  { id: "SA9", label: "同一行里 `//` 之后的注入点", mutate: MUT.sameLineAfterSlashes, expect: ["US1"] },
+  { id: "SA10", label: "白名单多放行 mailto:", mutate: MUT.allowlistExtraScheme, expect: ["US3"] },
+  { id: "SA11", label: "build 链只提到门禁名、并不真的执行", mutate: MUT.wiringGutted, expect: ["US4"] },
+  { id: "SA12", label: "产物里一个 JS 文件都没有", mutate: MUT.noJsFiles, expect: ["US4"] },
 ];
 
 /* ========== 四、判据级负对照 ========== */
 
 const NEG_CASES = [
-  { id: "SA5", crit: "US1", case: "SA1", label: "卸掉 US1" },
-  { id: "SA6", crit: "US2", case: "SA2", label: "卸掉 US2" },
-  { id: "SA7", crit: "US3", case: "SA3", label: "卸掉 US3" },
-  { id: "SA8", crit: "US4", case: "SA4", label: "卸掉 US4" },
+  { id: "SA13", crit: "US1", case: "SA1", label: "卸掉 US1" },
+  { id: "SA14", crit: "US2", case: "SA2", label: "卸掉 US2" },
+  { id: "SA15", crit: "US3", case: "SA3", label: "卸掉 US3" },
+  { id: "SA16", crit: "US4", case: "SA4", label: "卸掉 US4" },
+  { id: "SA17", crit: "US5", case: "SA5", label: "卸掉 US5" },
 ];
 
 /** 在门禁副本里卸掉某条判据：把 `const USn_ON = true;` 改成 false（**行数不变**）。 */
@@ -229,10 +300,14 @@ const calls = scanNoteCalls(gateSrc);
 const seenCauses = new Set();
 const seenCriteria = new Set();
 
-/** 仓库真源（门禁 + 渲染层 + 白名单模块）的整体指纹：自测前后必须一致。 */
+/** 仓库真源（门禁 + 渲染层 + 白名单模块 + paper-reader 目录）的整体指纹。 */
 function repoDigest() {
   const h = crypto.createHash("sha256");
-  for (const p of [GATE, ALLOWLIST_SRC, path.join(ROOT, "src/assets/js/paper-reader/annotations.js")]) {
+  const files = [GATE, ALLOWLIST_SRC, path.join(ROOT, "src/assets/js/paper-reader/annotations.js")];
+  for (const name of fs.readdirSync(PAPER_READER_SRC)) {
+    if (name.endsWith(".js")) files.push(path.join(PAPER_READER_SRC, name));
+  }
+  for (const p of files) {
     h.update(p).update(fs.existsSync(p) ? fs.readFileSync(p) : "<missing>");
   }
   return h.digest("hex");

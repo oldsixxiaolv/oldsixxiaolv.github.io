@@ -606,3 +606,16 @@
    query 里的 [data-theme="dark"] 选择器），于是同一种状态在两种暗色入口下
    画出两种底色。删掉：激活态底色改由 kind 色相统一推导，两条路径都走
    --kind-ink + color-mix，对比度在两种模式下都已实算过。 */
+
+/* 协议不在允许清单里的链接（scripts/check-url-safety.cjs 的白名单降级）：
+   渲染成**纯文本、不可点**。刻意**不画箭头** —— 箭头会让人以为它能点；
+   也没有下划线（那是链接的样子）。 */
+.annot-link--unsafe {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  font-size: 13px;
+  color: var(--text-muted);
+  text-decoration: none;
+  cursor: default;
+}

@@ -355,7 +355,8 @@ const SLOTS = {
     "COV-A", "COV-B"
   ],
   "test-url-safety.cjs": [
-    "SA0", "SA1", "SA2", "SA3", "SA4", "SA5", "SA6", "SA7", "SA8"
+    "SA0", "SA1", "SA2", "SA3", "SA4", "SA5", "SA6", "SA7", "SA8",
+    "SA9", "SA10", "SA11", "SA12", "SA13", "SA14", "SA15", "SA16", "SA17"
   ],
   "test-verify-site.cjs": [
     "G-BASE", "INJ-0", "NEG-0", "INJ-1", "NEG-1", "INJ-2", "NEG-2", "INJ-3",

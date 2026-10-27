@@ -10,7 +10,7 @@
  * live in highlight.js; this module owns DOM structure + data only.
  * ------------------------------------------------------------------------- */
 
-import { isSafeLinkUrl } from "./url-safety.js";
+import { externalLinkAttrs } from "./url-safety.js";
 
 const KIND_LABELS = {
   question: "Question",
@@ -284,14 +284,30 @@ export async function init(ctx) {
       bodyContent.appendChild(
         el("ul", { class: "annot-links" },
           ...a.links.map((l) => {
-            const label = `${l.label} →`;
             /* 外链 URL 走**协议白名单**（src/assets/js/paper-reader/url-safety.js）：
                只放行 http/https。脚本协议与 data: 一律**不渲染成可点链接** ——
-               一条脚本协议的 href 在被点击时就会执行。
-               白名单的放行集合由门禁实测盯着（scripts/check-url-safety.cjs）。 */
-            return isSafeLinkUrl(l.url)
-              ? el("li", {}, el("a", { href: l.url, target: "_blank", rel: "noopener noreferrer" }, label))
-              : el("li", {}, el("span", { class: "annot-link--unsafe" }, label));
+               一条脚本协议的链接在被点击时就会执行。
+               ⚠ href **只能**由白名单模块产出（externalLinkAttrs）——
+                  门禁（check-url-safety.cjs 的「渲染层必须绑在白名单上」那条）
+                  正是靠「paper-reader 里除白名单模块外不得出现 href」守着这条线。 */
+            const attrs = externalLinkAttrs(l.url);
+            if (!attrs) {
+              /* 降级成纯文本：**不画箭头**（箭头会让人以为它能点），
+                 并用 title 说明为什么不可点。 */
+              return el(
+                "li",
+                {},
+                el(
+                  "span",
+                  {
+                    class: "annot-link--unsafe",
+                    title: "这条链接的协议不在允许清单里，未做成链接",
+                  },
+                  l.label
+                )
+              );
+            }
+            return el("li", {}, el("a", attrs, `${l.label} →`));
           })
         )
       );

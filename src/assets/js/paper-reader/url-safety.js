@@ -40,3 +40,19 @@ export function isSafeLinkUrl(url) {
   }
   return SAFE_LINK_SCHEMES.includes(parsed.protocol);
 }
+
+/**
+ * 一条外链该渲染成什么属性（`null` = 不该渲染成可点链接）。
+ *
+ * ⚠ **渲染层只能经由这个函数拿 `href`** ——
+ *   门禁（scripts/check-url-safety.cjs 的「渲染层必须绑在白名单上」那条）
+ *   正是靠「paper-reader 模块里除白名单模块外不得出现 href 属性」来保证这条链不被绕开：
+ *   渲染层一旦改回「把数据里的 URL 直接写进 href」，门禁当场判红。
+ *
+ * @param {unknown} url 待判的 URL
+ * @returns {{href: string, target: string, rel: string}|null}
+ */
+export function externalLinkAttrs(url) {
+  if (!isSafeLinkUrl(url)) return null;
+  return { href: String(url), target: "_blank", rel: "noopener noreferrer" };
+}
