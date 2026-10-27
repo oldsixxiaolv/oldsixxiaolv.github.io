@@ -31129,3 +31129,73 @@ macOS 上是**系统代理设置**（`scutil --proxy`），Linux / CI 上还有�
 ### H. 技能盘点（本轮无高价值可复用项）
 
 本机装了 **1 个插件**（`nature-skills`，学术写作 / 文献 / 图表一族）与约 **30 个技能**（CAD / 3D 打印 / Nature 写作一族），**没有一个与本轮的活儿对得上**：本轮要的是**仓库自身的门禁结构与注入矩阵**，而 `browser-use:control-in-app-browser` 是交互式页面控制（不能当测量器用、也不给独立 profile 与 CDP 端点）⇒ **不适用**；`rea:reverse-engineer-anything` 面向原生二进制逆向 ⇒ **不适用**。⇒ 本轮既没有“装了技能却没用上”，也没有“本该用技能而没用”。
+
+---
+
+## 2026-10-27 · 巡检轮次：给**接线**装上"逐字执行"这道硬门 ＋ 给**依赖**装上幽灵依赖看守 —— D113（17 处"我接上了"的判据全是弱口径）＋ D112（三个包只因别的包捎带安装才 require 得到）
+
+### A. 本轮定位
+
+上一场次（D110 / D111）收尾时留了两条明写的候选：一条是 `scripts/check-site-js.cjs` 的 **JS6** 仍是"只看文件名"的旧弱口径；另一条更根本 —— **那不是某一个门禁的问题，是全仓 17 处的问题**。本轮就做那条更根本的：把**"提到文件名"**与**"它真的跑了"**这两件事分开。
+第二个改进点从体检里长出来：把 D110 那一族「幽灵依赖」从**手工脚本**扩到**门禁脚本** —— 实测 `gray-matter` / `js-yaml` / `nunjucks` 三个包在门禁里被 `require`，却**既不在 `package.json`、也不在锁文件的根声明里**，今天能 require 到只因 **@11ty/eleventy 捎带装了它们**。
+
+本轮**刻意不新起门禁**：GW7 / GW8 都扩进已有的 `scripts/check-gates-wired.cjs` ⇒ 省掉「新门禁 ⇒ 静态清单 ＋ README 命令表 ＋ package.json 接线 ＋ 自测全套仪式」这一整套。
+
+### B. 体检（2026-10-27 逐项实测）
+
+**真问题（本轮修的两条）**
+
+1. **D113 —— 全仓 17 处"门禁自己没被卸掉"的判据全是弱口径**：这 17 处都只按**文件名有没有出现在 npm script 命令里**来认"我接上了" ⇒ 把命令改成 `node scripts/check-x.cjs || true`（**退出码被架空**）、`# node scripts/check-x.cjs`（注释掉）、`node scripts/check-x.cjs --x`（带参数），那道门禁**仍然判绿说自己接上了** —— 而它其实已经不生效了 ⇒ 门禁红了 build 链也不知道 ⇒ 又一例"看起来在、其实不生效"。
+   ⚠️ 此前**只有** `scripts/check-url-safety.cjs` 的 **US4** 已经把这条口径升级成"**逐字相等**" ⇒ 正确做法早已存在，只是没有推广。
+
+2. **D112 —— 三个包是幽灵依赖**：`check-blog-frontmatter.cjs` / `check-jsonld.cjs` require `gray-matter`、`check-citation-cff.cjs` require `js-yaml`、`check-tag-leak.cjs` 与 `test-tag-leak.cjs` require `nunjucks` —— 而这三个包**既不在 `package.json`、也不在锁文件的根声明里**（锁文件里确实有，但只是**传递依赖**）⇒ 今天能 require 到只因 **@11ty/eleventy 捎带装了它们**（npm 扁平化布局）⇒ 上游换一版、或换用严格 `node_modules` 布局的包管理器时它会**静默消失** ⇒ **本机 build 全绿、CI 直接崩**（与 D100 同族）。
+   ⚠️ 这是 D110 那一族的**另一半**：上一轮发现的是**手工脚本**依赖 `puppeteer-core`（已诚实登记、待拍板 59）；本轮发现的是**门禁脚本**依赖这三个包 —— 门禁在 build 链上，性质**更重**。
+
+**已覆盖（本轮复查确认，不重复证明）**：注入面（US1–US5 ＋ 39 档自测）、供应链（DP5–DP11）、依赖与运行时（DEP1–DEP6 ＋ DA1）、外链 `rel`、导航 / 可访问性 / SEO / JSON-LD / feed 门禁族、字体外链降级、产物暴露面（`_site/` 里**实测**无 `._*` / `.DS_Store`、无本机绝对路径 `/Users/` `/Volumes/`）、sitemap 与产物条目一致。
+
+**线上那半（复查，不代拍）**：HTTP/2 200；有 HSTS `max-age=31556952`；**仍缺** CSP / X-Frame-Options / X-Content-Type-Options / Referrer-Policy / Permissions-Policy；`last-modified: Fri, 16 Oct 2026`（仍是 2026-10-16 的旧部署）；`access-control-allow-origin: *`（GitHub Pages 默认）⇒ 待拍板 57 仍不代拍。
+
+**不适用 / 本轮明确不判**：① **草稿外泄** —— 站点没有 draft 机制 ⇒ 这一面不存在。② **Python 小工具的依赖核对** —— 机器核对只覆盖 Node 脚本的 `require()`；实测两个 Python 工具的 import 全是标准库。③ **`check-site-js.cjs` 的 JS6** —— GW7 已在**元层**兜住它，本轮**不单独改**（留作后续候选）。
+
+### C. 改了什么
+
+1. **GW7（`scripts/check-gates-wired.cjs`）—— 接线必须是"逐字执行"**：`verbatimSegments()` 按 `&&` 分段（`||` / `;` / `&` 都会**改掉退出码的语义** ⇒ 不算逐字），`checkVerbatimWiring()` 逐道门禁核"可达入口里有没有一段**逐字**等于 `node scripts/<门禁>`" ⇒ 没有就判红，并**把该 npm script 的原文一并打出来**（便于一眼看出是 `|| true`、带参数还是别的形态）。
+   ⚠️ 与 GW1 的红因**不重叠**：GW1 管"没人引用 / 不在链上"，GW7 只管"引用了但不是逐字执行"。
+2. **GW8 —— 幽灵依赖看守**：扫描 `scripts/` 下**全部** `.cjs/.mjs/.js`（含 `lib/`），凡是 require 了**未在 `package.json` 任何依赖段里**的第三方包即判红。
+   ⚠️ **与 GW6 的分工写进文件头**：GW8 只管门禁 / 自测 / `scripts/lib` 共享库（CI 一定跑）；`scripts/` **顶层**的手工工具族归 GW6 独占（GW6 已分成两支把这一族覆盖完整）⇒ **同一件事只有一条判据说话**（实测：分工前 M13 那一档会同时出现 GW6 与 GW8 两条一模一样的红因 ⇒ 归属不纯 ⇒ 改了分工，不是放宽判据）。
+3. **依赖显式声明**：`package.json` 的 `devDependencies` 补 `gray-matter@^4.0.3` / `js-yaml@^4.3.2` / `nunjucks@^3.2.4`；`package-lock.json` **只改根声明段一处**（用 `npm install --package-lock-only --save-dev` 生成 ⇒ diff 已实测：无新增/消失的包条目、无版本漂移）。
+4. **共享遮罩一条真源**：新建 `scripts/lib/js-refs.cjs`，把"遮罩扫描"与"第三方包名提取"放在一处，`check-tracked-refs.cjs`（TR1）与 `check-gates-wired.cjs`（GW6 / GW8）**共用** ⇒ 两边口径不会漂移（漂移的方向通常是"一边变严、一边没变" ⇒ 假红或漏报，且没人知道）。
+   ⚠️ 遮罩必须处理**正则字面量**：否则 `check-site-js.cjs` 里的正则会让遮罩**整体错位**（引号配对全乱 ⇒ 后面整段代码被当成字符串内容保留下来）⇒ GW8 一度把 `x` 与 `…` 误报成"未声明的第三方包"（实测后补上正则处理，误报消失）。
+   ⚠️ `check-tracked-refs.cjs` 的行为**不变**（遮罩实现原样搬过去），自测的 G1（注释里的 require）/ G2（字符串里的 require 字样）两档仍绿，即证明行为没变。
+5. **自测**：`scripts/test-gates-wired-selftest.cjs` **15 → 23 档**。新增 M15–M18（GW7：`|| true` ⇒ 红、带参数 ⇒ 红、**逐字** ⇒ 绿、**判据级负对照**）与 M19–M22（GW8：未声明 ⇒ 红、已声明 ⇒ 绿、require 字样只在**注释**里 ⇒ 绿、**判据级负对照**）。
+   ⚠️ 顺带修掉两处**自测侧的真问题**（都在驱动、不在断言）：① 沙箱没拷共享库 ⇒ 门禁副本 require 不到直接崩，**每一档**都变成"红但红因不是设计的那一条"；② `breakMask` 夹具还在往**门禁副本**里打补丁，而遮罩实现已搬到共享库 ⇒ 注入点不存在、夹具当场抛错。
+6. **登记与文档**：缺陷台账新增 **D112 / D113** 两行；`README.md` 命令表补 **GW1–GW8**（RD6 判据编号对账通过）。**没有新增任何 npm script**（两道判据都扩进已有门禁）⇒ build 链段数不变。
+
+### D. 验证
+
+- **真仓门禁**（exit 0）：`check:gates` / `check:readme` / `check:log-sections` / `check:decision-ids`；`scripts/test-gates-wired-selftest.cjs` **M0–M22 共 23 档 ＋ P0 基线全绿**；`scripts/test-tracked-refs.cjs` **25 档全绿**（含 COV-A 覆盖度自证：报出的扫描数量与夹具真实数量一致）。
+- **红因归属纯净**：M13 那一档修后**只剩 GW6 一条**（分工前是 GW6 ＋ GW8 两条一模一样的）；M19 那一档**只有 GW8 一条**。
+- **判据级负对照**：M18（摘掉 GW7 ⇒ 同一注入转绿）、M22（摘掉 GW8 ⇒ 同一注入转绿）⇒ 那两条红**确实是这两条判据**判出来的。
+- **隔离克隆整链 build**：见本节提交后的验证记录（`npm ci` exit 0 → `npm run build` exit 0 → 产物齐全、工作树干净）。
+- ⚠️ **锁文件 diff 已实测**：`npm install --package-lock-only --save-dev` 只落**根声明段一处** —— 无新增/消失的包条目、无版本漂移（这三个包本来就作为传递依赖存在于锁文件里）。
+
+### E. 未验 / 线上那半
+
+- 本轮两条全是**构建环境与门禁自身**的问题，**与线上无关**（没有线上那一半）。
+- ⚠️ **只做本地提交、不 push** ⇒ 线上那半无从验证，**不写「已上线」**；线上仍是 **2026-10-16** 的旧部署（待拍板 7 未拍板）。
+
+### F. 外部学习（本轮**没有**可引用的官方口径）
+
+- 本轮 `web_search` 仍不可用；npm 官方文档页是 **Gatsby SPA**，`web_fetch` 只能抓到外壳、取不到正文 ⇒ 本轮**没有**可引用的官方口径，**不编造**。
+- ⇒ 继续走**行为实测**路线：`npm install --package-lock-only` 的实际 diff 就是"声明这个包会不会牵动整棵依赖树"的硬证据（本轮实测：只落根条目一处）。
+
+### G. 本轮记下的候选（不代拍）
+
+- **待拍板 7（push 时机）、56（Google Fonts 自托管）、57（套 Cloudflare 加安全响应头）、58（`github-pages` 部署保护）** —— 本轮**仍不代拍**，保持原样。
+- **待拍板 59**（依赖要不要声明进 `package.json`）—— 本轮把 D110 那一族（`puppeteer-core` / `lighthouse`）的**门禁这一半**做成 GW8；但**手工工具要不要声明**仍属本人取舍（声明 = CI 每次 `npm ci` 多装一棵树），**不代拍**。⚠️ 本轮声明的三个包**性质不同**：它们是**门禁自己在用**的（不装就 build 挂），与手工工具不是一回事。
+- `scripts/check-site-js.cjs` 的 **JS6** 仍是旧弱口径 ⇒ GW7 已在**元层**兜住，宜单独一轮改。
+- `runs-on: ubuntu-latest` 未钉具体镜像版本、`package.json` 无 `packageManager` —— 上一轮记下，本轮**未动**。
+
+### H. 技能盘点（本轮无高价值可复用项）
+
+本机约 **30 个技能**与 **1 个插件**（`nature-skills`）**没有一个与本轮的活儿对得上**：本轮要的是**仓库自身的门禁结构与注入矩阵** ⇒ `browser-use:control-in-app-browser` 是交互式页面控制（不能当测量器用）、`rea:reverse-engineer-anything` 面向二进制逆向 ⇒ **不适用**。⇒ 本轮既没有"装了技能却没用上"，也没有"本该用技能而没用"。
