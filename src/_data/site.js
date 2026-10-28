@@ -130,6 +130,50 @@ module.exports = {
   // 域名只能属于一个站点，重复声明会导致部署被 GitHub 判为域名占用）。
   url: "https://github.lvyihang.xyz",
 
+  // —— 本站占用的**主机名**清单（真源）——
+  // site.url 管的是「站点唯一的绝对地址来源」；这一份管的是**同一域名下的
+  // 其它主机名**：哪些是本站在用的、哪些不是。
+  //
+  // 为什么要有它（2026-10-28 实测，不是推测）：lvyihang.xyz 这个域名下
+  // 一共有三台主机，**只有一台是活的**：
+  //   · github.lvyihang.xyz → CNAME oldsixxiaolv.github.io → HTTP 200（本站）
+  //   · lvyihang.xyz        → A 记录落在 Cloudflare 段 → **HTTP 521**
+  //                           （zone 在、origin 坏了）；该域**无 MX**（收不了邮件）
+  //   · www.lvyihang.xyz    → A 记录 43.133.175.183（腾讯云）→ **80/443 全不可连**
+  //   （境内直连实测，见 docs/IMPROVEMENT-LOG.md 的 2026-10-28 场次）
+  // 仓内此前**没有任何地方**声明过这件事 ⇒ 谁写死一个 lvyihang.xyz/ 的链接
+  // （再自然不过的写法），所有门禁全绿、线上就是一个死链。
+  // 门禁 35 据此核对：产物里出现的**自有域名**主机名必须在本清单里，
+  // 且状态必须是 active。
+  //
+  // ⚠️ 本清单只陈述「本站用不用这个主机名」；**DNS 怎么处置是本人的取舍**
+  //    （已登记为待决策项），本仓不代拍。
+  hosts: {
+    // 自有域名（registrable domain）：这一段下的任何主机名都算「自己家的」。
+    domain: "lvyihang.xyz",
+    entries: [
+      {
+        host: "github.lvyihang.xyz",
+        status: "active",
+        note: "本站的正式地址（site.url 就是它），内容铺在域名根 /",
+      },
+      {
+        host: "lvyihang.xyz",
+        status: "inactive",
+        note:
+          "2026-10-28 实测：Cloudflare zone 在、origin 坏了 ⇒ HTTP 521；" +
+          "该域无 MX（收不了邮件）。本站不用它。",
+      },
+      {
+        host: "www.lvyihang.xyz",
+        status: "inactive",
+        note:
+          "2026-10-28 实测：指向腾讯云 43.133.175.183，80/443 全不可连；" +
+          "若该 IP 已被释放并转分配给别人，它会变成悬空 DNS（子域接管面）。本站不用它。",
+      },
+    ],
+  },
+
   // 页面语言标记。整站已统一为英文（正文、标签、导航、页面文案），
   // 但这里曾一直是 zh-CN —— 后果有两个：屏幕阅读器会用中文发音规则去念
   // 英文（每个词都念得很怪），搜索引擎会把英文查询的相关性判断往下压。

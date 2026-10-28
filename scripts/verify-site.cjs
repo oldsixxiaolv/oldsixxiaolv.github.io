@@ -89,6 +89,12 @@
  *    34. 集合列表页的每个列表项都必须有自己的标题元素：
  *        该页 ItemList 每一项的 name 必须逐字出现在本页某个 h2–h6 的
  *        标题元素可见文本里（锚在数据声明上，不锚在 class 名上）
+ *    35. 自有域名下的**主机名**必须来自清单且状态是 active：site.url 的
+ *        主机名必须在清单里；产物里出现的每一个自有域名主机名（canonical /
+ *        og:url / JSON-LD 的 @id / 各种超链接 / 内联脚本）都必须在清单里，
+ *        且状态必须是 active —— 清单外或 inactive 的主机名一旦被链上，
+ *        线上就是一个死链（本站域名下另两台主机当前都是坏的）；
+ *        另含**自证存活**（一处自有域名的绝对 URL 都没扫到 ⇒ 判红）
  *
  * ⚠ 编号顺序 ≠ 执行顺序：门禁 33 是**覆盖度自证**，它要看得见每条门禁
  *    这一轮都真的跑过 ⇒ 它的代码段必须排在**最后**（排在门禁 34 之前）。
@@ -132,6 +138,7 @@
  *   （无）            → 新 32   （本轮新增：论文列表页的 ItemList 完整性）
  *   （无）            → 新 33   （本轮新增：逐比较点覆盖度自证）
  *   （无）            → 新 34   （本轮新增：集合列表页的条目标题必须是标题元素）
+ *   （无）            → 新 35   （2026-10-28 场次新增：自有域名下的主机名必须来自清单且状态 active）
  *
  * 用法：node scripts/verify-site.cjs   （有错 exit 1）
  */
@@ -223,6 +230,7 @@ const G31_ON = true;
 const G32_ON = true;
 const G33_ON = true;
 const G34_ON = true;
+const G35_ON = true;
 const SWITCH_ON = {
   "0": G0_ON,
   "1": G1_ON,
@@ -260,6 +268,7 @@ const SWITCH_ON = {
   "32": G32_ON,
   "33": G33_ON,
   "34": G34_ON,
+  "35": G35_ON,
 };
 // 逐比较点覆盖度自证的记账（门禁 33 消费）。
 // ⚠️ mark() 必须跟判据**同生共死**：整块判据被删掉时 mark 也必须一起消失，
@@ -3484,6 +3493,144 @@ mark("34");
   }
 }
 
+/* ---------- 35. 自有域名下的主机名必须来自清单且状态是 active ----------
+   这条来自一次**实测出来的域名面盘点**（2026-10-28 场次，境内直连）：
+   本站的域名 lvyihang.xyz 下有三台主机，**只有一台是活的** ——
+     · github.lvyihang.xyz → CNAME oldsixxiaolv.github.io → 200（本站）
+     · lvyihang.xyz        → A 落在 Cloudflare 段 → **HTTP 521**（zone 在、origin 坏）
+     · www.lvyihang.xyz    → A 指向腾讯云 43.133.175.183 → **80/443 全不可连**
+   而仓内此前**没有任何地方**声明过「本站在外用哪几个主机名」⇒
+     · 门禁 21 管的是**出口地址**（canonical / og:url / sitemap / feed / JSON-LD 的 @id
+       必须挂在 site.url 上），**管不到超链接**；
+     · 身份派生门禁管的是「身份清单里那几条 URL 不许抄成字面量」，
+       **管不到域名下的其它主机名**；
+     · 第三方门禁 TD1 管的是**子资源**（script / img / link 的外域引用），
+       同样**管不到超链接**。
+   ⇒ 于是「谁写死一个 https://lvyihang.xyz/ 的链接」（再自然不过的写法）
+     会**静悄悄地**上线一个死链：521 的 apex，或一台完全不可达的 www。
+
+   本条管的就是这个：**本站在外用哪几个主机名只有一份声明**（site.hosts），
+   产物里出现的每一个自有域名主机名都必须在那份声明里，且状态是 active。
+
+   ⚠️ **只管自有域名**（site.hosts.domain 及其子域），**不碰第三方链接** ——
+   指向 ORCID / GitHub / DOI / 期刊站是正常的对外引用，不是本站的身份。
+   ⚠️ **不判主机名的可达性**（那要联网，build 链必须零网络依赖）：
+   本条只判「**清单与产物对不对得上**」；某台主机今天通不通，是另一回事
+   （实测结果写在 site.hosts 的 note 里）。
+   ⚠️ **判据空转要判红**：一处自有域名的绝对 URL 都没扫到 ⇒ 判据没在跑。 */
+mark("35");
+{
+  const hostsDecl = (siteData && siteData.hosts) || null;
+  const domain =
+    hostsDecl && typeof hostsDecl.domain === "string"
+      ? hostsDecl.domain.toLowerCase().trim()
+      : "";
+  const entries =
+    hostsDecl && Array.isArray(hostsDecl.entries) ? hostsDecl.entries : [];
+  const statusOf = new Map();
+  for (const e of entries) {
+    if (!e || typeof e.host !== "string") continue;
+    statusOf.set(
+      e.host.toLowerCase().trim(),
+      String(e.status || "").toLowerCase().trim()
+    );
+  }
+
+  if (!domain || entries.length === 0) {
+    fail(
+      "35",
+      `site.hosts 声明缺失或为空（domain="${domain}"，条目 ${entries.length} 条）—— ` +
+        `本站在外用哪几个主机名只有这一份声明；没有它，"产物里链到的是不是自己的" ` +
+        `就没人能核了`
+    );
+  } else {
+    // ① 声明层：site.url 的主机名必须在清单里，且状态是 active
+    let siteHost = "";
+    try {
+      siteHost = new URL(SITE_URL).host.toLowerCase();
+    } catch (_) {
+      siteHost = "";
+    }
+    if (!siteHost) {
+      fail("35", `site.url = "${SITE_URL}" 解析不出主机名 —— 本条的比较基准没了`);
+    } else {
+      const st = statusOf.get(siteHost);
+      if (st === undefined) {
+        fail(
+          "35",
+          `site.url 的主机名 "${siteHost}" 不在 site.hosts 清单里 —— ` +
+            `站点地址本身必须在清单里（清单是站点对外主机名的唯一声明）`
+        );
+      } else if (st !== "active") {
+        fail(
+          "35",
+          `site.url 的主机名 "${siteHost}" 在清单里的状态是 "${st}"，不是 active —— ` +
+            `站点地址不能指向一个自己都不用的主机名`
+        );
+      }
+    }
+
+    // ② 产品层：产物里出现的自有域名主机名必须已登记且 active
+    const suffix = "." + domain;
+    const siteHostStatus = (() => {
+      try {
+        return statusOf.get(new URL(SITE_URL).host.toLowerCase());
+      } catch (_) {
+        return undefined;
+      }
+    })();
+    let seen = 0;
+    const undeclared = new Map(); // host → 出现位置（去重后只报一条）
+    const inactive = new Map();
+    for (const file of htmlFiles) {
+      const from = rel(file);
+      let html = fs.readFileSync(file, "utf8");
+      // 注释里写的地址是**说明**，不是引用 —— 剥掉（行数不变，红因仍指得到行）
+      html = html.replace(/<!--[\s\S]*?-->/g, "");
+      for (const m of html.matchAll(/https?:\/\/([^\s"'<>)\/]+)/gi)) {
+        const host = m[1].toLowerCase().split(":")[0];
+        if (host !== domain && !host.endsWith(suffix)) continue;
+        seen++;
+        const st = statusOf.get(host);
+        if (st === undefined) {
+          // ① 已经报过 site.url 那个主机名的话，这里不重复报（同一事实一条红因）
+          if (host === siteHost && siteHostStatus === undefined) continue;
+          if (!undeclared.has(host)) undeclared.set(host, []);
+          const list = undeclared.get(host);
+          if (list.length < 5) list.push(from);
+        } else if (st !== "active") {
+          if (!inactive.has(host)) inactive.set(host, { st, from });
+        }
+      }
+    }
+    for (const [host, list] of undeclared) {
+      fail(
+        "35",
+        `产物里出现了自有域名（${domain}）下**未登记**的主机名 "${host}"` +
+          `（${list.join("、")}${list.length >= 5 ? " 等" : ""}）—— ` +
+          `本站在外用哪几个主机名只有 site.hosts 这一份清单；链到清单外的主机名，` +
+          `线上就是一个死链（本站域名下另两台主机当前都是坏的）`
+      );
+    }
+    for (const [host, info] of inactive) {
+      fail(
+        "35",
+        `产物里出现了状态为 "${info.st}" 的自有域名主机名 "${host}"（${info.from}）—— ` +
+          `inactive 的主机名不许出现在产物里（它当前是坏的：见 site.hosts 里的实测记录）`
+      );
+    }
+
+    // ③ 自证存活：一处自有域名的绝对 URL 都没扫到 ⇒ 判据空转
+    if (seen === 0) {
+      fail(
+        "35",
+        `一处自有域名（${domain}）的绝对 URL 都没扫到 —— 判据没有真的比对过东西` +
+          `（多半是被卸掉了，或扫描面变了）`
+      );
+    }
+  }
+}
+
 /* ---------- 33. 逐比较点覆盖度自证：每条判据的比较点都必须真的跑过 ----------
    这条是**给自己这一族门禁上的保险**：编号化之后，最坏的一类失效是
    「判据还在、编号还在，但那段代码已经不跑了」——
@@ -3515,7 +3662,7 @@ const COVERAGE_POINTS = {
   "5": 2, "6": 1, "7": 6, "8": 10, "9": 2, "10": 1, "11": 8, "12": 3,
   "13": 7, "14": 1, "15": 2, "16": 8, "17": 4, "18": 10, "19": 4,
   "20": 5, "21": 6, "22": 1, "23": 2, "24": 4, "25": 1, "26": 1, "27": 1,
-  "28": 2, "29": 5, "30": 10, "31": 3, "32": 15, "34": 3,
+  "28": 2, "29": 5, "30": 10, "31": 3, "32": 15, "34": 3, "35": 5,
 };
 {
   const dirIds = Object.keys(COVERAGE_POINTS);
@@ -3615,6 +3762,6 @@ if (problems.length) {
   process.exit(1);
 }
 console.log(
-  `✓ 站点自检全部通过（门禁 0–34；逐比较点覆盖度 ${coveredPoints.size}/` +
+  `✓ 站点自检全部通过（门禁 0–35；逐比较点覆盖度 ${coveredPoints.size}/` +
     `${Object.keys(COVERAGE_POINTS).length}）`
 );

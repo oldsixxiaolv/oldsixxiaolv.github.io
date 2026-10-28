@@ -380,7 +380,7 @@ const SLOTS = {
     "NEG-30", "INJ-31", "NEG-31", "INJ-32", "NEG-32", "INJ-33", "NEG-33", "INJ-34",
     "NEG-34", "P-33a", "P-33b", "P-33c", "P-11a", "N-11a", "P-11b", "N-11b",
     "P-11c", "N-11c", "P-11d", "N-11d", "P-11e", "N-11e", "P-34a", "N-34a",
-    "R-1", "R-2", "G-IMMUT"
+    "R-1", "R-2", "G-IMMUT", "INJ-35", "NEG-35"
   ],
   "test-wrapping.cjs": [
     "G0", "G1", "G2", "G3", "G4", "G5", "W1a", "W1b",
