@@ -123,6 +123,10 @@ const SLOTS = {
     "M8", "M9", "M10", "M11", "M12", "M13", "M14", "M15",
     "M16", "M17"
   ],
+  "test-dep-audit.cjs": [
+    "AUD0", "AUD1", "AUD2", "AUD3", "AUD4", "AUD5", "AUD6", "AUD7",
+    "AUD8", "AUD9"
+  ],
   "test-design-components.cjs": [
     "DCXR0", "DCXR1", "DCXR2", "DCXR3", "DCXR4", "DCXR5", "DCXR6", "DCXR7",
     "DCXR8", "DCXR9", "DCXR10", "DCXR11", "DCXR12", "DCXR13", "DCXR14",
