@@ -47,6 +47,33 @@
  *       （与 TR2 同一件事的 HTML 维度，但**单列一条**而不是并进 TR2 ——
  *         两条自证各自的失效形态不同，合在一起会让一次改动出两条红因、
  *         红因归属就没法判定了。）
+ *   TR7 模板 / 数据文件里的站点绝对资产 URL —— 对**每一个已被 git 跟踪的**
+ *       模板（src/ 下的 .njk）与数据文件（src/_data/ 下的文件），扫出它写下的
+ *       **站点绝对资产 URL**（形如 `/assets/...`，先剥掉 Nunjucks 注释
+ *       `{# … #}` —— 注释里写的路径是说明，不是引用），
+ *       目标必须满足两条：
+ *         · 仓内的**源文件**确实存在（`/assets/x/y` ⇒ `src/assets/x/y`）；
+ *         · **也已被 git 跟踪**（否则本机有、提交里没有 ⇒ 部署后线上 404，
+ *           也就是 D100 那一族）。
+ *   TR8 模板侧自证存活 —— TR7 自己的前提：扫到 0 个模板 / 数据文件、
+ *       或一处仓内的资产引用都没比对过，一律判红。
+ *
+ * ⚠️ 为什么 TR7 要**另立**一条，而不是并进 TR1：
+ *   TR1 的解析模型是「**相对**引用方文件所在目录」的路径；
+ *   而模板里写的是**站点绝对** URL（`/assets/...`）——
+ *   本仓的 `relUrl` 是**本站自定义**过滤器（不是 Eleventy 自带的），
+ *   它把这种绝对字面量在**渲染时**转成**页相对** URL（首页渲染成
+ *   `./assets/js/home-chart.js`、论文页 `../../assets/js/paper-reader/main.js`）
+ *   ⇒ 源里的形状与产物里的形状**不同**，TR1/TR5 的模型都用不了。
+ *   ⚠️ 实测：把 .njk 塞进 TR1 的扫描面会**假红**（`{{ '/assets/...' | relUrl }}`
+ *      出的是页相对 URL；且 18 条站点绝对字面量里有 7 条仓内没有对应文件：
+ *      5 条路由产物 + 构建期生成的 components.css + 注释里的一张图）——
+ *      所以这里**另立判据**，而不是扩 TR1 的扫描面。
+ * ⚠️ TR7 **只判 /assets/ 下的资产**，不判站内**路由**（/blog/、/papers/…）：
+ *   路由不是仓库里的文件（由 Eleventy 生成），它们由产物层的 verify-site
+ *   守（那里比对的是渲染后的相对引用能否解析到产物文件）。
+ * ⚠️ TR7 **只扫 src/**：仓里其它地方的模板（docs/ 下的示例页）由 TR5 那一侧
+ *   与产物层门禁管。
  *
  * ⚠️ TR5 **只判「仓库里的文件」**，不判「站点上的路由」：
  *   · **根绝对路径**（以 / 开头）= 部署后由站点根解析的**站内 URL**，
@@ -132,6 +159,8 @@ const TR3_ON = true; // 索引可读（TR1/TR2 的前提）
 const TR4_ON = true; // 遮罩自证（TR1/TR2/TR5 的前提）
 const TR5_ON = true; // HTML 引用完整性
 const TR6_ON = true; // HTML 侧自证存活
+const TR7_ON = true; // 模板 / 数据文件里的站点绝对资产 URL
+const TR8_ON = true; // 模板侧自证存活
 
 const problems = [];
 function note(id, msg) {
@@ -552,6 +581,160 @@ if (!skipScan) {
   }
 }
 
+/* ---------- TR7：模板 / 数据文件里的站点绝对资产 URL ---------- */
+
+/**
+ * Nunjucks 注释整体遮掉：`{# … #}` 里写的路径是**说明**，不是引用。
+ *   ⚠️ 本仓 `src/_includes/layouts/base.njk` 里就有一段注释写着
+ *      旧版分享图的路径 `/assets/img/og/og-1200x630.png`（那段图早已在 D3
+ *      换成 .jpg）⇒ 不剥注释就会对着一个**从没存在过的文件**判红。
+ *   保留换行（用空格替换非换行字符）⇒ 行号不变，红因能指到正确的行。
+ */
+function maskNunjucksComments(text) {
+  return text.replace(/\{#[\s\S]*?#\}/g, (m) => m.replace(/[^\n]/g, " "));
+}
+
+/* 站点绝对**资产** URL（以 /assets/ 开头，双引号 / 单引号 / 反引号都认）。
+   ⚠️ 只认 /assets/：站内**路由**（/blog/、/papers/…）**不是仓库里的文件**，
+      它们由 Eleventy 生成，由产物层的 verify-site 守（那里比对的是渲染后的
+      相对引用）；站内路由也不该被当成「必须躺在仓库里的文件」判红。 */
+const TPL_ASSET_URL_RE = /(["'`])(\/assets\/[A-Za-z0-9._/-]+)\1/g;
+
+/**
+ * 白名单：目标**没有单一源文件**的资产。逐条写明理由（不写"特殊情况"）。
+ *   ⚠️ 白名单只豁免「目标没有源文件」这一件事 —— 它**不豁免**白名单之外的任何问题。
+ *   ⚠️ 白名单条目若不再被任何模板引用，**只提示不判红**（撤掉白名单不该让 build 红）。
+ */
+const TPL_ASSET_WHITELIST = {
+  "/assets/css/components.css":
+    "构建期产物：prod 下由 src/assets/css/components/ 下的 7 个 partial 顺序拼接生成" +
+    "（见 eleventy.config.js 的 assetGlobs 与 components/index.css 的 @import 清单），" +
+    "没有单一源文件可指。",
+};
+
+/** 一个偏移量对应第几行（1 起）—— 红因要能指到正确的行。 */
+function lineOf(text, index) {
+  let line = 1;
+  for (let i = 0; i < index && i < text.length; i++) {
+    if (text[i] === "\n") line++;
+  }
+  return line;
+}
+
+let tplFilesScanned = 0;
+let tplRefsFound = 0; // 扫到的资产 URL 总数（含白名单里的）
+let tplRefsCompared = 0; // 真正比对过的（不在白名单里的）
+let tplWhitelistUnused = [];
+
+if (!skipScan) {
+  const tplFiles = [...tracked].filter(
+    (f) =>
+      f.startsWith("src/") &&
+      (f.endsWith(".njk") || f.startsWith("src/_data/"))
+  );
+
+  const whitelistHit = new Map();
+  /* 发现的问题**按目标文件**归并 ⇒ 同一个坏目标只报一条红因（把引用它的
+     位置都列进去）。理由：同一个事实（这个文件不可用）只该有一条红因 ——
+     同一个文件被两处引用时报两条红因，会让"有几个人错了"看起来像"有两个问题"。 */
+  const findings = new Map();
+
+  for (const file of tplFiles) {
+    const abs = path.join(ROOT, file);
+    if (!fs.existsSync(abs)) continue; // 已跟踪但本地被删了：不归本门禁管
+    tplFilesScanned++;
+
+    let text;
+    try {
+      text = fs.readFileSync(abs, "utf8");
+    } catch (e) {
+      continue;
+    }
+
+    const masked = maskNunjucksComments(text);
+    TPL_ASSET_URL_RE.lastIndex = 0;
+    let m;
+    while ((m = TPL_ASSET_URL_RE.exec(masked)) !== null) {
+      const url = m[2];
+      tplRefsFound++;
+
+      if (Object.prototype.hasOwnProperty.call(TPL_ASSET_WHITELIST, url)) {
+        whitelistHit.set(url, (whitelistHit.get(url) || 0) + 1);
+        continue;
+      }
+
+      tplRefsCompared++;
+
+      /* 站根相对 → 仓内路径：/assets/x/y ⇒ src/assets/x/y */
+      const relTarget = path.join("src", url.replace(/^\/+/, ""));
+      const absTarget = path.join(ROOT, relTarget);
+
+      const missing = !fs.existsSync(absTarget);
+      const untracked = !missing && !tracked.has(relTarget);
+      if (!missing && !untracked) continue;
+
+      const kind = missing ? "missing" : "untracked";
+      const key = `${kind}:${relTarget}`;
+      if (!findings.has(key)) {
+        findings.set(key, { kind, url, relTarget, refs: [] });
+      }
+      findings.get(key).refs.push(`${file}:${lineOf(masked, m.index)}`);
+    }
+  }
+
+  for (const f of findings.values()) {
+    const where = f.refs.join("、");
+    if (f.kind === "missing") {
+      if (TR7_ON) {
+        note(
+          "TR7",
+          `仓内没有 ${f.relTarget}，但 ${where} 引用了站点绝对 URL ${f.url} —— ` +
+            `模板指向一个不存在的东西，线上必然 404。` +
+            `（若它其实是构建期产物或路由产物，请登记进 TPL_ASSET_WHITELIST 并写明理由。）`
+        );
+      }
+    } else if (TR7_ON) {
+      note(
+        "TR7",
+        `${f.relTarget} 在磁盘上存在，但**它没有被 git 跟踪**，而 ${where} 引用了它 —— ` +
+          `本机有、提交里没有 ⇒ 部署后线上会 404（干净克隆里这个文件根本不存在）。` +
+          `请把它和引用方放在同一次提交里。`
+      );
+    }
+  }
+
+  tplWhitelistUnused = Object.keys(TPL_ASSET_WHITELIST).filter(
+    (u) => !whitelistHit.has(u)
+  );
+}
+
+/* ---------- TR8：模板侧自证存活 ---------- */
+if (!skipScan) {
+  if (!tplFilesScanned) {
+    if (TR8_ON) {
+      note(
+        "TR8",
+        `一个已跟踪的模板 / 数据文件都没扫到（跟踪集合里没有 src/ 下的 .njk 或 src/_data/ 里的文件）—— ` +
+          `TR7 判据从未被真正执行过。`
+      );
+    }
+  } else if (!tplRefsCompared) {
+    if (TR8_ON) {
+      note(
+        "TR8",
+        `扫了 ${tplFilesScanned} 个模板 / 数据文件，却一处**仓内**的资产引用都没比对过` +
+          `（扫到的 ${tplRefsFound} 处里 ${tplRefsFound - tplRefsCompared} 处落在白名单里）—— ` +
+          `TR7 没有真的比对过东西（多半是被卸掉了）。`
+      );
+    }
+  }
+  for (const u of tplWhitelistUnused) {
+    console.log(
+      `  · 提示：TPL_ASSET_WHITELIST 里的 ${u} 现在没有任何模板引用了（只提示，不判红）。`
+    );
+  }
+}
+
 /* ---------- 出结果 ---------- */
 if (problems.length) {
   console.error("引用完整性门禁未通过：\n");
@@ -578,5 +761,7 @@ console.log(
     `另扫了 ${htmlFilesScanned} 个已跟踪 HTML 文件、` +
     `比对过 ${htmlRefsCompared} 处仓内本地资源引用` +
     (htmlRefsOutsideRepo ? `（另有 ${htmlRefsOutsideRepo} 处指向仓库外，已跳过）` : "") +
-    `，全部存在且已被 git 跟踪。`
+    `，全部存在且已被 git 跟踪；` +
+    `另扫了 ${tplFilesScanned} 个已跟踪模板 / 数据文件、` +
+    `比对过 ${tplRefsCompared} 处站点绝对资产 URL，全部存在且已被 git 跟踪。`
 );

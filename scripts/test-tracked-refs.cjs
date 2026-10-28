@@ -41,12 +41,21 @@
  *       **不能**判红（page.html 磁盘上并不存在）；
  *     · 根绝对站内 URL 与 HTML 注释里的引用 ⇒ 各自单列一档绿档（G3 / G4）。
  *
- * 档位（5 档绿 + 10 档注入 + 6 档判据级负对照 + 2 档精准性负对照 + 2 档覆盖度自证 = 25 档）：
+ *   夹具还有一份**模板与数据文件**（用来测 TR7 / TR8 那条模板侧的维度）：
+ *     · src/_includes/layouts/base.njk —— 两处**仓内**资产引用
+ *       （/assets/css/layout.css 与 /assets/img/logo.svg，目标都在仓里、也都在索引里）
+ *       ＋ 一处**白名单**里的构建期产物（/assets/css/components.css —— 它没有单一源文件）
+ *       ⇒ 白名单那一处**不该判红**，也**不该被算进「比对过」的计数**；
+ *     · src/_data/site.js —— 一处仓内资产引用；
+ *     · 两个目标文件：src/assets/css/layout.css 与 src/assets/img/logo.svg（都存在、都跟踪）。
+ *
+ * 档位（绿档 + 注入档 + 判据级负对照 + 精准性负对照 + 覆盖度自证）：
  *   G0    基线绿
  *   G1    注释里写着一个本地 require（指向不存在的文件）⇒ 绿（**补之前是红的**）
  *   G2    字符串里存着一个本地 require 的字样              ⇒ 绿（**补之前是红的**）
  *   G3    HTML 里写着一条**根绝对**的站内 URL             ⇒ 绿（站内 URL 不是仓库里的文件）
  *   G4    HTML 注释里写着一个本地资源引用                ⇒ 绿（注释不是引用）
+ *   G5    **Nunjucks 注释**里写着一个资产路径             ⇒ 绿（注释不是引用；且比对数不变）
  *   T1a   引用的目标磁盘上不存在                          ⇒ TR1
  *   T1b   引用的目标磁盘上有、但**没有被 git 跟踪**        ⇒ TR1
  *   T2a   索引里一个代码文件都没有                        ⇒ TR2
@@ -57,16 +66,23 @@
  *   T5a   HTML 引用的目标磁盘上不存在                    ⇒ TR5
  *   T5b   HTML 引用的目标磁盘上有、但**没有被 git 跟踪**  ⇒ TR5
  *   T6a   索引里一个 HTML 文件都没有                      ⇒ TR6
+ *   T7a   **模板**引用的目标磁盘上不存在                 ⇒ TR7
+ *   T7b   **模板**引用的目标磁盘上有、但**没被跟踪**      ⇒ TR7
+ *   T8a   索引里一个模板 / 数据文件都没有                ⇒ TR8
+ *   T8b   有模板文件，但一处仓内资产引用都没比对过        ⇒ TR8
  *   N-TR1 负对照：卸掉 TR1 ⇒ T1a 的注入必须**转绿**
  *   N-TR2 负对照：卸掉 TR2 ⇒ T2a 的注入必须**转绿**
  *   N-TR3 负对照：卸掉 TR3 ⇒ T3 的注入必须**转绿**
  *   N-TR4 负对照：卸掉 TR4 ⇒ T4a 的注入必须**转绿**
  *   N-TR5 负对照：卸掉 TR5 ⇒ T5a 的注入必须**转绿**
  *   N-TR6 负对照：卸掉 TR6 ⇒ T6a 的注入必须**转绿**
+ *   N-TR7 负对照：卸掉 TR7 ⇒ T7a 的注入必须**转绿**
+ *   N-TR7u 负对照：卸掉 TR7 ⇒ T7b 的注入必须**转绿**
+ *   N-TR8 负对照：卸掉 TR8 ⇒ T8a 的注入必须**转绿**
  *   P-TR4 精准性负对照：卸掉 TR4 + 破坏遮罩 + T1b 注入 ⇒ 必须**恰好**红 TR1
  *   P-TR3 精准性负对照：卸掉 TR3 + 索引坏 + T1b 注入 ⇒ 必须仍然**绿**（前提不在场 ⇒ 整段跳过）
  *   COV-A 覆盖度自证：门禁报出的扫描数量与夹具真实数量一致（不是编的）
- *   COV-B 覆盖度自证：门禁源码里 TR1–TR6 每条都有红因出口与可卸开关（现读源码）
+ *   COV-B 覆盖度自证：门禁源码里 TR1–TR8 每条都有红因出口与可卸开关（现读源码）
  *
  * ⚠️ 每档都断言「红因编号多重集**完全相等**」，不只是「包含期望的那条」——
  *   一档里出现两条判据的红，红因归属就不可判定了（那是脚本的缺陷，不是产品的缺陷）。
@@ -166,6 +182,19 @@ const APP_SRC =
 const HELPER_SRC = "module.exports = 1;\n";
 const OUTSIDE_SRC = "module.exports = 2;\n";
 
+/* 模板夹具（TR7 / TR8）：两处**仓内**资产引用（都存在、都已被跟踪）
+   ＋ 一处**白名单**里的构建期产物（/assets/css/components.css）——
+   白名单那一处不该被判红，也不该被算进「比对过」的计数。 */
+const TPL_SRC =
+  [
+    `<link rel="stylesheet" href="{{ '/assets/css/layout.css' | relUrl }}" />`,
+    `<link rel="icon" href="{{ '/assets/img/logo.svg' | relUrl }}" />`,
+    `<link rel="stylesheet" href="{{ '/assets/css/components.css' | relUrl }}" />`,
+  ].join("\n") + "\n";
+
+/* 数据文件夹具：一处仓内资产引用。 */
+const TPL_DATA_SRC = `module.exports = { portrait: "/assets/img/logo.svg" };\n`;
+
 function makeSandbox() {
   const base = fs.mkdtempSync(path.join(os.tmpdir(), "mh-tracked-refs-"));
   const repo = path.join(base, "repo");
@@ -210,6 +239,14 @@ function makeSandbox() {
   write(path.join(repo, "docs", "logo.svg"), '<svg xmlns="http://www.w3.org/2000/svg"></svg>\n');
   write(path.join(repo, "docs", "app.js"), 'console.log("fixture app");\n');
   write(path.join(repo, "docs", "mod.js"), "export function init() {}\n");
+  /* 模板 / 数据文件夹具（TR7 / TR8）：模板 ＋ 数据文件 ＋ 它们的两个仓内目标。 */
+  write(path.join(repo, "src", "_includes", "layouts", "base.njk"), TPL_SRC);
+  write(path.join(repo, "src", "_data", "site.js"), TPL_DATA_SRC);
+  write(path.join(repo, "src", "assets", "css", "layout.css"), "/* fixture */\n");
+  write(
+    path.join(repo, "src", "assets", "img", "logo.svg"),
+    '<svg xmlns="http://www.w3.org/2000/svg"></svg>\n'
+  );
   git(repo, ["init", "-q"]);
   git(repo, ["add", "-A"]);
   return { base, repo };
@@ -218,6 +255,8 @@ function makeSandbox() {
 /* 夹具里的常用路径 */
 const appOf = (s) => path.join(s.repo, "scripts", "app.cjs");
 const htmlOf = (s) => path.join(s.repo, "docs", "demo.html");
+const tplOf = (s) => path.join(s.repo, "src", "_includes", "layouts", "base.njk");
+const tplDataOf = (s) => path.join(s.repo, "src", "_data", "site.js");
 const gateOf = (s) => path.join(s.repo, "scripts", "check-tracked-refs.cjs");
 /* 共享库副本放在**仓库之外**（见 makeSandbox 的注释）⇒ 它不在跟踪集合里。 */
 const libOf = (s) => path.join(s.base, "lib", "js-refs.cjs");
@@ -432,8 +471,30 @@ function expectGreenBaselineHtml(id, s, note, wantHtmlCompared) {
   );
 }
 
-/* ================= 注入手法（几档复用） ================= */
+/**
+ * 一档「绿档」：门禁应当 exit 0、一个红因都不许有，**且模板侧比对过的资产引用数必须不变**。
+ * 为什么要多这一条数字：绿档里塞的「陷阱」（Nunjucks 注释里的路径）如果被门禁
+ * 当成了真引用，要么判红（看得见），要么被算进比对数（看不见）——
+ * 只断「绿」会漏掉后一种（与 HTML 侧那条 helper 同一道理）。
+ */
+function expectGreenBaselineTpl(id, s, note, wantTplCompared) {
+  const r = runGate(s);
+  const got = redIds(r.out);
+  const m = /比对过 (\d+) 处站点绝对资产 URL/.exec(r.out);
+  const compared = m ? Number(m[1]) : -1;
+  const ok = r.code === 0 && got.length === 0 && compared === wantTplCompared;
+  record(
+    id,
+    ok,
+    ok
+      ? `绿；模板侧比对过 ${compared} 处站点绝对资产 URL（与基线一致）` +
+        `${note ? "；" + note : ""}`
+      : `期望绿且模板侧比对过 ${wantTplCompared} 处，实际 code=${r.code}、` +
+        `红因 ${fmtIds(got)}、比对 ${compared}\n${r.out}`
+  );
+}
 
+/* ================= 注入手法（几档复用） ================= */
 /** T1a：仓内引用指向一个磁盘上**不存在**的文件。 */
 function injectMissingTarget(s) {
   patchFile(appOf(s), reqText("./lib/helper.cjs"), reqText("./lib/missing.cjs"), 1);
@@ -477,6 +538,9 @@ function breakIndex(s) {
 function untrackScripts(s) {
   git(s.repo, ["rm", "-q", "-r", "-f", "--cached", "scripts"]);
   git(s.repo, ["rm", "-q", "-f", "--cached", "--", "docs/app.js", "docs/mod.js"]);
+  /* src/_data/site.js 是 .js ⇒ TR1 把它算成**代码文件**；不摘掉它，T2a 那一档
+     （索引里一个代码文件都没有 ⇒ TR2）的前提就不成立。 */
+  git(s.repo, ["rm", "-q", "-f", "--cached", "--", "src/_data/site.js"]);
   write(path.join(s.repo, "README.md"), "# fixture\n");
   git(s.repo, ["add", "README.md"]);
 }
@@ -522,6 +586,30 @@ function injectHtmlUntrackedTarget(s) {
  * ⚠️ 带 -f：夹具里的门禁副本被负对照改过之后工作树与索引不一致 ⇒ git rm 会拒绝。 */
 function untrackHtml(s) {
   git(s.repo, ["rm", "-q", "-f", "--cached", "--", "docs/demo.html"]);
+}
+
+/** T7a：模板引用的目标磁盘上**不存在** ⇒ 模板指向一个仓内没有的东西 ⇒ 线上 404。 */
+function injectTplMissingTarget(s) {
+  fs.rmSync(path.join(s.repo, "src", "assets", "css", "layout.css"));
+}
+
+/** T7b：模板引用的目标磁盘上有、但**没进索引** ⇒ 本机有、提交里没有 ⇒ 部署后 404。 */
+function injectTplUntrackedTarget(s) {
+  git(s.repo, ["rm", "-q", "-f", "--cached", "--", "src/assets/img/logo.svg"]);
+}
+
+/** T8a：把模板 / 数据文件从索引里摘掉（工作树留着）⇒ 索引里一个都没有。
+ * ⚠️ 带 -f 与 -r：src/ 是目录，且负对照改过门禁副本后工作树与索引不一致。 */
+function untrackTemplates(s) {
+  git(s.repo, ["rm", "-q", "-r", "-f", "--cached", "--", "src"]);
+}
+
+/** T8b：把模板 / 数据文件里的**仓内**资产引用换成非资产路径
+ *     ⇒ 模板文件还在，但一处仓内资产引用都没比对过（只剩白名单那一处）。 */
+function stripTplAssetRefs(s) {
+  patchFile(tplOf(s), "'/assets/css/layout.css'", "'/blog/'", 1);
+  patchFile(tplOf(s), "'/assets/img/logo.svg'", "'/about/'", 1);
+  patchFile(tplDataOf(s), '"/assets/img/logo.svg"', '"/about/"', 1);
 }
 
 /* ================= G0：基线（绿） ================= */
@@ -810,6 +898,117 @@ function untrackHtml(s) {
   fs.rmSync(s.base, { recursive: true, force: true });
 }
 
+/* ================= G5：模板注释里的资产路径 ⇒ 绿 ================= */
+
+/* G5：Nunjucks 注释里写着一个**仓内没有**的资产路径 —— 注释是说明，不是引用 ⇒ 判绿。
+ *   ⚠️ 真仓里就有这种形态：`src/_includes/layouts/base.njk` 有一段注释写着旧版分享图
+ *      的路径（.png，那张图早已在 D3 换成 .jpg）⇒ 不剥注释就会对着一个
+ *      **从没存在过的文件**判红。 */
+{
+  const s = makeSandbox();
+  appendFile(
+    tplOf(s),
+    `{# <img src="/assets/img/ghost.svg" alt="" /> —— 注释里的路径是说明，不是引用 #}\n`,
+    1
+  );
+  expectGreenBaselineTpl(
+    "G5 模板注释里的资产路径 ⇒ 绿（且比对数不变）",
+    s,
+    "Nunjucks 注释里的路径不是引用",
+    3
+  );
+  fs.rmSync(s.base, { recursive: true, force: true });
+}
+
+/* ================= T7a / T7b：模板侧引用完整性 ================= */
+
+/* T7a：模板引用的目标磁盘上**不存在** ⇒ 模板指向一个仓内没有的东西 ⇒ 线上 404。 */
+{
+  const s = makeSandbox();
+  injectTplMissingTarget(s);
+  expectRed("T7a 模板引用的目标磁盘上不存在 ⇒ TR7", s, ["TR7"], {
+    mustContain: "线上必然 404",
+    note: "模板指向一个不存在的东西 ⇒ 线上必然 404",
+  });
+  fs.rmSync(s.base, { recursive: true, force: true });
+}
+
+/* T7b：模板引用的目标磁盘上有、但**没进索引** ⇒ 本机有、提交里没有 ⇒ 部署后 404。 */
+{
+  const s = makeSandbox();
+  injectTplUntrackedTarget(s);
+  expectRed("T7b 模板引用的目标没被 git 跟踪 ⇒ TR7", s, ["TR7"], {
+    mustContain: "没有被 git 跟踪",
+    note: "D100 那一族：引用方进了提交、被引用方没进",
+  });
+  fs.rmSync(s.base, { recursive: true, force: true });
+}
+
+/* ================= T8a / T8b：模板侧自证存活 ================= */
+
+/* T8a：索引里一个模板 / 数据文件都没有 ⇒ TR7 从来没被真正执行过。 */
+{
+  const s = makeSandbox();
+  untrackTemplates(s);
+  expectRed("T8a 索引里一个模板 / 数据文件都没有 ⇒ TR8", s, ["TR8"], {
+    mustContain: "一个已跟踪的模板 / 数据文件都没扫到",
+    note: "模板侧的自证存活：没报错和「没问题」长得一模一样",
+  });
+  fs.rmSync(s.base, { recursive: true, force: true });
+}
+
+/* T8b：有模板文件，但一处**仓内**资产引用都没比对过 ⇒ TR7 没真的比对过东西。 */
+{
+  const s = makeSandbox();
+  stripTplAssetRefs(s);
+  expectRed("T8b 有模板文件，但一处仓内资产引用都没比对过 ⇒ TR8", s, ["TR8"], {
+    mustContain: "一处**仓内**的资产引用都没比对过",
+    note: "只剩白名单里那一处 ⇒ 等于没比对过",
+  });
+  fs.rmSync(s.base, { recursive: true, force: true });
+}
+
+/* ================= N-TR7 / N-TR7u / N-TR8：模板侧的判据级负对照 ================= */
+
+/* N-TR7：卸掉 TR7 ⇒ T7a 的注入必须转绿 */
+{
+  const s = makeSandbox();
+  patchGate(s, "const TR7_ON = true;", "const TR7_ON = false;", 1);
+  injectTplMissingTarget(s);
+  expectGreen(
+    "N-TR7 负对照：卸掉 TR7 判定后，T7a 的注入转绿",
+    s,
+    "证明 T7a 那档的红确实来自 TR7 判定本身"
+  );
+  fs.rmSync(s.base, { recursive: true, force: true });
+}
+
+/* N-TR7u：卸掉 TR7 ⇒ T7b 的注入必须转绿（"没有被跟踪"那一半） */
+{
+  const s = makeSandbox();
+  patchGate(s, "const TR7_ON = true;", "const TR7_ON = false;", 1);
+  injectTplUntrackedTarget(s);
+  expectGreen(
+    "N-TR7u 负对照：卸掉 TR7 判定后，T7b 的注入转绿",
+    s,
+    "证明 T7b 那档的红确实来自 TR7 判定本身"
+  );
+  fs.rmSync(s.base, { recursive: true, force: true });
+}
+
+/* N-TR8：卸掉 TR8 ⇒ T8a 的注入必须转绿 */
+{
+  const s = makeSandbox();
+  patchGate(s, "const TR8_ON = true;", "const TR8_ON = false;", 1);
+  untrackTemplates(s);
+  expectGreen(
+    "N-TR8 负对照：卸掉 TR8 判定后，T8a 的注入转绿",
+    s,
+    "证明 T8a 那档的红确实来自 TR8 判定本身"
+  );
+  fs.rmSync(s.base, { recursive: true, force: true });
+}
+
 /* ================= P-TR4 / P-TR3：精准性负对照 ================= */
 
 /* 卸掉 TR4 + 破坏遮罩 + 塞一个 T1b 注入 ⇒ 必须**恰好**红 TR1。
@@ -919,7 +1118,7 @@ function untrackHtml(s) {
   const src = fs.readFileSync(GATE, "utf8");
   const noteIds = [...new Set([...src.matchAll(/note\(\s*"(TR\d+)"/g)].map((m) => m[1]))].sort();
   const switches = [...src.matchAll(/const (TR\d+)_ON = true;/g)].map((m) => m[1]).sort();
-  const want = ["TR1", "TR2", "TR3", "TR4", "TR5", "TR6"];
+  const want = ["TR1", "TR2", "TR3", "TR4", "TR5", "TR6", "TR7", "TR8"];
   const ok =
     JSON.stringify(noteIds) === JSON.stringify(want) &&
     JSON.stringify(switches) === JSON.stringify(want);
