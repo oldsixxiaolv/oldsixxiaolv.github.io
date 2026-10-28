@@ -27,28 +27,45 @@
   {%- set pageTitle = title or (pubMeta.title if pubMeta and pubMeta.title else null) -%}
   <title>{% if pageTitle %}{{ pageTitle }} · {{ site.shortTitle }}{% else %}{{ site.title }}{% endif %}</title>
 
-  {# —— 字体外链（preconnect + preload + stylesheet） ——
-       关键路径只留 3 个 Latin 字族（合计 19.9KB）：nav / UI / 首页大标题 /
-       代码块都是 Latin，首屏立刻要用。
-       Noto Serif SC 拆出去异步加载：光这一个字族的 Google Fonts CSS 就有 339KB
-       （303 个 @font-face，CJK 按 unicode-range 切成上百个子集），占全站字体
-       CSS 的 94.5%。挂在阻塞 stylesheet 上等于首屏先白等 339KB 才出字形。
+  {# —— 字体外链（preconnect + preload + onload 换装 + noscript 兜底） ——
+       3 个 Latin 字族（Inter / Source Serif 4 / JetBrains Mono，合计 19.6KB）
+       走**异步换装**（preload + onload 把 rel 换成 stylesheet），不再占用首屏
+       的阻塞位；Noto Serif SC 同样异步加载：光这一个字族的 Google Fonts CSS
+       就有 339KB（303 个 @font-face，CJK 按 unicode-range 切成上百个子集），
+       占全站字体 CSS 的 94.5%。挂在阻塞 stylesheet 上等于首屏先白等 339KB
+       才出字形。
        tokens.css 已为它备好 'Noto Serif SC Fallback'（size-adjust 105% +
        ascent/descent override，走本地 Songti SC），首屏先用系统衬线中文渲染，
        metrics 对齐后换 webfont 几乎看不出抖动 —— 与下面 components/layout/pages
        用的是同一套异步加载，行为一致。
-       JetBrains Mono 故意留在关键路径：它的 CSS 只有 5KB，且代码块和页眉小标签
-       首屏就要用到，拆出去只多一个请求、换不到什么字节。 —— #}
+
+       ⚠️ **为什么 Latin 那张也从阻塞位挪走**（D117，2026-10-28 场次）：
+       先说清楚**它不是「境内被墙」**—— 2026-10-28 在真实境内网络
+       （Orange Pi Zero 3，中国联通北京 AS4808 / 中国电信 AS23724 节点）实测：
+       fonts.googleapis.com 解析到**境内** CDN 节点（220.181.174.225），
+       CSS 200 / 0.28s / 19.6KB，fonts.gstatic.com 上的字体二进制 200 / 0.21s
+       ⇒ **可达、也不慢**。（本机测不出这个：ClashX 的 fake-IP 把 DNS 全部劫持
+       到 198.18.0.0/16，量到的永远是代理路径，不是访客路径。）
+       真正的问题是**形状**：那张表是 `<link rel="stylesheet">` ⇒ **渲染阻塞**
+       ⇒ **本站的第一次绘制要等一个第三方源**。而本站自己已经把关键 CSS
+       （tokens + base）内联、自己那 4 个 CSS 全部走异步换装 ⇒ 唯独这一张
+       站外表留在阻塞位，**首屏被一个第三方 CDN 的可用性单点卡住**。
+       把它挪到非阻塞位**不丢任何东西**：那份 CSS 里**只有 @font-face、
+       没有一条布局规则**（字体表不参与布局计算），且 @font-face 自带
+       font-display: swap ⇒ 字体没到之前浏览器本来就用 fallback 画字
+       ⇒ 改动的净效果是「首屏不等第三方」，**不引入新的 FOUT**。
+       （真正该盯的仍是自托管：自托管后连「等 CDN」这步都不存在 ⇒ 见日志待决策。）
+       —— #}
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link
     rel="preload" as="style"
     href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Source+Serif+4:wght@400;600&family=JetBrains+Mono:wght@400;500&display=swap"
+    onload="this.onload=null;this.rel='stylesheet'"
   />
-  <link
-    rel="stylesheet"
-    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Source+Serif+4:wght@400;600&family=JetBrains+Mono:wght@400;500&display=swap"
-  />
+  <noscript>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Source+Serif+4:wght@400;600&family=JetBrains+Mono:wght@400;500&display=swap" />
+  </noscript>
   <link
     rel="preload" as="style"
     href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;500;700&display=swap"

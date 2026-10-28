@@ -349,7 +349,7 @@ const SLOTS = {
   "test-third-party.cjs": [
     "TD0", "TD1a", "TD1b", "TD1c", "TD2a", "TD2b", "TD2c", "TD3a",
     "TD3b", "TD4a", "TD4b", "TD4c", "TD4d", "TD5a", "TD5b", "TD1n",
-    "TD2n", "TD3n", "TD4n", "TDW1", "TDW2"
+    "TD2n", "TD3n", "TD4n", "TDW1", "TDW2", "TD6a", "TD6b", "TD6n"
   ],
   "test-tool-routes.cjs": [
     "TT0", "TT1", "TT2", "TT3", "TT4", "TT5", "TT6", "TT7",

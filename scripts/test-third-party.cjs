@@ -40,6 +40,12 @@
  *         收窄成只剩 stylesheet ⇒ 真产物里那条 preload / preconnect 立刻判红
  *         （证明白名单不是按域一刀切）
  *   TDW2  白名单条目用不上时**只提示不判红**：塞一条永不使用的假条目 ⇒ 门禁仍绿
+ *   TD6a  注入一张**裸的**站外 stylesheet（同一 href 没有 preload+onload 配对）
+ *         ⇒ TD6 判红，且**红因里没有 TD2**（域在白名单里 ⇒ 红的只可能是 TD6）
+ *   TD6b  注入站外 stylesheet **并**给同一 href 配一条 preload+onload 换装
+ *         ⇒ 门禁仍绿（证明白名单与 TD6 判的是「有没有非阻塞路径」，
+ *         不是「有没有站外表」）
+ *   TD6n  （负对照）卸掉门禁副本的 TD6 判定 ⇒ TD6a 的注入必须转绿
  *
  * 收尾：按 SHA-256 校验仓库里的门禁原件没被动过。
  */
@@ -543,6 +549,82 @@ function record(id, ok, detail) {
     hit
       ? "仍绿且提示了该条目没被用到 ⇒ 门禁不会惩罚「把外部依赖撤掉」这种改进"
       : `code=${r.code}\n${r.out}`
+  );
+  fs.rmSync(dir, { recursive: true, force: true });
+}
+
+/* ---------------- TD6a：裸的站外 stylesheet（无 preload+onload 配对）⇒ TD6 判红 ---------------- */
+{
+  const dir = makeSandbox();
+  const f = indexOf(dir);
+  const html = fs.readFileSync(f, "utf8");
+  // 用**白名单里的域**（fonts.googleapis.com）⇒ TD2 不会红 ⇒ 红因只可能来自 TD6
+  fs.writeFileSync(
+    f,
+    injectIntoHead(
+      html,
+      '<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto:wght@400&display=swap" />'
+    )
+  );
+  const r = runGate(dir);
+  const hit = r.code === 1 && /TD6/.test(r.out) && !/TD2/.test(r.out);
+  record(
+    "TD6a 注入裸的站外 stylesheet（无 preload+onload 配对）⇒ TD6 判红（且红因不含 TD2）",
+    hit,
+    hit
+      ? "红了，且红因归属纯净（只有 TD6）"
+      : `code=${r.code}\n${r.out}`
+  );
+  fs.rmSync(dir, { recursive: true, force: true });
+}
+
+/* ---------------- TD6b：站外 stylesheet 配了 preload+onload ⇒ 门禁仍绿 ---------------- */
+{
+  const dir = makeSandbox();
+  const f = indexOf(dir);
+  const html = fs.readFileSync(f, "utf8");
+  const href = "https://fonts.googleapis.com/css2?family=Roboto:wght@400&display=swap";
+  fs.writeFileSync(
+    f,
+    injectIntoHead(
+      html,
+      `<link rel="preload" as="style" href="${href}" onload="this.onload=null;this.rel='stylesheet'" />\n` +
+        `<link rel="stylesheet" href="${href}" />`
+    )
+  );
+  const r = runGate(dir);
+  const hit = r.code === 0;
+  record(
+    "TD6b 站外 stylesheet 配了 preload+onload 换装 ⇒ 门禁仍绿",
+    hit,
+    hit
+      ? "仍绿 ⇒ 判据判的是「有没有非阻塞加载路径」，不是「有没有站外表」"
+      : `code=${r.code}\n${r.out}`
+  );
+  fs.rmSync(dir, { recursive: true, force: true });
+}
+
+/* ---------------- TD6n（负对照）：卸掉 TD6 判定 ⇒ TD6a 转绿 ---------------- */
+{
+  const dir = makeSandbox();
+  patch(gateOf(dir), "const TD6_ON = true;", "const TD6_ON = false;");
+  const f = indexOf(dir);
+  const html = fs.readFileSync(f, "utf8");
+  fs.writeFileSync(
+    f,
+    injectIntoHead(
+      html,
+      '<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto:wght@400&display=swap" />'
+    )
+  );
+  const r = runGate(dir);
+  const hit = r.code === 0;
+  record(
+    "TD6n 负对照：卸掉 TD6 判定后，TD6a 的注入转绿",
+    hit,
+    hit
+      ? "转绿了 ⇒ 证明 TD6a 那档的红确实来自 TD6 判定本身"
+      : `仍然红（code=${r.code}）⇒ 说明红因不止一处，负对照不成立\n${r.out}`
   );
   fs.rmSync(dir, { recursive: true, force: true });
 }

@@ -49,6 +49,28 @@
  *   TD5 覆盖度自证：产物页面数、外链 CSS 文件数、外链 JS 文件数、
  *      本地 script src 数、本地 stylesheet link 数都不得为 0。
  *      —— 「没报错」和「没问题」长得一模一样：枚举器坏了，门禁会一直绿着。
+ *   TD6 **站外样式表不许占据渲染阻塞位**（D117，2026-10-28 场次）：
+ *      每一个指向站外的 `link[rel=stylesheet]`，都必须有**配对的非阻塞加载
+ *      路径** —— 同一 href 的 `link[rel=preload][as=style]` 且带 onload 换装
+ *      （`rel` 改成 stylesheet）。没有这条路径 ⇒ 判红。
+ *      —— 为什么要有这条：`<link rel="stylesheet">` 在 <head> 里是**渲染阻塞**
+ *      资源 ⇒ **第一次绘制要等它**。本站的关键 CSS（tokens + base）已内联、
+ *      自己那 4 个 CSS 也都走 preload+onload 换装 ⇒ 若还留一张站外表在阻塞位，
+ *      **首屏就被一个第三方 CDN 的可用性单点卡住**（那个源慢或挂 ⇒ 全站白屏，
+ *      而本站自己的资源一个都不缺）。
+ *      —— 判据判的是「**有没有非阻塞路径**」，不是「有没有站外表」：
+ *      站外表**可以存在**，只要它同时有一条不挡首屏的加载路径
+ *      （本仓两张 Google Fonts 表现在都是这个形态：preload+onload 换装，
+ *      <noscript> 里另有一份同步兜底）。反过来，光有 preload 而**没有 onload
+ *      换装**不算数 —— 那张表在 JS 生效时永远不会变成 stylesheet。
+ *      —— ⚠️ **只管已登记（白名单允许 link:stylesheet）的域**：一张**未登记**的
+ *      站外表本来就被 TD2 判红（「这个外域你没登记」）⇒ 同一事实已有红因，
+ *      再叠一条 TD6 就是同一事实出两条红因、红因归属没法判定。
+ *      ⇒ 分工：TD2 管「这个外域准不准用」，TD6 管「已经准用了的那张表
+ *      是不是把首屏挡住了」。
+ *      —— 诚实边界：<noscript> 里那份同步兜底**仍然是阻塞的**（无 JS 的浏览器
+ *      会卡在它上面）。本站的论文精读、图表等交互本就依赖 JS，故不判红；
+ *      真要做到「连无 JS 也不等第三方」，只能自托管字体（见日志待决策段）。
  *
  * 白名单是**登记式**，不是拍板式：
  *   当前只登记两处，都是站点**现在就在用**的 Google Fonts：
@@ -87,6 +109,7 @@ const TD1_ON = true;
 const TD2_ON = true;
 const TD3_ON = true;
 const TD4_ON = true;
+const TD6_ON = true;
 
 /* TD5 的覆盖度下限（现值：6 个页面 / 16 个外链 CSS / 10 个外链 JS /
    6 个本地 script src / 42 个 stylesheet link）。
@@ -532,6 +555,9 @@ let scriptSrcTotal = 0;
 for (const file of htmlFiles) {
   const rel = path.relative(SITE, file);
   const html = fs.readFileSync(file, "utf8");
+  /* TD6 用：站外样式表有哪些、它们各自有没有非阻塞加载路径。 */
+  const extStylesheets = new Map(); // href → { host }
+  const nonBlockingPaths = new Set(); // href（同一 href 的 preload+onload 换装）
   for (const tag of scanTags(html)) {
     const attrs = parseAttrs(tag.attrSrc);
 
@@ -566,6 +592,22 @@ for (const file of htmlFiles) {
         .toLowerCase()
         .split(/\s+/)
         .filter(Boolean);
+      /* TD6：先记下「这张表是站外的吗」「它有没有非阻塞加载路径」——
+         登记与判定分开做，判定在页面级（TD6）。 */
+      if (rels.includes("stylesheet")) {
+        const c0 = classifyUrl(attrs.href);
+        if (c0.kind === "external") {
+          extStylesheets.set(attrs.href, { host: c0.url.host.toLowerCase() });
+        }
+      }
+      if (
+        rels.includes("preload") &&
+        String(attrs.as || "").toLowerCase() === "style" &&
+        attrs.onload &&
+        /stylesheet/i.test(attrs.onload)
+      ) {
+        nonBlockingPaths.add(attrs.href);
+      }
       for (const r of rels) {
         const context = LINK_FETCH_RELS[r];
         if (!context) continue; // canonical / alternate / author 等元数据指针
@@ -617,6 +659,32 @@ for (const file of htmlFiles) {
           );
         }
       }
+    }
+  }
+
+  /* --- TD6：站外样式表不许占据渲染阻塞位 --- */
+  if (TD6_ON) {
+    for (const [href, info] of extStylesheets) {
+      /* 只管**已登记**（白名单允许 link:stylesheet）的域。
+         ⚠️ 为什么不管未登记的域：一张**未登记**的站外表本来就被 TD2 判红
+         （"这个外域你没登记"）⇒ 同一事实已有红因；再叠一条 TD6 就是
+         **同一事实出两条红因**，红因归属就没法判定了。
+         ⇒ 分工：TD2 管「这个外域准不准用」，TD6 管「已经准用了的那张表
+         是不是把首屏挡住了」。未登记 ⇒ 先过 TD2；登记了却留在阻塞位 ⇒ TD6。 */
+      if (!allowance(info.host, "link:stylesheet").ok) continue;
+      if (nonBlockingPaths.has(href)) continue;
+      problems.push(
+        `TD6 ${rel} 的 <link rel="stylesheet" href="${href}"> 指向外域 ${info.host}，` +
+          `而它**没有配对的非阻塞加载路径** —— <link rel="stylesheet"> 在 <head> 里是` +
+          `**渲染阻塞**资源 ⇒ **本站的第一次绘制要等这个第三方源**。\n` +
+          `      → 本站自己的关键 CSS（tokens + base）已内联、自己那 4 个 CSS 也都走` +
+          `preload+onload 换装 ⇒ 留一张站外表在阻塞位，等于**首屏被第三方 CDN 的` +
+          `可用性单点卡住**（那个源慢或挂 ⇒ 全站白屏，而本站自己的资源一个都不缺）。\n` +
+          `      → 改法：同一 href 另加一条 ` +
+          `<link rel="preload" as="style" href="…" onload="this.rel='stylesheet'">，` +
+          `并在 <noscript> 里留一份同步兜底（本站两张 Google Fonts 表就是这个形态）。\n` +
+          `      → 想彻底不依赖第三方，只能自托管字体（见改进日志待决策段）。`
+      );
     }
   }
 }
