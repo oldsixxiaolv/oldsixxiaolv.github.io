@@ -125,7 +125,7 @@ const SLOTS = {
   ],
   "test-dep-audit.cjs": [
     "AUD0", "AUD1", "AUD2", "AUD3", "AUD4", "AUD5", "AUD6", "AUD7",
-    "AUD8", "AUD9"
+    "AUD8", "AUD9", "AUD10"
   ],
   "test-design-components.cjs": [
     "DCXR0", "DCXR1", "DCXR2", "DCXR3", "DCXR4", "DCXR5", "DCXR6", "DCXR7",

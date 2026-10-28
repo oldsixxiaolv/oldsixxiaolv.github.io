@@ -27,29 +27,48 @@
  *   的实现 @npmcli/arborist/lib/audit-report.js 的 `toJSON()`）：
  *     {
  *       "auditReportVersion": 2,
- *       "vulnerabilities": [            ← **数组**，每个元素是 [包名, 详情] 这一对
- *         ["markdown-it", { "name": "markdown-it", "severity": "high",
+ *       "vulnerabilities": {          ← **对象**：键是包名，值是那份详情
+ *         "markdown-it": { "name": "markdown-it", "severity": "high",
  *                            "isDirect": true, "via": [ {…公告…} ],
  *                            "effects": [], "range": "<14.3.3",
  *                            "nodes": ["node_modules/markdown-it"],
- *                            "fixAvailable": {…} }]
- *       ],
+ *                            "fixAvailable": {…} }
+ *       },
  *       "metadata": {
  *         "vulnerabilities": { "info": 0, "low": 0, "moderate": 0,
  *                              "high": 1, "critical": 0, "total": 1 },
  *         "dependencies": { "prod": 11, "dev": 119, "optional": 0,
- *                           "peer": 0, "peerOptional": 0, "total": 130 }
+ *                            "peer": 0, "peerOptional": 0, "total": 130 }
  *       }
  *     }
- *   而**旧版**读的是 `report.vulnerabilities` 当"以包名为键的对象"：
+ *   ⚠️ **D115 把这里的「中间态」当成了「最终形状」（2026-10-28 场次实测发现）**：
+ *     那份实现**先**把漏洞收成数组、再**压成对象**：
+ *       const vulnerabilities = []
+ *       for (const [name, vuln] of this.entries()) {
+ *         vulnerabilities.push([name, vuln.toJSON()])
+ *         obj.metadata.vulnerabilities[vuln.severity]++
+ *       }
+ *       obj.vulnerabilities = vulnerabilities
+ *         .sort(([a], [b]) => localeCompare(a, b))
+ *         .reduce((set, [name, vuln]) => { set[name] = vuln; return set; }, {})
+ *     ⇒ **数组只是中间步骤**；最终落到 `obj.vulnerabilities` 的是**对象**。
+ *     D115 只读到 `vulnerabilities.push([name, …])` 那一行 ⇒ 把 **npm 6 的旧形状**
+ *     当成了 npm 7+ 的形状。⇒ 2026-10-28 实测出来的后果：
+ *       · DA2 要求 `Array.isArray(vulnerabilities)` ⇒ **真实报告永远被拒**
+ *         ⇒ 这道门禁**永远红** ⇒ 依赖漏洞这一维度**从来没有过任何结论**
+ *         （既没有"有漏洞"的结论，也没有"没漏洞"的结论）；
+ *       · 而 DA1 按数组读 ⇒ 即使放行也是**恒绿** ⇒ 假绿原样留着。
+ *     ⇒ 现在 DA1 / DA2 都按**对象**形状读（见下面代码）。
+ *     ⚠️ **教训**：读第三方实现要看**「最终产出的那个变量」**，
+ *       不是右边表达式里的中间形态。
+ *   （D115 之前那一版读的是 `report.vulnerabilities` 当"以包名为键的对象"：
  *     const vulns = report.vulnerabilities || {};
  *     const names = Object.keys(vulns);                       // ← 数组下标 ["0","1"]
  *     const bad = names.filter(n => ["high","critical"].includes(vulns[n].severity));
  *                                                          // ← vulns["0"] 是 [名,详情] 这一对
  *                                                          //    ⇒ .severity 恒 undefined
- *   ⇒ `bad` **恒为空** ⇒ **即便依赖树里真的有 high / critical 漏洞，DA1 也永远判绿**。
- *   ⇒ 这比"查不到就当没问题"更糟：**查到了也当没问题**。
- *   ⇒ 现在 DA1 按**真实的数组对**读（见下面代码）。
+ *     ⇒ `bad` **恒为空** ⇒ **即便依赖树里真的有 high / critical 漏洞，DA1 也永远判绿**。
+ *     ⇒ 这比"查不到就当没问题"更糟：**查到了也当没问题**。）
  *
  * ⚠️ **假绿二：审计请求失败时，也判绿**（同一缺陷的另一半）
  *   `npm audit` **失败**时**不一定"跑不起来"** —— 它会**成功执行**，
@@ -70,9 +89,9 @@
  *
  * 判据：
  *   DA1 —— 依赖树里不得有 high / critical 级别的已知漏洞。
- *         （按 npm 7+ 真实的**数组对**形状读；读不到条目 = 没有漏洞）
+ *         （按 npm 7+ 真实的**以包名为键的对象**形状读；读不到条目 = 没有漏洞）
  *   DA2 —— 审计必须**真的做成了**：拿到的必须是一份 npm 7+ 的审计报告 ——
- *         `metadata.vulnerabilities.total` 是数字，**且** `vulnerabilities` 是数组。
+ *         `metadata.vulnerabilities.total` 是数字，**且** `vulnerabilities` 是对象。
  *         「拿不到报告」与「不认识它的形状」都**不是**「没有漏洞」——
  *         前两者判红，只有后者判绿。
  *
@@ -123,12 +142,16 @@ try {
 /* ---------- DA2（第三步）：这是不是**一份 npm 7+ 的审计报告**？ ----------
  * 真的报告必须同时满足两件事（依据见文件头）：
  *   ① `metadata.vulnerabilities.total` 是数字（计数表）；
- *   ② `vulnerabilities` 是**数组**（每项是 [包名, 详情] 这一对）。
- * 少任何一条 ⇒ 我们读不出漏洞 ⇒ **不给结论**（判红），而不是"没有漏洞"。 */
+ *   ② `vulnerabilities` 是**以包名为键的对象**。
+ * 少任何一条 ⇒ 我们读不出漏洞 ⇒ **不给结论**（判红），而不是"没有漏洞"。
+ * ⚠️ 必须**排除数组**：npm 6 的旧形状是数组（每项是 [包名, 详情]），
+ *    而本门禁不读它 —— 读到不认识的形状 ⇒ 不给结论（判红），不是"没有漏洞"。 */
 const vulnMeta = report && report.metadata && report.metadata.vulnerabilities;
 const hasCounts = !!vulnMeta && typeof vulnMeta === "object" && typeof vulnMeta.total === "number";
 const rawEntries = report && report.vulnerabilities;
-const isAuditReport = hasCounts && Array.isArray(rawEntries);
+const vulnsIsObject =
+  !!rawEntries && typeof rawEntries === "object" && !Array.isArray(rawEntries);
+const isAuditReport = hasCounts && vulnsIsObject;
 
 if (!isAuditReport) {
   const why =
@@ -141,9 +164,14 @@ if (!isAuditReport) {
   if (why) console.error(`    npm 的原话：${String(why).slice(0, 300)}`);
   else if (!hasCounts) {
     console.error("    （报告里没有 metadata.vulnerabilities.total —— 计数表不在）");
+  } else if (Array.isArray(rawEntries)) {
+    console.error(
+      "    （报告里 vulnerabilities 是**数组** —— 那是 npm 6 的旧形状；" +
+        "npm 7+ 的形状是**以包名为键的对象**，本门禁不读旧形状）"
+    );
   } else {
     console.error(
-      "    （报告里 vulnerabilities 不是数组 —— 形状不认识；npm 7+ 的形状是 [[包名, 详情], …]）"
+      "    （报告里 vulnerabilities 不是「以包名为键的对象」 —— 形状不认识）"
     );
   }
   console.error(`    原始输出前 400 字：${(r.stdout || "").slice(0, 400)}`);
@@ -155,14 +183,14 @@ if (!isAuditReport) {
 }
 
 /* ---------- DA1：报告成立，才轮到谈漏洞 ---------- */
-/* npm 7+ 的形状：vulnerabilities 是 [包名, 详情] 组成的数组（见文件头）。 */
-/* 防御式：DA2 已经保证过它是数组；这里的兜底只是**不让脚本在异常输入上崩掉**
+/* npm 7+ 的形状：vulnerabilities 是**以包名为键的对象**（见文件头）。
+   防御式：DA2 已经保证过它是对象；这里的兜底只是**不让脚本在异常输入上崩掉**
    （崩掉 = 退出码也是 1，看起来像"判红"，会把"没结论"和"有漏洞"混成同一件事）。
    ⚠️ 兜底**不是**判据 —— 真正的把关在上面的 DA2。 */
-const entries = Array.isArray(rawEntries) ? rawEntries : [];
+const entries = vulnsIsObject ? Object.entries(rawEntries) : [];
 /* 这一行写成**单行**：自测的判据级负对照要靠"逐字替换这一行"来卸掉 DA1
    （多行锚点容易因为缩进/换行对不上而失配）。 */
-const bad = entries.filter((pair) => Array.isArray(pair) && pair[1] && ["high", "critical"].includes(pair[1].severity));
+const bad = entries.filter((pair) => pair[1] && ["high", "critical"].includes(pair[1].severity));
 
 console.log(
   `  依赖树规模：${JSON.stringify(

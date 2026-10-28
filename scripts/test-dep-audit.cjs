@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * 自测 AUD0–AUD9：给 scripts/check-dep-audit.cjs 的每条判据找一次「它会红」的证据
+ * 自测 AUD0–AUD10：给 scripts/check-dep-audit.cjs 的每条判据找一次「它会红」的证据
  *
  * 为什么要有这个自测（2026-10-27 场次，缺陷 D115）：
  *   这道门禁守的是「依赖树里没有已知的 high / critical 漏洞」——**防攻击**的一条底座。
@@ -8,9 +8,12 @@
  *   ① 依赖树确实干净；② **它压根没做成一次漏洞查询（或读错了结果），却报告成"查过了、没问题"**。
  *   2026-10-27 在这台机器上实测到的就是第 ② 种，而且是**两处独立**的：
  *     · **形状错了**（DA1 从未生效）：npm 7+ 的报告里 `vulnerabilities` 是
- *       **数组**（每项是 [包名, 详情] 这一对），旧版按"以包名为键的对象"读
- *       ⇒ 读到的是数组下标 ⇒ `.severity` 恒 undefined ⇒ **真���有 high/critical
- *       漏洞也判绿**；
+ *       **以包名为键的对象**，D115 之前那一版按"数组下标"读
+ *       ⇒ `.severity` 恒 undefined ⇒ **真有 high/critical 漏洞也判绿**；
+ *       ⚠️ **2026-10-28 场次更正**：D115 的修法把那份实现里的**中间态**
+ *         （先 push 成数组、再 reduce 回对象）当成了最终形状 ⇒ 门禁改成了
+ *         要求"数组" ⇒ **真实报告永远被拒** ⇒ 门禁永远红、从来没有过任何结论。
+ *         ⇒ 现在 DA1 / DA2 一律按**对象**读（见夹具区的注释）；
  *     · **错误对象**（DA2 缺位）：`npm audit` 请求失败时把 `{message, error}`
  *       打到 stdout，旧版同样落到"零漏洞" ⇒ 打印"审计通过"并 exit 0。
  *   ⇒ 所以这里要证明的**不只是**"有漏洞会红"（DA1），更是
@@ -25,6 +28,9 @@
  * 夹具的形状**照抄**本机 npm 11.19.0 的真实实现
  * （@npmcli/arborist/lib/audit-report.js 的 `toJSON()`）—— 不照抄就会重演
  * "门禁按自己想象的形状读报告"这件事。
+ * ⚠️ **照抄要照抄「最终形状」**：那份实现先把漏洞收成数组、再 `.reduce` 回
+ *   **以包名为键的对象**；数组只是**中间态**。照抄中间态 ⇒ 门禁认不出
+ *   真实报告（2026-10-28 实测：这种门禁会**永远红**，等于没有结论）。
  *
  * 档位：
  *   AUD0  基线：完整报告、`vulnerabilities: []` ⇒ 判绿
@@ -40,8 +46,9 @@
  *   AUD7  报告缺 `vulnerabilities` 字段 ⇒ 判红 DA2（形状不认识 ⇒ 不给结论）
  *   AUD8  传给 npm 的参数里必须含**写死的官方 registry** 与 --json
  *        （防"有人把 registry 改回镜像源" ⇒ 回到「永远报不出漏洞」的形态）
- *   AUD9  `vulnerabilities` 是**旧的对象形状**（以包名为键）⇒ 判红 DA2
- *        （**这正是旧门禁读错的那一种形状**；必须红，不能绿）
+ *   AUD9  `vulnerabilities` 是 **npm 6 的旧数组形状** ⇒ 判红 DA2
+ *        （本门禁不读旧形状；形状不认识 ⇒ 不给结论，不是"没有漏洞"）
+ *   AUD10 报告里有 **critical** 级别的漏洞 ⇒ 判红，且红因**只**是 DA1
  *
  * 收尾：按 SHA-256 校验仓库里的门禁原件没被动过。
  */
@@ -105,23 +112,37 @@ const COUNTS = (over) =>
     over || {}
   );
 
-/* 夹具：形状照 npm 7+ 的 `npm audit --json` 真实输出。 */
+/* 夹具：形状照 npm 7+ 的 `npm audit --json` **真实输出**。
+   ⚠️ 2026-10-28 场次更正：那份实现里 `vulnerabilities` 的**最终形状是
+      「以包名为键的对象」** —— 数组只是中间态（先 push 成数组、再 reduce 回对象）。
+      D115 的夹具照抄的是**中间态**（数组）⇒ 连基线档都是按错形状写的。
+      现在的夹具一律照抄**真实输出**（2026-10-28 实测：npm 11.19.0
+      `audit --json` 的 `vulnerabilities` 是对象）。 */
 const FIXTURES = {
-  /* 完整且无漏洞的报告 */
+  /* 完整且无漏洞的报告（真实形状：空对象） */
   clean: {
     auditReportVersion: 2,
-    vulnerabilities: [],
+    vulnerabilities: {},
     metadata: {
       vulnerabilities: COUNTS(),
       dependencies: { prod: 11, dev: 119, optional: 0, peer: 0, peerOptional: 0, total: 130 }
     }
   },
-  /* 完整且有一个 high 漏洞的报告 */
+  /* 完整且有一个 high 漏洞的报告（真实形状：键是包名） */
   high: {
     auditReportVersion: 2,
-    vulnerabilities: [["markdown-it", HIGH_VULN]],
+    vulnerabilities: { "markdown-it": HIGH_VULN },
     metadata: {
       vulnerabilities: COUNTS({ high: 1, total: 1 }),
+      dependencies: { prod: 11, dev: 119, optional: 0, peer: 0, peerOptional: 0, total: 130 }
+    }
+  },
+  /* 完整且有一个 critical 漏洞的报告（critical 与 high 走同一条分支） */
+  critical: {
+    auditReportVersion: 2,
+    vulnerabilities: { "lodash": { ...HIGH_VULN, name: "lodash", severity: "critical" } },
+    metadata: {
+      vulnerabilities: COUNTS({ critical: 1, total: 1 }),
       dependencies: { prod: 11, dev: 119, optional: 0, peer: 0, peerOptional: 0, total: 130 }
     }
   },
@@ -133,13 +154,13 @@ const FIXTURES = {
     error: { summary: "", detail: "" }
   },
   /* 结构不完整的报告：不是错误对象，但也不是一份审计报告 */
-  incomplete: { auditReportVersion: 2, vulnerabilities: [] },
+  incomplete: { auditReportVersion: 2, vulnerabilities: {} },
   /* 只有 low / moderate */
   lowModerate: {
     auditReportVersion: 2,
-    vulnerabilities: [
-      ["some-pkg", { name: "some-pkg", severity: "low", isDirect: true, via: [], effects: [], range: "<1.0.1", nodes: [], fixAvailable: true }]
-    ],
+    vulnerabilities: {
+      "some-pkg": { name: "some-pkg", severity: "low", isDirect: true, via: [], effects: [], range: "<1.0.1", nodes: [], fixAvailable: true }
+    },
     metadata: {
       vulnerabilities: COUNTS({ low: 1, moderate: 1, total: 2 }),
       dependencies: { prod: 11, dev: 119, optional: 0, peer: 0, peerOptional: 0, total: 130 }
@@ -153,10 +174,13 @@ const FIXTURES = {
       dependencies: { prod: 11, dev: 119, optional: 0, peer: 0, peerOptional: 0, total: 130 }
     }
   },
-  /* 旧的对象形状：以包名为键 —— 旧门禁就是按这个形状读的（所以它读出了 0 条） */
-  legacyObjectShape: {
+  /* npm 6 的**旧数组形状**（每项是 [包名, 详情]）——
+     ⚠️ 2026-10-28 场次更正：D115 以为这是「旧门禁读错的那一种形状」，
+        实际上**它才是旧形状**，而 npm 7+ 的现行形状是对象。
+        ⇒ 本门禁不读数组 ⇒ 拿到数组必须**判红**（形状不认识 ⇒ 不给结论）。 */
+  legacyArrayShape: {
     auditReportVersion: 2,
-    vulnerabilities: { "markdown-it": HIGH_VULN },
+    vulnerabilities: [["markdown-it", HIGH_VULN]],
     metadata: {
       vulnerabilities: COUNTS({ high: 1, total: 1 }),
       dependencies: { prod: 11, dev: 119, optional: 0, peer: 0, peerOptional: 0, total: 130 }
@@ -315,7 +339,7 @@ function record(id, ok, detail) {
   const dir = makeSandbox();
   patch(
     gateOf(dir),
-    'const bad = entries.filter((pair) => Array.isArray(pair) && pair[1] && ["high", "critical"].includes(pair[1].severity));',
+    'const bad = entries.filter((pair) => pair[1] && ["high", "critical"].includes(pair[1].severity));',
     "const bad = [];"
   );
   const r = runGate(dir, "high", 1);
@@ -370,15 +394,28 @@ function record(id, ok, detail) {
   fs.rmSync(dir, { recursive: true, force: true });
 }
 
-/* ---------------- DA9：旧的对象形状 ⇒ 判红（形状不认识） ---------------- */
+/* ---------------- AUD9：npm 6 的旧数组形状 ⇒ 判红（形状不认识） ---------------- */
 {
   const dir = makeSandbox();
-  const r = runGate(dir, "legacyObjectShape", 1);
+  const r = runGate(dir, "legacyArrayShape", 1);
   const ok = r.code === 1 && onlyCause(r.out, "DA2");
   record(
-    "AUD9 vulnerabilities 是旧的对象形状 ⇒ DA2 判红（旧门禁就是按它读的）",
+    "AUD9 vulnerabilities 是 npm 6 的旧数组形状 ⇒ DA2 判红（不读旧形状 ⇒ 不给结论）",
     ok,
     ok ? "红了，红因点名 DA2" : `code=${r.code}\n${r.out}`
+  );
+  fs.rmSync(dir, { recursive: true, force: true });
+}
+
+/* ---------------- AUD10：critical 级别的漏洞 ⇒ 判红 ---------------- */
+{
+  const dir = makeSandbox();
+  const r = runGate(dir, "critical", 1);
+  const ok = r.code === 1 && onlyCause(r.out, "DA1");
+  record(
+    "AUD10 报告里有 critical 漏洞 ⇒ DA1 判红（红因只属于 DA1）",
+    ok,
+    ok ? "红了，红因点名 DA1" : `code=${r.code}\n${r.out}`
   );
   fs.rmSync(dir, { recursive: true, force: true });
 }
