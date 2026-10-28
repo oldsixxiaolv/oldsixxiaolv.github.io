@@ -49,7 +49,16 @@ const SITE = process.env.SITE_DIR
 const GATE_FILE = path.join(__dirname, "check-live-site.cjs");
 
 /* ---------- 夹具用的极小静态服务器 ---------- */
-function startStaticServer(rootDir) {
+/**
+ * @param {string} rootDir 站点根
+ * @param {object} [opts]
+ *   · `opts.hsts` —— 缺省发 `strict-transport-security: max-age=31556952`
+ *     （**照抄 GitHub Pages 的真实行为**）；传 `false` ⇒ 不发这个头；
+ *     传字符串 ⇒ 发那个值（用来注入"有 HSTS 但 max-age 被降级"）。
+ *   · `opts.contentType` —— 覆盖 content-type（用来注入"页面被当成下载"）。
+ */
+function startStaticServer(rootDir, opts) {
+  const o = opts || {};
   return new Promise((resolve) => {
     const server = http.createServer((req, res) => {
       let p = decodeURIComponent(new URL(req.url, "http://127.0.0.1").pathname);
@@ -64,12 +73,18 @@ function startStaticServer(rootDir) {
       res.statusCode = 200;
       res.setHeader(
         "content-type",
-        file.endsWith(".html")
-          ? "text/html; charset=utf-8"
-          : file.endsWith(".xml")
-            ? "application/xml; charset=utf-8"
-            : "application/octet-stream"
+        o.contentType ||
+          (file.endsWith(".html")
+            ? "text/html; charset=utf-8"
+            : file.endsWith(".xml")
+              ? "application/xml; charset=utf-8"
+              : "application/octet-stream")
       );
+      /* HSTS：夹具站默认**带上**它（照抄 GitHub Pages 的真实行为）——
+         否则基线档会被 L7 判红 ⇒ 注入档就证不了"那条红是 L7 判出来的"。 */
+      if (o.hsts !== false) {
+        res.setHeader("strict-transport-security", o.hsts || "max-age=31556952");
+      }
       res.end(body);
     });
     server.listen(0, "127.0.0.1", () => resolve(server));
@@ -215,10 +230,10 @@ async function main() {
    * 服务器逐请求读盘，所以起服务之后再改文件也照样生效。
    * checker 缺省用真门禁；判据级负对照会传入一份「卸掉某条判据」的门禁副本。
    */
-  const serve = async (mutateFn, label, checker) => {
+  const serve = async (mutateFn, label, checker, serverOpts) => {
     const dir = path.join(tmp, label);
     copyTree(snap, dir);
-    const server = await startStaticServer(dir);
+    const server = await startStaticServer(dir, serverOpts);
     const origin = `http://127.0.0.1:${server.address().port}`;
     localize(dir, origin, prodOrigin);
     mutateFn(dir, origin);
@@ -376,6 +391,45 @@ async function main() {
     "M8b 卸掉 JSON-LD 站内口径判据后同一夹具转绿（证明那条红是它判出来的）",
     m8b.problems.length === 0,
     m8b.problems.join(" | ") || "全绿",
+  ]);
+
+  /* ---------- M9 / M10 / M11：线上响应头（L7） ----------
+     这三档证明的是「此前每轮**手工 curl** 才能看到的那件事，现在有牙齿了」。
+     M9 注入「线上没有 HSTS」（传输安全被降级），
+     M10 注入「HSTS 在、但 max-age 被降级到 5 分钟」（"有 HSTS"不等于"有保障"），
+     M11 是判据级负对照：卸掉 L7 判据 ⇒ M9 / M10 两份夹具都转绿。 */
+
+  /* M9：线上首页**没有 HSTS** ⇒ L7 判红。 */
+  const m9 = await serve(() => {}, "m9", null, { hsts: false });
+  cases.push([
+    "M9 线上首页没有 HSTS ⇒ L7 判红（传输安全被降级）",
+    m9.problems.some((p) => p.startsWith("L7") && p.includes("HSTS")) &&
+      m9.problems.every((p) => p.startsWith("L7")),
+    m9.problems.join(" | ") || "（无红因）",
+  ]);
+
+  /* M10：HSTS 在、但 max-age 只有 5 分钟 ⇒ L7 判红。 */
+  const m10 = await serve(() => {}, "m10", null, { hsts: "max-age=300" });
+  cases.push([
+    "M10 线上 HSTS 的 max-age 低于 1 年 ⇒ L7 判红（有 HSTS ≠ 有保障）",
+    m10.problems.some((p) => p.startsWith("L7") && p.includes("max-age")) &&
+      m10.problems.every((p) => p.startsWith("L7")),
+    m10.problems.join(" | ") || "（无红因）",
+  ]);
+
+  /* M11：判据级负对照 —— 卸掉 L7 判据 ⇒ M9 / M10 两份夹具都转绿。 */
+  const noL7 = gateCopyDisabled(
+    tmp,
+    "gate-no-l7.cjs",
+    "  if (htmlLocal.length > 0 && live.size > 0) { // L7 起点（自测的负对照替换这一行）",
+    "  if (false) { // L7 起点（自测的负对照替换这一行）"
+  );
+  const m11a = await serve(() => {}, "m11a", noL7.runChecks, { hsts: false });
+  const m11b = await serve(() => {}, "m11b", noL7.runChecks, { hsts: "max-age=300" });
+  cases.push([
+    "M11 卸掉 L7 判据后 M9 / M10 两份夹具都转绿（证明那条红是 L7 判出来的）",
+    m11a.problems.length === 0 && m11b.problems.length === 0,
+    `无 HSTS：${m11a.problems.join(" | ") || "全绿"}；短 max-age：${m11b.problems.join(" | ") || "全绿"}`,
   ]);
 
   console.log("线上核查门禁 · 本地注入矩阵：\n");

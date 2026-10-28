@@ -260,7 +260,7 @@ const SLOTS = {
   ],
   "test-live-site.cjs": [
     "M0", "M1", "M2", "M3", "M4", "M5", "M6",
-    "M7", "M7b", "M8", "M8b"
+    "M7", "M7b", "M8", "M8b", "M9", "M10", "M11"
   ],
   "test-markdown-tables.cjs": [
     "TBLR0", "TBLR1", "TBLR2", "TBLR3", "TBLR4", "TBLR5", "TBLR6",

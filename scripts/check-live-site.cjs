@@ -25,6 +25,9 @@
  *   L4 线上 sitemap 的 <loc> **路径集合**与本地一致（抓"sitemap 是旧版"）
  *   L5 线上 HTML 的 JSON-LD 块都能被 JSON.parse 解析（抓"发出去的是坏的"）
  *   L6 线上 feed.xml 至少有一个 <item>，且每个 item 的 <link> 都可达
+ *   L7 线上**响应头**：HSTS 必须在且 max-age ≥ 1 年；HTML 页面的 content-type
+ *      媒体类型必须是 text/html（抓「传输安全被降级」「页面被当成下载而不是渲染」）
+ *      —— 这一条把此前**每轮手工 curl 一次**的复核变成自动告警（2026-10-28 场次）
  *
  * ⚠️ **为什么 L2/L3/L4/L6 比的是"路径"而不是整串 URL**：
  *   整串比较把两种**不同的故障**混成一条红因：
@@ -79,6 +82,12 @@ try {
 /* 部署生效有延迟 → L1 对失败路由重试。间隔可调（自测时置 0，不必干等）。 */
 let retryDelayMs = Number(process.env.LIVE_CHECK_RETRY_DELAY_MS ?? 8000);
 const RETRY_ROUNDS = 2;
+
+/* HSTS 的 max-age 下限（秒）= 31536000（1 年）。
+   ⚠️ 为什么是 1 年：HSTS 预装清单的要求就是 1 年；低于一年，浏览器只在很短的
+      时间里记住「这个站必须走 HTTPS」⇒ 实质等于没有 HSTS。
+      GitHub Pages 现在给的是 31556952（365.25 天）⇒ 基线离下限还有余量。 */
+const HSTS_MIN_MAX_AGE = 31536000;
 
 const args = process.argv.slice(2);
 const flag = (name) => args.includes(name);
@@ -251,7 +260,9 @@ async function grab(url, binary) {
     headers: { "user-agent": "MeteoHub-live-check/1.0" },
   });
   const buf = Buffer.from(await res.arrayBuffer());
-  return { status: res.status, text: binary ? "" : buf.toString("utf8"), buf };
+  /* 响应头也带回来（L7 要看 HSTS 与 content-type）—— fetch 的 Headers
+     取值不区分大小写，键名一律小写。 */
+  return { status: res.status, text: binary ? "" : buf.toString("utf8"), buf, headers: res.headers };
 }
 
 async function grabAll(base, items) {
@@ -379,6 +390,73 @@ async function runChecks(base, expectedDir) {
     }
     if (still.length < failed.length) {
       notes.push(`L1 有 ${failed.length - still.length} 条路由在重试后恢复（部署生效延迟）。`);
+    }
+  }
+
+  /* ---------- L7：线上响应头 —— 传输安全与内容类型 ----------
+   * 为什么要有这一条（2026-10-28 场次）：
+   *   此前每轮巡检都要**手工 curl 一次线上**看响应头 —— 而"手工"意味着
+   *   **没人保证它每周都被看**。既然这张门禁本来就跑在"部署之后"（CI 的
+   *   verify-live job），把这条**已有的事实**变成判据 ⇒ 手工复核变成自动告警。
+   *   两格：
+   *   ① **HSTS** 必须在，且 max-age ≥ 1 年 —— 抓「传输安全被降级」
+   *      （典型触发：域名改挂代理 / 换主机 / 中间层把头改掉）。
+   *   ② **HTML 页面的 content-type 媒体类型必须是 text/html** —— 抓
+   *      「页面被当成下载而不是渲染」（典型触发：静态文件被当二进制发）。
+   *      ⚠️ 只判**媒体类型**，不判 charset：字符集由文档自己的
+   *         `<meta charset="UTF-8">` 保证（check:lang 也守着编码那一格）。
+   * ⚠️ **一条事实一条红因**：HSTS 是**每个主机一条**、content-type 是**每类页面一条**
+   *    ⇒ 同一类问题只报一条（把全部页面列进去），不按页面数报 N 条。
+   * ⚠️ **前提不在场就不报**（首页没取到 ⇒ 那是 L1 的事）：
+   *    绝不能把「没取到」当成「头不对」。 */
+  if (htmlLocal.length > 0 && live.size > 0) { // L7 起点（自测的负对照替换这一行）
+    const home = local.find((f) => f.rel === "index.html");
+    const homeLive = home ? live.get(home.rel) : null;
+    if (homeLive && homeLive.status === 200 && homeLive.headers) {
+      const hsts = homeLive.headers.get("strict-transport-security");
+      if (!hsts) {
+        problems.push(
+          `L7 线上首页没有 strict-transport-security（HSTS）—— 浏览器第一次访问可能走明文 HTTP，` +
+            `之后才有理由强制 HTTPS。本站直连 GitHub Pages（自带 HSTS），这条变红说明` +
+            `**托管方式变了**（套了代理 / 换了主机）⇒ 要重新确认传输安全。`
+        );
+      } else {
+        const m = /max-age\s*=\s*(\d+)/i.exec(hsts);
+        const maxAge = m ? Number(m[1]) : 0;
+        if (!m || maxAge < HSTS_MIN_MAX_AGE) {
+          problems.push(
+            `L7 线上首页的 strict-transport-security 只有「${hsts}」—— max-age 低于 ` +
+              `${HSTS_MIN_MAX_AGE} 秒（1 年）⇒ 浏览器只会在很短时间里记住"这个站必须走 HTTPS"，` +
+              `实质等于没有 HSTS。`
+          );
+        } else {
+          /* ⚠️ **必须留一条正向确认**：没有输出与"判据压根没跑"长得一模一样
+             （仓里反复栽过的那一格：没报错 ≠ 没问题）。 */
+          notes.push(
+            `L7 线上首页的 strict-transport-security = 「${hsts}」（max-age ${maxAge} ≥ 1 年 ✔）。`
+          );
+        }
+      }
+    } else {
+      notes.push("L7 前提不在场（线上首页没取到）⇒ 本条没判 —— 那由 L1 负责报。");
+    }
+    const wrongType = [];
+    let typeChecked = 0;
+    for (const f of htmlLocal) {
+      const r = live.get(f.rel);
+      if (!r || r.status !== 200 || !r.headers) continue;
+      typeChecked++;
+      const ct = r.headers.get("content-type") || "";
+      const media = ct.split(";")[0].trim().toLowerCase();
+      if (media !== "text/html") wrongType.push(`${f.route}（${ct || "无 content-type"}）`);
+    }
+    if (wrongType.length) {
+      problems.push(
+        `L7 线上有 ${wrongType.length} 个 HTML 页面不是以 text/html 发出的：${wrongType.join("、")} —— ` +
+          `浏览器会把它们当成**下载**而不是渲染（典型原因：托管方式变了，静态文件被当成二进制发）。`
+      );
+    } else if (typeChecked > 0) {
+      notes.push(`L7 线上 ${typeChecked} 个返回 200 的 HTML 页面，content-type 都是 text/html ✔。`);
     }
   }
 
