@@ -68,6 +68,7 @@
  *   T6a   索引里一个 HTML 文件都没有                      ⇒ TR6
  *   T7a   **模板**引用的目标磁盘上不存在                 ⇒ TR7
  *   T7b   **模板**引用的目标磁盘上有、但**没被跟踪**      ⇒ TR7
+ *   T7c   **模板**引用的目标**大小写不对**               ⇒ TR7（判定必须与环境无关）
  *   T8a   索引里一个模板 / 数据文件都没有                ⇒ TR8
  *   T8b   有模板文件，但一处仓内资产引用都没比对过        ⇒ TR8
  *   N-TR1 负对照：卸掉 TR1 ⇒ T1a 的注入必须**转绿**
@@ -78,6 +79,7 @@
  *   N-TR6 负对照：卸掉 TR6 ⇒ T6a 的注入必须**转绿**
  *   N-TR7 负对照：卸掉 TR7 ⇒ T7a 的注入必须**转绿**
  *   N-TR7u 负对照：卸掉 TR7 ⇒ T7b 的注入必须**转绿**
+ *   N-TR7c 负对照：卸掉 TR7 ⇒ T7c 的注入必须**转绿**
  *   N-TR8 负对照：卸掉 TR8 ⇒ T8a 的注入必须**转绿**
  *   P-TR4 精准性负对照：卸掉 TR4 + 破坏遮罩 + T1b 注入 ⇒ 必须**恰好**红 TR1
  *   P-TR3 精准性负对照：卸掉 TR3 + 索引坏 + T1b 注入 ⇒ 必须仍然**绿**（前提不在场 ⇒ 整段跳过）
@@ -110,6 +112,9 @@ const { execFileSync } = require("child_process");
 const ROOT = path.join(__dirname, "..");
 const GATE = path.join(ROOT, "scripts", "check-tracked-refs.cjs");
 const SHARED_LIB = path.join(__dirname, "lib", "js-refs.cjs");
+/* 逐字路径解析的共享库（scripts/lib/path-case.cjs）—— 与上面那份同一套理由：
+   放在仓外 + require 改绝对路径 ⇒ 夹具里「仓内引用」的条数不变（COV-A 对得上）。 */
+const PATH_CASE_LIB = path.join(__dirname, "lib", "path-case.cjs");
 
 function sha256(p) {
   return crypto.createHash("sha256").update(fs.readFileSync(p)).digest("hex");
@@ -213,6 +218,12 @@ function makeSandbox() {
   fs.mkdirSync(path.join(base, "lib"), { recursive: true });
   const libCopy = path.join(base, "lib", "js-refs.cjs");
   fs.copyFileSync(SHARED_LIB, libCopy);
+  /* 逐字路径解析的共享库：同样放到仓外、require 同样改成绝对路径 ——
+     理由一字不差（不改动夹具里「仓内引用」的条数，COV-A 的覆盖度自证才对得上）。
+     ⚠️ 这一份是**必须**的：门禁副本启动时就要 require 它，缺了会直接崩在启动阶段
+        （实测踩过：34 档全红，而根因只是夹具少搬了一个文件）。 */
+  const pathCaseCopy = path.join(base, "lib", "path-case.cjs");
+  fs.copyFileSync(PATH_CASE_LIB, pathCaseCopy);
   {
     const gateSrc = fs.readFileSync(path.join(repo, "scripts", "check-tracked-refs.cjs"), "utf8");
     /* 指向**绝对路径**，而不是仓外相对路径（../../lib/js-refs.cjs）：
@@ -220,12 +231,17 @@ function makeSandbox() {
        「仓外引用数」比夹具真实值多 1 ⇒ COV-A 的覆盖度自证对不上。
        绝对路径**不是相对路径** ⇒ TR1 那条只认以 "." 开头的 specifier 的正则
        压根不认它 ⇒ 夹具的真实数量不变 ⇒ **断言一个字不用改（只改驱动）**。 */
-    const patched = gateSrc.replace(
-      'require("./lib/js-refs.cjs")',
-      `require(${JSON.stringify(libCopy)})`
-    );
+    const patched = gateSrc
+      .replace('require("./lib/js-refs.cjs")', `require(${JSON.stringify(libCopy)})`)
+      .replace(
+        'require("./lib/path-case.cjs")',
+        `require(${JSON.stringify(pathCaseCopy)})`
+      );
     if (patched === gateSrc) {
       throw new Error("沙箱搭建失败：门禁副本里找不到那句 require（坏跑）");
+    }
+    if (patched.includes('require("./lib/')) {
+      throw new Error("沙箱搭建失败：共享库的 require 没被改成绝对路径（坏跑）");
     }
     fs.writeFileSync(path.join(repo, "scripts", "check-tracked-refs.cjs"), patched);
   }
@@ -598,6 +614,17 @@ function injectTplUntrackedTarget(s) {
   git(s.repo, ["rm", "-q", "-f", "--cached", "--", "src/assets/img/logo.svg"]);
 }
 
+/** T7c：模板引用的目标**大小写不对**（磁盘上是 layout.css，模板里写 Layout.css）。
+ *    ⚠️ 这一档守的是**判定与环境无关**（D119）：
+ *      旧门禁用 `fs.existsSync` 判存在 ⇒ 在 macOS（大小写不敏感）上
+ *      `Layout.css` 能命中 `layout.css` ⇒ 判绿（漏过）；
+ *      在 CI（ubuntu，大小写敏感）上找不到 ⇒ 判红。
+ *      ⇒ 同一份树、同一处写法，本机绿、CI 红 —— 门禁的结论取决于文件系统。
+ *    新门禁用逐字解析（scripts/lib/path-case.cjs）⇒ 两个平台**同一结论、同一红因**。 */
+function injectTplCaseMismatch(s) {
+  patchFile(tplOf(s), "'/assets/css/layout.css'", "'/assets/css/Layout.css'", 1);
+}
+
 /** T8a：把模板 / 数据文件从索引里摘掉（工作树留着）⇒ 索引里一个都没有。
  * ⚠️ 带 -f 与 -r：src/ 是目录，且负对照改过门禁副本后工作树与索引不一致。 */
 function untrackTemplates(s) {
@@ -944,6 +971,21 @@ function stripTplAssetRefs(s) {
   fs.rmSync(s.base, { recursive: true, force: true });
 }
 
+/* T7c：模板引用的目标**大小写不对** ⇒ 必须判红，且红因必须点名"大小写"。
+   ⚠️ 断言写成「红因里出现『大小写』」而不是「判红」——
+      因为旧门禁在 macOS 上压根判绿、在 CI 上判红但红因是「仓内没有这个文件」：
+      只有点名大小写，才能证明新门禁给出的是**归因正确**的结论，
+      而且这同一个断言在大小写敏感 / 不敏感两种盘上都成立。 */
+{
+  const s = makeSandbox();
+  injectTplCaseMismatch(s);
+  expectRed("T7c 模板引用的目标大小写不对 ⇒ TR7", s, ["TR7"], {
+    mustContain: "大小写",
+    note: "判定必须与环境无关：同一份树在 macOS 与 CI 上要给出同一个结论、同一个归因",
+  });
+  fs.rmSync(s.base, { recursive: true, force: true });
+}
+
 /* ================= T8a / T8b：模板侧自证存活 ================= */
 
 /* T8a：索引里一个模板 / 数据文件都没有 ⇒ TR7 从来没被真正执行过。 */
@@ -992,6 +1034,20 @@ function stripTplAssetRefs(s) {
     "N-TR7u 负对照：卸掉 TR7 判定后，T7b 的注入转绿",
     s,
     "证明 T7b 那档的红确实来自 TR7 判定本身"
+  );
+  fs.rmSync(s.base, { recursive: true, force: true });
+}
+
+/* N-TR7c：卸掉 TR7 ⇒ T7c 的注入必须转绿（证明"大小写不一致"这一支也归 TR7 管，
+   而不是一个写在开关外面的硬红） */
+{
+  const s = makeSandbox();
+  patchGate(s, "const TR7_ON = true;", "const TR7_ON = false;", 1);
+  injectTplCaseMismatch(s);
+  expectGreen(
+    "N-TR7c 负对照：卸掉 TR7 判定后，T7c 的注入转绿",
+    s,
+    "证明大小写不一致那一支的红确实来自 TR7 判定本身"
   );
   fs.rmSync(s.base, { recursive: true, force: true });
 }

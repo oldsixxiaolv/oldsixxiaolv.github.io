@@ -14,6 +14,11 @@
  *     1. 本地引用（href/src）能否在产物里找到对应文件
  *        （站内引用不得用根绝对路径 —— **404 页是唯一例外**：
  *          GitHub Pages 的 404 语义要求如此，见 D17 与 scripts/check-404-depth.cjs）
+ *        ⚠️ 存在性判定是**逐字**的（大小写敏感，2026-10-28 实测，D119）：
+ *           旧口径用 `fs.existsSync`，它的大小写行为**取决于文件系统**
+ *           （macOS 不敏感、CI 的 ubuntu 敏感）⇒ 同一份产物，
+ *           本机"能解析"、CI 与线上（Linux）解析不了 ⇒ 本机绿、CI 红、线上 404。
+ *           现在改走 scripts/lib/path-case.cjs（逐段 readdir，只认真实字节名）。
  *     2. JSON-LD 能否被 JSON.parse 解析
  *     3. canonical 与 og:url 是否一致（且非错误页必须有 canonical）
  *    4b. 错误页的索引控制：404 页要有 noindex 与 follow（按 token 判定）、
@@ -154,6 +159,12 @@ const { degradeOrThrow } = require("./lib/git-error.cjs");
 // 两边不可能再对不上（原先各查各的：构建侧取"页面自己的源文件"，
 // 门禁侧也取"页面自己的源文件" —— 口径一致但**一起错**）。
 const { expectedLastmod } = require("./lib/page-deps.cjs");
+
+/* 逐字路径解析（大小写敏感）—— 见 scripts/lib/path-case.cjs 的文件头：
+ *   `fs.existsSync` 的大小写行为**取决于文件系统**（macOS 不敏感、CI 的 ubuntu 敏感）
+ *   ⇒ 产物里一条大小写写错的引用，在本机"能解析"、在 CI 与线上（Linux）解析不了
+ *   ⇒ 同一个产物，本机绿、CI 红。本门禁所有「产物文件在不在」的判定都改走它。 */
+const { resolveCaseExact, describeCase } = require("./lib/path-case.cjs");
 
 // 产物目录。默认是仓库里的 _site；SITE_DIR 只是给"故障注入"用的——
 // 改产物做注入测试时如果直接改 _site，会和并发的 build 抢同一个目录，
@@ -339,8 +350,13 @@ function resolveLocal(fromFile, raw) {
 
   if (clean.endsWith("/")) {
     target = path.join(target, "index.html");
-  } else if (!path.extname(target) && fs.existsSync(target) && fs.statSync(target).isDirectory()) {
-    target = path.join(target, "index.html");
+  } else if (!path.extname(target)) {
+    /* 逐字解析（大小写敏感）：不用 fs.existsSync 判"这是不是目录" ——
+       macOS 上它会把 `Assets` 当成 `assets` 命中 ⇒ 本机与 CI 的结论会不一样。 */
+    const dirRes = resolveCaseExact(target);
+    if (dirRes.status === "ok" && fs.statSync(target).isDirectory()) {
+      target = path.join(target, "index.html");
+    }
   }
   return target;
 }
@@ -382,7 +398,18 @@ for (const file of htmlFiles) {
     const target = resolveLocal(file, raw);
     if (!target) continue;
     refCount++;
-    if (!fs.existsSync(target)) {
+    /* 逐字解析（大小写敏感）—— 同文件头注释：本机绿、CI 红的那一类漂移。 */
+    const res = resolveCaseExact(target);
+    if (res.status === "case") {
+      fail(
+        "1",
+        `${from}: 引用 "${raw}" 的**大小写与产物文件对不上** —— ` +
+          `${describeCase(res, rel(target), rel)}。` +
+          `本机（macOS）大小写不敏感，看起来是好的；` +
+          `CI（ubuntu）与线上（Linux）**解析不到它** ⇒ 线上这个引用会 404。` +
+          `请把引用里的路径改成真实的大小写。`
+      );
+    } else if (res.status !== "ok") {
       fail("1", `${from}: 引用 "${raw}" 找不到对应产物（解析为 ${rel(target)}）`);
     }
   }

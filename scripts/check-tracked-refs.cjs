@@ -25,7 +25,10 @@
  *   TR1 引用完整性 —— 对**每一个已被 git 跟踪的代码文件**（.cjs/.js/.mjs），
  *       扫出它对**本地相对路径**的静态 require / import，
  *       目标必须满足两条：
- *         · 磁盘上确实存在（否则这棵树根本跑不起来）；
+ *         · 磁盘上确实存在（否则这棵树根本跑不起来）——
+ *           ⚠️ 存在性判定必须**逐字**（大小写敏感），不能用 `fs.existsSync`：
+ *              它的大小写行为**取决于文件系统**（macOS 不敏感、CI 的 ubuntu 敏感）
+ *              ⇒ 写错大小写的引用在本机"存在"、在 CI 不存在 ⇒ 本地绿、CI 红（D119）；
  *         · **也已被 git 跟踪**（否则提交后这棵树会断 —— 也就是上面那个 P0）。
  *   TR2 自证存活 —— 判据必须真的比对过东西：扫到 0 个代码文件、
  *       或**比对过** 0 处**仓内**引用，一律判红。
@@ -40,7 +43,8 @@
  *       <audio>/<iframe>/<embed>/<object> 的 href/src/poster/data/srcset，
  *       以及**内联 module script** 里 import() / from 的字面量路径），
  *       目标必须满足两条：
- *         · 磁盘上确实存在（否则这个页面打开就是坏样式 / 坏脚本）；
+ *         · 磁盘上确实存在（否则这个页面打开就是坏样式 / 坏脚本）——
+ *           ⚠️ 同样是**逐字**判定（大小写敏感），理由同 TR1；
  *         · **也已被 git 跟踪**（否则提交后这棵树会断，同 TR1 的道理）。
  *   TR6 HTML 侧自证存活 —— TR5 自己的前提：扫到 0 个已跟踪的 HTML 文件、
  *       或一处**仓内**的 HTML 本地引用都没比对过，一律判红。
@@ -52,7 +56,8 @@
  *       **站点绝对资产 URL**（形如 `/assets/...`，先剥掉 Nunjucks 注释
  *       `{# … #}` —— 注释里写的路径是说明，不是引用），
  *       目标必须满足两条：
- *         · 仓内的**源文件**确实存在（`/assets/x/y` ⇒ `src/assets/x/y`）；
+ *         · 仓内的**源文件**确实存在（`/assets/x/y` ⇒ `src/assets/x/y`）——
+ *           ⚠️ 同样是**逐字**判定（大小写敏感），理由同 TR1；
  *         · **也已被 git 跟踪**（否则本机有、提交里没有 ⇒ 部署后线上 404，
  *           也就是 D100 那一族）。
  *   TR8 模板侧自证存活 —— TR7 自己的前提：扫到 0 个模板 / 数据文件、
@@ -74,6 +79,19 @@
  *   守（那里比对的是渲染后的相对引用能否解析到产物文件）。
  * ⚠️ TR7 **只扫 src/**：仓里其它地方的模板（docs/ 下的示例页）由 TR5 那一侧
  *   与产物层门禁管。
+ *
+ * ⚠️ 存在性判定为什么必须**逐字**（大小写敏感）（2026-10-28 实测，D119）：
+ *   旧口径用 `fs.existsSync` 判"目标在不在"，而它的大小写行为**取决于文件系统**：
+ *     · macOS 的 APFS / exFAT（默认）：**不敏感** ⇒ 实测
+ *       `fs.existsSync('src/_data/SITE.JS')` 返回 **true**（真实文件叫 `site.js`）；
+ *     · Linux（CI 的 ubuntu-latest）：**敏感** ⇒ 同一个路径**不存在**。
+ *   ⇒ 同一份树、同一个缺陷：**本机绿、CI 红**；本地预览一切正常，
+ *     线上（GitHub Pages 跑在 Linux 上）却是 **404**。
+ *   现在 TR1 / TR5 / TR7 的存在性判定全部改走 **scripts/lib/path-case.cjs**
+ *   （逐段 readdir，只认目录项的**真实字节名**）⇒ 结论与运行环境无关。
+ *   ⚠️ 「大小写不一致」必须与「根本不存在」**分开报**：两者的修法完全不同
+ *     （改引用方 vs 补文件），混成一条 ⇒ 修的人会跑错方向；
+ *     而在大小写不敏感的机器上，「不存在」这个结论**根本判不出来**。
  *
  * ⚠️ TR5 **只判「仓库里的文件」**，不判「站点上的路由」：
  *   · **根绝对路径**（以 / 开头）= 部署后由站点根解析的**站内 URL**，
@@ -176,6 +194,12 @@ function note(id, msg) {
    （本门禁的 TR1 自测里有专门一档：注释里 / 字符串里写着本地 require 的字样
      都不算引用 ⇒ 换实现后那一档仍绿，即证明行为没变。） */
 const { maskForScan, localRefs } = require("./lib/js-refs.cjs");
+
+/* 逐字路径解析（大小写敏感）—— 见 scripts/lib/path-case.cjs 的文件头：
+ *   `fs.existsSync` 的大小写行为**取决于文件系统**（macOS 不敏感、CI 的 ubuntu 敏感）
+ *   ⇒ 写错大小写的引用在本机"存在"、在 CI 不存在 ⇒ 本地绿、CI 红、线上 404。
+ *   本门禁所有「被引用的目标在不在」的判定都改走它 ⇒ 结论与运行环境无关。 */
+const { resolveCaseExact, describeCase } = require("./lib/path-case.cjs");
 
 /* ---------- HTML 侧：注释遮罩 + 本地资源引用提取 ---------- */
 
@@ -446,18 +470,36 @@ if (!skipScan) {
       }
       refsCompared++;
 
-      const existing = cands.find((c) => fs.existsSync(c));
-      if (!existing) {
+      /* 逐字解析（不看文件系统的大小写敏感性）：
+         existsSync 在 macOS 上会把 `Foo.cjs` 当成 `foo.cjs` 命中 ⇒ 错大小写的
+         引用在本机"存在"、在 CI（Linux）不存在 ⇒ 本地绿、CI 红。 */
+      const resolved = cands.map((c) => ({ c, r: resolveCaseExact(c) }));
+      const hit = resolved.find((x) => x.r.status === "ok");
+      if (!hit) {
+        const caseHit = resolved.find((x) => x.r.status === "case");
         if (TR1_ON) {
-          note(
-            "TR1",
-            `scripts/…${file} 引用了 ${rel}，但磁盘上找不到它` +
-              `（试过：${cands.map((c) => path.relative(ROOT, c)).join(" / ")}）—— ` +
-              `这棵树根本跑不起来。`
-          );
+          if (caseHit) {
+            note(
+              "TR1",
+              `scripts/…${file} 引用了 ${rel}，但**大小写与真实文件对不上** —— ` +
+                `${describeCase(caseHit.r, path.relative(ROOT, caseHit.c), (p) => path.relative(ROOT, p))}。` +
+                `本机（macOS）大小写不敏感，看起来是好的；` +
+                `CI（ubuntu）与线上（Linux）**找不到它** ⇒ 那边的树根本跑不起来。` +
+                `请把引用里的路径改成上面那个真实的大小写。`
+            );
+          } else {
+            note(
+              "TR1",
+              `scripts/…${file} 引用了 ${rel}，但磁盘上找不到它` +
+                `（试过：${cands.map((c) => path.relative(ROOT, c)).join(" / ")}）—— ` +
+                `这棵树根本跑不起来。`
+            );
+          }
         }
         continue;
       }
+
+      const existing = hit.c;
 
       const relExisting = path.relative(ROOT, existing);
       if (!tracked.has(relExisting)) {
@@ -533,13 +575,26 @@ if (!skipScan) {
       }
       htmlRefsCompared++;
 
-      if (!fs.existsSync(target)) {
+      /* 逐字解析（大小写敏感）—— 同 TR1 的理由，见 scripts/lib/path-case.cjs。 */
+      const resT = resolveCaseExact(target);
+      if (resT.status !== "ok") {
         if (TR5_ON) {
-          note(
-            "TR5",
-            `${file} 引用了 ${rel}，但磁盘上找不到它 —— ` +
-              `这个页面打开就是坏样式 / 坏脚本（HTML 里的资源引用必须躺在仓库里）。`
-          );
+          if (resT.status === "case") {
+            note(
+              "TR5",
+              `${file} 引用了 ${rel}，但**大小写与真实文件对不上** —— ` +
+                `${describeCase(resT, path.relative(ROOT, target), (p) => path.relative(ROOT, p))}。` +
+                `本机（macOS）大小写不敏感，看起来是好的；` +
+                `CI（ubuntu）与线上（Linux）**找不到它** ⇒ 线上这个页面就是坏样式 / 坏脚本。` +
+                `请把引用里的路径改成真实的大小写。`
+            );
+          } else {
+            note(
+              "TR5",
+              `${file} 引用了 ${rel}，但磁盘上找不到它 —— ` +
+                `这个页面打开就是坏样式 / 坏脚本（HTML 里的资源引用必须躺在仓库里）。`
+            );
+          }
         }
         continue;
       }
@@ -669,14 +724,19 @@ if (!skipScan) {
       const relTarget = path.join("src", url.replace(/^\/+/, ""));
       const absTarget = path.join(ROOT, relTarget);
 
-      const missing = !fs.existsSync(absTarget);
-      const untracked = !missing && !tracked.has(relTarget);
-      if (!missing && !untracked) continue;
+      /* 逐字解析（大小写敏感）—— 同 TR1/TR5 的理由，见 scripts/lib/path-case.cjs。
+         ⚠️ 大小写不一致**必须单列**：它的修法是「改引用方的大小写」，
+         而 missing（补文件）/ untracked（进索引）的修法完全不同 ⇒ 不能合并成一条。 */
+      const res7 = resolveCaseExact(absTarget);
+      const missing = res7.status === "missing";
+      const caseMismatch = res7.status === "case";
+      const untracked = !missing && !caseMismatch && !tracked.has(relTarget);
+      if (!missing && !caseMismatch && !untracked) continue;
 
-      const kind = missing ? "missing" : "untracked";
+      const kind = caseMismatch ? "case" : missing ? "missing" : "untracked";
       const key = `${kind}:${relTarget}`;
       if (!findings.has(key)) {
-        findings.set(key, { kind, url, relTarget, refs: [] });
+        findings.set(key, { kind, url, relTarget, res: res7, refs: [] });
       }
       findings.get(key).refs.push(`${file}:${lineOf(masked, m.index)}`);
     }
@@ -691,6 +751,17 @@ if (!skipScan) {
           `仓内没有 ${f.relTarget}，但 ${where} 引用了站点绝对 URL ${f.url} —— ` +
             `模板指向一个不存在的东西，线上必然 404。` +
             `（若它其实是构建期产物或路由产物，请登记进 TPL_ASSET_WHITELIST 并写明理由。）`
+        );
+      }
+    } else if (f.kind === "case") {
+      if (TR7_ON) {
+        note(
+          "TR7",
+          `${where} 引用了站点绝对 URL ${f.url}，但它**的大小写与真实文件对不上** —— ` +
+            `${describeCase(f.res, f.relTarget, (p) => p)}。` +
+            `本机（macOS）大小写不敏感，看起来是好的；` +
+            `CI（ubuntu）与线上（Linux）**找不到它** ⇒ 线上必然 404。` +
+            `请把引用里的路径改成真实的大小写。`
         );
       }
     } else if (TR7_ON) {

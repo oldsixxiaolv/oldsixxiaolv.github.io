@@ -358,8 +358,8 @@ const SLOTS = {
   "test-tracked-refs.cjs": [
     "G0", "G1", "G2", "G3", "G4", "G5", "T1a", "T1b",
     "T1c", "T2a", "T2b", "T3", "T4a", "T4b", "T5a", "T5b",
-    "T6a", "T7a", "T7b", "T8a", "T8b", "N-TR1", "N-TR2", "N-TR3",
-    "N-TR4", "N-TR5", "N-TR6", "N-TR7", "N-TR7u", "N-TR8", "P-TR4",
+    "T6a", "T7a", "T7b", "T7c", "T8a", "T8b", "N-TR1", "N-TR2", "N-TR3",
+    "N-TR4", "N-TR5", "N-TR6", "N-TR7", "N-TR7u", "N-TR7c", "N-TR8", "P-TR4",
     "P-TR3", "COV-A", "COV-B"
   ],
   "test-url-safety.cjs": [
@@ -380,7 +380,7 @@ const SLOTS = {
     "NEG-30", "INJ-31", "NEG-31", "INJ-32", "NEG-32", "INJ-33", "NEG-33", "INJ-34",
     "NEG-34", "P-33a", "P-33b", "P-33c", "P-11a", "N-11a", "P-11b", "N-11b",
     "P-11c", "N-11c", "P-11d", "N-11d", "P-11e", "N-11e", "P-34a", "N-34a",
-    "R-1", "R-2", "G-IMMUT", "INJ-35", "NEG-35"
+    "R-1", "R-2", "G-IMMUT", "INJ-35", "NEG-35", "P-1a", "N-1a"
   ],
   "test-wrapping.cjs": [
     "G0", "G1", "G2", "G3", "G4", "G5", "W1a", "W1b",

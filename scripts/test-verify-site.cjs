@@ -52,6 +52,9 @@ const SANDBOX_FILES = [
   ["scripts", "lib", "git-error.cjs"],
   ["scripts", "lib", "page-deps.cjs"],
   ["scripts", "lib", "identity.cjs"],
+  // 逐字路径解析的共享库（scripts/lib/path-case.cjs，D119）——
+  // 门禁副本启动时就要 require 它，缺了会崩在启动阶段 ⇒ 每一档都会"没有红因"。
+  ["scripts", "lib", "path-case.cjs"],
   ["src", "_data", "site.js"],
   ["src", "404.njk"],
   ["src", "robots.njk"],
@@ -571,6 +574,55 @@ for (const c of G11_CASES) {
     { patchSite: c.patch }
   );
 }
+
+// ---------------------------------------------------------------------------
+// ⑨ 判据 1 的精准性档：产物里的本地引用**大小写写错**（D119）
+//
+// 这一族证明「门禁 1 的存在性判定与环境无关」：
+//   旧口径用 `fs.existsSync` ⇒ 它的大小写行为**取决于文件系统**
+//   （macOS 不敏感、CI 的 ubuntu 敏感）⇒ 同一份产物：
+//     · macOS 上 `Layout.css` 能命中 `layout.css` ⇒ **判绿（漏过）**；
+//     · CI 上找不到 ⇒ 判红，但红因只是笼统的「找不到对应产物」。
+//   ⇒ 同一个缺陷，两边一个绿一个红 —— 门禁的结论取决于运行环境。
+//   新口径逐字解析（scripts/lib/path-case.cjs）⇒ 两边**同一结论、同一红因**。
+//   断言写成「红因点名『大小写』」而不是「判红」—— 只有点名大小写，
+//   才能证明给出的是**归因正确**的结论，且这同一个断言在两种文件系统上都成立。
+// ---------------------------------------------------------------------------
+
+/**
+ * 产物首页里的一条本地引用**大小写写错**：真实文件是 `layout.css`，
+ * 引用写成 `Layout.css`。
+ * ⚠️ 只改**第一处**：第二处引用保持正确 ⇒ 这一档只注入**一个**缺陷
+ *    （`expectOnlyGate` 要求恰好一条红因）。
+ */
+function patchSiteCaseMismatch(siteDir) {
+  patchHtml(siteDir, "index.html", (html) => {
+    const needle = "assets/css/layout.css";
+    const i = html.indexOf(needle);
+    if (i < 0) throw new Error("index.html 里找不到 " + needle);
+    return (
+      html.slice(0, i) +
+      "assets/css/Layout.css" +
+      html.slice(i + needle.length)
+    );
+  });
+}
+
+addCase(
+  "P-1a",
+  "精准性：产物里的本地引用大小写写错 ⇒ 门禁 1 必须报红且点名大小写（判定与环境无关）",
+  () => PRISTINE,
+  (r) => expectOnlyGate(r, "1", ["大小写"], ["找不到对应产物"]),
+  { patchSite: patchSiteCaseMismatch }
+);
+
+addCase(
+  "N-1a",
+  "负对照：卸掉门禁 1 的开关后同一份产物补丁必须转绿",
+  () => flipSwitch(PRISTINE, "1"),
+  (r) => expectGreenAfterSwitchOff(r, "1"),
+  { patchSite: patchSiteCaseMismatch }
+);
 
 // ---------------------------------------------------------------------------
 // ⑧ 判据 34 的精准性档（集合列表页的每个列表项都必须有自己的标题元素）
