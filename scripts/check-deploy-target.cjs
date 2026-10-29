@@ -58,6 +58,17 @@
  *      GitHub 的 job 默认上限是 **360 分钟**；配合 DP8 的「不杀在途」，
  *      一次挂死的部署能独占 concurrency group 六小时，
  *      期间的推送全被折叠成唯一一个 pending ⇒ 站点长时间不更新。
+ *      ⚠️ **声明了还不够，值必须小**（2026-10-29 15:30 场次补，隔离探针实测坐实）：
+ *        此前 DP9 只判「有没有声明」⇒ 写 `timeout-minutes: 360`（正是 GitHub 的默认上限）
+ *        照样判绿、exit 0 ⇒ **兜底等于没有兜底** ⇒ D104「不杀在途」这条取舍的前提
+ *        被悄悄废掉（而那条取舍本身是有代价的，不该被一个数字悄悄取消）。
+ *        ⇒ 同一个判据里补两条子判据（同一件事只让一条判据说话）：
+ *          ① **值必须读得出是整数** —— `${{ ... }}` 之类静态读不出来 ⇒ fail closed；
+ *          ② **值不得超过上限** —— 本仓的政策：60 分钟
+ *             （比 GitHub 的 360 分钟上限小一个量级：一次挂死最多堵住发布管线一小时，
+ *               而不是六小时；现有三个 job 分别 30 / 15 / 20 分钟，60 是最宽裕的余量）。
+ *        ⚠️ 口径**只作用在部署工作流**（它才是 `concurrency: pages` 那个组的一员）：
+ *          别的 workflow 挂死占的是它自己的机时，堵不住发布管线。
  *   DP12 **钉住的 SHA 必须有人替它往前推** ——
  *      `.github/dependabot.yml` 必须在，且必须覆盖 `github-actions` 与 `npm` 两个生态、
  *      每个生态都得有 `schedule`。
@@ -190,6 +201,30 @@
  *        顶层 `write-all` ⇒ 每个 job 都继承 ⇒ 由 DP6 报，DP16 不重复报。
  *      ⚠️ **扫描面是 `.github/workflows/` 下的全部工作流**（与 DP15 同一口径）：
  *        多出来的第二份工作流同样不许拿写权限。
+ *
+ *   DP17 **checkout 不得把凭据留在工作区** ——
+ *      `actions/checkout` 的 `persist-credentials` **默认是 true** ⇒ **令牌会被持久化**
+ *      （上游 README 原文：「The auth token is persisted in the local git config. This enables
+ *      your scripts to run authenticated git commands. The token is removed during post-job
+ *      cleanup. Set \`persist-credentials: false\` to opt-out.」）
+ *      ⇒ **那个 job 之后跑的任何代码**（依赖包的 postinstall 脚本、仓内 100+ 道门禁脚本、
+ *      构建脚本）都能把它读走；job 收尾才清理。
+ *      ⚠️ **存放位置随版本变**（本仓钉的是 checkout v7）：v6 起「persist-credentials now
+ *      stores credentials in a separate file under \`$RUNNER_TEMP\` instead of directly in
+ *      \`.git/config\`」⇒ 本条守的是「**要不要持久化**」，不是「存在哪个文件里」。
+ *      危害随那个 job 的权限放大：本仓执行部署的 job 持 `pages: write` + `id-token: write`
+ *      ⇒ 令牌落在那里 = 线上站点与 OIDC 身份一起交给了那个 job 里的任何代码。
+ *      官方口径：不需要拿 token 做后续操作时就该关掉它（上游 README 的 `persist-credentials`
+ *      输入默认就是 true，关掉是 opt-out）。
+ *      ⇒ 本仓的 build 链只用**本地** git 读历史（git log / git rev-parse），
+ *        不做任何需要鉴权的远端操作 ⇒ 关掉零影响。
+ *      ⚠️ **这一格此前零门禁覆盖**（2026-10-29 15:30 场次隔离探针实测坐实）：
+ *        工作流里本来就写着 `persist-credentials: false`（还带注释解释），
+ *        但**把那行删掉，门禁零红因、exit 0** ⇒ 属「当前没事 ≠ 有东西保证它继续没事」。
+ *      两条红因各自一条：
+ *        ① **凭据被留在了工作区** —— 没写（默认 true）或显式写 true；
+ *        ② **写法读不出来** —— `${{ ... }}` 之类静态判不出 ⇒ fail closed。
+ *      ⚠️ **扫描面是 `.github/workflows/` 下的全部工作流**（与 DP6 / DP15 / DP16 同一口径）。
  *
  * ⚠️ 为什么只扫 README.md 与 docs/DEPLOY.md（**历史记录不扫**）：
  *   docs/IMPROVEMENT-LOG.md、docs/DEFECT-BACKLOG.md、docs/ROADMAP.md 是**历史记录** ——
@@ -634,8 +669,11 @@ function workflowJobs(text) {
       }
     }
     if (cur && ind === base + 4) {
-      const m = /^[ \t]+timeout-minutes[ \t]*:[ \t]*(\S+)/.exec(line);
-      if (m) cur.timeout = m[1];
+      /* ⚠️ **整行取值，不要只取第一个词**：`timeout-minutes: ${{ matrix.minutes }}`
+       *   带空格，只取 `(\S+)` 会拿到 `${{` —— 读不出来与读成别的东西是两回事，
+       *   红因文案必须让人一眼看出原值是什么。 */
+      const m = /^[ \t]+timeout-minutes[ \t]*:[ \t]*(.*)$/.exec(line);
+      if (m) cur.timeout = stripYamlComment(m[1]).trim();
     }
   }
   return jobs;
@@ -1064,6 +1102,12 @@ if (wfText !== null) {
 
   /* ---------------- DP9：每个 job 都要有挂死兜底 ---------------- */
 
+  /* ⚠️ **兜底值必须小**（本仓的政策）：GitHub 的 job 默认上限是 360 分钟；
+   *   D104 选了「不取消在途的生产部署」⇒ 一次挂死的 job 能一直占着
+   *   `concurrency: pages` 那个组 ⇒ 兜底值就是这条取舍的**唯一刹车**。
+   *   刹车写成 360 分钟 = 没写 ⇒ 写死 60 分钟（现有 job 是 30 / 15 / 20）。 */
+  const MAX_TIMEOUT_MINUTES = 60;
+
   jobs = workflowJobs(wfText);
   if (!jobs.length) {
     fail(
@@ -1079,6 +1123,42 @@ if (wfText !== null) {
           ` —— GitHub 的 job 默认上限是 **360 分钟**；配合 DP8 的「不杀在途」，` +
           `一次挂死的部署能独占 concurrency group 六小时，期间的推送全被折叠成` +
           `唯一一个 pending ⇒ 站点长时间不更新。每个 job 都要写 timeout-minutes。`
+      );
+    }
+    /* ⚠️ **声明了还不够，值必须读得出、且必须小**（2026-10-29 15:30 场次补）：
+     *   此前 DP9 只判「有没有声明」⇒ `timeout-minutes: 360` 照样判绿 ⇒
+     *   **兜底等于没有兜底** ⇒ D104「不杀在途」这条取舍的前提被悄悄废掉。 */
+    const unreadTimeout = [];
+    const tooBigTimeout = [];
+    for (const j of jobs) {
+      if (j.timeout === null) continue; // 上面那条已经报过了
+      const v = Number(j.timeout);
+      if (!Number.isInteger(v) || v <= 0) {
+        unreadTimeout.push(j);
+        continue;
+      }
+      if (v > MAX_TIMEOUT_MINUTES) tooBigTimeout.push(j);
+    }
+    if (unreadTimeout.length) {
+      fail(
+        `DP9 有 ${unreadTimeout.length} 个 job 的 timeout-minutes 的值读不出来：` +
+          unreadTimeout
+            .map((j) => `${WORKFLOW}:${j.lineNo} 的「${j.name}」（${j.timeout}）`)
+            .join("；") +
+          ` —— **「判不了」不等于「没有」**：门禁静态读不出它运行时求值成多少分钟，` +
+          `就没法确认这个兜底够不够小 ⇒ 只能当成「可能没有刹车」来报。`
+      );
+    }
+    if (tooBigTimeout.length) {
+      fail(
+        `DP9 有 ${tooBigTimeout.length} 个 job 的 timeout-minutes 超过上限（${MAX_TIMEOUT_MINUTES} 分钟）：` +
+          tooBigTimeout
+            .map((j) => `${WORKFLOW}:${j.lineNo} 的「${j.name}」（${j.timeout} 分钟）`)
+            .join("；") +
+          ` —— 配合 DP8 的「不杀在途」，timeout-minutes 就是这条取舍的**唯一刹车**：` +
+          `写成一个挡不住事的大数（GitHub 的默认上限是 360 分钟）= 没写刹车 ⇒ ` +
+          `一次挂死的 job 能占住 \`concurrency: pages\` 那个组六小时，` +
+          `期间的推送全被折叠成唯一一个 pending ⇒ 站点长时间不更新。`
       );
     }
   }
@@ -1874,6 +1954,165 @@ for (const wfFile of workflowFiles) {
   }
 }
 
+/* ---------------- DP17：checkout 不得把凭据留在工作区 ---------------- */
+
+/**
+ * 一个工作流里所有 `actions/checkout` 步骤，以及它们 `with:` 里的 persist-credentials。
+ *
+ * 返回 [{ job, lineNo, persist }]：
+ *   persist = null（**没写这个键**）／字面量（true / false / `${{ … }}` …）。
+ *
+ * ⚠️ **块标量（`run: |`）里的正文不算步骤属性**：run 块里出现
+ *   `uses:` / `with:` 字样的行必须跳过，否则脚本正文会伪装成配置。
+ * ⚠️ **步骤块按缩进划界**：到下一个同缩进的步骤标记、或任何缩进更浅的行为止
+ *   ⇒ job 级的键（`timeout-minutes:` 等）不会被误当成步骤 `with:` 的子键。
+ */
+function checkoutSteps(text) {
+  const lines = text.split("\n");
+  const jobsIdx = lines.findIndex((l) => /^jobs[ \t]*:/.test(l));
+  if (jobsIdx < 0) return [];
+  const base = indentOfLine(lines[jobsIdx]);
+  const STEP_MARK_RE = /^[ \t]*-[ \t]/;
+  const out = [];
+  let job = null;
+  for (let i = jobsIdx + 1; i < lines.length; i++) {
+    const line = lines[i];
+    if (!line.trim()) continue;
+    const ind = indentOfLine(line);
+    if (ind <= base) break; // 出了 jobs 段
+    if (ind === base + 2) {
+      const m = /^[ \t]+([A-Za-z0-9_-]+)[ \t]*:/.exec(line);
+      if (m) {
+        job = m[1];
+        continue;
+      }
+    }
+    if (!STEP_MARK_RE.test(line)) continue;
+    const stepIndent = ind;
+    /* 这一步的块：从本行到下一个同缩进的步骤标记，或缩进更浅的行。 */
+    let stop = i + 1;
+    while (stop < lines.length) {
+      const l = lines[stop];
+      if (!l.trim()) {
+        stop++;
+        continue;
+      }
+      const li = indentOfLine(l);
+      if (li < stepIndent) break; // 缩进更浅 ⇒ 出了这一步
+      if (li <= base + 2) break; // 出了这个 job
+      if (li === stepIndent && STEP_MARK_RE.test(l)) break; // 下一步
+      stop++;
+    }
+    const info = parseStepWith(lines.slice(i, stop));
+    if (info && info.uses && info.uses.split("@")[0] === "actions/checkout") {
+      out.push({ job, lineNo: i + 1, persist: info.persist });
+    }
+    i = stop - 1; // 这一块已经处理完
+  }
+  return out;
+}
+
+/**
+ * 一个步骤块里的 `uses:` 与 `with: persist-credentials`。
+ * 返回 { uses, persist }；persist 为 null 表示**没写**这个键。
+ */
+function parseStepWith(block) {
+  let uses = null;
+  let withAt = null; // { indent, inline, idx }
+  let runIndent = -1; // run 块标量的缩进（比它更深的行是脚本正文）
+  for (let k = 0; k < block.length; k++) {
+    const l = block[k];
+    const ind = indentOfLine(l);
+    if (runIndent >= 0) {
+      if (!l.trim() || ind > runIndent) continue;
+      runIndent = -1;
+    }
+    const rm = /^[ \t]*(?:-[ \t]*)?run[ \t]*:[ \t]*([|>][-+]?)?/.exec(l);
+    if (rm) {
+      if (rm[1]) runIndent = ind;
+      continue;
+    }
+    const um = /^[ \t]*(?:-[ \t]*)?uses[ \t]*:[ \t]*(\S+)/.exec(l);
+    if (um && !uses) {
+      uses = um[1];
+      continue;
+    }
+    const wm = /^[ \t]*(?:-[ \t]*)?with[ \t]*:[ \t]*(.*)$/.exec(l);
+    if (wm && !withAt) withAt = { indent: ind, inline: wm[1].trim(), idx: k };
+  }
+  let persist = null;
+  if (withAt) {
+    if (withAt.inline.startsWith("{")) {
+      /* 流式映射：`with: {persist-credentials: false}` */
+      const m = /persist-credentials[ \t]*:[ \t]*([^,}]+)/.exec(withAt.inline);
+      if (m) persist = m[1].trim().replace(/^["']|["']$/g, "");
+    } else {
+      /* 块式映射。
+       * ⚠️ **必须从 `with:` 那一行往后扫**：步骤标记行（`- name: X`）的缩进
+       *   比 `with:` 浅 ⇒ 从块首开始扫会**当场 break**（一个字节都没扫到）
+       *   ⇒ 于是「明明写了 persist-credentials: false」会被误判成「没写」。 */
+      for (let k = withAt.idx + 1; k < block.length; k++) {
+        const l = block[k];
+        if (!l.trim()) continue;
+        if (indentOfLine(l) <= withAt.indent) break; // 出了 with 块
+        const m = /^[ \t]*persist-credentials[ \t]*:[ \t]*(.*)$/.exec(l);
+        if (m) {
+          persist = stripYamlComment(m[1]).trim().replace(/^["']|["']$/g, "");
+          break;
+        }
+      }
+    }
+  }
+  return { uses, persist };
+}
+
+/* DP17 查到的量（供汇总文案用）。 */
+let dp17Checkouts = 0;
+
+for (const wfFile of workflowFiles) {
+  const text = fs.readFileSync(path.join(workflowDir, wfFile.name), "utf8");
+  const bad = [];
+  const unknown = [];
+  for (const st of checkoutSteps(text)) {
+    dp17Checkouts++;
+    const raw = st.persist;
+    if (raw === null) {
+      bad.push(st); // 没写 = 默认 true
+      continue;
+    }
+    if (/^false$/i.test(raw)) continue; // 关掉了 ✔
+    if (/^true$/i.test(raw)) {
+      bad.push(st); // 显式开着
+      continue;
+    }
+    unknown.push(st); // 读不出来
+  }
+  if (bad.length) {
+    fail(
+      `DP17 ${wfFile.rel} 有 ${bad.length} 处 checkout 把凭据留在了工作区：` +
+        bad
+          .map(
+            (st) =>
+              `${wfFile.rel}:${st.lineNo} 的「${st.job}」job（persist-credentials ${st.persist === null ? "没写" : st.persist}）`
+          )
+          .join("；") +
+        ` —— actions/checkout 的 persist-credentials **默认是 true** ⇒ **令牌会被持久化**` +
+        `（v6 起放在 $RUNNER_TEMP 下的独立文件里，v5 及以前直接写进 .git/config）` +
+        `⇒ 该 job 之后跑的每一步（依赖包的 postinstall 脚本、仓内的门禁脚本、构建脚本）` +
+        `都能把它读走；那个 job 持写权限时后果更大。` +
+        `必须显式写 persist-credentials: false（本仓的 build 链只用本地 git 读历史，关掉零影响）。`
+    );
+  }
+  if (unknown.length) {
+    fail(
+      `DP17 ${wfFile.rel} 有 ${unknown.length} 处 checkout 的 persist-credentials 的写法读不出来：` +
+        unknown.map((st) => `${wfFile.rel}:${st.lineNo} 的「${st.job}」job（${st.persist}）`).join("；") +
+        ` —— **「判不了」不等于「没有」**：门禁静态看不见它在运行时求值成什么 ` +
+        `⇒ 只能当成「可能留下了凭据」来报。`
+    );
+  }
+}
+
 /* ---------------- 汇总 ---------------- */
 if (problems.length) {
   console.error("发布落点门禁未通过：\n");
@@ -1913,7 +2152,8 @@ console.log(
 );
 console.log(
   `  · 每个 job 都声明了 timeout-minutes（${jobs.length} 个 job）：` +
-    `挂死的部署最多占住 concurrency group ${jobs.map((j) => j.timeout).join(" / ")} 分钟。`
+    `挂死的部署最多占住 concurrency group ${jobs.map((j) => j.timeout).join(" / ")} 分钟` +
+    `（上限 60 分钟：兜底值必须真的挡得住事，写成 GitHub 的默认上限 360 分钟等于没写）。`
 );
 if (dbSummary) {
   console.log(
@@ -1945,4 +2185,8 @@ console.log(
       ? `其中持写权限的有 ${dp16WriteJobs.length} 个（${dp16WriteJobs.join("、")}）—— ` +
         `写权限只许出现在执行 Pages 部署的那一个 job 上（pages: write + id-token: write）。`
       : `**没有一个 job 持写权限** —— 写权限只许出现在执行 Pages 部署的那一个 job 上。`)
+);
+console.log(
+  `  · checkout 的凭据：核了 ${dp17Checkouts} 处 actions/checkout 步骤，` +
+    `全部显式 persist-credentials: false —— 凭据不留在工作区，仓内代码与依赖脚本读不走它。`
 );

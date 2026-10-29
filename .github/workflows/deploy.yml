@@ -49,6 +49,8 @@ jobs:
     # 挂死兜底：GitHub 的 job 默认上限是 **360 分钟**（6 小时），一次卡住的
     # build 能把整个 concurrency group 占住 6 小时（见上面 cancel-in-progress
     # 那段注释）。本仓 build 链实测约 4~5 分钟 ⇒ 30 分钟是宽裕的余量。
+    # ⚠️ **上限 60 分钟**（发布落点门禁的 DP9 守着）：写成一个挡不住事的大数
+    # （360 ＝ GitHub 自己的默认上限）＝ 没写刹车 ⇒ 「不杀在途」这条取舍就废了。
     timeout-minutes: 30
     # build job 只读代码 + 读 Pages 站点元数据，不写任何东西（D100）。
     permissions:
@@ -59,10 +61,12 @@ jobs:
         # ⚠️ pin 到 commit SHA（不是 tag）—— 见文件末尾「action 版本钉法」。
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          # ⚠️ 不把 token 留在 .git/config 里（persist-credentials 默认 true ⇒
-          # checkout 会把 GITHUB_TOKEN 写进本地 git 配置，仓内任何脚本都能用它）。
+          # ⚠️ 不把 token 留在工作区（persist-credentials 默认 true ⇒ 令牌会被持久化，
+          # 好让脚本能跑需要鉴权的 git 命令 ⇒ 该 job 之后跑的任何代码都能把它读走；
+          # v6 起它放在 $RUNNER_TEMP 下的独立文件里，v5 及以前直接写进 .git/config）。
           # 本仓的 build 链只用**本地** git 读历史（git log / git rev-parse），
           # 不做任何需要鉴权的远端操作 ⇒ 关掉零影响。
+          # （D129 起由发布落点门禁的 DP17 守着：少这一行当场判红）
           persist-credentials: false
           # sitemap 的 <lastmod> 取"该页源文件最后一次 git 提交时间"，
           # 需要**完整历史**。默认是浅克隆（depth=1），历史被截断，

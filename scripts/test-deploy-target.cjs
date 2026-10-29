@@ -54,6 +54,8 @@ const CAUSES = [
   { id: "DP8b", crit: "DP8", frag: "cancel-in-progress 不是 false" },
   { id: "DP9a", crit: "DP9", frag: "没有声明 timeout-minutes" },
   { id: "DP9b", crit: "DP9", frag: "读不到任何 job" },
+  { id: "DP9c", crit: "DP9", frag: "timeout-minutes 的值读不出来" },
+  { id: "DP9d", crit: "DP9", frag: "timeout-minutes 超过上限" },
   { id: "DP10", crit: "DP10", frag: "CI 的依赖安装方式不对" },
   { id: "DP11", crit: "DP11", frag: "CI 的取包来源不对" },
   { id: "DP12a", crit: "DP12", frag: "缺少 dependabot 配置文件" },
@@ -76,11 +78,13 @@ const CAUSES = [
   { id: "DP16a", crit: "DP16", frag: "不是执行部署的那个 job" },
   { id: "DP16b", crit: "DP16", frag: "拿了超出需要的写权限" },
   { id: "DP16c", crit: "DP16", frag: "job 级 permissions 的写法读不懂" },
+  { id: "DP17a", crit: "DP17", frag: "把凭据留在了工作区" },
+  { id: "DP17b", crit: "DP17", frag: "persist-credentials 的写法读不出来" },
 ];
 /** 静态判据清单（门禁里应当且仅应当有这些判据）。 */
 const CRITERIA = [
   "DP1", "DP2", "DP3", "DP4", "DP5", "DP6", "DP7", "DP8", "DP9", "DP10", "DP11",
-  "DP12", "DP13", "DP14", "DP15", "DP16",
+  "DP12", "DP13", "DP14", "DP15", "DP16", "DP17",
 ];
 
 /* ========== 工具 ========== */
@@ -190,6 +194,8 @@ const WORKFLOW_YML = [
   "    steps:",
   "      - name: Checkout",
   "        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7",
+  "        with:",
+  "          persist-credentials: false",
   "      - name: Setup Node 22",
   "        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7",
   "      - name: Install dependencies",
@@ -782,6 +788,62 @@ const MUT = {
       },
     ];
   },
+  /** checkout 少了 persist-credentials: false ⇒ DP17（凭据留在工作区）。 */
+  checkoutNoPersist: (s) => {
+    s.workflow = replaceOnce(s.workflow, "        with:\n          persist-credentials: false\n", "");
+  },
+  /** persist-credentials 显式写 true ⇒ DP17（同样是把凭据留在工作区）。 */
+  checkoutPersistTrue: (s) => {
+    s.workflow = replaceOnce(
+      s.workflow,
+      "          persist-credentials: false",
+      "          persist-credentials: true"
+    );
+  },
+  /** persist-credentials 写成读不懂的形状 ⇒ DP17（fail closed：判不了 ≠ 没有）。 */
+  checkoutPersistUnknown: (s) => {
+    s.workflow = replaceOnce(
+      s.workflow,
+      "          persist-credentials: false",
+      "          persist-credentials: ${{ inputs.keep }}"
+    );
+  },
+  /**
+   * 另加一份工作流、它的 checkout 没写 persist-credentials ⇒ DP17
+   * （证明扫的是**全部**工作流，不只是 deploy.yml —— 与 DP15 / DP16 同一套路）。
+   */
+  secondWorkflowCheckoutNoPersist: (s) => {
+    s.extraWorkflows = [
+      {
+        name: "extra-checkout.yml",
+        content:
+          "name: Extra\non:\n  push:\n    branches: [main]\n" +
+          "permissions:\n  contents: read\n" +
+          "jobs:\n  x:\n    runs-on: ubuntu-latest\n    timeout-minutes: 10\n" +
+          "    steps:\n      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7\n",
+      },
+    ];
+  },
+  /** 流式写法的 with（官方合法写法）⇒ 必须判绿，不许假红。 */
+  checkoutFlowWith: (s) => {
+    s.workflow = replaceOnce(
+      s.workflow,
+      "        with:\n          persist-credentials: false",
+      "        with: {persist-credentials: false}"
+    );
+  },
+  /** timeout-minutes 写成一个挡不住事的大数 ⇒ DP9（兜底等于没有兜底）。 */
+  timeoutTooBig: (s) => {
+    s.workflow = replaceOnce(s.workflow, "    timeout-minutes: 30", "    timeout-minutes: 360");
+  },
+  /** timeout-minutes 的值读不出来 ⇒ DP9（fail closed：判不了 ≠ 没有）。 */
+  timeoutUnreadable: (s) => {
+    s.workflow = replaceOnce(
+      s.workflow,
+      "    timeout-minutes: 30",
+      "    timeout-minutes: ${{ matrix.minutes }}"
+    );
+  },
 };
 
 /** 注入档：expect=null 表示期望判绿，否则期望判红且判据集合**恰为** expect。 */
@@ -850,6 +912,13 @@ const CASES = [
   { id: "N72", label: "另加一份工作流，它的 job 持写权限（扫的是全部工作流，不只是 deploy.yml）", mutate: MUT.secondWorkflowJobWrite, expect: ["DP16"] },
   { id: "N73", label: "另加一份工作流、顶层 permissions: write-all（顶层只对一份工作流设防＝漏）", mutate: MUT.secondWorkflowTopLevelWriteAll, expect: ["DP6"] },
   { id: "N74", label: "另加一份工作流、顶层压根没写 permissions（顶层不写＝用仓库默认权限）", mutate: MUT.secondWorkflowNoTopLevelPermissions, expect: ["DP6"] },
+  { id: "N75", label: "checkout 少了 persist-credentials: false（默认是 true ⇒ 凭据留在工作区）", mutate: MUT.checkoutNoPersist, expect: ["DP17"] },
+  { id: "N76", label: "persist-credentials 显式写 true（一样把凭据留在工作区）", mutate: MUT.checkoutPersistTrue, expect: ["DP17"] },
+  { id: "N77", label: "persist-credentials 写成读不懂的形状（判不了 ⇒ 必须判红）", mutate: MUT.checkoutPersistUnknown, expect: ["DP17"] },
+  { id: "N78", label: "另加一份工作流、它的 checkout 没写 persist-credentials（扫的是全部工作流）", mutate: MUT.secondWorkflowCheckoutNoPersist, expect: ["DP17"] },
+  { id: "N79", label: "必须判绿：with 写成流式 {persist-credentials: false}（官方合法写法）", mutate: MUT.checkoutFlowWith, expect: null },
+  { id: "N80", label: "timeout-minutes 写成 360（挡不住事的大数＝没有兜底）", mutate: MUT.timeoutTooBig, expect: ["DP9"] },
+  { id: "N81", label: "timeout-minutes 的值读不出来（判不了 ⇒ 必须判红）", mutate: MUT.timeoutUnreadable, expect: ["DP9"] },
 ];
 
 /* ========== 四、判据级负对照 ========== */
@@ -870,6 +939,8 @@ const NEG_CASES = [
   { id: "N58", crit: "DP15", case: "N53", label: "卸掉 DP15" },
   { id: "N70", crit: "DP16", case: "N62", label: "卸掉 DP16" },
   { id: "N71", crit: "DP6", case: "N61", label: "卸掉 DP6（顶层标量那档）" },
+  { id: "N82", crit: "DP17", case: "N75", label: "卸掉 DP17" },
+  { id: "N83", crit: "DP9", case: "N80", label: "卸掉 DP9（超时上限那档）" },
 ];
 
 /** 在门禁副本里卸掉某条判据：给它每一条 fail() 调用**同行**加 `if (false) ` 前缀。 */
