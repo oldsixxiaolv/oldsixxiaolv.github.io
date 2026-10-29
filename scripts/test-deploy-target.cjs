@@ -59,6 +59,7 @@ const CAUSES = [
   { id: "DP12b", crit: "DP12", frag: "缺少 version: 2" },
   { id: "DP12c", crit: "DP12", frag: "没有同时覆盖 github-actions 与 npm" },
   { id: "DP12d", crit: "DP12", frag: "没有 schedule" },
+  { id: "DP12e", crit: "DP12", frag: "的 directory 不是 /" },
 ];
 /** 静态判据清单（门禁里应当且仅应当有这些判据）。 */
 const CRITERIA = [
@@ -417,6 +418,14 @@ const MUT = {
       "  - package-ecosystem: \"npm\"\n    directory: \"/\"\n"
     );
   },
+  /** npm 那条的 directory 写错 ⇒ DP12（清单在仓库根；目录不对 ⇒ 一条都不跑）。 */
+  dependabotWrongDirectory: (s) => {
+    s.dependabot = replaceOnce(
+      s.dependabot,
+      "  - package-ecosystem: \"npm\"\n    directory: \"/\"\n",
+      "  - package-ecosystem: \"npm\"\n    directory: \"/scripts\"\n"
+    );
+  },
 };
 
 /** 注入档：expect=null 表示期望判绿，否则期望判红且判据集合**恰为** expect。 */
@@ -450,6 +459,7 @@ const CASES = [
   { id: "N35", label: "dependabot 配置没有 version: 2（GitHub 会整份忽略它）", mutate: MUT.dependabotNoVersion, expect: ["DP12"] },
   { id: "N36", label: "dependabot 配置缺 github-actions 生态", mutate: MUT.dependabotNoGithubActions, expect: ["DP12"] },
   { id: "N37", label: "dependabot 配置里 npm 那条没有 schedule", mutate: MUT.dependabotNoSchedule, expect: ["DP12"] },
+  { id: "N39", label: "dependabot 配置里 npm 那条的 directory 写错", mutate: MUT.dependabotWrongDirectory, expect: ["DP12"] },
 ];
 
 /* ========== 四、判据级负对照 ========== */

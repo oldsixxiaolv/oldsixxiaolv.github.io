@@ -58,13 +58,16 @@
  *      ⇒ 恰恰在采用了更强做法的时候，告警通道反而安静了。
  *      ⇒ 必须靠**版本更新**这条通道把「有人替我把 pin 往前推」自动化 ——
  *        **不是把 pin 放开**（放开就退回可移动引用了）。
- *      ⚠️ 三个子判据各自一条红因：
+ *      ⚠️ 四个子判据各自一条红因：
  *        ① **文件在不在**；
  *        ② **`version: 2` 在不在**（GitHub 认的是它；没有它**整份配置被忽略**
  *           ⇒ 文件在仓库里看着有，GitHub 侧一条都不会跑 —— 这就是
  *           「形状不对 ⇒ 恒绿」那一族：文件在，机制不在）；
  *        ③ **两个生态齐不齐 + 每个生态有没有 schedule**
- *           （没有 schedule 的条目**永远不会被检查** ⇒ 看着在配置里，实际一条都不跑）。
+ *           （没有 schedule 的条目**永远不会被检查** ⇒ 看着在配置里，实际一条都不跑）；
+ *        ④ **每个生态的 `directory` 是不是 `/`**（清单在仓库根与 `.github/workflows`
+ *           ⇒ 目录写错 ⇒ Dependabot 去别的目录找清单、找不到 ⇒ **一条都不跑**
+ *           —— 与 ③ 同一种恒绿，2026-10-28 复核时补上）。
  *
  * ⚠️ 为什么只扫 README.md 与 docs/DEPLOY.md（**历史记录不扫**）：
  *   docs/IMPROVEMENT-LOG.md、docs/DEFECT-BACKLOG.md、docs/ROADMAP.md 是**历史记录** ——
@@ -870,8 +873,9 @@ const DEPENDABOT_ECOSYSTEMS = ["github-actions", "npm"];
 let dbSummary = null;
 
 /**
- * 解析 dependabot.yml —— 只取本门禁要判的三件事：
- *   `version: 2` 在不在、覆盖了哪些生态、每个生态有没有 `schedule.interval`。
+ * 解析 dependabot.yml —— 只取本门禁要判的四件事：
+ *   `version: 2` 在不在、覆盖了哪些生态、每个生态有没有 `schedule.interval`、
+ *   每个生态的 `directory` 是不是 `/`。
  *
  * ⚠️ **为什么不用 YAML 解析器**：本仓 package.json 没单列 js-yaml
  *   （它是 Eleventy 的传递依赖 ⇒ 幽灵依赖，另有事项登记）⇒ 这里用一个
@@ -889,7 +893,7 @@ function parseDependabot(text) {
   let cur = null;
   let versionOk = false;
   lines.forEach((line, i) => {
-    const vm = /^\s*version\s*:\s*["']?(\d+)["']?\s*$/.exec(line);
+    const vm = /^version\s*:\s*["']?(\d+)["']?\s*$/.exec(line);
     if (vm) {
       if (vm[1] === "2") versionOk = true;
       return;
@@ -897,12 +901,14 @@ function parseDependabot(text) {
     const em = /^\s*-\s*package-ecosystem\s*:\s*["']?([A-Za-z0-9_-]+)["']?\s*$/.exec(line);
     if (em) {
       if (cur) entries.push(cur);
-      cur = { eco: em[1], lineNo: i + 1, interval: null };
+      cur = { eco: em[1], lineNo: i + 1, interval: null, dir: null };
       return;
     }
     if (!cur) return;
     const im = /^\s*interval\s*:\s*["']?([A-Za-z]+)["']?\s*$/.exec(line);
     if (im) cur.interval = im[1];
+    const dm = /^\s*directory\s*:\s*["']?([^"'\s]+)["']?\s*$/.exec(line);
+    if (dm) cur.dir = dm[1];
   });
   if (cur) entries.push(cur);
   return { versionOk, entries };
@@ -930,6 +936,7 @@ function parseDependabot(text) {
     }
     const missing = [];
     const noSchedule = [];
+    const wrongDir = [];
     for (const eco of DEPENDABOT_ECOSYSTEMS) {
       const hits = db.entries.filter((e) => e.eco === eco);
       if (!hits.length) {
@@ -938,6 +945,10 @@ function parseDependabot(text) {
       }
       for (const e of hits) {
         if (!e.interval) noSchedule.push(`${eco}（第 ${e.lineNo} 行那条）`);
+        /* ⚠️ **directory 也得判**：清单在仓库根（package.json）与 `.github/workflows`
+           ⇒ `directory` 必须是 `/`。写错目录 ⇒ Dependabot 去那个目录找清单，
+           找不到就**一条都不跑** ⇒ 与「没有 schedule」同一种「看着在、实际不跑」的恒绿。 */
+        if (e.dir !== "/") wrongDir.push(`${eco}（第 ${e.lineNo} 行那条：是「${e.dir || "没写"}」）`);
       }
     }
     if (missing.length) {
@@ -951,6 +962,14 @@ function parseDependabot(text) {
       fail(
         `DP12 dependabot 配置里 ${noSchedule.join("、")} 没有 schedule —— ` +
           `没有 schedule 的条目**永远不会被检查** ⇒ 它看着在配置里，实际一条都不会跑。`
+      );
+    }
+    if (wrongDir.length) {
+      fail(
+        `DP12 dependabot 配置里 ${wrongDir.join("、")} 的 directory 不是 / —— ` +
+          `清单在仓库根（package.json）与 \`.github/workflows\` ⇒ 目录必须是 \`/\`；` +
+          `目录不对 ⇒ Dependabot 去那个目录找清单，找不到就**一条都不跑**` +
+          `（与「缺 schedule」同一种恒绿：看着在配置里，实际不检查任何东西）。`
       );
     }
   }
@@ -999,8 +1018,8 @@ console.log(
 );
 if (dbSummary) {
   console.log(
-    `  · ${DEPENDABOT} 在位，覆盖 ${dbSummary.entries.length} 个生态` +
-      `（${dbSummary.entries.map((e) => `${e.eco}/${e.interval || "（无 interval）"}`).join("、")}）` +
+    `  · ${DEPENDABOT} 在位，检出 ${dbSummary.entries.length} 个生态条目` +
+      `（${dbSummary.entries.map((e) => `${e.eco}（dir=${e.dir || "无"}、interval=${e.interval || "无"}）`).join("、")}）` +
       `—— 钉住的 SHA 有人替它往前推（告警通道在 SHA 钉法下会静默，靠版本更新这条通道补）。`
   );
 }
