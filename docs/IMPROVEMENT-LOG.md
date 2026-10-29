@@ -2653,6 +2653,22 @@ CSDN 521 并列）。那个归类对 ResearchGate / CSDN 成立，但对这一�
   ⇒ 顺带记一条：**`package.json` 没有 `packageManager` 字段** ⇒ npm 的版本同样随 runner 镜像变；
   要不要钉（以及钉了会不会让 corepack 接管 npm）**一并归入本项**，本轮**未实施**。
   （本场次不代拍，登记为待拍板 63）
+- **待拍板 64（新增）｜要不要给部署工作流加 `pull_request` 触发器 —— 让 PR（尤其 Dependabot 提的）也有 CI 结论**
+  事实（2026-10-28 18:30 场次实测 + 外部学习查实）：本轮新增 `.github/dependabot.yml`（D122）后，
+  Dependabot 会提两类 PR（**action 版本更新** / **npm 依赖更新**）⇒ 这是「钉住的 SHA 有人替它往前推」
+  这件事的**唯一自动通道**。但部署工作流的触发器只有 `push: branches: [main]` ＋ `workflow_dispatch`
+  ⇒ **PR 不会触发 CI** ⇒ 提上来的 PR **没有任何机器判决**，只能靠人工在本地跑一遍 build 链。
+  ⚠️ 已做到的部分（不用管）：本仓**不配自动合并** —— 自动合并一个改了 workflow 的 PR
+  ＝ 自动把新的权限 / 新的 action 钉进发布管线 ⇒ 这一格本轮明确**不开**。
+  候选：① **不加触发器**（现状）—— 收益：**PR 不在 runner 上执行仓内代码**，暴露面最小；
+  代价：每个 PR（含 Dependabot 的）都要人工本地验一遍；② **加 `pull_request` 触发器**
+  （只跑 build job，不跑 deploy）—— 收益：每个 PR 都有 CI 结论，Dependabot 的 PR 可以在绿了之后合；
+  代价：① 公共仓的 **fork PR 会在 runner 上执行来自 PR 的仓内代码**（workflow 级权限只有
+  `contents: read`、无 secrets、`persist-credentials: false` ⇒ 爆炸半径有限，但**仍是攻击面**）；
+  ② 每个 PR 多花约 4~5 分钟 CI；③ 要给 `pull_request` 事件单独确认 `permissions`
+  （fork PR 的 token 本来就是只读）⇒ 需要另配一段 workflow 级 `permissions` 或用 job 级覆盖。
+  ⚠️ **本轮不代拍**：要更多机器判决，还是要更小的暴露面，属本人取舍。
+  （本场次不代拍，登记为待拍板 64）
 ---
 ## 2026-10-19 · 第十一轮（12:22–12:47 场次）：订阅源时间戳说真话 + 404 身份开关落地
 
@@ -32118,3 +32134,122 @@ D121 之前，「线上响应头有没有问题」这件事**每轮都有人看*
 GitHub Pages **不给**的那五个头，判它们存在 ⇒ 每次都红 ⇒ 那不是门禁，是**噪音**。
 ⇒ 推论：**把人工检查转成门禁时，先问「这条事实能断言存在吗」** ——
 能 ⇒ 转（自动告警）；不能 ⇒ 转出来的必然是假红或恒绿，两种都等于没转。
+
+## 2026-10-28 · 巡检轮次：给**钉住的 SHA** 装上「有人替它往前推」这一格 —— D122（供应链的「发现」环此前完全空着）
+
+### A. 本轮定位
+
+- 上一轮（D121）修的是**线上响应头**（把每轮手工 curl 的复核变成判据 L7）。
+  本轮接着查**防攻击**底座的**供应链**那一维。
+- ⚠️ 本轮结论与直觉相反，值得单列：**供应链那一维几乎全绿，唯独"钉住了之后谁替它往前推"这一格完全空着** ——
+  而且它之所以空着，恰恰是因为本仓把 action 钉得太"好"了（详见 F 的官方原文）。
+
+### B. 体检（2026-10-28 18:30 场次逐项实测）
+
+| 方面 | 实测结论 |
+|---|---|
+| **action 的钉法** | 6 个**全部 pin 到 commit SHA** ✔（DP5 守着；tag 是**可移动引用**） |
+| **workflow 级权限** | 只有 `contents: read` ✔；build job 只有 `contents: read + pages: read` ✔；**deploy job 才拿** `pages: write + id-token: write` ✔ |
+| **checkout 凭据与历史** | `persist-credentials: false` ✔；`fetch-depth: 0` ✔（sitemap 的 `lastmod` 要完整历史） |
+| **取包来源** | 强制官方 registry ＋ `replace-registry-host=always` ✔（DP10 / DP11） |
+| **部署串行与兜底** | `concurrency: group=pages` ＋ `cancel-in-progress: false` ✔；每个 job 都有 `timeout-minutes` ✔（DP8 / DP9） |
+| **脚本注入面** | `run:` 块里**零** `github.event.*` 插值 ✔；全仓**无** `pull_request_target` / `workflow_run` ✔ |
+| **模板注入面** | `\| safe` 只出现在 JSON-LD / 自有 Markdown / 下载文件（bib 与 ris，模板里有注释说明为何**必需**）✔；站点**无用户输入** |
+| **密钥泄露** | 跟踪文件全量扫高危模式 **0 命中** ✔；⚠️ **全历史 blob** 扫（`ghp_` / `github_pat_` / `AKIA` / PRIVATE KEY / `sk-` / `xox*` / `AIza`）**0 命中** ✔；旧 Flask 平台的 `data/`（`secret.key` 所在）**从未被提交过** ✔ |
+| **仓库卫生** | `._*` AppleDouble 残片**全部未跟踪**（入库 0 个）✔，`.gitignore` 已覆盖 ✔ |
+| **「有人替 pin 往前推」** | ⚠️ **真问题（D122）**：`.github/` 下**只有 `deploy.yml`** ⇒ **零更新提案机制** ⇒ 而 SHA 钉法恰好会让告警通道静默 ⇒ 这一格此前**完全空着** ⇒ 详见 C/D |
+
+### C. 改了什么
+
+1. **新增 `.github/dependabot.yml`**：`version: 2` ＋ 两个生态条目，各带 `schedule.interval`：
+   - `github-actions`（weekly）—— 对应部署工作流里那 6 个钉在 SHA 上的 action；
+   - `npm`（weekly）—— 对应锁文件里那 130 个依赖。
+   - ⚠️ **本仓不配自动合并**：自动合并一个改了 workflow 的 PR ＝ 自动把新的权限 / 新的 action
+     钉进发布管线 ⇒ 这一格明确**不开**。
+2. **`scripts/check-deploy-target.cjs` 新增判据 DP12**（与 DP5 成对：
+   **DP5 说「必须钉到 SHA」，DP12 说「钉住之后必须有人来提更新」**，两半合起来才闭环）：
+   - ① **文件在不在**；
+   - ② **有没有 `version: 2`** —— GitHub 认的是它；没有它**整份配置被忽略**
+     ⇒ 文件在仓库里看着有、GitHub 侧一条都不跑（**「形状不对 ⇒ 恒绿」那一族：文件在，机制不在**）；
+   - ③ **两个生态齐不齐 ＋ 每个生态有没有 `schedule`** —— 没有 schedule 的条目
+     **永远不会被检查** ⇒ 看着在配置里、实际一条都不跑；
+   - ⚠️ **fail closed**：解析器读不懂的形状一律当成「不在」⇒ 判红，**绝不因读不懂而放行**；
+   - ⚠️ 解析器刻意**不用 YAML 库**（本仓 package.json 未单列 js-yaml ⇒ 那是幽灵依赖）
+     ⇒ 用一个只认本仓自己写的那种扁平形状的行扫描器；读不懂就判红。
+3. **`scripts/test-deploy-target.cjs` 加 5 档**：**N34**（整份配置没有）/ **N35**（没有 `version: 2`）/
+   **N36**（缺 `github-actions` 生态）/ **N37**（npm 那条没有 `schedule`）四档注入
+   ＋ **N38**（判据级负对照：卸掉 DP12 ⇒ N34 夹具**转绿** ⇒ 证明那条红确实是 DP12 判的）；
+   夹具补上 `.github/dependabot.yml`；**仓库真源指纹**把那份配置也纳入（注入全程只在临时副本上做）。
+4. **README**：`check:deploy-target` 行补 DP12 说明；`check:deploy-target-selftest` 行补四档说明。
+5. **台账 D122 / ROADMAP D122 / 中央待决策段新增待拍板 64**。
+
+### D. 决定性验证
+
+**① 四档注入 ＋ 一档判据级负对照**（自测实跑）：
+
+| 档 | 夹具 | 结果 |
+|---|---|---|
+| N34 | 整份 dependabot 配置没有 | **判红**，红因点名「缺少 dependabot 配置文件」，判据集合恰为 {DP12} |
+| N35 | 配置在、但没有 `version: 2` | **判红**，红因点名「缺少 version: 2」 |
+| N36 | 缺 `github-actions` 生态 | **判红**，红因点名「没有同时覆盖 github-actions 与 npm」 |
+| N37 | npm 那条没有 `schedule` | **判红**，红因点名「没有 schedule」 |
+| N38 | **卸掉 DP12** ＋ N34 夹具 | **转绿，零红因** ⇒ 那条红确实是 DP12 判出来的 |
+
+⇒ 自测 **26/26 红因 · 12/12 判据全绿**，红因归属纯净（每档红只许出现自己那一条判据）。
+**② 真仓跑**：门禁 exit 0，并打出**正向确认** ——
+「`.github/dependabot.yml` 在位，覆盖 2 个生态（github-actions/weekly、npm/weekly）」。
+**③ 官方原文核对**（本轮 `web_fetch` 实抓 GitHub 官方文档原文，见 F）。
+
+### E. 明确不做 / 不代拍
+
+- **不配 Dependabot 自动合并**：自动合并一个改了 workflow 的 PR ＝ 自动把新的权限 / 新的 action
+  钉进发布管线 ⇒ 明确**不开**。
+- **不代拍待拍板 64**（要不要给部署工作流加 `pull_request` 触发器，让 PR 也有 CI 结论）：
+  收益是"每个 PR 都有机器判决"，代价是"公共仓的 fork PR 会在 runner 上执行来自 PR 的仓内代码"。
+  ⇒ 属本人取舍，**本轮不代拍**。
+- **不代拍待拍板 7 / 56 / 57 / 58 / 59 / 60 / 61 / 62 / 63**。
+- **不加 `dependency-review` action**（官方文档提到它能在 PR 上标出动作依赖的漏洞）：
+  那是**再加一个第三方 action**进发布管线 ⇒ 供应链表面积变大 ⇒ 不做（候选登记，未实施）。
+- **不启用 workflow 依赖锁文件**（官方文档说在能采用的仓库里它比 SHA 钉法更强）：
+  本仓是个人站、action 数固定 ⇒ 收益小、配置与升级成本真实 ⇒ 候选登记，未实施。
+
+### F. 外部学习（本轮 2 条，**都核到了官方原文**）
+
+> ⚠️ 上一轮（15:30）的检索工具三次全部失败 ⇒ 那一轮的两条论断只能靠本地实测与既有台账支撑。
+> **本轮 `web_fetch` 成功抓到了 GitHub 官方文档原文** ⇒ 下面两条是**原文**，不是转述。
+
+1. **★ SHA 钉法会让 Dependabot 的告警通道静默 —— 这是 GitHub 官方明写的**（本轮改动的直接依据）。
+   原文（GitHub Docs《Secure use reference》→ "Monitoring the actions in your workflows"）：
+
+   > "Dependabot only creates alerts for vulnerable actions that use semantic versioning and
+   > **will not create alerts for actions pinned to SHA values.**"
+
+   ⇒ **恰恰在采用了更强做法（钉 SHA）的时候，告警通道反而安静了** ⇒ 必须靠**版本更新**这条通道补：
+
+   > "**Dependabot version updates** open pull requests to update actions to the latest version
+   > when a new version is released."
+
+   ⇒ ⇒ **推论（改变了本轮的做法）**：不要为了"有告警"而把 pin 放开（放开就退回可移动引用了）；
+   正确做法是**钉住 + 另开版本更新通道** —— 这两件事是一对，缺一不可。
+2. **Dependabot 版本更新专门支持「SHA + 行尾版本注释」这种写法**。原文同页：
+
+   > "Dependabot updates the version documentation of GitHub Actions when the comment is on the same
+   > line, such as `actions/checkout@<commit> #<tag or link>`"
+
+   ⇒ ⇒ **推论（改变了本仓的写法选择）**：本仓的工作流本来就是这个写法
+   （`uses: actions/checkout@3d3c42e5… # v7`）⇒ **不需要为了 Dependabot 去改工作流的注释风格**，
+   而且提上来的 PR 会同时更新 SHA 与版本注释 ⇒ **人一眼能看懂"从 v7 升到 v8"**。
+   ⇒ 这也让 DP7d 那条判据（行尾注释必须与基线表一致）**继续有意义**：注释被 Dependabot 改过时，
+   基线表要跟着改，否则门禁会当场判红 —— 这正是它该做的。
+
+### G. 本轮的方法论
+
+**「更强的安全做法」可能自带一个静默的副作用 —— 必须把副作用那一格也装上看守。**
+
+本仓把 action 钉到 SHA 是**对的**（D100 那轮就定了），但官方文档明写：SHA 钉法让 Dependabot 的告警通道静默。
+⇒ 也就是说：**采用更强的做法时，告警覆盖反而变窄了，而这件事在门禁里看不出来** ——
+DP5 只管"钉住了"，**没有一条判据管"钉住之后还有没有人替它往前推"**。
+⇒ 推论：给任何"收紧型"做法配门禁时，要问一句 **「这个做法让哪一格原本能报警的东西闭嘴了」** ——
+那一格要么补上另一条通道（本轮：版本更新），要么显式登记为已知边界（**不能默默消失**）。
+⇒ 同族：〈门禁的验收标准是"它在真实输入上能给出正确答案"〉〈fail closed 只是底线不是完成〉
+〈"查不到"与"没有"必须分开〉—— 本条补的是**「收紧型做法会关掉哪条报警通道」**这一维。
