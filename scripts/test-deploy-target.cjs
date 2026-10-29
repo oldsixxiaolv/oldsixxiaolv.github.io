@@ -6,7 +6,7 @@
  * 而「注入没生效」「改的是副本还是原件」「门禁自己被卸掉了」恰恰是最容易发生、
  * 也最不容易看出来的失败模式。所以自测必须回答四件事：
  *
- *   一、红因归属表 —— 门禁的 20 处 fail() 调用逐条登记判据号与**唯一文案片段**。
+ *   一、红因归属表 —— 门禁的**每处** fail() 调用逐条登记判据号与**唯一文案片段**。
  *   二、归属纯净 —— 运行时的每一条红因必须**恰好**被一条归属认领；
  *      判据集合必须**恰为**期望值（多一条、少一条都算失败）。
  *   三、覆盖度自证 —— 门禁的 fail() 调用点与归属表**双向**对齐；
@@ -55,9 +55,15 @@ const CAUSES = [
   { id: "DP9b", crit: "DP9", frag: "读不到任何 job" },
   { id: "DP10", crit: "DP10", frag: "CI 的依赖安装方式不对" },
   { id: "DP11", crit: "DP11", frag: "CI 的取包来源不对" },
+  { id: "DP12a", crit: "DP12", frag: "缺少 dependabot 配置文件" },
+  { id: "DP12b", crit: "DP12", frag: "缺少 version: 2" },
+  { id: "DP12c", crit: "DP12", frag: "没有同时覆盖 github-actions 与 npm" },
+  { id: "DP12d", crit: "DP12", frag: "没有 schedule" },
 ];
 /** 静态判据清单（门禁里应当且仅应当有这些判据）。 */
-const CRITERIA = ["DP1", "DP2", "DP3", "DP4", "DP5", "DP6", "DP7", "DP8", "DP9", "DP10", "DP11"];
+const CRITERIA = [
+  "DP1", "DP2", "DP3", "DP4", "DP5", "DP6", "DP7", "DP8", "DP9", "DP10", "DP11", "DP12",
+];
 
 /* ========== 工具 ========== */
 
@@ -174,6 +180,25 @@ const WORKFLOW_YML = [
   "",
 ].join("\n");
 
+/**
+ * 夹具里的 Dependabot 配置 —— 与真仓同构：version: 2 + 两个生态 + 各自的 schedule。
+ * ⚠️ 这里刻意用**本仓自己写的那种扁平形状**（每个生态一个 `- package-ecosystem:`
+ *   开头的条目）—— 门禁的解析器只认这个形状，别的写法会判红（fail closed）。
+ */
+const DEPENDABOT_BASE = [
+  "version: 2",
+  "updates:",
+  "  - package-ecosystem: \"github-actions\"",
+  "    directory: \"/\"",
+  "    schedule:",
+  "      interval: \"weekly\"",
+  "  - package-ecosystem: \"npm\"",
+  "    directory: \"/\"",
+  "    schedule:",
+  "      interval: \"weekly\"",
+  "",
+].join("\n");
+
 /* ========== 副本构造 ========== */
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "mh-deploytarget-selftest-"));
@@ -185,6 +210,7 @@ function buildFixture(mutate) {
     deploy: DEPLOY_BASE,
     remote: GOOD_URL,
     workflow: WORKFLOW_YML,
+    dependabot: DEPENDABOT_BASE,
   };
   if (mutate) mutate(state);
   const dir = fs.mkdtempSync(path.join(tmp, "case-"));
@@ -194,6 +220,9 @@ function buildFixture(mutate) {
   if (state.deploy !== null) fs.writeFileSync(path.join(dir, "docs", "DEPLOY.md"), state.deploy);
   if (state.workflow !== null) {
     fs.writeFileSync(path.join(dir, ".github", "workflows", "deploy.yml"), state.workflow);
+  }
+  if (state.dependabot !== null) {
+    fs.writeFileSync(path.join(dir, ".github", "dependabot.yml"), state.dependabot);
   }
   const quiet = { stdio: ["ignore", "ignore", "ignore"] };
   execFileSync("git", ["init", "-q"], { cwd: dir, ...quiet });
@@ -362,6 +391,32 @@ const MUT = {
       ""
     );
   },
+  /** 整份 dependabot 配置没有 ⇒ DP12（钉住的 SHA 没人替它往前推）。 */
+  dependabotMissing: (s) => {
+    s.dependabot = null;
+  },
+  /** 配置在、但没有 version: 2 ⇒ DP12（GitHub 会**整份忽略**它 ⇒ 机制其实不在）。 */
+  dependabotNoVersion: (s) => {
+    s.dependabot = replaceOnce(s.dependabot, "version: 2\n", "");
+  },
+  /** 缺 github-actions 生态 ⇒ DP12（action 那一维回到「靠自觉」）。 */
+  dependabotNoGithubActions: (s) => {
+    s.dependabot = replaceOnce(
+      s.dependabot,
+      "  - package-ecosystem: \"github-actions\"\n    directory: \"/\"\n" +
+        "    schedule:\n      interval: \"weekly\"\n",
+      ""
+    );
+  },
+  /** npm 那条没有 schedule ⇒ DP12（看着在配置里，实际一条都不会跑）。 */
+  dependabotNoSchedule: (s) => {
+    s.dependabot = replaceOnce(
+      s.dependabot,
+      "  - package-ecosystem: \"npm\"\n    directory: \"/\"\n" +
+        "    schedule:\n      interval: \"weekly\"\n",
+      "  - package-ecosystem: \"npm\"\n    directory: \"/\"\n"
+    );
+  },
 };
 
 /** 注入档：expect=null 表示期望判绿，否则期望判红且判据集合**恰为** expect。 */
@@ -391,6 +446,10 @@ const CASES = [
   { id: "N29", label: "registry 的 env 整块没写", mutate: MUT.registryEnvMissing, expect: ["DP11"] },
   { id: "N30", label: "registry 指向第三方镜像", mutate: MUT.registryThirdParty, expect: ["DP11"] },
   { id: "N31", label: "只设 registry、没设 replace-registry-host", mutate: MUT.replaceHostMissing, expect: ["DP11"] },
+  { id: "N34", label: "整份 dependabot 配置没有", mutate: MUT.dependabotMissing, expect: ["DP12"] },
+  { id: "N35", label: "dependabot 配置没有 version: 2（GitHub 会整份忽略它）", mutate: MUT.dependabotNoVersion, expect: ["DP12"] },
+  { id: "N36", label: "dependabot 配置缺 github-actions 生态", mutate: MUT.dependabotNoGithubActions, expect: ["DP12"] },
+  { id: "N37", label: "dependabot 配置里 npm 那条没有 schedule", mutate: MUT.dependabotNoSchedule, expect: ["DP12"] },
 ];
 
 /* ========== 四、判据级负对照 ========== */
@@ -405,6 +464,7 @@ const NEG_CASES = [
   { id: "N26", crit: "DP9", case: "N22", label: "卸掉 DP9" },
   { id: "N32", crit: "DP10", case: "N28", label: "卸掉 DP10" },
   { id: "N33", crit: "DP11", case: "N29", label: "卸掉 DP11" },
+  { id: "N38", crit: "DP12", case: "N34", label: "卸掉 DP12" },
 ];
 
 /** 在门禁副本里卸掉某条判据：给它每一条 fail() 调用**同行**加 `if (false) ` 前缀。 */
@@ -434,7 +494,13 @@ const seenCriteria = new Set();
 /** 仓库真源（门禁 + 两份活文档 + package.json）的整体指纹：自测前后必须一致。 */
 function repoDigest() {
   const h = crypto.createHash("sha256");
-  for (const p of [GATE, path.join(ROOT, "README.md"), path.join(ROOT, "docs", "DEPLOY.md"), path.join(ROOT, "package.json")]) {
+  for (const p of [
+    GATE,
+    path.join(ROOT, "README.md"),
+    path.join(ROOT, "docs", "DEPLOY.md"),
+    path.join(ROOT, "package.json"),
+    path.join(ROOT, ".github", "dependabot.yml"),
+  ]) {
     h.update(p).update(fs.existsSync(p) ? fs.readFileSync(p) : "<missing>");
   }
   return h.digest("hex");

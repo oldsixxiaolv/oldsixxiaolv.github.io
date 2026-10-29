@@ -1,0 +1,37 @@
+# Dependabot —— 依赖与 action 的「更新提案」机制（D122）。
+#
+# 为什么需要它（不是"锦上添花"，是补上一个真实的闭环缺口）：
+#   本仓的部署工作流把 6 个 GitHub Action 全部**钉到 commit SHA**（DP5 守着），
+#   这是对的：tag 是**可移动引用**，上游改 tag 就换了要跑的代码，而本仓收不到任何通知。
+#   但 GitHub 官方的 secure-use 指南写明了一件事：
+#   **action 钉到 SHA 之后，Dependabot 的「安全告警」通道会静默**
+#   （告警只覆盖按语义化版本命名的 action）⇒ 恰恰在采用了更强做法的时候，
+#   告警通道反而安静了。
+#   ⇒ 必须靠**版本更新（version updates）**这条通道，把「有人替我把 pin 往前推」
+#     这件事自动化 —— 不是把 pin 放开（那等于退回可移动引用）。
+#
+#   Dependabot 的版本更新对「SHA + 行尾版本注释」这种写法**专门支持**：
+#   它会同时更新 SHA 与同一行的版本注释。而本仓的工作流正是这个写法
+#   （`uses: actions/checkout@3d3c42e5… # v7`）⇒ 提出来的 PR 恰好能被人一眼看懂
+#   （"从 v7 升到 v8"），不用去 diff SHA 才知道动了什么。
+#
+# ⚠️ **诚实的边界**（别把这份配置当成"漏洞都会被自动发现"）：
+#   · Dependabot 只**提 PR**，不自动合并（本仓不配自动合并 —— 那属本人的取舍）。
+#   · 本仓的部署工作流**只监听 push 到 main** ⇒ Dependabot 的 PR **不会**触发 CI
+#     ⇒ 这些 PR 没有自动化结论，必须人工审（这本身也是取舍，见待拍板）。
+#   · `npm` 这一条改的是 package.json + package-lock.json（锁文件会一起更新）；
+#     合并前照例走一遍本地 build 链。
+#   · 门禁 DP12 只能确认「这份配置在、且覆盖了这两个生态」——
+#     它**不能**确认 GitHub 侧 Dependabot 真的开着，也不会确认 PR 真的被开出来。
+version: 2
+updates:
+  # ① 部署工作流里那 6 个 action（全部钉在 SHA 上）
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+  # ② npm 依赖（锁文件里那 130 个包）
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"

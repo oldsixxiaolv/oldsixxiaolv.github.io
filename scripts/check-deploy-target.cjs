@@ -49,6 +49,22 @@
  *      GitHub 的 job 默认上限是 **360 分钟**；配合 DP8 的「不杀在途」，
  *      一次挂死的部署能独占 concurrency group 六小时，
  *      期间的推送全被折叠成唯一一个 pending ⇒ 站点长时间不更新。
+ *   DP12 **钉住的 SHA 必须有人替它往前推** ——
+ *      `.github/dependabot.yml` 必须在，且必须覆盖 `github-actions` 与 `npm` 两个生态、
+ *      每个生态都得有 `schedule`。
+ *      为什么这条和 DP5 是**一对**：DP5 说「action 必须钉到 commit SHA」
+ *      （tag 是可移动引用）⇒ 但 **GitHub 官方 secure-use 指南写明：action 钉到 SHA
+ *      之后，Dependabot 的安全告警通道会静默**（告警只覆盖按语义化版本命名的 action）
+ *      ⇒ 恰恰在采用了更强做法的时候，告警通道反而安静了。
+ *      ⇒ 必须靠**版本更新**这条通道把「有人替我把 pin 往前推」自动化 ——
+ *        **不是把 pin 放开**（放开就退回可移动引用了）。
+ *      ⚠️ 三个子判据各自一条红因：
+ *        ① **文件在不在**；
+ *        ② **`version: 2` 在不在**（GitHub 认的是它；没有它**整份配置被忽略**
+ *           ⇒ 文件在仓库里看着有，GitHub 侧一条都不会跑 —— 这就是
+ *           「形状不对 ⇒ 恒绿」那一族：文件在，机制不在）；
+ *        ③ **两个生态齐不齐 + 每个生态有没有 schedule**
+ *           （没有 schedule 的条目**永远不会被检查** ⇒ 看着在配置里，实际一条都不跑）。
  *
  * ⚠️ 为什么只扫 README.md 与 docs/DEPLOY.md（**历史记录不扫**）：
  *   docs/IMPROVEMENT-LOG.md、docs/DEFECT-BACKLOG.md、docs/ROADMAP.md 是**历史记录** ——
@@ -69,6 +85,9 @@
  *   · 发布仓库声明靠「标记短语 + 反引号里的仓库名」解析；标记短语被改写时
  *     DP4c 会判红（而不是静默放过）。
  *   · 远端 URL 解析不出仓库名时，本门禁**不判**（判不了不等于有问题）。
+ *   · DP12 是**静态**的：它只确认「那份配置在、且覆盖了这两个生态」——
+ *     **不能**确认 GitHub 侧 Dependabot 真的开着、也不会确认 PR 真的被开出来
+ *     （这一格要真正确认，得去 GitHub 的 Dependabot 页面看有没有提过 PR）。
  *
  * 环境变量（供 scripts/test-deploy-target.cjs 的注入矩阵用）：
  *   DPT_ROOT —— 覆盖仓库根（发布命令、远端、部署工作流都从这里找）。
@@ -841,6 +860,102 @@ if (wfText !== null) {
   }
 }
 
+/* ---------------- DP12：钉住的 SHA 必须有人替它往前推 ---------------- */
+
+/** Dependabot 配置文件（相对仓库根）。 */
+const DEPENDABOT = ".github/dependabot.yml";
+/** 必须覆盖的生态 —— action（钉在 SHA 上 ⇒ 告警通道静默）与 npm 依赖。 */
+const DEPENDABOT_ECOSYSTEMS = ["github-actions", "npm"];
+/** 解析结果（供汇总文案用；判红时不需要）。 */
+let dbSummary = null;
+
+/**
+ * 解析 dependabot.yml —— 只取本门禁要判的三件事：
+ *   `version: 2` 在不在、覆盖了哪些生态、每个生态有没有 `schedule.interval`。
+ *
+ * ⚠️ **为什么不用 YAML 解析器**：本仓 package.json 没单列 js-yaml
+ *   （它是 Eleventy 的传递依赖 ⇒ 幽灵依赖，另有事项登记）⇒ 这里用一个
+ *   **只认本仓自己写的那份形状**的行扫描器。
+ *   ⚠️ **读不懂的形状一律当成「不在」⇒ 判红（fail closed）** ——
+ *   绝不能因为解析器读不懂就放行（那正是「形状错 ⇒ 恒绿」那一族）。
+ *   代价：本门禁只认本仓自己写的那种扁平写法（每个生态一个 `- package-ecosystem:` 开头
+ *   的条目，条目内缩进的 `directory:` / `schedule:` / `interval:`）。
+ *   若以后改用 `groups:` / `multi-ecosystem:` 等高级写法，本门禁会**判红**
+ *   —— 那是提醒「解析器要跟着升级」，不是误报。
+ */
+function parseDependabot(text) {
+  const lines = text.split("\n");
+  const entries = [];
+  let cur = null;
+  let versionOk = false;
+  lines.forEach((line, i) => {
+    const vm = /^\s*version\s*:\s*["']?(\d+)["']?\s*$/.exec(line);
+    if (vm) {
+      if (vm[1] === "2") versionOk = true;
+      return;
+    }
+    const em = /^\s*-\s*package-ecosystem\s*:\s*["']?([A-Za-z0-9_-]+)["']?\s*$/.exec(line);
+    if (em) {
+      if (cur) entries.push(cur);
+      cur = { eco: em[1], lineNo: i + 1, interval: null };
+      return;
+    }
+    if (!cur) return;
+    const im = /^\s*interval\s*:\s*["']?([A-Za-z]+)["']?\s*$/.exec(line);
+    if (im) cur.interval = im[1];
+  });
+  if (cur) entries.push(cur);
+  return { versionOk, entries };
+}
+
+{
+  const dbFile = path.join(ROOT, DEPENDABOT);
+  if (!fs.existsSync(dbFile)) {
+    fail(
+      `DP12 缺少 dependabot 配置文件（${DEPENDABOT}）—— 本仓的 6 个 action 全部钉在 ` +
+        `commit SHA 上（DP5 守着），而 GitHub 官方的 secure-use 指南写明：**action 钉到 ` +
+        `SHA 之后，Dependabot 的安全告警通道会静默**（告警只覆盖按语义化版本命名的 action）` +
+        `⇒ 恰恰在采用了更强做法的时候，告警通道反而安静了。必须靠**版本更新**这条通道，` +
+        `把「有人替我把 pin 往前推」自动化（不是把 pin 放开）。`
+    );
+  } else {
+    const db = parseDependabot(fs.readFileSync(dbFile, "utf8"));
+    dbSummary = db;
+    if (!db.versionOk) {
+      fail(
+        `DP12 dependabot 配置缺少 version: 2 —— GitHub 认的是 \`version: 2\`，` +
+          `没有它**整份配置被忽略** ⇒ 配置在仓库里看着有，GitHub 侧**一条都不会跑**` +
+          `（这是「形状不对 ⇒ 恒绿」那一族：文件在，机制不在）。`
+      );
+    }
+    const missing = [];
+    const noSchedule = [];
+    for (const eco of DEPENDABOT_ECOSYSTEMS) {
+      const hits = db.entries.filter((e) => e.eco === eco);
+      if (!hits.length) {
+        missing.push(eco);
+        continue;
+      }
+      for (const e of hits) {
+        if (!e.interval) noSchedule.push(`${eco}（第 ${e.lineNo} 行那条）`);
+      }
+    }
+    if (missing.length) {
+      fail(
+        `DP12 dependabot 配置没有同时覆盖 github-actions 与 npm 两个生态（缺 ${missing.join("、")}）—— ` +
+          `前者是「钉在 SHA 上的 action 有没有人推」，后者是「锁文件里那 130 个依赖的漏洞与更新` +
+          `有没有人推」；少一个，那一维就回到「靠自觉」。`
+      );
+    }
+    if (noSchedule.length) {
+      fail(
+        `DP12 dependabot 配置里 ${noSchedule.join("、")} 没有 schedule —— ` +
+          `没有 schedule 的条目**永远不会被检查** ⇒ 它看着在配置里，实际一条都不会跑。`
+      );
+    }
+  }
+}
+
 /* ---------------- 汇总 ---------------- */
 if (problems.length) {
   console.error("发布落点门禁未通过：\n");
@@ -882,3 +997,10 @@ console.log(
   `  · 每个 job 都声明了 timeout-minutes（${jobs.length} 个 job）：` +
     `挂死的部署最多占住 concurrency group ${jobs.map((j) => j.timeout).join(" / ")} 分钟。`
 );
+if (dbSummary) {
+  console.log(
+    `  · ${DEPENDABOT} 在位，覆盖 ${dbSummary.entries.length} 个生态` +
+      `（${dbSummary.entries.map((e) => `${e.eco}/${e.interval || "（无 interval）"}`).join("、")}）` +
+      `—— 钉住的 SHA 有人替它往前推（告警通道在 SHA 钉法下会静默，靠版本更新这条通道补）。`
+  );
+}
