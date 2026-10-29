@@ -33223,3 +33223,160 @@ exFAT 的 `._*` 资源叉过滤**只写一遍**。
   `docs/DEFECT-BACKLOG.md`（D128 行）、`docs/ROADMAP.md`（D128 条目）。
 - 验证：自测 **43/43 红因 · 16/16 判据全绿**；隔离克隆里整链 build **exit 0**。
 - ⚠️ **未 push** ⇒ 线上仍是 2026-10-16 的旧部署。
+
+## 2026-10-29 · 巡检轮次：给**「checkout 不得把凭据留在工作区」**装上看守 —— D129（凭据留在工作区此前零门禁覆盖）
+
+### A. 本轮定位
+
+上一轮（D128）把**顶层权限**的看守扩到了**全部工作流**；本轮接着查**令牌**那一维里
+**最靠近代码的一格**：凭据被 `checkout` 留在工作区。
+
+同时补上**挂死兜底**那一格：DP9 此前只判「有没有声明 `timeout-minutes`」，
+不判「声明得够不够小」。
+
+每轮只做 1–2 个改进点；本轮做 **2 个**（同一个门禁文件里）。
+
+### B. 体检（2026-10-29 15:30 场次逐项实测）
+
+1. **仓库侧现状是好的**（实测，不是推断）：
+   - 两处 `actions/checkout`（build job / verify-live job）都显式 `persist-credentials: false`，
+     且都带着注释解释为什么；
+   - 三个 job 的 `timeout-minutes` 是 **30 / 15 / 20**（build / deploy / verify-live）。
+2. ⚠️ **但「现状好」不等于「有东西保证它继续好」** —— 用**隔离探针**坐实两处零覆盖缺口
+   （夹具建在 /tmp、门禁经 `DPT_ROOT` 注入、仓内文件一个字节不动）：
+   - **缺口一**：把 build job 的 `persist-credentials: false` **删掉** ⇒ 门禁 **exit 0、零红因**。
+   - **缺口二**：把 build job 的 `timeout-minutes: 30` 改成 **360**
+     （正是 GitHub 自己的默认上限）⇒ 门禁同样 **exit 0、零红因**。
+   ⇒ 两个缺口都是「**当前没事 ≠ 有东西保证它继续没事**」这一族（与 D125 / D126 / D127 / D128 同族）。
+3. **这两个缺口各自的危害**：
+   - 缺口一：`actions/checkout` 的 `persist-credentials` **默认是 true** ⇒ **令牌会被持久化**，
+     好让脚本能跑需要鉴权的 git 命令 ⇒ **那个 job 之后跑的任何代码**
+     （依赖包的 postinstall 脚本、仓内 100+ 道门禁脚本、构建脚本）都能把它读走；
+     job 收尾才清理。危害随那个 job 的权限放大：执行部署的 job 持 `pages: write` +
+     `id-token: write` ⇒ 令牌落在那里 ＝ **线上站点与 OIDC 身份一起交给了那个 job 里的任何代码**。
+   - 缺口二：D104 选了「**不取消在途的生产部署**」⇒ 一次挂死的 job 能一直占着
+     `concurrency: pages` 那个组 ⇒ **`timeout-minutes` 就是这条取舍的唯一刹车**。
+     刹车写成 360 分钟 ＝ 没写 ⇒ 一次挂死堵住发布管线六小时。
+4. **一处候选被排除**（先量再改，不凭感觉）：「Google Fonts 阻塞首屏」**不成立** ——
+   `src/_includes/layouts/base.njk` 里 3 个 Latin 字族与 Noto Serif SC **全部走 preload + onload
+   异步换装 ＋ noscript 兜底**，**已不在渲染阻塞位**（D117 已做），关键 CSS（tokens + base）内联。
+
+### C. 改了什么
+
+1. **新判据 DP17 —— 「checkout 不得把凭据留在工作区」**（`scripts/check-deploy-target.cjs`）：
+   - 扫描面：`.github/workflows/` 下的**全部**工作流（与 DP6 / DP15 / DP16 同一口径，
+     复用 `listWorkflowFiles()` ⇒ `._*` 资源叉过滤只写一遍）。
+   - **DP17a**：checkout 没写 `persist-credentials`（默认 true）或显式写 true ⇒ 判红。
+   - **DP17b**：它的写法读不出来（`${{ … }}` 之类）⇒ fail closed（**判不了 ≠ 没有**）。
+   - 新解析器 `checkoutSteps()` / `parseStepWith()`：认**块式**与**流式**两种 `with:` 写法；
+     **跳过 `run:` 块标量的正文**（脚本里出现 `uses:` / `with:` 字样不得被当成配置）；
+     **步骤块按缩进划界**（job 级的键不得被误当成 `with:` 的子键）。
+2. **扩 DP9 两条子判据**（**同一件事只让一条判据说话 ⇒ 不另开判据**）：
+   - **DP9c**：`timeout-minutes` 的值读不出是整数 ⇒ fail closed。
+   - **DP9d**：值**不得超过 60 分钟**（本仓政策）。
+   - 顺手把 `workflowJobs()` 改成**整行取值** ⇒ `${{ matrix.minutes }}` 这类值能原样出现在红因里。
+3. **文档与登记**：`README.md`（门禁行补 DP9 的两条子判据与 **DP17**、自测行补两族新档；
+   RD6 判据编号对账通过）、`scripts/lib/selftest-slots.cjs`（登记 N75–N83）、
+   `.github/workflows/deploy.yml`（两处注释补「**已被门禁守着**」—— 原先只写了「为什么要这么写」，
+   没写「谁来盯」）。
+4. ⚠️ **比上游默认更严的地方，写明「这是我们的选择·严在哪·为什么」**：
+   - DP17 要求**每个** checkout 都显式关掉 persist-credentials（上游是**默认 true、需要 opt-out**）
+     —— 理由：本仓的 build 链只用**本地** git 读历史，关掉零影响；而漏关的代价不可逆。
+   - DP9d 的 60 分钟（GitHub 的上限是 360）—— 理由：一次挂死最多堵住发布管线一小时。
+   - 两者都是**政策、写死在源码里** ⇒ 要放宽必须**显式改这一行并在本日志记一笔**
+     （与 DP15 的允许集同一条纪律）。
+
+### D. 决定性验证
+
+- **隔离探针前后对照**（同一份夹具、同一处注入）：
+
+  | 注入 | 改动前 | 改动后 |
+  |---|---|---|
+  | 删掉 `persist-credentials: false` | exit 0、零红因 | exit 1，红因「把凭据留在了工作区」 |
+  | `persist-credentials: true` | exit 0、零红因 | exit 1，同上 |
+  | `persist-credentials: ${{ … }}` | exit 0、零红因 | exit 1，红因「写法读不出来」 |
+  | 另加一份工作流、它的 checkout 没写 | exit 0、零红因 | exit 1，且点名那份文件 |
+  | `timeout-minutes: 360` | exit 0、零红因 | exit 1，红因「超过上限（60 分钟）」 |
+  | `timeout-minutes: ${{ … }}` | exit 0、零红因 | exit 1，红因「的值读不出来」 |
+
+- **自测 84 档全过**：**47/47 红因 · 17/17 判据**（DP9c / DP9d / DP17a / DP17b 各至少一档判红；
+  N82 卸掉 DP17、N83 卸掉 DP9 的超时那档 ⇒ 对应夹具转绿；仓库真源指纹前后一致）。
+- **真仓正向确认**：「核了 **2 处** actions/checkout 步骤，全部显式 `persist-credentials: false`」
+  ＋「3 个 job 的 timeout 30 / 15 / 20（上限 60 分钟）」。
+- ⚠️ **实现时踩到两个真坑**：
+  - **假红**：第一版从步骤块**首行**开始扫 `with:`，而步骤标记行（`- name: X`）的缩进比 `with:` 浅
+    ⇒ **当场 break、一个字都没扫到** ⇒ 真仓明明写了 `persist-credentials: false` 却被判成「没写」
+    ⇒ 已改成从 `with:` 那一行往后扫。
+  - **过时说法**：本仓钉的是 `actions/checkout` **v7**，而上游 **v6 起**把持久化的凭据改成放在
+    `$RUNNER_TEMP` 下的**独立文件**里、不再直接写进 `.git/config`
+    ⇒ 工作流注释与门禁文案里「写进 `.git/config`」那句话**已经不准确**
+    ⇒ 已一并改准确（本条守的是「**要不要持久化**」，不是「存在哪个文件里」）。
+
+### E. 明确不做 / 不代拍
+
+- **不并入 DP16**（凭据 vs 权限是两件事）⇒ DP17 **另立判据**。
+- **不扩 DP9 的扫描面到全部工作流** —— DP9 的四条子判据只作用在**部署工作流**：
+  它才是 `concurrency: pages` 那个组的一员；别的 workflow 挂死占的是它自己的机时，堵不住发布管线。
+- **不判 `uses:` 指向本地 action（`./…`）或第三方封装内部另做 checkout 的情形**
+  （静态判不出来 ⇒ 诚实边界写在门禁头里，不假装判过）。
+- **不判「运行时 `actions/checkout` 真的按它执行」** —— 那要看上游 action 的实现版本。
+- **不新增待拍板项**：本轮两处都是**政策收紧**、不是取舍 ⇒ 要放宽必须显式改门禁源码并记一笔。
+- 待拍板 7 / 56 / 57 / 58 / 59 / 60 / 61 / 62 / 63 / 64 / 65 / 66 本轮**均不代拍**。
+
+### F. 外部学习（两条，有**官方原文**）
+
+1. **`actions/checkout` 的上游 README**（本仓钉的那个 SHA 对应的 `main` 原文）：
+   - 「The auth token is persisted in the local git config. This enables your scripts to run
+     authenticated git commands. The token is removed during post-job cleanup.
+     **Set `persist-credentials: false` to opt-out.**」
+     ⇒ 输入项文档写明 **Default: true** ⇒ 「不持久化」是**显式 opt-out**，不是默认行为
+     ⇒ DP17 要求每个 checkout 都显式写 `false`，正是把这条 opt-out 变成硬要求。
+   - 「# Checkout v6 / What's new — Improved credential security: `persist-credentials` now stores
+     credentials in a **separate file under `$RUNNER_TEMP`** instead of directly in `.git/config`」
+     ⇒ 本仓钉的 v7 含这项改进 ⇒ 「写进 `.git/config`」是**过时说法** ⇒ 已订正（见 D 与 F 的坑位）。
+2. **GitHub Docs「Security hardening for GitHub Actions」**（`/en/actions/reference/security/secure-use`）：
+   - 「It's good security practice to set the default permission for the GITHUB_TOKEN to read access
+     only for repository contents. The permissions can then be increased, as required, for individual
+     jobs within the workflow file.」
+     ⇒ 这句是 D127 / D128 那套做法的出处；本轮 DP17 落在**同一条线的另一格**：
+     令牌**落到哪里、落多久**，同样是令牌面的一格。
+
+### G. 技能/插件盘点
+
+- **browser 面板（真实页面巡检）**：本轮结论全部来自**离线静态**判据与隔离探针 ⇒ 不落地。
+- **mcode-tools（多模态生成/理解）**：产出是门禁代码与文档，无图像/音视频需求 ⇒ 不落地。
+- **rea（逆向分析）**：目标是 YAML 与 JS 源码，**不需要**反编译 ⇒ 不落地。
+⇒ **本轮没有值得落地的技能用法**（不为用而用）。
+
+### H. 本轮的方法论
+
+**「做对了」与「有东西保证它继续做对」是两件事 —— 后者要落成判据。**
+
+本仓这两处最典型：工作流里**已经写着** `persist-credentials: false`（还带注释解释），
+`timeout-minutes` **也已经写着** 30 —— 现状挑不出毛病 ⇒ 体检「干净」。
+但把它们改坏（删一行 / 改一个数字），门禁**一声不吭**。
+⇒ 这不是「以后要更小心」，而是**要把「它现在是对的」变成「它改坏了会响」**。
+
+**派生两条可复用的做法**：
+① **给某个动作装看守前，先把「这个动作能从哪里进入」列全** ——
+   本轮的做法：凭据进入工作区的入口就是「每一个 checkout」，那就扫**每一个**（含将来新增的工作流），
+   而不是只扫当前那两处。
+② **判据要判「值」，不只判「有没有」** ——
+   「声明了 `timeout-minutes`」与「这个 timeout 真的挡得住事」是**两件事**；
+   只判前者 ⇒ 兜底可以一路大到等于没有，而门禁始终绿。
+   （同一句话也适用于 permissions：DP6 / DP16 已经这么判了。）
+
+⚠️ 另记一条**本轮坐实的教训**：**引用上游行为前要核对钉住的那个版本** ——
+   本仓钉的是 checkout v7，而「凭据写在 `.git/config`」是 **v5 时代**的说法；
+   照抄旧描述会把一条**已经变好**的上游行为讲成风险 ⇒ 结论仍成立（默认仍是 true、仍可 opt-out），
+   但**依据要换成当前版本的原文**。
+
+### I. 本轮提交清单（只提交，**不 push**）
+
+- 代码提交：`scripts/check-deploy-target.cjs`（新判据 DP17 ＋ 扩 DP9 两条子判据 ＋ 订正凭据存放位置的描述）、
+  `scripts/test-deploy-target.cjs`（N75–N83 ＋ 夹具补 `persist-credentials: false`）、
+  `scripts/lib/selftest-slots.cjs`（登记 N75–N83）、`README.md`（门禁行与自测行）、
+  `.github/workflows/deploy.yml`（两处注释）。
+- 文档提交：`docs/IMPROVEMENT-LOG.md`（本节）、`docs/DEFECT-BACKLOG.md`（D129 行）、`docs/ROADMAP.md`（D129 条目）。
+- 验证：自测 **47/47 红因 · 17/17 判据全绿**；隔离克隆里整链 build **exit 0**。
+- ⚠️ **未 push** ⇒ 线上仍是 2026-10-16 的旧部署。
