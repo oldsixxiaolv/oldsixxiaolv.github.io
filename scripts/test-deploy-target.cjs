@@ -45,6 +45,7 @@ const CAUSES = [
   { id: "DP5b", crit: "DP5", frag: "一个 action 引用都没检出" },
   { id: "DP6a", crit: "DP6", frag: "顶层给了写权限" },
   { id: "DP6b", crit: "DP6", frag: "顶层没有 permissions 声明" },
+  { id: "DP6c", crit: "DP6", frag: "顶层 permissions 的写法读不懂" },
   { id: "DP7a", crit: "DP7", frag: "运行时低于 node24 底线" },
   { id: "DP7b", crit: "DP7", frag: "判不出 node24 运行时" },
   { id: "DP7c", crit: "DP7", frag: "钉的 SHA 与基线表不一致" },
@@ -72,11 +73,14 @@ const CAUSES = [
   { id: "DP15a", crit: "DP15", frag: "属于危险事件类型" },
   { id: "DP15b", crit: "DP15", frag: "不在允许的事件类型里" },
   { id: "DP15c", crit: "DP15", frag: "的事件类型一个都没解析出来" },
+  { id: "DP16a", crit: "DP16", frag: "不是执行部署的那个 job" },
+  { id: "DP16b", crit: "DP16", frag: "拿了超出需要的写权限" },
+  { id: "DP16c", crit: "DP16", frag: "job 级 permissions 的写法读不懂" },
 ];
 /** 静态判据清单（门禁里应当且仅应当有这些判据）。 */
 const CRITERIA = [
   "DP1", "DP2", "DP3", "DP4", "DP5", "DP6", "DP7", "DP8", "DP9", "DP10", "DP11",
-  "DP12", "DP13", "DP14", "DP15",
+  "DP12", "DP13", "DP14", "DP15", "DP16",
 ];
 
 /* ========== 工具 ========== */
@@ -159,6 +163,8 @@ const DEPLOY_BASE = [
  * 夹具里的部署工作流 —— 与真仓同构：钉到 SHA 的 action、带行尾版本注释、
  * 顶层只读 permissions、concurrency（不杀在途）、每个 job 都有 timeout-minutes。
  * ⚠️ 这里写的 SHA 必须与门禁里的**基线表**一致，否则基线档（N0）会被 DP7 判红。
+ * ⚠️ 三个 job（build / deploy / verify-live）与真仓同构 —— DP16 要靠
+ *   「执行 Pages 部署的那个 job」来认谁有资格持写权限 ⇒ 夹具里必须真的有那个 job。
  */
 const WORKFLOW_YML = [
   "name: Deploy MeteoHub",
@@ -191,6 +197,18 @@ const WORKFLOW_YML = [
   "        env:",
   "          NPM_CONFIG_REGISTRY: https://registry.npmjs.org",
   "          NPM_CONFIG_REPLACE_REGISTRY_HOST: always",
+  "",
+  "  deploy:",
+  "    needs: build",
+  "    runs-on: ubuntu-latest",
+  "    timeout-minutes: 15",
+  "    permissions:",
+  "      contents: read",
+  "      pages: write",
+  "      id-token: write",
+  "    steps:",
+  "      - name: Deploy to GitHub Pages",
+  "        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5",
   "",
   "  verify-live:",
   "    runs-on: ubuntu-latest",
@@ -361,6 +379,70 @@ const MUT = {
   /** 顶层 permissions 整个没写 ⇒ DP6（用仓库默认权限，可能 read-write）。 */
   noTopLevelPermissions: (s) => {
     s.workflow = replaceOnce(s.workflow, "permissions:\n  contents: read\n\n", "");
+  },
+  /**
+   * 顶层 permissions 写成**标量** `write-all` ⇒ DP6。
+   * ⚠️ 官方 workflow-syntax 里 `permissions: write-all` 是合法写法（等价于全部作用域可写）
+   *   ⇒ 只认块式的解析器会让它**整条逃过**（2026-10-30 场次用隔离探针实测坐实过）。
+   */
+  topLevelWriteAll: (s) => {
+    s.workflow = replaceOnce(s.workflow, "permissions:\n  contents: read", "permissions: write-all");
+  },
+  /** 顶层 permissions 写成标量 `read-all` ⇒ 必须判绿（官方合法写法：全部作用域只读）。 */
+  topLevelReadAll: (s) => {
+    s.workflow = replaceOnce(s.workflow, "permissions:\n  contents: read", "permissions: read-all");
+  },
+  /** 顶层 permissions 写成读不懂的形状 ⇒ DP6（判不了 ≠ 没有 ⇒ fail closed）。 */
+  topLevelUnreadable: (s) => {
+    s.workflow = replaceOnce(s.workflow, "permissions:\n  contents: read", "permissions: bogus-value");
+  },
+  /** build job 拿到 contents: write ⇒ DP16（跑仓内代码的 job 持写权限）。 */
+  buildJobWrite: (s) => {
+    s.workflow = replaceOnce(
+      s.workflow,
+      "  build:\n    runs-on: ubuntu-latest\n    timeout-minutes: 30\n    permissions:\n      contents: read",
+      "  build:\n    runs-on: ubuntu-latest\n    timeout-minutes: 30\n    permissions:\n      contents: write"
+    );
+  },
+  /** verify-live job 拿到 id-token: write ⇒ DP16（它能铸 OIDC JWT 却不执行部署）。 */
+  verifyLiveJobWrite: (s) => {
+    s.workflow = replaceOnce(
+      s.workflow,
+      "  verify-live:\n    runs-on: ubuntu-latest\n    timeout-minutes: 20\n    permissions:\n      contents: read",
+      "  verify-live:\n    runs-on: ubuntu-latest\n    timeout-minutes: 20\n    permissions:\n      contents: read\n      id-token: write"
+    );
+  },
+  /** deploy job 拿到 pages/id-token 之外的写权限 ⇒ DP16（超出需要的写权限）。 */
+  deployJobExtraWrite: (s) => {
+    s.workflow = replaceOnce(
+      s.workflow,
+      "    permissions:\n      contents: read\n      pages: write\n      id-token: write",
+      "    permissions:\n      contents: write\n      pages: write\n      id-token: write"
+    );
+  },
+  /** build job 的 permissions 写成标量 write-all ⇒ DP16（标量写法同样是全量写）。 */
+  buildJobWriteAll: (s) => {
+    s.workflow = replaceOnce(
+      s.workflow,
+      "  build:\n    runs-on: ubuntu-latest\n    timeout-minutes: 30\n    permissions:\n      contents: read",
+      "  build:\n    runs-on: ubuntu-latest\n    timeout-minutes: 30\n    permissions: write-all"
+    );
+  },
+  /** build job 的 permissions 写成读不懂的形状 ⇒ DP16（判不了 ≠ 没有 ⇒ fail closed）。 */
+  buildJobUnreadable: (s) => {
+    s.workflow = replaceOnce(
+      s.workflow,
+      "  build:\n    runs-on: ubuntu-latest\n    timeout-minutes: 30\n    permissions:\n      contents: read",
+      "  build:\n    runs-on: ubuntu-latest\n    timeout-minutes: 30\n    permissions: bogus-value"
+    );
+  },
+  /** deploy job 的 permissions 改成流式写法 ⇒ 必须判绿（合法写法不误伤）。 */
+  deployJobFlowPermissions: (s) => {
+    s.workflow = replaceOnce(
+      s.workflow,
+      "    permissions:\n      contents: read\n      pages: write\n      id-token: write",
+      "    permissions: {contents: read, pages: write, id-token: write}"
+    );
   },
   /**
    * 换成 node20 时代的 action（checkout v4 = node20）⇒ DP7（运行时低于 node24 底线）。
@@ -659,6 +741,21 @@ const MUT = {
       },
     ];
   },
+  /**
+   * 另加一份工作流，它的 job 持写权限 ⇒ DP16
+   * （证明扫的是**全部**工作流，不只是 deploy.yml —— 与 DP15 的 N56 / N57 同一套路）。
+   */
+  secondWorkflowJobWrite: (s) => {
+    s.extraWorkflows = [
+      {
+        name: "extra-release.yml",
+        content:
+          "name: Extra\non:\n  push:\n    branches: [main]\n" +
+          "jobs:\n  publish:\n    runs-on: ubuntu-latest\n    permissions:\n      contents: write\n" +
+          "    steps:\n      - run: echo hi\n",
+      },
+    ];
+  },
 };
 
 /** 注入档：expect=null 表示期望判绿，否则期望判红且判据集合**恰为** expect。 */
@@ -673,7 +770,11 @@ const CASES = [
   { id: "N7", label: "发布仓库声明被删光", mutate: MUT.declarationWiped, expect: ["DP4"] },
   { id: "N8", label: "活文档缺一份（docs/DEPLOY.md 不在）", mutate: MUT.docMissing, expect: ["DP4"] },
   { id: "N10", label: "action 只 pin 到 tag（没钉到 SHA）", mutate: MUT.actionUnpinned, expect: ["DP5"] },
-  { id: "N11", label: "action 引用被删光", mutate: MUT.actionsWiped, expect: ["DP5"] },
+  /* ⚠️ N11 会**连带**触发 DP16，这不是误报而是耦合的正确表现：
+   *   DP16 认「执行部署的那个 job」靠的是**它用了 actions/deploy-pages**；
+   *   动作被删光 ⇒ 那个 job 不再是部署 job ⇒ 它手里的 pages: write / id-token: write
+   *   就没有归属了 ⇒ DP16 照报（fail closed）。 */
+  { id: "N11", label: "action 引用被删光（连带：部署 job 的写权限没了归属）", mutate: MUT.actionsWiped, expect: ["DP16", "DP5"] },
   { id: "N12", label: "顶层 permissions 给了写权限", mutate: MUT.topLevelWrite, expect: ["DP6"] },
   { id: "N13", label: "顶层 permissions 整个没写", mutate: MUT.noTopLevelPermissions, expect: ["DP6"] },
   { id: "N16", label: "action 换成 node20 时代的版本（checkout v4）", mutate: MUT.actionNode20, expect: ["DP7"] },
@@ -711,6 +812,16 @@ const CASES = [
   { id: "N57", label: "另加一份 on: 段读不出来的工作流（判不了 ⇒ 必须判红）", mutate: MUT.secondWorkflowUnparsable, expect: ["DP15"] },
   { id: "N59", label: "必须判绿：注释里提到 pull_request_target（注释不是事件名）", mutate: MUT.triggerCommentOnly, expect: null },
   { id: "N60", label: "必须判绿：另一份工作流用流式写法 on: [push, workflow_dispatch]", mutate: MUT.secondWorkflowFlowStyle, expect: null },
+  { id: "N61", label: "顶层 permissions 写成标量 write-all（官方合法写法 ⇒ 不能逃过）", mutate: MUT.topLevelWriteAll, expect: ["DP6"] },
+  { id: "N62", label: "build job 拿到 contents: write（跑仓内代码的 job 持写权限）", mutate: MUT.buildJobWrite, expect: ["DP16"] },
+  { id: "N63", label: "verify-live job 拿到 id-token: write（能铸 OIDC JWT 却不执行部署）", mutate: MUT.verifyLiveJobWrite, expect: ["DP16"] },
+  { id: "N64", label: "deploy job 拿到 pages/id-token 之外的写权限（超出需要）", mutate: MUT.deployJobExtraWrite, expect: ["DP16"] },
+  { id: "N65", label: "build job 的 permissions 写成标量 write-all（标量同样是全量写）", mutate: MUT.buildJobWriteAll, expect: ["DP16"] },
+  { id: "N66", label: "build job 的 permissions 写成读不懂的形状（判不了 ⇒ 必须判红）", mutate: MUT.buildJobUnreadable, expect: ["DP16"] },
+  { id: "N67", label: "必须判绿：顶层 permissions 写成标量 read-all（官方合法：全部作用域只读）", mutate: MUT.topLevelReadAll, expect: null },
+  { id: "N68", label: "必须判绿：deploy job 的 permissions 改成流式写法 {contents: read, …}", mutate: MUT.deployJobFlowPermissions, expect: null },
+  { id: "N69", label: "顶层 permissions 写成读不懂的形状（判不了 ⇒ 必须判红）", mutate: MUT.topLevelUnreadable, expect: ["DP6"] },
+  { id: "N72", label: "另加一份工作流，它的 job 持写权限（扫的是全部工作流，不只是 deploy.yml）", mutate: MUT.secondWorkflowJobWrite, expect: ["DP16"] },
 ];
 
 /* ========== 四、判据级负对照 ========== */
@@ -729,6 +840,8 @@ const NEG_CASES = [
   { id: "N41", crit: "DP13", case: "N40", label: "卸掉 DP13" },
   { id: "N48", crit: "DP14", case: "N44", label: "卸掉 DP14" },
   { id: "N58", crit: "DP15", case: "N53", label: "卸掉 DP15" },
+  { id: "N70", crit: "DP16", case: "N62", label: "卸掉 DP16" },
+  { id: "N71", crit: "DP6", case: "N61", label: "卸掉 DP6（顶层标量那档）" },
 ];
 
 /** 在门禁副本里卸掉某条判据：给它每一条 fail() 调用**同行**加 `if (false) ` 前缀。 */

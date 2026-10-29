@@ -26,11 +26,18 @@
  *      口径对齐 **OpenSSF Scorecard 的 Pinned-Dependencies 判据**（Risk: Medium，
  *      它明确把 GitHub workflows 列入扫描面）；`./本地路径` 天然钉死，豁免。
  *   DP6 部署工作流**顶层**的 permissions 必须只读 ——
- *      顶层不写 = 用**仓库默认**的 token 权限（可能 read-write）；
+ *      顶层不写 = 用**仓库默认**的 token 权限（可能是 read-write）；
  *      顶层写 = **每个 job** 都持有（含跑完整条 build 链、也就是执行仓内代码的那个）。
  *      写权限要收窄到具体 job（deploy job 需要 `pages: write` + `id-token: write`，
  *      官方 deploy-pages 文档写明「执行部署的 job 至少需要这两个」）。
  *      口径对齐 **OpenSSF Scorecard 的 Token-Permissions 判据**（Risk: High）。
+ *      ⚠️ **两种写法都必须认得**（官方 workflow-syntax 里都合法）：
+ *        块式（`permissions:` 下面缩进列作用域）与**标量式**
+ *        （`permissions: write-all` / `permissions: read-all`）。
+ *        只认块式 ⇒ 顶层一个 `write-all` 就能把**每个 job** 变成全量写权限，
+ *        而门禁**零红因**（2026-10-30 场次用隔离探针实测坐实）
+ *        ⇒ 那正是「形状漏判 ⇒ 恒绿」那一族。
+ *      ⚠️ **读不懂的形状一律判红**（fail closed）—— 「判不了」≠「没有」。
  *   DP7 部署工作流里 action 的**执行运行时**必须是 node24 ——
  *      action 跑在哪个 Node 上由**上游 action.yml 的 `runs.using`** 决定，
  *      不由本仓库决定 ⇒ 用老版本 = 把发布管线建在**已 EOL** 的运行时上
@@ -150,6 +157,37 @@
  *        ③ **其余工作流读不出事件类型** ⇒ fail closed（判不了 ≠ 没有）。
  *           ⚠️ deploy.yml 那一份由 DP3 报（读不到触发分支）——
  *           **同一件事只让一条判据说话**。
+ *
+ *   DP16 **job 级 permissions 的写权限，只许留在真正需要它的那个 job 上** ——
+ *      ⚠️ 为什么这一格此前**零门禁覆盖**（2026-10-30 场次**隔离探针实测**坐实）：
+ *        DP6 只看**顶层** —— 给跑仓内代码的 job（build / verify-live）单独加
+ *        `contents: write` / `pages: write` / `id-token: write`，门禁**零红因**。
+ *        ⇒ 当时的「顶层是只读的」只是**顶层那一格**的事实，
+ *        **没有任何东西保证写权限不会从 job 级漏进来** ⇒ 与 D125 / D126 同族。
+ *      危害（三种写权限各自能干什么）：
+ *        · `contents: write` ⇒ 那个 job 能**改仓库、推代码**（仓内代码 = 仓里可被改的代码）；
+ *        · `pages: write` ⇒ 能**改线上站点**（自己发一次 Pages 部署）；
+ *        · `id-token: write` ⇒ 能**铸造 OIDC JWT**，拿着仓库的身份去第三方云换凭据
+ *          （官方 deploy-pages 文档写明它正是执行部署的 job 需要的那个 ⇒ 它也最值钱）。
+ *      口径（本仓的**政策**，比上游默认更严，理由见下）：
+ *        · **有资格持写权限的 job = 执行 Pages 部署的那个 job**
+ *          （认它靠「步骤里用了 actions/deploy-pages」，**不靠 job 名字** ——
+ *           改 job 名字不该让门禁失效，动了它也不该让权限悄悄放宽）；
+ *        · 那个 job 里**只有 `pages` 与 `id-token` 两个作用域**能是 write。
+ *      ⚠️ **为什么比上游默认更严**：官方只说「执行部署的 job **至少**需要
+ *        `pages: write` + `id-token: write`」，**没有**说别的 job 一律不许拿写权限
+ *        ⇒ 官方默认是「由作者负责收窄」。本仓取更严的口径，理由是
+ *        **本仓没有需要它的场景，而误用的代价不可逆**（与 DP15 同一条理由）。
+ *        ⇒ 与 DP15 一样，这是**政策、写死在源码里**：将来真要放宽，
+ *        必须**显式改这一行并在改进日志里记一笔**。
+ *      三条红因各自一条：
+ *        ① **不该有的 job 拿了写权限** —— 不是执行部署的那个 job，却持 write；
+ *        ② **执行部署的那个 job 拿了超出需要的写权限** —— 作用域不在 {pages, id-token} 内；
+ *        ③ **job 级 permissions 的写法读不懂** ⇒ fail closed（判不了 ≠ 没有）。
+ *      ⚠️ **顶层写权限归 DP6 管**（同一件事只让一条判据说话）：
+ *        顶层 `write-all` ⇒ 每个 job 都继承 ⇒ 由 DP6 报，DP16 不重复报。
+ *      ⚠️ **扫描面是 `.github/workflows/` 下的全部工作流**（与 DP15 同一口径）：
+ *        多出来的第二份工作流同样不许拿写权限。
  *
  * ⚠️ 为什么只扫 README.md 与 docs/DEPLOY.md（**历史记录不扫**）：
  *   docs/IMPROVEMENT-LOG.md、docs/DEFECT-BACKLOG.md、docs/ROADMAP.md 是**历史记录** ——
@@ -642,30 +680,154 @@ function actionRefs(text) {
 }
 
 /**
- * 工作流**顶层**（列 0）的 permissions 块。
- * ⚠️ 只看顶层 —— job 级带 `write` 是**有意为之**（deploy job 需要
- *   `pages: write` + `id-token: write`，官方 deploy-pages 文档写明
- *   「执行部署的 job 至少需要这两个」）。
- * 返回 { present, entries }：present=false ⇒ **顶层根本没写 permissions**
- *   ⇒ GitHub 用**仓库默认**的 token 权限（可能�� read-write）⇒ 那才是真的没设防。
+ * 去掉一行里的 YAML 注释（`#` 只有在行首、或前面是空白时才算注释的开头）。
+ * 引号里的 `#` 不算注释。
+ */
+function stripYamlComment(s) {
+  let inS = false;
+  let inD = false;
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i];
+    if (c === "'" && !inD) inS = !inS;
+    else if (c === '"' && !inS) inD = !inD;
+    else if (c === "#" && !inS && !inD && (i === 0 || /\s/.test(s[i - 1]))) {
+      return s.slice(0, i);
+    }
+  }
+  return s;
+}
+
+/** 一行文本的缩进宽度。 */
+function indentOfLine(l) {
+  return (l.match(/^\s*/) || [""])[0].length;
+}
+
+/**
+ * 读第 idx 行上的 permissions 声明（块式 / 流式 / 标量）。
+ *
+ * 返回 { present, form, scalar, entries, declLineNo }：
+ *   form: "block"（下面缩进列作用域）/ "flow"（{a: b} 流式映射）/
+ *         "scalar"（read-all / write-all）/ "unknown"（读不懂的形状）
+ *   entries: [{ scope, value, lineNo }] —— block/flow 才有
+ *
+ * ⚠️ **块的边界按缩进判**（续行必须比声明行更深）：
+ *   否则 job 级的 permissions 块会把紧随其后的 `steps:` 也吃进去
+ *   ⇒ 那个键的值为空 ⇒ 被判成「读不懂」⇒ **假红**。
+ * ⚠️ **标量写法必须一起认**（官方 workflow-syntax 里都合法）：
+ *   `permissions: write-all` / `permissions: read-all` —— 只认块式的话，
+ *   顶层一个 `write-all` 就能把每个 job 变成全量写权限，而门禁零红因
+ *   （2026-10-30 场次用隔离探针实测坐实过这个漏判）。
+ */
+function readPermissionsAt(lines, idx) {
+  const declIndent = indentOfLine(lines[idx]);
+  /* ⚠️ 去掉「键名 + 冒号」那段前缀，只留**值**：
+     `permissions: write-all` 的值是 write-all，不是 "permissions: write-all"。 */
+  const raw = lines[idx].replace(/^[ \t]*[A-Za-z0-9_-]+[ \t]*:[ \t]*/, "");
+  const inline = stripYamlComment(raw).trim();
+  if (inline) {
+    if (inline.startsWith("{")) {
+      return {
+        present: true,
+        form: "flow",
+        scalar: null,
+        entries: parseFlowPermissions(inline, idx + 1),
+        declLineNo: idx + 1,
+      };
+    }
+    const scalar = inline.replace(/^["']|["']$/g, "").trim();
+    if (scalar === "read-all" || scalar === "write-all") {
+      return { present: true, form: "scalar", scalar, entries: [], declLineNo: idx + 1 };
+    }
+    return { present: true, form: "unknown", scalar, entries: [], declLineNo: idx + 1 };
+  }
+  const entries = [];
+  for (let j = idx + 1; j < lines.length; j++) {
+    const line = lines[j];
+    if (!line.trim()) continue;
+    if (indentOfLine(line) <= declIndent) break; // 出了这个块
+    const m = /^[ \t]*([A-Za-z0-9_-]+)[ \t]*:[ \t]*(.*)$/.exec(line);
+    if (!m) {
+      entries.push({ scope: null, value: null, lineNo: j + 1 });
+      continue;
+    }
+    entries.push({
+      scope: m[1],
+      value: stripYamlComment(m[2]).trim().replace(/^["']|["']$/g, ""),
+      lineNo: j + 1,
+    });
+  }
+  return { present: true, form: "block", scalar: null, entries, declLineNo: idx + 1 };
+}
+
+/** 流式映射 `{contents: read, pages: write}` 拆成条目。 */
+function parseFlowPermissions(inline, lineNo) {
+  const body = inline.replace(/^\{/, "").replace(/\}\s*$/, "");
+  const out = [];
+  for (const part of body.split(",")) {
+    const t = part.trim();
+    if (!t) continue;
+    const m = /^([A-Za-z0-9_-]+)[ \t]*:[ \t]*(.*)$/.exec(t);
+    if (!m) {
+      out.push({ scope: null, value: null, lineNo });
+      continue;
+    }
+    out.push({
+      scope: m[1],
+      value: stripYamlComment(m[2]).trim().replace(/^["']|["']$/g, ""),
+      lineNo,
+    });
+  }
+  return out;
+}
+
+/**
+ * 工作流**顶层**（列 0）的 permissions 声明。
+ * present=false ⇒ **顶层根本没写 permissions** ⇒ GitHub 用**仓库默认**的
+ *   token 权限（可能是 read-write）⇒ 那才是真的没设防。
  */
 function topLevelPermissions(text) {
   const lines = text.split("\n");
   for (let i = 0; i < lines.length; i++) {
-    const m = /^permissions[ \t]*:[ \t]*(.*)$/.exec(lines[i]);
-    if (!m) continue;
-    const inline = m[1].trim();
-    if (inline.startsWith("{")) {
-      return { present: true, entries: [{ lineNo: i + 1, text: inline }] };
-    }
-    const entries = [];
-    for (let j = i + 1; j < lines.length; j++) {
-      if (!/^[ \t]+\S/.test(lines[j])) break;
-      entries.push({ lineNo: j + 1, text: lines[j].trim() });
-    }
-    return { present: true, entries };
+    if (!/^permissions[ \t]*:/.test(lines[i])) continue;
+    return readPermissionsAt(lines, i);
   }
-  return { present: false, entries: [] };
+  return { present: false, form: "none", scalar: null, entries: [], declLineNo: null };
+}
+
+/** permissions 的取值只有这三种（官方语义：read / write / none）。 */
+const PERM_VALUES = new Set(["read", "write", "none"]);
+
+/**
+ * 一处 permissions 声明里「哪些作用域是 write」「哪些读不懂」。
+ * 返回 { unreadable: [条目], writes: [{ scope, lineNo, label }] }。
+ *
+ * ⚠️ **「读不懂」与「没有」必须分开**（判不了 ≠ 没有）：
+ *   形状不认识、作用域名不认识、取值不是 read/write/none ⇒ 一律进 unreadable。
+ */
+function inspectPermissions(perms) {
+  const unreadable = [];
+  const writes = [];
+  if (perms.form === "scalar") {
+    if (perms.scalar === "write-all") {
+      writes.push({ scope: "*", lineNo: perms.declLineNo, label: "write-all（全部作用域都写）" });
+    }
+    return { unreadable, writes };
+  }
+  if (perms.form === "unknown") {
+    /* ⚠️ 形状本身读不懂 ⇒ 一律进 unreadable（判不了 ≠ 没有）。 */
+    unreadable.push({ scope: null, value: null, lineNo: perms.declLineNo });
+    return { unreadable, writes };
+  }
+  for (const e of perms.entries) {
+    if (!e.scope || !e.value || !PERM_VALUES.has(e.value)) {
+      unreadable.push(e);
+      continue;
+    }
+    if (e.value === "write") {
+      writes.push({ scope: e.scope, lineNo: e.lineNo, label: e.scope });
+    }
+  }
+  return { unreadable, writes };
 }
 
 /* 汇总日志要用到的三组量：在块外声明，块内赋值（块内 const 会出作用域）。 */
@@ -699,11 +861,19 @@ if (wfText !== null) {
         `顶层至少要写 contents: read（写权限只给真正需要的 job）。`
     );
   } else {
-    const writes = perms.entries.filter((e) => /:[ \t]*write\b/.test(e.text));
-    if (writes.length) {
+    const insp = inspectPermissions(perms);
+    if (insp.unreadable.length) {
       fail(
-        `DP6 部署工作流顶层给了写权限（${writes.length} 处）：` +
-          writes.map((e) => `${WORKFLOW}:${e.lineNo} 的「${e.text}」`).join("；") +
+        `DP6 部署工作流顶层 permissions 的写法读不懂（${insp.unreadable.length} 处）：` +
+          insp.unreadable.map((e) => `${WORKFLOW}:${e.lineNo}`).join("；") +
+          ` —— **「判不了」不等于「没有」** ⇒ 顶层到底给了哪些权限判不出来 ⇒ 判红。` +
+          `顶层只能写块式（permissions: 下面缩进列作用域）或官方那两种标量` +
+          `（read-all / write-all）；读不懂就得改门禁，不能绕过去。`
+      );
+    } else if (insp.writes.length) {
+      fail(
+        `DP6 部署工作流顶层给了写权限（${insp.writes.length} 处）：` +
+          insp.writes.map((w) => `${WORKFLOW}:${w.lineNo} 的「${w.label}」`).join("；") +
           ` —— 顶层写权限 = **每个 job** 都持有（含跑完整条 build 链、也就是执行仓内代码的那个）。` +
           `写权限要收窄到具体 job（deploy job 需要 pages: write + id-token: write）。`
       );
@@ -1549,6 +1719,109 @@ for (const wfFile of workflowFiles) {
   }
 }
 
+/* ---------------- DP16：job 级 permissions 的写权限只许留在真正需要它的那个 job ---------------- */
+
+/**
+ * 执行 Pages 部署的那个 action —— 「有资格持写权限的 job」靠它认，**不靠 job 名字**。
+ * 理由：改 job 名字不该让门禁失效；而把权限挪到别的 job 上，也不该靠改名字绕过。
+ */
+const DEPLOY_ACTION = "actions/deploy-pages";
+/** 允许写成 write 的作用域（官方 deploy-pages 文档：执行部署的 job 至少需要这两个）。 */
+const ALLOWED_WRITE_SCOPES = new Set(["pages", "id-token"]);
+
+/**
+ * 工作流里每个 job 的 **job 级 permissions** 与它用到的 action。
+ *
+ * 返回 [{ name, lineNo, perms, uses }]：
+ *   perms —— readPermissionsAt 的结果；null = 这个 job 没写 permissions
+ *            （⇒ 它继承顶层；顶层由 DP6 守着是只读的 ⇒ 这里不判）
+ *   uses  —— 该 job 的**步骤级** uses: 引用（job 级 uses: 是复用工作流，不算）
+ */
+function workflowJobPermissions(text) {
+  const lines = text.split("\n");
+  const jobsIdx = lines.findIndex((l) => /^jobs[ \t]*:/.test(l));
+  if (jobsIdx < 0) return [];
+  const base = indentOfLine(lines[jobsIdx]);
+  const out = [];
+  let cur = null;
+  for (let i = jobsIdx + 1; i < lines.length; i++) {
+    const line = lines[i];
+    if (!line.trim()) continue;
+    const ind = indentOfLine(line);
+    if (ind <= base) break; // 出了 jobs 段
+    if (ind === base + 2) {
+      const m = /^[ \t]+([A-Za-z0-9_-]+)[ \t]*:/.exec(line);
+      if (m) {
+        cur = { name: m[1], lineNo: i + 1, perms: null, uses: [] };
+        out.push(cur);
+        continue;
+      }
+    }
+    if (!cur) continue;
+    if (ind === base + 4 && /^[ \t]+permissions[ \t]*:/.test(line)) {
+      cur.perms = readPermissionsAt(lines, i);
+      continue;
+    }
+    /* 步骤级的 uses:（缩进比 job 的键更深）；job 级 uses:（复用工作流）不算。 */
+    if (ind > base + 4) {
+      const um = /^[ \t]*(?:-\s*)?uses[ \t]*:[ \t]*(\S+)/.exec(line);
+      if (um) cur.uses.push(um[1]);
+    }
+  }
+  return out;
+}
+
+/* DP16 查到的量（供汇总文案用；判红时不需要）。 */
+let dp16Jobs = 0;
+let dp16WriteJobs = [];
+
+for (const wfFile of workflowFiles) {
+  const text = fs.readFileSync(path.join(workflowDir, wfFile.name), "utf8");
+  const jobList = workflowJobPermissions(text);
+  /* 「有资格持写权限的 job」= 步骤里用了 actions/deploy-pages 的那个。 */
+  const deployJobs = jobList
+    .filter((j) => j.uses.some((u) => u.startsWith(`${DEPLOY_ACTION}@`)))
+    .map((j) => j.name);
+  const deploySet = new Set(deployJobs);
+  for (const job of jobList) {
+    if (!job.perms) continue;
+    dp16Jobs++;
+    const insp = inspectPermissions(job.perms);
+    if (insp.unreadable.length) {
+      fail(
+        `DP16 ${wfFile.rel} 的 job「${job.name}」的 job 级 permissions 的写法读不懂` +
+          `（${insp.unreadable.length} 处）：` +
+          insp.unreadable.map((e) => `${wfFile.rel}:${e.lineNo}`).join("；") +
+          ` —— **「判不了」不等于「没有」** ⇒ 这个 job 到底持有什么权限判不出来 ⇒ 判红。`
+      );
+      continue;
+    }
+    if (!insp.writes.length) continue;
+    dp16WriteJobs.push(`${wfFile.rel} 的「${job.name}」`);
+    if (!deploySet.has(job.name)) {
+      fail(
+        `DP16 ${wfFile.rel} 的 job「${job.name}」不是执行部署的那个 job，却拿了写权限` +
+          `（${insp.writes.map((w) => w.label).join("、")}）—— ` +
+          `本工作流里有资格持写权限的 job：${deployJobs.length ? deployJobs.join("、") : "（一个都没有）"}；` +
+          `写权限只许留在执行 Pages 部署的那一个 job 上（它需要 pages: write + id-token: write，` +
+          `官方 deploy-pages 文档写明「至少」这两个）。` +
+          `别的 job 拿了写权限 ⇒ 那个 job 里跑的仓内代码（npm ci ＋ 整条门禁链 ＝ 仓里可被改的代码）` +
+          `就握着一把能改仓库、能改线上站点、能铸 OIDC 令牌的钥匙。`
+      );
+      continue;
+    }
+    const extra = insp.writes.filter((w) => !ALLOWED_WRITE_SCOPES.has(w.scope));
+    if (extra.length) {
+      fail(
+        `DP16 ${wfFile.rel} 的执行部署的那个 job「${job.name}」拿了超出需要的写权限` +
+          `（${extra.map((w) => w.label).join("、")}）—— ` +
+          `官方 deploy-pages 文档写明它需要的是 pages: write + id-token: write 两个作用域；` +
+          `多出来的写权限（例如 contents: write ＝ 能改仓库、能推代码）没有理由出现在这里。`
+      );
+    }
+  }
+}
+
 /* ---------------- 汇总 ---------------- */
 if (problems.length) {
   console.error("发布落点门禁未通过：\n");
@@ -1613,4 +1886,11 @@ if (dp14WaitStep && dp14CheckStep) {
 console.log(
   `  · 工作流的触发事件类型：核了 ${dp15Workflows} 个工作流、${dp15Events} 个事件类型` +
     `（允许集只有 push 与 workflow_dispatch；pull_request_target 与 workflow_run 一律不许出现）。`
+);
+console.log(
+  `  · job 级 permissions：核了 ${dp16Jobs} 个声明了 permissions 的 job，` +
+    (dp16WriteJobs.length
+      ? `其中持写权限的有 ${dp16WriteJobs.length} 个（${dp16WriteJobs.join("、")}）—— ` +
+        `写权限只许出现在执行 Pages 部署的那一个 job 上（pages: write + id-token: write）。`
+      : `**没有一个 job 持写权限** —— 写权限只许出现在执行 Pages 部署的那一个 job 上。`)
 );
