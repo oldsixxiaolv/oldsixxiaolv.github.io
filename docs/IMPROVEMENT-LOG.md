@@ -2697,6 +2697,31 @@ CSDN 521 并列）。那个归类对 ResearchGate / CSDN 成立，但对这一�
   —— 收益最大，但改动面也最大（要动 Eleventy 的输出形态）。
   ⚠️ **本轮不代拍**：属内容取舍。
   （本场次不代拍，登记为待拍板 65）
+- **待拍板 66（新增）｜要不要给 `main` 开分支保护 ＋ CODEOWNERS（官方推荐的账号层第二道防线，但与本站现行的发布流程直接冲突）**
+  事实（2026-10-29 12:30 场次实测 ＋ 官方原文）：GitHub Docs「Security hardening for GitHub Actions」
+  有两条与本站直接相关：
+  ① 「It's good security practice to set the default permission for the GITHUB_TOKEN to read access
+  only for repository contents. The permissions can then be increased, as required, for individual
+  jobs within the workflow file.」⇒ 本站 D127（顶层只读 ＋ job 级按需放开）＋ D128（每个工作流都声明）
+  这套做法的**出处就是这句**；
+  ② 同页「Using CODEOWNERS to monitor changes」：把 `.github/workflows` 写进 CODEOWNERS，
+  改动这些文件的 PR **先要指定审阅人批准** ⇒ 配合 Settings → Branches 的
+  「Require a pull request before merging」，就是**账号层**的第二道防线。
+  **收益（对本站是实的）**：本站的**内容与发布管线都在 `main` 上**
+  （站点仓库 = `oldsixxiaolv/oldsixxiaolv.github.io`，deploy.yml 从 main 构建并部署）⇒
+  今天只要有人能往 main 推一次提交，**站点内容与发布管线就一起被换掉**，而且**没有第二个人在场**；
+  开了保护之后，推送必须走 PR ⇒ **凭一个泄露的 token 改不了站点**（改不动 main 就触发不了部署）。
+  **代价（也是实的）**：⚠️ 本站文档里写死的日常发布流程是「`git push origin main`」
+  （README 与 docs/DEPLOY.md 两处）⇒ 开了保护就**推不动了**，必须改成「推分支 → 开 PR → 合并」；
+  而本仓库**只有本人一个作者** ⇒ 「必须有人批准」会变成「自己批准自己」，形式上多一道、实质未必更强。
+  候选：① **不开**（维持现状：代码层的防线已经收窄到位 —— token 权限只读、action 钉 SHA、
+  触发器白名单；账号层的安全交给 GitHub 自己的 2FA 与 token 撤销）；
+  ② **开分支保护，同时把发布流程改成 PR 式**（收益最实，代价是发布流程换轨）；
+  ③ **两步走**：先把发布流程改成「推分支 ＋ PR ＋ 合并」（不动保护），走顺一遍之后再开保护 ＋ CODEOWNERS。
+  ⚠️ **本轮不代拍**：属流程取舍，且第 ② ③ 步要本人账号在 Settings 里操作。
+  ⚠️ **诚实边界**：**CODEOWNERS 文件在没有分支保护时是零效果的** ⇒ 本仓**不打算**先扔一个
+  `.github/CODEOWNERS` 占位（那正是「文件在、机制不在 ⇒ 恒绿」那一族）。
+  （本场次不代拍，登记为待拍板 66）
 ---
 ## 2026-10-19 · 第十一轮（12:22–12:47 场次）：订阅源时间戳说真话 + 404 身份开关落地
 
@@ -33061,5 +33086,140 @@ DP6 的措辞一直很诚实：它管的是「部署工作流**顶层**的 permi
   `scripts/test-deploy-target.cjs`（N61–N71 ＋ 归属表 +4 ＋ 静态清单 +DP16 ＋ 夹具补 deploy job）、
   `scripts/lib/selftest-slots.cjs`（登记 12 个新档位号）、`README.md`（门禁行补 DP16 ＋ 自测行补新档位说明）。
 - 文档提交：`docs/IMPROVEMENT-LOG.md`（本节）、`docs/DEFECT-BACKLOG.md`（D127 行）、`docs/ROADMAP.md`（D127 条目）。
+- 验证：自测 **43/43 红因 · 16/16 判据全绿**；隔离克隆里整链 build **exit 0**。
+- ⚠️ **未 push** ⇒ 线上仍是 2026-10-16 的旧部署。
+
+## 2026-10-29 · 巡检轮次：把**顶层权限**的看守扩到**全部工作流** —— D128（第二份工作流此前零覆盖）
+
+### A. 本轮定位
+
+上一轮（D127）修的是**job 级**权限；本轮把它旁边那一格补齐 ——
+**顶层**权限此前只对 `deploy.yml` 设防 ⇒ 多出来的**第二份工作流**的顶层写权限**零门禁覆盖**。
+
+每轮只做 1–2 个改进点；本轮做 **1 个**。
+
+### B. 体检（2026-10-29 12:30 场次逐项实测）
+
+**线上那一半（复核，不重开旧结论）**
+
+- 响应头实测（`curl -I https://github.lvyihang.xyz/`）：`strict-transport-security: max-age=31556952` ✔、
+  `cache-control: max-age=600`、`access-control-allow-origin: *`、`server: GitHub.com`；
+  CSP / X-Frame-Options / X-Content-Type-Options / Referrer-Policy / Permissions-Policy
+  **Pages 不给** ⇒ 沿用 D121 / D125 结论（要它们只能套代理 ⇒ **待拍板 57**，本轮**不代拍**）。
+- ⚠️ 线上 robots.txt 仍是 **2026-10-16 旧部署**那份（`# 生成时间：2026-10-16T09:51:14.894Z`，
+  站点行仍写 `/MeteoHub`）⇒ 属**待部署 D6**，**不是代码缺陷** ⇒ 本轮不记。
+
+**仓库那一半**
+
+- 实测**合规**项：顶层 permissions 只有 `contents: read` ✔；build / verify-live job 只有
+  `contents: read` ✔；**只有 deploy job 持 `pages: write` + `id-token: write`** ✔；
+  6 个 action 全 pin SHA ✔；触发器只有 push main ＋ workflow_dispatch ✔；并发不杀在途 ✔；
+  每个 job 有 timeout-minutes ✔；Dependabot 覆盖两个生态 ✔。
+- ⚠️ 但用**隔离探针**（夹具建在 /tmp、门禁经 `DPT_ROOT` 注入、仓内文件一个字节不动；
+  对照跑的是 `git show HEAD:scripts/check-deploy-target.cjs` 那份**改动前**的门禁）实测坐实
+  **一处零覆盖缺口** ——
+  **第二份工作流的顶层权限零覆盖**：加一份 `.github/workflows/extra.yml`（顶层 `permissions: write-all`）
+  ⇒ **改动前的门禁 exit 0、零红因**；同一份工作流**顶层压根不写 permissions** ⇒ 也是
+  **exit 0、零红因**（顶层不写 = 继承**仓库默认**的 token 权限，可能 read-write
+  ⇒ 那个工作流里的每个 job 都握着写权限）。
+  ⇒ 属「**当前没事 ≠ 有东西保证它继续没事**」这一族（与 D125 / D126 / D127 同族）——
+  D127 关的是**job 级**入口，本轮关的是**顶层入口**。
+
+### C. 改了什么
+
+`scripts/check-deploy-target.cjs`：
+
+- **DP6 的扫描面从 deploy.yml 扩到 `.github/workflows/` 下的全部工作流**
+  （与 DP15 / DP16 同一口径）：三个子判据（顶层给了写权限 / 顶层没有 permissions 声明 /
+  顶层写法读不懂）现在对**每一份**工作流各判一次，红因**点名是哪一份文件**。
+- 抽出 `listWorkflowFiles()`：DP6 / DP15 / DP16 **共用同一份工作流清单** ⇒
+  `._*` 资源叉过滤这类细节**只写一遍**，不会在两处漂移。
+- ⚠️ **比上游默认更严，要写明理由**：官方是**建议**
+  （「把 GITHUB_TOKEN 的默认权限设成只读，写权限按 job 放开」）；本仓**要求每个工作流都显式声明**
+  顶层 permissions ⇒ 理由与 DP15 / DP16 同一条：**本仓没有需要它的工作流，而漏写的代价不可逆**
+  （仓库默认权限可能是 read-write）⇒ 政策写死在源码里，要放宽必须**显式改并在改进日志里记一笔**。
+
+自测 `scripts/test-deploy-target.cjs`：**N73 / N74 两档**
+（另加一份工作流、顶层 `permissions: write-all` ⇒ DP6；
+另加一份工作流、顶层压根没写 permissions ⇒ DP6）
+＋ **夹具里多出来的三份工作流补上顶层 `permissions: contents: read`**
+（否则它们会连带触发 DP6 ⇒ 各档的判据集合就不「恰为」了）。
+
+⚠️ 由此带来的一个**连带效应**（正确但要知道）：**今后任何新加的工作流都必须显式声明顶层
+permissions**，否则门禁当场判红 —— 这正是本条想要的「响亮地失守」，而不是静默继承仓库默认。
+
+⚠️ **顺手订正一个写错的日期**：门禁注释与 README 里把 D127 那一轮写成了「2026-10-30 场次」，
+实际是 **2026-10-29**（改进日志与台账里的日期一直是对的，只有代码注释与 README 写错了）⇒ 已改正。
+（错误的事实陈述只补订正、不改写历史记录本身。）
+
+### D. 决定性验证
+
+- 自测 **75 档全过**：**43/43 红因 · 16/16 判据**（DP6 的三条红因各至少一档判红；
+  N71 负对照转绿；仓库真源指纹前后一致）。
+- 真仓正向确认：「**每个工作流的顶层 permissions 都只读**（核了 **1 个工作流**）」。
+- **隔离探针前后对照**：同一份夹具、同一处注入 —— 改动前 **exit 0、零红因**，
+  改动后 **exit 1 且红因点名那份文件**（两种形态各测一遍：写了写权限 / 压根没声明）。
+- ⚠️ **实现过程中踩到一个真坑**：把 DP6 从「部署工作流那一段」里拆成独立顶层段落时，
+  DP7 用的 `refs` 变量跟着出了作用域 ⇒ 门禁直接崩（ReferenceError）⇒
+  已把它提到块外声明（与 `remoteRefs` / `conc` / `jobs` 同一组）。
+
+### E. 明确不做 / 不代拍
+
+- **不改 DP6 的判据口径**（只扩扫描面，不放松判据）。
+- **不判 GitHub 侧设置**（仓库默认 token 权限、组织策略、runner 组配置）—— 本门禁是**静态**的，
+  判不了那边 ⇒ 诚实边界写在门禁头里。
+- **不新增代码类待拍板项**；本轮那一条取舍（要不要给 `main` 开分支保护 ＋ CODEOWNERS）
+  登记为**待拍板 66**（见 F 与中央待决策段），**不代拍**。
+- 待拍板 7 / 56 / 57 / 58 / 59 / 60 / 61 / 62 / 63 / 64 / 65 / 66 本轮**均不代拍**。
+
+### F. 外部学习（一条，有**官方原文**）
+
+1. GitHub Docs「Security hardening for GitHub Actions」
+   （`/en/actions/security-for-github-actions/security-guides/security-hardening-for-github-actions`）：
+   - 「It's good security practice to set the default permission for the GITHUB_TOKEN to read access
+     only for repository contents. The permissions can then be increased, as required, for individual
+     jobs within the workflow file.」
+     ⇒ ⇒ 这句话**正是本仓 D127（顶层只读 ＋ job 级按需放开）＋ D128（每个工作流都声明）这套做法的出处**：
+     官方口径是「顶层只读、写权限按 job 放开」，本仓把它变成了**机器可核对**的判据。
+   - 同页「Using CODEOWNERS to monitor changes」：把 `.github/workflows` 写进 CODEOWNERS，
+     改动这些文件的 PR **先要指定审阅人批准** ⇒ 这是**账号层**的第二道防线。
+     ⇒ ⇒ 但它与本站现行的「`git push origin main`」发布流程**直接冲突**（开了保护就推不动 main）
+     ⇒ ⇒ **不代拍**，登记为**待拍板 66**（含三个候选与各自代价）。
+     ⚠️ **CODEOWNERS 文件在没有分支保护时零效果** ⇒ 本仓**不**先扔一个文件占位
+     （「文件在、机制不在 ⇒ 恒绿」那一族）。
+
+### G. 技能/插件盘点
+
+- **browser 面板（真实页面巡检）**：本轮结论全部来自**离线静态**判据与隔离探针；
+  线上那半用 `curl -I` 就够 ⇒ 面板给不出更强的证据 ⇒ 本轮不落地。
+- **mcode-tools（多模态生成/理解）**：本轮产出是门禁代码与文档，无图像/音视频需求 ⇒ 不落地。
+- **rea（逆向分析）**：目标是 YAML 与 JS 源码，**不需要**反编译 ⇒ 不落地。
+- ⇒ **本轮没有值得落地的技能用法**（不为用而用）。
+
+### H. 本轮的方法论
+
+**同一个动作有多个入口时，守住一个入口 ≠ 守住全部。**
+
+DP6 一直守着「部署工作流的顶层」；D127 补了「job 级」；本轮才发现**还有「第二份工作流的顶层」**
+这个入口 —— 而它恰好是最容易被用到的（加第二份工作流的人不会想到「顶层也得声明」）。
+⇒ 推论：**给某个动作装看守时，先把「这个动作能从哪里进入」列全** ——
+文件系统的每个路径、每个进程、每个身份、每个 API 端点 ⇒ 逐个问「这条路上有判据吗」。
+⇒ 这与上一轮的「判据覆盖面要按『攻击者能改哪里』划」是同一条的两次应用：
+D127 划的是**权限维度**，本轮划的是**文件维度**。
+
+**共享一份清单，别让枚举规则在两处漂移。**
+
+本轮把工作流清单抽成 `listWorkflowFiles()`，DP6 / DP15 / DP16 共用 ⇒
+exFAT 的 `._*` 资源叉过滤**只写一遍**。
+⇒ 推论：**凡是「扫目录」的门禁，清单来源必须唯一** —— 否则第二处迟早漏掉过滤条件
+（本仓已被 exFAT 的 `._*` 咬过好几次）。
+
+### I. 本轮提交清单（只提交，**不 push**）
+
+- 代码提交：`scripts/check-deploy-target.cjs`（DP6 扩到全部工作流 ＋ `listWorkflowFiles()`）、
+  `scripts/test-deploy-target.cjs`（N73 / N74 ＋ 夹具三份工作流补顶层 permissions）、
+  `scripts/lib/selftest-slots.cjs`（登记 N73 / N74）、`README.md`（门禁行与自测行同步）。
+- 文档提交：`docs/IMPROVEMENT-LOG.md`（本节 ＋ 中央待决策段新增待拍板 66）、
+  `docs/DEFECT-BACKLOG.md`（D128 行）、`docs/ROADMAP.md`（D128 条目）。
 - 验证：自测 **43/43 红因 · 16/16 判据全绿**；隔离克隆里整链 build **exit 0**。
 - ⚠️ **未 push** ⇒ 线上仍是 2026-10-16 的旧部署。
