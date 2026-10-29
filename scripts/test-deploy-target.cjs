@@ -69,11 +69,14 @@ const CAUSES = [
   { id: "DP14e", crit: "DP14", frag: "没有成功出口" },
   { id: "DP14f", crit: "DP14", frag: "带了一个 if: 条件" },
   { id: "DP14g", crit: "DP14", frag: "带了一个 continue-on-error" },
+  { id: "DP15a", crit: "DP15", frag: "属于危险事件类型" },
+  { id: "DP15b", crit: "DP15", frag: "不在允许的事件类型里" },
+  { id: "DP15c", crit: "DP15", frag: "的事件类型一个都没解析出来" },
 ];
 /** 静态判据清单（门禁里应当且仅应当有这些判据）。 */
 const CRITERIA = [
   "DP1", "DP2", "DP3", "DP4", "DP5", "DP6", "DP7", "DP8", "DP9", "DP10", "DP11",
-  "DP12", "DP13", "DP14",
+  "DP12", "DP13", "DP14", "DP15",
 ];
 
 /* ========== 工具 ========== */
@@ -250,6 +253,9 @@ function buildFixture(mutate) {
     dependabot: DEPENDABOT_BASE,
     siteJs: SITE_JS,
     liveSiteCjs: LIVE_SITE_CJS,
+    /* 额外的工作流文件（DP15 扫的是 .github/workflows/ 下的**全部**工作流，
+       不只是 deploy.yml ⇒ 需要能放进第二份工作流来验）。 */
+    extraWorkflows: [],
   };
   if (mutate) mutate(state);
   const dir = fs.mkdtempSync(path.join(tmp, "case-"));
@@ -261,6 +267,9 @@ function buildFixture(mutate) {
   if (state.deploy !== null) fs.writeFileSync(path.join(dir, "docs", "DEPLOY.md"), state.deploy);
   if (state.workflow !== null) {
     fs.writeFileSync(path.join(dir, ".github", "workflows", "deploy.yml"), state.workflow);
+  }
+  for (const w of state.extraWorkflows || []) {
+    fs.writeFileSync(path.join(dir, ".github", "workflows", w.name), w.content);
   }
   if (state.dependabot !== null) {
     fs.writeFileSync(path.join(dir, ".github", "dependabot.yml"), state.dependabot);
@@ -585,6 +594,71 @@ const MUT = {
       "      - name: Check the live site against the deployed artifact\n        continue-on-error: true\n        run: node scripts/check-live-site.cjs\n"
     );
   },
+  /** 触发器里多一个 pull_request ⇒ DP15（不在允许集里）。 */
+  triggerPullRequest: (s) => {
+    s.workflow = replaceOnce(
+      s.workflow,
+      "  workflow_dispatch: {}\n",
+      "  pull_request:\n    branches: [main]\n  workflow_dispatch: {}\n"
+    );
+  },
+  /** 触发器里多一个 pull_request_target ⇒ DP15（危险事件类型：pwn request）。 */
+  triggerPullRequestTarget: (s) => {
+    s.workflow = replaceOnce(
+      s.workflow,
+      "  workflow_dispatch: {}\n",
+      "  pull_request_target:\n    types: [opened]\n  workflow_dispatch: {}\n"
+    );
+  },
+  /** 触发器里多一个 workflow_run ⇒ DP15（危险事件类型：权限继承被绕过）。 */
+  triggerWorkflowRun: (s) => {
+    s.workflow = replaceOnce(
+      s.workflow,
+      "  workflow_dispatch: {}\n",
+      "  workflow_run:\n    workflows: [Other]\n  workflow_dispatch: {}\n"
+    );
+  },
+  /** 另加一份带危险触发器的工作流 ⇒ DP15（证明扫的是**全部**工作流，不只是 deploy.yml）。 */
+  secondWorkflowDangerous: (s) => {
+    s.extraWorkflows = [
+      {
+        name: "extra.yml",
+        content:
+          "name: Extra\non:\n  pull_request_target:\n    types: [opened]\n" +
+          "jobs:\n  x:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo hi\n",
+      },
+    ];
+  },
+  /** 另加一份 on: 段读不出来的工作流 ⇒ DP15（fail closed：判不了 ≠ 没有）。 */
+  secondWorkflowUnparsable: (s) => {
+    s.extraWorkflows = [
+      {
+        name: "broken.yml",
+        content:
+          "name: Broken\non:\npermissions:\n  contents: read\n" +
+          "jobs:\n  x:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo hi\n",
+      },
+    ];
+  },
+  /** 注释里提到 pull_request_target ⇒ 必须判绿（注释不是事件名）。 */
+  triggerCommentOnly: (s) => {
+    s.workflow = replaceOnce(
+      s.workflow,
+      "  workflow_dispatch: {}\n",
+      "  # 绝不要加 pull_request_target（那是 pwn request）\n  workflow_dispatch: {}\n"
+    );
+  },
+  /** 另一份工作流用流式写法 on: [push, workflow_dispatch] ⇒ 必须判绿（合法写法不误伤）。 */
+  secondWorkflowFlowStyle: (s) => {
+    s.extraWorkflows = [
+      {
+        name: "flow.yml",
+        content:
+          "name: Flow\non: [push, workflow_dispatch]\n" +
+          "jobs:\n  x:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo hi\n",
+      },
+    ];
+  },
 };
 
 /** 注入档：expect=null 表示期望判绿，否则期望判红且判据集合**恰为** expect。 */
@@ -630,6 +704,13 @@ const CASES = [
   { id: "N50", label: "等待步骤只有失败出口（没有 exit 0）", mutate: MUT.waitNoSuccessExit, expect: ["DP14"] },
   { id: "N51", label: "核查步骤带 if: false（这一步永远不执行）", mutate: MUT.liveCheckNeverRuns, expect: ["DP14"] },
   { id: "N52", label: "核查步骤带 continue-on-error: true（失败被吞）", mutate: MUT.liveCheckSwallowsFailure, expect: ["DP14"] },
+  { id: "N53", label: "触发器里多一个 pull_request（不在允许集里）", mutate: MUT.triggerPullRequest, expect: ["DP15"] },
+  { id: "N54", label: "触发器里多一个 pull_request_target（危险事件类型）", mutate: MUT.triggerPullRequestTarget, expect: ["DP15"] },
+  { id: "N55", label: "触发器里多一个 workflow_run（危险事件类型）", mutate: MUT.triggerWorkflowRun, expect: ["DP15"] },
+  { id: "N56", label: "另加一份带危险触发器的工作流（扫的是全部工作流，不只是 deploy.yml）", mutate: MUT.secondWorkflowDangerous, expect: ["DP15"] },
+  { id: "N57", label: "另加一份 on: 段读不出来的工作流（判不了 ⇒ 必须判红）", mutate: MUT.secondWorkflowUnparsable, expect: ["DP15"] },
+  { id: "N59", label: "必须判绿：注释里提到 pull_request_target（注释不是事件名）", mutate: MUT.triggerCommentOnly, expect: null },
+  { id: "N60", label: "必须判绿：另一份工作流用流式写法 on: [push, workflow_dispatch]", mutate: MUT.secondWorkflowFlowStyle, expect: null },
 ];
 
 /* ========== 四、判据级负对照 ========== */
@@ -647,6 +728,7 @@ const NEG_CASES = [
   { id: "N38", crit: "DP12", case: "N34", label: "卸掉 DP12" },
   { id: "N41", crit: "DP13", case: "N40", label: "卸掉 DP13" },
   { id: "N48", crit: "DP14", case: "N44", label: "卸掉 DP14" },
+  { id: "N58", crit: "DP15", case: "N53", label: "卸掉 DP15" },
 ];
 
 /** 在门禁副本里卸掉某条判据：给它每一条 fail() 调用**同行**加 `if (false) ` 前缀。 */

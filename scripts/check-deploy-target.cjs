@@ -114,6 +114,43 @@
  *      ⚠️ DP14 是**静态**的：它判的是「等待步骤的写法对不对」，
  *        **不能**证明 CDN 那一刻真的切过去了（那一格由 CI 实跑给出结论）。
  *
+ *   DP15 **工作流的「触发事件类型」必须被守住** ——
+ *      本仓的策略：**发布靠 push，手动跑靠 workflow_dispatch**，此外一律不许。
+ *      ⚠️ 为什么这一格要有人守着（2026-10-29 场次实测的**看护缺口**）：
+ *        全仓门禁逐条核对下来，DP 族**只核了 push 的分支过滤**（DP3：推的分支
+ *        在不在触发分支里）—— **触发器的「集合」本身与「事件类型」本身，
+ *        此前零门禁覆盖** ⇒ 当时体检干净（触发器确实只有 push main +
+ *        workflow_dispatch）只是**那一刻的事实**，没有任何东西保证它继续是这样
+ *        ⇒ 属「当前没事 ≠ 有东西保证它继续没事」这一族。
+ *      为什么危险事件要单独点名（口径以 GitHub 官方文档为准，见下）：
+ *        · pull_request_target —— ⚠️ **官方口径是「它默认是安全的」**：
+ *          工作流文件取自**默认分支**，默认不执行 fork 的代码；风险来自作者
+ *          **把 checkout 指向 PR 的头**（`ref: ${{ github.event.pull_request.head.sha }}`）
+ *          或把 `repository:` 指向 fork ⇒ 那时 fork 的代码带着**仓库 secret 与写权限**
+ *          跑起来 —— 官方把这种形态叫 **pwn request**，并写明它「是多起供应链失陷的根因」。
+ *          ⇒ 本仓取**比官方默认更严**的口径：**直接不许这个事件类型** ——
+ *          理由不是「它本身不安全」（那是错的），而是：本仓**没有需要它的场景**
+ *          （没有 PR 工作流、没有要给 fork 跑测试），而**误用的代价不可逆**
+ *          （fork PR 可改站点、读走 secret）。
+ *        · workflow_run —— 官方明写：被它触发的工作流**即使前一个工作流没有权限**，
+ *          也能拿到 secret 与写权限；官方对它标了 WARNING：跑不可信代码会导致
+ *          **缓存投毒**与「意外获得写权限 / 读走 secret」。
+ *      允许集之外的触发器（pull_request / schedule / repository_dispatch /
+ *        issues / issue_comment …）同样判红：本仓没有 PR 工作流，多一个触发器
+ *        就多一条「在你没预期的时机、用你没预期的上下文跑起来」的路。
+ *        ⚠️ 官方口径：**pull_request** 触发时 token 是**只读**的、也不给别的 secret，
+ *        还有 fork 审批策略 ⇒ 它比 pull_request_target 安全得多 —— 本条同样取
+ *        **更严**的口径，理由同上（本仓不需要它，误用的代价是白烧 CI 与缓存投毒面）。
+ *        ⚠️ **允许集是政策，写死在源码里**：将来真要加（例如待拍板 60 的
+ *        周期性审计需要 schedule），必须**显式改这一行并在改进日志里记一笔** ——
+ *        「悄悄加一个触发器」与「显式改政策」的区别，就是有没有人看见。
+ *      三条红因各自一条：
+ *        ① **危险事件类型**（pull_request_target / workflow_run）—— 任何工作流；
+ *        ② **允许集之外的事件类型**；
+ *        ③ **其余工作流读不出事件类型** ⇒ fail closed（判不了 ≠ 没有）。
+ *           ⚠️ deploy.yml 那一份由 DP3 报（读不到触发分支）——
+ *           **同一件事只让一条判据说话**。
+ *
  * ⚠️ 为什么只扫 README.md 与 docs/DEPLOY.md（**历史记录不扫**）：
  *   docs/IMPROVEMENT-LOG.md、docs/DEFECT-BACKLOG.md、docs/ROADMAP.md 是**历史记录** ——
  *   它们会**原样保留**当时的错误写法（缺陷条目里必须写着当时那条错的命令，
@@ -1384,6 +1421,134 @@ if (wfText !== null) {
   }
 }
 
+/* ---------------- DP15：工作流的触发事件类型 ---------------- */
+
+/** 允许的触发事件类型（本仓的政策：发布靠 push，手动跑靠 workflow_dispatch）。 */
+const ALLOWED_TRIGGERS = new Set(["push", "workflow_dispatch"]);
+/** 危险的事件类型：出现即判红（它们是「权限被绕过」的入口）。 */
+const DANGEROUS_TRIGGERS = new Set(["pull_request_target", "workflow_run"]);
+
+/**
+ * 抽出一个工作流的触发事件（on: 块的一级键）。
+ *
+ * 口径：`on:` 一定在**顶层**（缩进 0），所以只认顶层的 `on:`；
+ * 块式写法（on: 下面第一层缩进的键）与流式写法（on: [a, b] / on: a）都认。
+ * ⚠️ **注释不算事件名**：事件名必须匹配 `键名:` 的形状 ⇒ 注释行（以 # 开头）
+ *    自然被排除（⇒ 门禁头里解释「为什么禁 pull_request_target」不会误伤自己）。
+ *
+ * @returns {{state: string, events: string[]}}
+ *   state: "ok"（读到了事件名）/ "no-on"（文件里没有 on: 段）/ "unparsable"（有 on: 段但读不出事件名）
+ */
+function workflowTriggerEvents(text) {
+  const lines = text.split("\n");
+  const indentOf = (l) => (l.match(/^\s*/) || [""])[0].length;
+  const onIdx = lines.findIndex((l) => /^["']?on["']?\s*:/.test(l));
+  if (onIdx < 0) return { state: "no-on", events: [] };
+
+  /* 流式写法：on: [push, workflow_dispatch] / on: push / on: {push: {...}} */
+  const inline = lines[onIdx]
+    .replace(/^["']?on["']?\s*:\s*/, "")
+    .replace(/\s+#.*$/, "")
+    .trim();
+  if (inline) {
+    let events = [];
+    if (inline.startsWith("[")) {
+      events = inline
+        .slice(1, -1)
+        .split(",")
+        .map((x) => x.trim().replace(/^["']|["']$/g, ""))
+        .filter(Boolean);
+    } else if (inline.startsWith("{")) {
+      events = inline
+        .slice(1, -1)
+        .split(",")
+        .map((x) => x.split(":")[0].trim().replace(/^["']|["']$/g, ""))
+        .filter(Boolean);
+    } else {
+      events = [inline.replace(/^["']|["']$/g, "")];
+    }
+    if (events.length) return { state: "ok", events };
+  }
+
+  /* 块式写法：on: 块里第一层缩进的键就是事件名。 */
+  const base = indentOf(lines[onIdx]);
+  const block = [];
+  for (let i = onIdx + 1; i < lines.length; i++) {
+    if (!lines[i].trim()) continue;
+    if (indentOf(lines[i]) <= base) break;
+    block.push(lines[i]);
+  }
+  if (!block.length) return { state: "unparsable", events: [] };
+  const minIndent = Math.min(...block.map(indentOf));
+  const events = [];
+  for (const l of block) {
+    if (indentOf(l) !== minIndent) continue;
+    const m = /^\s*["']?([A-Za-z_][A-Za-z0-9_-]*)["']?\s*:/.exec(l);
+    if (m) events.push(m[1]);
+  }
+  if (!events.length) return { state: "unparsable", events: [] };
+  return { state: "ok", events };
+}
+
+/* DP15 查到的量（供汇总文案用；判红时不需要）。 */
+let dp15Workflows = 0;
+let dp15Events = 0;
+
+const workflowDir = path.join(ROOT, ".github", "workflows");
+const workflowFiles = [];
+try {
+  for (const e of fs.readdirSync(workflowDir, { withFileTypes: true })) {
+    if (!e.isFile()) continue;
+    /* ⚠️ **必须跳过 macOS 的 AppleDouble 资源叉**（`._*`）与 `.DS_Store`：
+       本仓的工作卷是 exFAT ⇒ 每次外部编辑都会在旁边留下一个 `._deploy.yml`
+       （它是**资源分叉**，不是工作流）⇒ 不跳过的话，本机判红、干净克隆（CI）判绿
+       ⇒ **同一个仓库在两个平台给出相反结论**（D119 那条「判定与运行环境无关」）。 */
+    if (e.name.startsWith("._")) continue;
+    if (e.name === ".DS_Store") continue;
+    if (!/\.ya?ml$/i.test(e.name)) continue;
+    workflowFiles.push({ name: e.name, rel: `.github/workflows/${e.name}` });
+  }
+} catch (_) {
+  /* 目录不存在 ⇒ DP3 会报「读不到触发分支」，这里不重复报（同一件事只让一条判据说话）。 */
+}
+
+for (const wfFile of workflowFiles) {
+  const text = fs.readFileSync(path.join(workflowDir, wfFile.name), "utf8");
+  const parsed = workflowTriggerEvents(text);
+  if (parsed.state !== "ok") {
+    /* ⚠️ deploy.yml 那一份由 DP3 报（读不到触发分支）—— 同一件事只让一条判据说话；
+       这里只管**其余**工作流：否则新加一个形状怪的工作流会静默通过。 */
+    if (wfFile.name === path.basename(WORKFLOW)) continue;
+    fail(
+      `DP15 ${wfFile.rel} 的事件类型一个都没解析出来（on: 段读不出来）—— ` +
+        `「读不到」不等于「没有」⇒ 这一份工作流到底会被什么事件触发，判不出来 ⇒ 判红。`
+    );
+    continue;
+  }
+  dp15Workflows++;
+  for (const ev of parsed.events) {
+    dp15Events++;
+    if (DANGEROUS_TRIGGERS.has(ev)) {
+      fail(
+        `DP15 ${wfFile.rel} 的触发事件 ${ev} 属于危险事件类型 —— ` +
+          `官方口径：pull_request_target 默认取默认分支的代码（它本身是安全的），` +
+          `但只要有人把 checkout 指向 PR 的头，就是 pwn request（fork 的代码带着仓库 secret 与写权限跑起来）；` +
+          `workflow_run 则让被触发者**即使前一个工作流没有权限**也能拿到 secret 与写权限（官方对它标了 WARNING：缓存投毒与意外写权限）。` +
+          `本仓没有需要这两个事件的场景，误用的代价不可逆 ⇒ 一律不许出现。`
+      );
+      continue;
+    }
+    if (!ALLOWED_TRIGGERS.has(ev)) {
+      fail(
+        `DP15 ${wfFile.rel} 的触发事件 ${ev} 不在允许的事件类型里` +
+          `（允许集只有 push 与 workflow_dispatch）—— ` +
+          `多出来的触发器意味着这个工作流会在你没预期的时机、用你没预期的上下文跑起来。` +
+          `要加新的触发器，请显式改门禁里的允许集并在改进日志里记一笔。`
+      );
+    }
+  }
+}
+
 /* ---------------- 汇总 ---------------- */
 if (problems.length) {
   console.error("发布落点门禁未通过：\n");
@@ -1445,3 +1610,7 @@ if (dp14WaitStep && dp14CheckStep) {
       `—— 只等 HTTP 200 是不够的（旧部署也返回 200 ⇒ 等到的是旧版本）。`
   );
 }
+console.log(
+  `  · 工作流的触发事件类型：核了 ${dp15Workflows} 个工作流、${dp15Events} 个事件类型` +
+    `（允许集只有 push 与 workflow_dispatch；pull_request_target 与 workflow_run 一律不许出现）。`
+);
