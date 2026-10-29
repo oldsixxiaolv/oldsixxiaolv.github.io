@@ -2669,6 +2669,34 @@ CSDN 521 并列）。那个归类对 ResearchGate / CSDN 成立，但对这一�
   （fork PR 的 token 本来就是只读）⇒ 需要另配一段 workflow 级 `permissions` 或用 job 级覆盖。
   ⚠️ **本轮不代拍**：要更多机器判决，还是要更小的暴露面，属本人取舍。
   （本场次不代拍，登记为待拍板 64）
+- **待拍板 65（新增）｜要不要给站点加 `/llms.txt`（面向 AI agent 的站点导航），以及它与 `robots.txt` 里封 GPTBot / CCBot 的关系**
+  事实（2026-10-28 21:30 场次实测 ＋ 抓 llmstxt.org 规范原文）：`/llms.txt` 是
+  **面向 AI agent 的站点导览**（H1 ＋ 可选摘要 ＋ 若干 H2「文件清单」段）。
+  原文：「**thousands of sites publish an llms.txt file** … and **Chrome's Lighthouse audits
+  sites for one as part of its agentic browsing checks**」；且规范**点名了本站这一类站点** ——
+  「a **personal site answering questions about someone's CV**」⇒ 本站整站就是「回答关于某人的问题」。
+  ⚠️ 另查到**官方审计规则的原文**（Chrome for Developers · Lighthouse，2026-05-05 更新）——
+  **这一格把「加」的收益与代价都量化了**：
+  > "Lighthouse flags the pages if a **server error** occurs when attempting to retrieve the
+  > `llms.txt` file. **If the file is not provided by the server (resulting in a 404), the audit is
+  > marked as Not Applicable (N/A), as providing the file is optional at the moment.**"
+  ⇒ **不加 = Lighthouse 这一项是 N/A（不是失败）⇒ 不加的代价是 0**；
+  ⇒ **加坏了（5xx / 404）反而会被这项审计点名** ⇒ 加的话必须保证它能正常取到。
+  ⚠️ 但**这不是"零成本加一个文件"**，三件事要一起定：
+  ① **与 `robots.txt` 的关系**：本站 `robots.txt` **明确封了 GPTBot 与 CCBot**
+  （那是**训练类**爬虫）⇒ `llms.txt` 面向的是**推理时**的 agent ⇒ **两者不矛盾**，
+  但「封训练、放推理」这个口径**要由本人明确**，否则以后没人说得清本站对 AI 的态度；
+  ② **发什么内容**：列哪些页面（about / papers / 出版物 / 博客），以及**要不要给博客文章出
+  `.md` 版本**（规范推荐 `page.md` 与 `rel="alternate" type="text/markdown"`）—— 这是**编辑取舍**；
+  ③ **连带触发几道门禁**：加一个顶层文件会进「对外出口」清单（README 的 RD4）与产物路由清单
+  ⇒ 要做就得整套做，**不能只扔一个文件上去**。
+  候选：① **不加**（维持现状：靠 `sitemap.xml` ＋ `robots.txt`；AI 能不能读懂本站由爬虫自己决定；
+  ⚠️ **Lighthouse 那一项是 N/A、不是失败 ⇒ 不加的代价是 0**）；
+  ② **加一份最小的**（H1 ＋ 一句摘要 ＋ 一个「站点导航」段，只列真实存在的页面，不出 `.md` 版本）——
+  成本最低、收益是给 agent 一张准入门票；③ **加完整的**（导航 + 论文清单 + 博客，且给文章出 `.md` 版本）
+  —— 收益最大，但改动面也最大（要动 Eleventy 的输出形态）。
+  ⚠️ **本轮不代拍**：属内容取舍。
+  （本场次不代拍，登记为待拍板 65）
 ---
 ## 2026-10-19 · 第十一轮（12:22–12:47 场次）：订阅源时间戳说真话 + 404 身份开关落地
 
@@ -32273,3 +32301,120 @@ DP5 只管"钉住了"，**没有一条判据管"钉住之后还有没有人替�
 - ⚠️ **诚实记一笔**：这处缺口是**自己写完、提交之后**才发现的 ⇒ 说明**「写完就提交」不等于写对了**；
   本仓现有的「门禁自测」只能证「那条红是不是它判的」，**证不了「该判的那一格有没有漏」**
   ⇒ 这正是本轮把 `code-review` 技能用起来的原因（它看的是**意图与实现的差**，不是判据的形状）。
+
+## 2026-10-28 · 巡检轮次：给**「CI 里不装依赖就执行的脚本」**装上看守 —— D123（部署后的核查一旦崩，等于没有核查）
+
+### A. 本轮定位
+
+- 上一轮（D122）补的是供应链的**「发现」环**（钉住的 SHA 谁替它往前推）。
+  本轮接着查**后端稳定性**，把部署工作流里**每个 job 的执行前提**逐条摊开看。
+- ⚠️ 本轮找到的缺口形状很典型：**当前没事，但没有任何东西保证它继续没事**。
+
+### B. 体检（2026-10-28 21:30 场次逐项实测）
+
+| 方面 | 实测结论 |
+|---|---|
+| **「不装依赖就执行」的脚本** | ⚠️ **真问题（D123）**：部署工作流的 **`verify-live` job 没有 `npm ci` 步骤** ⇒ 那个 job 里**没有 node_modules** ⇒ 它执行的脚本若 require 了第三方包，会直接抛 `Cannot find module` ⇒ **部署后的线上核查整个跑不起来**（站点已经发上去了，核查却崩了，红因还只是一句看不懂的模块缺失）。当前**恰好**是零第三方依赖（`scripts/check-live-site.cjs` → `fs`/`path` → `src/_data/site.js` → `scripts/lib/identity.cjs`，全链只有 Node 内置模块），但**没有任何东西守住这一点** ⇒ 详见 C/D |
+| **build 链耗时 vs job 超时** | 实测 **286 秒 ≈ 4.8 分钟**（干净克隆、本机、`npm ci` 另计）⇒ deploy.yml 里「本仓 build 链实测约 4~5 分钟 ⇒ 30 分钟是宽裕的余量」那句注释**属实** ✔（GitHub 的 runner 慢一些，30 分钟仍宽裕）——**不是**缺陷，不动 |
+| **脚本图解析的两种形态** | `require("字面量")` 与 `require(path.join(ROOT, "字面量"))` —— ⚠️ **后者是相对仓库根的，不是相对当前文件**（本轮实现时踩到：按"相对文件"解会解析成 `scripts/src/_data/site.js` ⇒ 假红） |
+| **块标量（`run: \|`）** | 部署工作流里「等站点起来」那一步就是块标量 ⇒ 解析器**必须读块内容**，否则那个 job 看起来「没有 node 调用」⇒ **判据空转** |
+| **站点对 AI 爬虫的立场** | `robots.txt` **封了 GPTBot 与 CCBot**（训练类爬虫）⇒ 这是**已有的明确立场**；是否给站点加 `/llms.txt`（面向**推理时**的 agent）⇒ 属本人取舍（**待拍板 65**），本轮**不代拍** |
+
+### C. 改了什么
+
+1. **`scripts/check-deploy-target.cjs` 新增判据 DP13**
+   - 扫「**没有 `npm ci` 的 job**」里的**所有 node 调用**（脚本文件 ＋ `node -e` 内联代码都算）；
+   - 静态顺着 **require 图**往下走：只允许 **Node 内置模块** ＋ **仓内相对路径**；
+   - ⚠️ **「判不了」与「没有」必须分开**：require 的参数不是字面量（`require(name)`）
+     ⇒ 静态判不出来 ⇒ **判红**，不假装判过；
+   - ⚠️ **必须读 YAML 块标量**（`run: |`）：只看 `run:` 那一行会把「等站点起来」那一步整段漏掉
+     ⇒ 漏掉 ⇒ 那个 job 看起来「没有 node 调用」⇒ 判据空转；
+   - ⚠️ **一条事实一条红因**：第三方依赖一条、判不了一条；
+   - ⚠️ **通过时打正向确认**（列出它实际查了哪几个脚本）——「没报错」与「判据压根没跑」长得一模一样。
+2. **`scripts/test-deploy-target.cjs` 加 5 档**
+   - 夹具工作流新增一个**没有 `npm ci`** 的 `verify-live` job（带 `timeout-minutes` 与 `permissions`），
+     并新增两个夹具文件：`src/_data/site.js`（被 `node -e` require）与
+     `scripts/check-live-site.cjs`（stub，只用内置模块 ⇒ 基线档必须绿）；
+   - **N40**（线上核查脚本引入第三方依赖 ⇒ 红）/ **N42**（站点数据文件引入第三方依赖 ⇒ 红）/
+     **N43**（require 参数不是字面量 ⇒ 红）/ **N41**（判据级负对照：卸掉 DP13 ⇒ N40 夹具转绿）；
+   - 静态清单登记 4 个新档位号。
+3. **README**：`check:deploy-target` 行补 DP13；`check:deploy-target-selftest` 行补这两族新档。
+
+### D. 决定性验证
+
+**① 三档注入 ＋ 一档判据级负对照**（自测实跑）：
+
+| 档 | 夹具 | 结果 |
+|---|---|---|
+| N40 | 线上核查脚本 `require("cheerio")` | **判红**，红因点名「第三方依赖出现在…」 |
+| N42 | 站点数据文件 `require("jsdom")` | **判红**（`node -e` 那一步就会崩） |
+| N43 | `require(name)`（参数不是字面量） | **判红**，红因点名「无法静态判定…」 |
+| N41 | **卸掉 DP13** ＋ N40 夹具 | **转绿，零红因** ⇒ 那条红确实是 DP13 判的 |
+
+⇒ 自测 **29/29 红因 · 13/13 判据全绿**。
+**② 真仓跑**：门禁 exit 0，并打出**正向确认** ——
+「没有 `npm ci` 的 job 里执行的 node 脚本共 **2** 个（`node -e 里的 require("./src/_data/site.js")`、
+`scripts/check-live-site.cjs`，都在 verify-live job）」⇒ **判据没有空转**。
+**③ 逐字核过现状**：`check-live-site.cjs` 只 require `fs`/`path`；`site.js` 只 require
+`scripts/lib/identity.cjs`；而 `identity.cjs` **零 require**（纯数据模块）⇒ 当前**确实**零第三方依赖。
+
+### E. 明确不做 / 不代拍
+
+- **不代拍待拍板 65**（要不要给站点加 `/llms.txt`）—— 见 F；属内容取舍，**本轮不代拍**。
+- **不代拍待拍板 7 / 56 / 57 / 58 / 59 / 60 / 61 / 62 / 63 / 64**。
+- **不改 job 的 `timeout-minutes`**：实测 build 链 4.8 分钟 ⇒ 30 分钟的余量属实
+  ⇒ 没有依据动它（**先量再改**，不凭感觉调参）。
+- **不给 `verify-live` job 加 `npm ci`**：它只跑一个零依赖的核查脚本，
+  加 `npm ci` 会白白多花一次安装时间；DP13 反而把「必须零依赖」这件事守住了。
+
+### F. 外部学习（本轮 2 条，**都抓到了原文**）
+
+> ⚠️ 内置检索工具本轮**三次调用全部失败**（`MATRIX_TOOL_REQUEST_FAILED`）⇒
+> 改走两条备用通道，**都拿到了原文**：
+> ① **`web_fetch` 直接抓已知权威 URL**（llmstxt.org）⇒ 拿到规范原文；
+> ② **`mcporter` ＋ Exa**（memory 里已登记的备用通道）⇒ 拿到 Lighthouse 官方审计页原文。
+> ⚠️ 顺带记一条**通道可用性的实测**：Exa 的 `mcporter list` 报「offline」，
+> **但 `mcporter call` 照常返回结果** ⇒ **别拿 `list` 的健康状态当通道不可用的判据**，要真打一次。
+
+**★ `/llms.txt` 已是 v2，且它明确点名了「个人学术主页」这一类站点**（llmstxt.org 原文）：
+
+> "This is v2 of the proposal, updated based on what I learned from two years of adoption:
+> **thousands of sites publish an llms.txt file**, documentation platforms generate one automatically,
+> and **Chrome's Lighthouse audits sites for one as part of its agentic browsing checks**."
+
+> "The same structure works anywhere agents need a guided path into a site's content: a business
+> outlining its structure and policies, **a personal site answering questions about someone's CV**,
+> or a school providing access to course information."
+
+> 格式（v2）：可选 BOM → **H1（唯一必需段）** → 可选 blockquote 摘要 → 若干非标题段 →
+> 若干以 H2 分隔的「文件清单」段（每条是一个 markdown 链接 ＋ 可选说明）。
+
+⇒ **与本站的关系**：本站整站就是「回答关于某人的问题」的那一类 ⇒ 规范**点名**了这一类。
+
+**★ 这项审计怎么算账（Lighthouse 官方原文，2026-05-05 更新）**：
+
+> "Lighthouse flags the pages if a **server error** occurs when attempting to retrieve the
+> `llms.txt` file. **If the file is not provided by the server (resulting in a 404), the audit is
+> marked as Not Applicable (N/A), as providing the file is optional at the moment.**"
+
+⇒ **不加 = 这一项 N/A，不是失败 ⇒ 不加的代价是 0**；**加了但取不到（404/5xx）反而会被点名**
+⇒ 要加就必须保证它能正常取到。
+
+⇒ **但这仍是取舍，不代拍**：① 本站 `robots.txt` **明确封了 GPTBot 与 CCBot**
+（那是**训练类**爬虫；`llms.txt` 面向的是**推理时**的 agent ⇒ 两者不矛盾，但要讲清楚）；
+② **发什么内容**（列哪些页面、要不要给博客文章出 `.md` 版本）是**编辑取舍**；
+③ 加一个顶层文件会连带触发几道门禁（README 的「对外出口」清单、产物路由清单等）⇒ 要做就得整套做。
+⇒ ⇒ **登记为待拍板 65**，本轮**只记录事实与代价，不实施**。
+
+### G. 本轮的方法论
+
+**「当前没事」与「有东西保证它继续没事」是两件事 —— 后者要单独装看守。**
+
+DP13 修的那个缺口，**当前状态是完全正常的**（require 链实测零第三方依赖）——
+**正因为它正常，所以没有任何一档自测会红、也没有任何报错** ⇒ 它只能靠「人忽然想起来去看一眼」来发现。
+⇒ 推论：**体检时看到「A 成立」，要追问「A 是被什么保证的」** ——
+若答案是「目前恰好如此」，那它就是**空的守卫**，不是守卫。
+⇒ 同族：〈门禁的验收标准不是「它会红」而是「它在真实输入上能给出正确答案」〉
+〈"查不到"与"没有"必须分开〉〈形状/契约错时表征是「恒绿」不是「恒红」〉
+—— 本条补的是**「执行前提」这一维**：同一个 job 里有没有装依赖、脚本能不能加载，
+**是比「脚本逻辑对不对」更靠前的一层**。
