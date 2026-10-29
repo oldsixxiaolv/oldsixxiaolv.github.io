@@ -248,7 +248,7 @@ jobs:
       - name: Wait until the deployed build is live
         run: |
           url=$(node -e "console.log(require('./src/_data/site.js').url)")
-          want=$(grep -m1 '^# generated-at: ' _site/robots.txt | sed 's/^# generated-at: //')
+          want=$(sed -n 's/^# generated-at: //p' _site/robots.txt | head -n 1 || true)
           if [ -z "$want" ]; then
             echo "::error::产物 _site/robots.txt 里没有 '# generated-at:' 标记 —— 判不出线上是不是这次部署的内容（判据锚点丢了）"
             exit 1
@@ -257,7 +257,7 @@ jobs:
           attempt=0
           while [ "$(date +%s)" -lt "$deadline" ]; do
             attempt=$((attempt + 1))
-            got=$(curl -s --max-time 15 "$url/robots.txt" | grep -m1 '^# generated-at: ' | sed 's/^# generated-at: //')
+            got=$(curl -s --max-time 15 "$url/robots.txt" | sed -n 's/^# generated-at: //p' | head -n 1 || true)
             if [ -n "$got" ] && [ "$got" = "$want" ]; then
               echo "线上已在跑这次部署的内容（构建标记 $want，第 $attempt 次探测）"
               exit 0

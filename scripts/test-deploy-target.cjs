@@ -195,8 +195,8 @@ const WORKFLOW_YML = [
   "      - name: Wait until the deployed build is live",
   "        run: |",
   "          url=$(node -e \"console.log(require('./src/_data/site.js').url)\")",
-  "          want=$(grep -m1 '^# generated-at: ' _site/robots.txt | sed 's/^# generated-at: //')",
-  "          got=$(curl -s --max-time 15 \"$url/robots.txt\" | grep -m1 '^# generated-at: ' | sed 's/^# generated-at: //')",
+  "          want=$(sed -n 's/^# generated-at: //p' _site/robots.txt | head -n 1 || true)",
+  "          got=$(curl -s --max-time 15 \"$url/robots.txt\" | sed -n 's/^# generated-at: //p' | head -n 1 || true)",
   "          if [ -n \"$got\" ] && [ \"$got\" = \"$want\" ]; then exit 0; fi",
   "          echo \"::error::线上在 600s 内没有切到这次部署的内容\"",
   "          exit 1",
@@ -494,12 +494,12 @@ const MUT = {
     );
     s.workflow = replaceOnce(
       s.workflow,
-      "          want=$(grep -m1 '^# generated-at: ' _site/robots.txt | sed 's/^# generated-at: //')\n",
+      "          want=$(sed -n 's/^# generated-at: //p' _site/robots.txt | head -n 1 || true)\n",
       ""
     );
     s.workflow = replaceOnce(
       s.workflow,
-      "          got=$(curl -s --max-time 15 \"$url/robots.txt\" | grep -m1 '^# generated-at: ' | sed 's/^# generated-at: //')\n",
+      "          got=$(curl -s --max-time 15 \"$url/robots.txt\" | sed -n 's/^# generated-at: //p' | head -n 1 || true)\n",
       "          code=$(curl -s -o /dev/null -w '%{http_code}' \"$url/\" || true)\n"
     );
     s.workflow = replaceOnce(
@@ -525,8 +525,8 @@ const MUT = {
       "      - name: Wait until the deployed build is live",
       "        run: |",
       "          url=$(node -e \"console.log(require('./src/_data/site.js').url)\")",
-      "          want=$(grep -m1 '^# generated-at: ' _site/robots.txt | sed 's/^# generated-at: //')",
-      "          got=$(curl -s --max-time 15 \"$url/robots.txt\" | grep -m1 '^# generated-at: ' | sed 's/^# generated-at: //')",
+      "          want=$(sed -n 's/^# generated-at: //p' _site/robots.txt | head -n 1 || true)",
+      "          got=$(curl -s --max-time 15 \"$url/robots.txt\" | sed -n 's/^# generated-at: //p' | head -n 1 || true)",
       "          if [ -n \"$got\" ] && [ \"$got\" = \"$want\" ]; then exit 0; fi",
       "          echo \"::error::线上在 600s 内没有切到这次部署的内容\"",
       "          exit 1",
