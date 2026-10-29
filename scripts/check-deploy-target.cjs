@@ -25,17 +25,19 @@
  *      tag 决定，而不是由本仓库的提交决定。
  *      口径对齐 **OpenSSF Scorecard 的 Pinned-Dependencies 判据**（Risk: Medium，
  *      它明确把 GitHub workflows 列入扫描面）；`./本地路径` 天然钉死，豁免。
- *   DP6 部署工作流**顶层**的 permissions 必须只读 ——
+ *   DP6 **每个工作流**的**顶层** permissions 必须只读 ——
  *      顶层不写 = 用**仓库默认**的 token 权限（可能是 read-write）；
  *      顶层写 = **每个 job** 都持有（含跑完整条 build 链、也就是执行仓内代码的那个）。
  *      写权限要收窄到具体 job（deploy job 需要 `pages: write` + `id-token: write`，
  *      官方 deploy-pages 文档写明「执行部署的 job 至少需要这两个」）。
  *      口径对齐 **OpenSSF Scorecard 的 Token-Permissions 判据**（Risk: High）。
+ *      ⚠️ **扫描面是 `.github/workflows/` 下的全部工作流**（2026-10-29 12:30 场次扩展）：
+ *        此前只管 deploy.yml ⇒ 多出来的第二份工作流**顶层写权限零覆盖**（实测坐实）。
  *      ⚠️ **两种写法都必须认得**（官方 workflow-syntax 里都合法）：
  *        块式（`permissions:` 下面缩进列作用域）与**标量式**
  *        （`permissions: write-all` / `permissions: read-all`）。
  *        只认块式 ⇒ 顶层一个 `write-all` 就能把**每个 job** 变成全量写权限，
- *        而门禁**零红因**（2026-10-30 场次用隔离探针实测坐实）
+ *        而门禁**零红因**（2026-10-29 09:30 场次用隔离探针实测坐实过）
  *        ⇒ 那正是「形状漏判 ⇒ 恒绿」那一族。
  *      ⚠️ **读不懂的形状一律判红**（fail closed）—— 「判不了」≠「没有」。
  *   DP7 部署工作流里 action 的**执行运行时**必须是 node24 ——
@@ -159,7 +161,7 @@
  *           **同一件事只让一条判据说话**。
  *
  *   DP16 **job 级 permissions 的写权限，只许留在真正需要它的那个 job 上** ——
- *      ⚠️ 为什么这一格此前**零门禁覆盖**（2026-10-30 场次**隔离探针实测**坐实）：
+ *      ⚠️ 为什么这一格此前**零门禁覆盖**（2026-10-29 场次**隔离探针实测**坐实）：
  *        DP6 只看**顶层** —— 给跑仓内代码的 job（build / verify-live）单独加
  *        `contents: write` / `pages: write` / `id-token: write`，门禁**零红因**。
  *        ⇒ 当时的「顶层是只读的」只是**顶层那一格**的事实，
@@ -716,7 +718,7 @@ function indentOfLine(l) {
  * ⚠️ **标量写法必须一起认**（官方 workflow-syntax 里都合法）：
  *   `permissions: write-all` / `permissions: read-all` —— 只认块式的话，
  *   顶层一个 `write-all` 就能把每个 job 变成全量写权限，而门禁零红因
- *   （2026-10-30 场次用隔离探针实测坐实过这个漏判）。
+ *   （2026-10-29 场次用隔离探针实测坐实过这个漏判）。
  */
 function readPermissionsAt(lines, idx) {
   const declIndent = indentOfLine(lines[idx]);
@@ -830,13 +832,42 @@ function inspectPermissions(perms) {
   return { unreadable, writes };
 }
 
-/* 汇总日志要用到的三组量：在块外声明，块内赋值（块内 const 会出作用域）。 */
+/**
+ * `.github/workflows/` 下的全部工作流文件（DP6 / DP15 / DP16 共用这一份清单）。
+ *
+ * ⚠️ **必须跳过 macOS 的 AppleDouble 资源叉**（`._*`）与 `.DS_Store`：
+ *   本仓的工作卷是 exFAT ⇒ 每次外部编辑都会在旁边留下一个 `._deploy.yml`
+ *   （它是**资源分叉**，不是工作流）⇒ 不跳过的话，本机判红、干净克隆（CI）判绿
+ *   ⇒ **同一个仓库在两个平台给出相反结论**（D119 那条「判定与运行环境无关」）。
+ * ⚠️ 目录不存在 ⇒ 返回空数组（DP3 会报「读不到触发分支」，不重复报）。
+ */
+function listWorkflowFiles() {
+  const dir = path.join(ROOT, ".github", "workflows");
+  const out = [];
+  try {
+    for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (!e.isFile()) continue;
+      if (e.name.startsWith("._")) continue;
+      if (e.name === ".DS_Store") continue;
+      if (!/\.ya?ml$/i.test(e.name)) continue;
+      out.push({ name: e.name, rel: `.github/workflows/${e.name}` });
+    }
+  } catch (_) {
+    /* 目录不存在 ⇒ 空列表（由 DP3 报「读不到触发分支」，同一件事只让一条判据说话）。 */
+  }
+  return out;
+}
+
+/* 汇总日志要用到的几组量：在块外声明，块内赋值（块内 const 会出作用域）。 */
 let remoteRefs = [];
 let conc = { present: false, group: null, cancel: null, lineNo: null };
 let jobs = [];
+/* ⚠️ `refs` 也要在外面声明 —— DP6 那段被拆成了独立的顶层段落，
+   于是 DP5 里定义的 `refs` 不再与 DP7 同处一个块（否则 DP7 拿不到它）。 */
+let refs = [];
 
 if (wfText !== null) {
-  const refs = actionRefs(wfText);
+  refs = actionRefs(wfText);
   const unpinned = refs.filter((r) => r.kind === "remote" && !r.pinned);
   if (unpinned.length) {
     fail(
@@ -853,33 +884,67 @@ if (wfText !== null) {
     );
   }
 
-  const perms = topLevelPermissions(wfText);
+}
+
+/* ---------------- DP6：每个工作流的顶层 permissions 必须只读 ---------------- */
+
+/**
+ * 顶层 permissions 的判定 —— **每个工作流都要过这一关**（不止 deploy.yml）。
+ *
+ * ⚠️ **为什么扩到全部工作流**（2026-10-29 12:30 场次实测的看护缺口）：
+ *   DP6 此前只看 deploy.yml ⇒ **多出来的第二份工作流**的顶层权限**零门禁覆盖** ——
+ *   给它写 `permissions: write-all`，门禁 exit 0、零红因 ⇒ 那把「隐形全量写权限」
+ *   就从**新入口**溜进来了（与 D127 的 job 级缺口同一族：入口不止一个）。
+ *   ⇒ 顶层不写 = 用**仓库默认**的 token 权限（可能是 read-write）⇒ 漏写 =
+ *   那个工作流里的每个 job 都握着写权限 ⇒ **不能只对一份工作流设防**。
+ * ⚠️ **官方口径**（GitHub Docs「Security hardening for GitHub Actions」）：
+ *   「It's good security practice to set the default permission for the GITHUB_TOKEN
+ *   to read access only for repository contents. The permissions can then be increased,
+ *   as required, for individual jobs within the workflow file.」
+ *   ⇒ 本条正是那句话的**机器可核对版**：顶层只读 ＋ 写权限按 job 放开（DP16）。
+ * ⚠️ **比上游默认更严的地方**：官方是**建议**；本仓**要求每个工作流都显式声明**顶层
+ *   permissions（哪怕写 `permissions: read-all` 或 `permissions: {}`）⇒ 理由与 DP15/DP16
+ *   同一条：**本仓没有需要它的工作流，而漏写的代价不可逆**（默认权限可能是 read-write）。
+ *   ⇒ 这是**政策、写死在源码里**：将来放宽必须**显式改并在改进日志里记一笔**。
+ */
+/* DP6 查到的量（供汇总文案用；判红时不需要）。 */
+let dp6Workflows = 0;
+
+for (const wfFile of listWorkflowFiles()) {
+  const text = fs.readFileSync(path.join(ROOT, ".github", "workflows", wfFile.name), "utf8");
+  dp6Workflows++;
+  const perms = topLevelPermissions(text);
   if (!perms.present) {
     fail(
-      `DP6 部署工作流顶层没有 permissions 声明 —— 顶层不写就是用**仓库默认**的 token 权限，` +
-        `而仓库默认可能是 read-write ⇒ 跑完整条 build 链的 job 会握着一把能改仓库的钥匙。` +
+      `DP6 ${wfFile.rel} 的顶层没有 permissions 声明 —— 顶层不写就是用**仓库默认**的 token 权限，` +
+        `而仓库默认可能是 read-write ⇒ 那个工作流里的每个 job 都握着一把能改仓库的钥匙。` +
         `顶层至少要写 contents: read（写权限只给真正需要的 job）。`
     );
-  } else {
-    const insp = inspectPermissions(perms);
-    if (insp.unreadable.length) {
-      fail(
-        `DP6 部署工作流顶层 permissions 的写法读不懂（${insp.unreadable.length} 处）：` +
-          insp.unreadable.map((e) => `${WORKFLOW}:${e.lineNo}`).join("；") +
-          ` —— **「判不了」不等于「没有」** ⇒ 顶层到底给了哪些权限判不出来 ⇒ 判红。` +
-          `顶层只能写块式（permissions: 下面缩进列作用域）或官方那两种标量` +
-          `（read-all / write-all）；读不懂就得改门禁，不能绕过去。`
-      );
-    } else if (insp.writes.length) {
-      fail(
-        `DP6 部署工作流顶层给了写权限（${insp.writes.length} 处）：` +
-          insp.writes.map((w) => `${WORKFLOW}:${w.lineNo} 的「${w.label}」`).join("；") +
-          ` —— 顶层写权限 = **每个 job** 都持有（含跑完整条 build 链、也就是执行仓内代码的那个）。` +
-          `写权限要收窄到具体 job（deploy job 需要 pages: write + id-token: write）。`
-      );
-    }
+    continue;
   }
+  const insp = inspectPermissions(perms);
+  if (insp.unreadable.length) {
+    fail(
+      `DP6 ${wfFile.rel} 的顶层 permissions 的写法读不懂（${insp.unreadable.length} 处）：` +
+        insp.unreadable.map((e) => `${wfFile.rel}:${e.lineNo}`).join("；") +
+        ` —— **「判不了」不等于「没有」** ⇒ 顶层到底给了哪些权限判不出来 ⇒ 判红。` +
+        `顶层只能写块式（permissions: 下面缩进列作用域）或官方那两种标量` +
+        `（read-all / write-all）；读不懂就得改门禁，不能绕过去。`
+    );
+    continue;
+  }
+  if (insp.writes.length) {
+    fail(
+      `DP6 ${wfFile.rel} 的顶层给了写权限（${insp.writes.length} 处）：` +
+        insp.writes.map((w) => `${wfFile.rel}:${w.lineNo} 的「${w.label}」`).join("；") +
+        ` —— 顶层写权限 = **每个 job** 都持有（含跑完整条 build 链、也就是执行仓内代码的那个）。` +
+        `写权限要收窄到具体 job（deploy job 需要 pages: write + id-token: write）。`
+    );
+  }
+}
 
+/* ---- 回到「部署工作流本身」这一组 ---- */
+if (wfText !== null) {
   /* ---------------- DP7：action 的执行运行时必须是 node24 ---------------- */
 
   /* DP7 的版本预言机是**基线表**（按 SHA 反查 tag），
@@ -1665,22 +1730,9 @@ let dp15Workflows = 0;
 let dp15Events = 0;
 
 const workflowDir = path.join(ROOT, ".github", "workflows");
-const workflowFiles = [];
-try {
-  for (const e of fs.readdirSync(workflowDir, { withFileTypes: true })) {
-    if (!e.isFile()) continue;
-    /* ⚠️ **必须跳过 macOS 的 AppleDouble 资源叉**（`._*`）与 `.DS_Store`：
-       本仓的工作卷是 exFAT ⇒ 每次外部编辑都会在旁边留下一个 `._deploy.yml`
-       （它是**资源分叉**，不是工作流）⇒ 不跳过的话，本机判红、干净克隆（CI）判绿
-       ⇒ **同一个仓库在两个平台给出相反结论**（D119 那条「判定与运行环境无关」）。 */
-    if (e.name.startsWith("._")) continue;
-    if (e.name === ".DS_Store") continue;
-    if (!/\.ya?ml$/i.test(e.name)) continue;
-    workflowFiles.push({ name: e.name, rel: `.github/workflows/${e.name}` });
-  }
-} catch (_) {
-  /* 目录不存在 ⇒ DP3 会报「读不到触发分支」，这里不重复报（同一件事只让一条判据说话）。 */
-}
+/* ⚠️ 清单由 `listWorkflowFiles()` 统一给出（DP6 / DP15 / DP16 共用同一份）——
+   枚举规则只写一遍 ⇒ `._*` 过滤之类的细节不会在两处漂移。 */
+const workflowFiles = listWorkflowFiles();
 
 for (const wfFile of workflowFiles) {
   const text = fs.readFileSync(path.join(workflowDir, wfFile.name), "utf8");
@@ -1847,8 +1899,8 @@ console.log(
     `${wf.state === "ok" ? `[${wf.branches.join(", ")}]` : wf.state}。`
 );
 console.log(
-  `  · 工作流里的 action 全部钉到 commit SHA（tag 是可移动引用）；顶层 permissions 只读，` +
-    `写权限只留在具体 job 上。`
+  `  · 工作流里的 action 全部钉到 commit SHA（tag 是可移动引用）；` +
+    `**每个工作流的顶层 permissions 都只读**（核了 ${dp6Workflows} 个工作流），写权限只留在具体 job 上。`
 );
 console.log(
   `  · action 的执行运行时全是 node24（Node 20 已于 2026-04-30 EOL）：` +

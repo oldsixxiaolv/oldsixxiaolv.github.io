@@ -383,7 +383,7 @@ const MUT = {
   /**
    * 顶层 permissions 写成**标量** `write-all` ⇒ DP6。
    * ⚠️ 官方 workflow-syntax 里 `permissions: write-all` 是合法写法（等价于全部作用域可写）
-   *   ⇒ 只认块式的解析器会让它**整条逃过**（2026-10-30 场次用隔离探针实测坐实过）。
+   *   ⇒ 只认块式的解析器会让它**整条逃过**（2026-10-29 场次用隔离探针实测坐实过）。
    */
   topLevelWriteAll: (s) => {
     s.workflow = replaceOnce(s.workflow, "permissions:\n  contents: read", "permissions: write-all");
@@ -707,6 +707,7 @@ const MUT = {
         name: "extra.yml",
         content:
           "name: Extra\non:\n  pull_request_target:\n    types: [opened]\n" +
+          "permissions:\n  contents: read\n" +
           "jobs:\n  x:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo hi\n",
       },
     ];
@@ -737,6 +738,30 @@ const MUT = {
         name: "flow.yml",
         content:
           "name: Flow\non: [push, workflow_dispatch]\n" +
+          "permissions:\n  contents: read\n" +
+          "jobs:\n  x:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo hi\n",
+      },
+    ];
+  },
+  /** 另加一份工作流、顶层 permissions 写成标量 write-all ⇒ DP6（顶层只对一份工作流设防＝漏）。 */
+  secondWorkflowTopLevelWriteAll: (s) => {
+    s.extraWorkflows = [
+      {
+        name: "extra-write.yml",
+        content:
+          "name: Extra\non:\n  push:\n    branches: [main]\n" +
+          "permissions: write-all\n" +
+          "jobs:\n  x:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo hi\n",
+      },
+    ];
+  },
+  /** 另加一份工作流、顶层压根没写 permissions ⇒ DP6（顶层不写＝用仓库默认权限）。 */
+  secondWorkflowNoTopLevelPermissions: (s) => {
+    s.extraWorkflows = [
+      {
+        name: "extra-noperms.yml",
+        content:
+          "name: Extra\non:\n  push:\n    branches: [main]\n" +
           "jobs:\n  x:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo hi\n",
       },
     ];
@@ -751,6 +776,7 @@ const MUT = {
         name: "extra-release.yml",
         content:
           "name: Extra\non:\n  push:\n    branches: [main]\n" +
+          "permissions:\n  contents: read\n" +
           "jobs:\n  publish:\n    runs-on: ubuntu-latest\n    permissions:\n      contents: write\n" +
           "    steps:\n      - run: echo hi\n",
       },
@@ -822,6 +848,8 @@ const CASES = [
   { id: "N68", label: "必须判绿：deploy job 的 permissions 改成流式写法 {contents: read, …}", mutate: MUT.deployJobFlowPermissions, expect: null },
   { id: "N69", label: "顶层 permissions 写成读不懂的形状（判不了 ⇒ 必须判红）", mutate: MUT.topLevelUnreadable, expect: ["DP6"] },
   { id: "N72", label: "另加一份工作流，它的 job 持写权限（扫的是全部工作流，不只是 deploy.yml）", mutate: MUT.secondWorkflowJobWrite, expect: ["DP16"] },
+  { id: "N73", label: "另加一份工作流、顶层 permissions: write-all（顶层只对一份工作流设防＝漏）", mutate: MUT.secondWorkflowTopLevelWriteAll, expect: ["DP6"] },
+  { id: "N74", label: "另加一份工作流、顶层压根没写 permissions（顶层不写＝用仓库默认权限）", mutate: MUT.secondWorkflowNoTopLevelPermissions, expect: ["DP6"] },
 ];
 
 /* ========== 四、判据级负对照 ========== */
