@@ -60,10 +60,13 @@ const CAUSES = [
   { id: "DP12c", crit: "DP12", frag: "没有同时覆盖 github-actions 与 npm" },
   { id: "DP12d", crit: "DP12", frag: "没有 schedule" },
   { id: "DP12e", crit: "DP12", frag: "的 directory 不是 /" },
+  { id: "DP13a", crit: "DP13", frag: "第三方依赖出现在" },
+  { id: "DP13b", crit: "DP13", frag: "无法静态判定它是不是第三方依赖" },
 ];
 /** 静态判据清单（门禁里应当且仅应当有这些判据）。 */
 const CRITERIA = [
-  "DP1", "DP2", "DP3", "DP4", "DP5", "DP6", "DP7", "DP8", "DP9", "DP10", "DP11", "DP12",
+  "DP1", "DP2", "DP3", "DP4", "DP5", "DP6", "DP7", "DP8", "DP9", "DP10", "DP11",
+  "DP12", "DP13",
 ];
 
 /* ========== 工具 ========== */
@@ -179,7 +182,29 @@ const WORKFLOW_YML = [
   "          NPM_CONFIG_REGISTRY: https://registry.npmjs.org",
   "          NPM_CONFIG_REPLACE_REGISTRY_HOST: always",
   "",
+  "  verify-live:",
+  "    runs-on: ubuntu-latest",
+  "    timeout-minutes: 15",
+  "    permissions:",
+  "      contents: read",
+  "    steps:",
+  "      - name: Wait until the site responds",
+  "        run: |",
+  "          url=$(node -e \"console.log(require('./src/_data/site.js').url)\")",
+  "          echo \"$url\"",
+  "      - name: Check the live site against the deployed artifact",
+  "        run: node scripts/check-live-site.cjs",
+  "",
 ].join("\n");
+
+/**
+ * 夹具里的站点数据文件 —— verify-live job 的 `node -e` 会 require 它。
+ * ⚠️ 必须存在：否则 DP13 判「require 指向的文件不存在」⇒ 基线档就红了。
+ */
+const SITE_JS = 'module.exports = { url: "https://example.test" };\n';
+
+/** 夹具里的线上核查脚本（stub）—— 只用 Node 内置模块 ⇒ 基线档 DP13 必须绿。 */
+const LIVE_SITE_CJS = 'const fs = require("fs");\nconst path = require("path");\nmodule.exports = { fs, path };\n';
 
 /**
  * 夹具里的 Dependabot 配置 —— 与真仓同构：version: 2 + 两个生态 + 各自的 schedule。
@@ -212,11 +237,15 @@ function buildFixture(mutate) {
     remote: GOOD_URL,
     workflow: WORKFLOW_YML,
     dependabot: DEPENDABOT_BASE,
+    siteJs: SITE_JS,
+    liveSiteCjs: LIVE_SITE_CJS,
   };
   if (mutate) mutate(state);
   const dir = fs.mkdtempSync(path.join(tmp, "case-"));
   fs.mkdirSync(path.join(dir, "docs"), { recursive: true });
   fs.mkdirSync(path.join(dir, ".github", "workflows"), { recursive: true });
+  fs.mkdirSync(path.join(dir, "src", "_data"), { recursive: true });
+  fs.mkdirSync(path.join(dir, "scripts"), { recursive: true });
   if (state.readme !== null) fs.writeFileSync(path.join(dir, "README.md"), state.readme);
   if (state.deploy !== null) fs.writeFileSync(path.join(dir, "docs", "DEPLOY.md"), state.deploy);
   if (state.workflow !== null) {
@@ -224,6 +253,12 @@ function buildFixture(mutate) {
   }
   if (state.dependabot !== null) {
     fs.writeFileSync(path.join(dir, ".github", "dependabot.yml"), state.dependabot);
+  }
+  if (state.siteJs !== null) {
+    fs.writeFileSync(path.join(dir, "src", "_data", "site.js"), state.siteJs);
+  }
+  if (state.liveSiteCjs !== null) {
+    fs.writeFileSync(path.join(dir, "scripts", "check-live-site.cjs"), state.liveSiteCjs);
   }
   const quiet = { stdio: ["ignore", "ignore", "ignore"] };
   execFileSync("git", ["init", "-q"], { cwd: dir, ...quiet });
@@ -426,6 +461,18 @@ const MUT = {
       "  - package-ecosystem: \"npm\"\n    directory: \"/scripts\"\n"
     );
   },
+  /** 线上核查脚本引入第三方依赖 ⇒ DP13（那个 job 里没有 node_modules ⇒ 核查会崩）。 */
+  liveScriptThirdParty: (s) => {
+    s.liveSiteCjs = `const cheerio = require("cheerio");\n${s.liveSiteCjs}`;
+  },
+  /** 站点数据文件引入第三方依赖 ⇒ DP13（`node -e` 那一步就会崩）。 */
+  siteJsThirdParty: (s) => {
+    s.siteJs = `const jsdom = require("jsdom");\n${s.siteJs}`;
+  },
+  /** require 的参数不是字面量 ⇒ DP13（判不了 ⇒ 必须当成「可能有」来报）。 */
+  liveScriptDynamicRequire: (s) => {
+    s.liveSiteCjs = `const name = "fs";\nconst mod = require(name);\n${s.liveSiteCjs}`;
+  },
 };
 
 /** 注入档：expect=null 表示期望判绿，否则期望判红且判据集合**恰为** expect。 */
@@ -460,6 +507,9 @@ const CASES = [
   { id: "N36", label: "dependabot 配置缺 github-actions 生态", mutate: MUT.dependabotNoGithubActions, expect: ["DP12"] },
   { id: "N37", label: "dependabot 配置里 npm 那条没有 schedule", mutate: MUT.dependabotNoSchedule, expect: ["DP12"] },
   { id: "N39", label: "dependabot 配置里 npm 那条的 directory 写错", mutate: MUT.dependabotWrongDirectory, expect: ["DP12"] },
+  { id: "N40", label: "线上核查脚本引入第三方依赖（那个 job 里没有 node_modules）", mutate: MUT.liveScriptThirdParty, expect: ["DP13"] },
+  { id: "N42", label: "站点数据文件引入第三方依赖（node -e 那一步就会崩）", mutate: MUT.siteJsThirdParty, expect: ["DP13"] },
+  { id: "N43", label: "require 的参数不是字面量（判不了 ⇒ 必须当成可能有）", mutate: MUT.liveScriptDynamicRequire, expect: ["DP13"] },
 ];
 
 /* ========== 四、判据级负对照 ========== */
@@ -475,6 +525,7 @@ const NEG_CASES = [
   { id: "N32", crit: "DP10", case: "N28", label: "卸掉 DP10" },
   { id: "N33", crit: "DP11", case: "N29", label: "卸掉 DP11" },
   { id: "N38", crit: "DP12", case: "N34", label: "卸掉 DP12" },
+  { id: "N41", crit: "DP13", case: "N40", label: "卸掉 DP13" },
 ];
 
 /** 在门禁副本里卸掉某条判据：给它每一条 fail() 调用**同行**加 `if (false) ` 前缀。 */

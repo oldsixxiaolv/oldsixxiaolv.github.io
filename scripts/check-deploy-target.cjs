@@ -68,6 +68,19 @@
  *        ④ **每个生态的 `directory` 是不是 `/`**（清单在仓库根与 `.github/workflows`
  *           ⇒ 目录写错 ⇒ Dependabot 去别的目录找清单、找不到 ⇒ **一条都不跑**
  *           —— 与 ③ 同一种恒绿，2026-10-28 复核时补上）。
+ *   DP13 **CI 里「不装依赖就执行」的脚本，require 链必须零第三方依赖** ——
+ *      部署工作流的 `verify-live` job **没有 `npm ci` 步骤** ⇒ 那个 job 里
+ *      **没有 node_modules** ⇒ 它执行的脚本若 require 了一个第三方包，
+ *      会直接抛 "Cannot find module" ⇒ **部署后的线上核查整个跑不起来**
+ *      （站点已经发上去了，核查却崩了；而且红因是一句看不懂的模块缺失）。
+ *      本条扫的是「**没有 `npm ci` 的 job**」里的所有 node 调用
+ *      （脚本文件与 `node -e` 内联代码都算），静态顺着 require 图往下走：
+ *      只允许 **Node 内置模块** ＋ **仓内相对路径**。
+ *      ⚠️ **「判不了」与「没有」必须分开**：require 的参数不是字面量
+ *      （`require(name)`）⇒ 静态判不出来 ⇒ **判红**，不假装判过。
+ *      ⚠️ 块标量（`run: |`）必须一起读：部署工作流里「等站点起来」那一步
+ *      就是块标量 ⇒ 只看 `run:` 那一行会把它的内容整段漏掉（漏掉 ⇒ 那个 job
+ *      看起来「没有 node 调用」⇒ 判据空转）。
  *
  * ⚠️ 为什么只扫 README.md 与 docs/DEPLOY.md（**历史记录不扫**）：
  *   docs/IMPROVEMENT-LOG.md、docs/DEFECT-BACKLOG.md、docs/ROADMAP.md 是**历史记录** ——
@@ -91,6 +104,10 @@
  *   · DP12 是**静态**的：它只确认「那份配置在、且覆盖了这两个生态」——
  *     **不能**确认 GitHub 侧 Dependabot 真的开着、也不会确认 PR 真的被开出来
  *     （这一格要真正确认，得去 GitHub 的 Dependabot 页面看有没有提过 PR）。
+ *   · DP13 是**静态**的：它判的是「require 链里有没有第三方包」。
+ *     它**不执行**那些脚本 ⇒ 「实际在 CI 里跑起来会不会崩」这一格它证不了；
+ *     它能证的是「在那个 job 里没有 node_modules 的前提下，这些脚本**不可能**
+ *     需要第三方包」—— 需要 ⇒ 必然崩。
  *
  * 环境变量（供 scripts/test-deploy-target.cjs 的注入矩阵用）：
  *   DPT_ROOT —— 覆盖仓库根（发布命令、远端、部署工作流都从这里找）。
@@ -975,6 +992,208 @@ function parseDependabot(text) {
   }
 }
 
+/* ---------------- DP13：CI 里「不装依赖就执行」的脚本必须零第三方依赖 ---------------- */
+
+/**
+ * 工作流里每个 job 的 `run:` 步骤。
+ * ⚠️ **必须处理 YAML 的块标量**（`run: |`）：部署工作流里
+ *   「等站点起来」那一步就是块标量 ⇒ 只看 `run:` 那一行会把它的内容整段漏掉
+ *   （漏掉 ⇒ 那个 job 看起来「没有 node 调用」⇒ 判据空转）。
+ */
+function workflowRunSteps(text) {
+  const lines = text.split("\n");
+  const indentOf = (l) => (l.match(/^\s*/) || [""])[0].length;
+  const jobsIdx = lines.findIndex((l) => /^jobs[ \t]*:/.test(l));
+  if (jobsIdx < 0) return [];
+  const base = indentOf(lines[jobsIdx]);
+  const steps = [];
+  let job = null;
+  for (let i = jobsIdx + 1; i < lines.length; i++) {
+    const line = lines[i];
+    if (!line.trim()) continue;
+    const ind = indentOf(line);
+    if (ind <= base) break; // 出了 jobs 段
+    if (ind === base + 2) {
+      const m = /^[ \t]+([A-Za-z0-9_-]+)[ \t]*:/.exec(line);
+      if (m) {
+        job = m[1];
+        continue;
+      }
+    }
+    const rm = /^[ \t]*run:[ \t]*([|>][-+]?)?[ \t]*(.*)$/.exec(line);
+    if (!rm || !job) continue;
+    let cmd = rm[2] || "";
+    if (rm[1]) {
+      /* 块标量：收集后续缩进更大的行直到出块 */
+      const body = [];
+      for (let j = i + 1; j < lines.length; j++) {
+        const bl = lines[j];
+        if (!bl.trim()) {
+          body.push("");
+          continue;
+        }
+        if (indentOf(bl) <= ind) break;
+        body.push(bl.trim());
+      }
+      cmd = body.join("\n");
+    }
+    steps.push({ job, lineNo: i + 1, cmd });
+  }
+  return steps;
+}
+
+/** 一条 run 命令里会执行的 node：脚本文件与内联代码。 */
+function nodeInvocations(cmd) {
+  const out = [];
+  for (const m of cmd.matchAll(/(?:^|[\s;&|(`])node\s+([^\s;&|`)]+)/g)) {
+    if (m[1].startsWith("-")) continue; // -e / --version 之类
+    out.push({ kind: "file", path: m[1] });
+  }
+  for (const m of cmd.matchAll(/node\s+-e\s+(['"])([\s\S]*?)\1/g)) {
+    out.push({ kind: "inline", code: m[2] });
+  }
+  return out;
+}
+
+/** Node 内置模块名单（权威来源是运行时自己，不是手抄的清单）。 */
+const NODE_BUILTINS = new Set(require("module").builtinModules.map((m) => m.replace(/^node:/, "")));
+
+/**
+ * 静态解析一个仓内文件的 require 图。
+ * 返回 { thirdParty: [{ spec, from }], unresolvable: [{ expr, from }] }。
+ *
+ * ⚠️ **能解析的形态只有两种**（其余一律记进 unresolvable ⇒ 判红）：
+ *   ① `require("字面量")`；
+ *   ② `require(path.join(ROOT, "字面量"))` —— 本仓 `check-live-site.cjs` 就是这种。
+ * ⚠️ 「判不了」与「没有」必须分开 ⇒ 解析不了的**不许**当成"没有第三方依赖"。
+ */
+function requireGraph(root, startFile) {
+  const thirdParty = [];
+  const unresolvable = [];
+  const seen = new Set();
+  const rel = (f) => path.relative(root, f) || path.basename(f);
+
+  const visit = (abs) => {
+    if (seen.has(abs)) return;
+    seen.add(abs);
+    if (!fs.existsSync(abs)) {
+      unresolvable.push({ expr: rel(abs), from: rel(abs) });
+      return;
+    }
+    const src = fs.readFileSync(abs, "utf8");
+    const total = (src.match(/require\s*\(/g) || []).length;
+    let resolved = 0;
+
+    const specs = [];
+    for (const m of src.matchAll(/require\(\s*["']([^"']+)["']\s*\)/g)) {
+      specs.push({ spec: m[1], base: "file" });
+    }
+    for (const m of src.matchAll(
+      /require\(\s*path\.join\(\s*ROOT\s*,\s*["']([^"']+)["']\s*\)\s*\)/g
+    )) {
+      /* `path.join(ROOT, …)` 是**相对仓库根**的，不是相对当前文件 ⇒ base 不同。 */
+      specs.push({ spec: "./" + m[1], base: "root" });
+    }
+    resolved = specs.length;
+
+    for (const { spec, base } of specs) {
+      const bare = spec.replace(/^node:/, "");
+      if (NODE_BUILTINS.has(bare)) continue;
+      if (spec.startsWith(".")) {
+        const from = base === "root" ? root : path.dirname(abs);
+        visit(path.resolve(from, spec));
+        continue;
+      }
+      thirdParty.push({ spec, from: rel(abs) });
+    }
+    if (total > resolved) {
+      unresolvable.push({
+        expr: "有一个 require 的参数不是字面量",
+        from: rel(abs),
+      });
+    }
+  };
+
+  visit(path.resolve(root, startFile));
+  return { thirdParty, unresolvable };
+}
+
+/* ---------------- DP13：不装依赖就执行的脚本，require 链必须零第三方依赖 ---------------- */
+
+/** DP13 查到的「没有 npm ci 的 job 里执行的 node 脚本」（供汇总文案用）。 */
+let dp13Checked = [];
+
+if (wfText !== null) {
+  const runSteps = workflowRunSteps(wfText);
+  const jobsWithInstall = new Set(
+    runSteps.filter((s) => /\bnpm\s+ci\b/.test(s.cmd)).map((s) => s.job)
+  );
+
+  /* 收集「没有 `npm ci` 的 job」里会执行的 node 脚本。 */
+  const noInstallTargets = [];
+  for (const s of runSteps) {
+    if (jobsWithInstall.has(s.job)) continue;
+    for (const inv of nodeInvocations(s.cmd)) {
+      if (inv.kind === "file") {
+        noInstallTargets.push({
+          job: s.job,
+          lineNo: s.lineNo,
+          label: inv.path,
+          file: inv.path,
+        });
+      } else {
+        /* 内联代码里的 require：相对路径按**仓库根**解（node -e 的 cwd 就是仓库根）。 */
+        for (const m of inv.code.matchAll(/require\(\s*["']([^"']+)["']\s*\)/g)) {
+          noInstallTargets.push({
+            job: s.job,
+            lineNo: s.lineNo,
+            label: `node -e 里的 require("${m[1]}")`,
+            file: m[1].startsWith(".") ? m[1] : null,
+            spec: m[1],
+          });
+        }
+      }
+    }
+  }
+
+  const dp13ThirdParty = [];
+  const dp13Unknown = [];
+  for (const t of noInstallTargets) {
+    dp13Checked.push(`${t.label}（${t.job} job）`);
+    if (t.spec && !t.spec.startsWith(".")) {
+      const bare = t.spec.replace(/^node:/, "");
+      if (!NODE_BUILTINS.has(bare)) {
+        dp13ThirdParty.push({ spec: t.spec, from: `${t.label}（${t.job} job 第 ${t.lineNo} 行）` });
+      }
+      continue;
+    }
+    const g = requireGraph(ROOT, t.file);
+    for (const x of g.thirdParty) {
+      dp13ThirdParty.push({ spec: x.spec, from: `${x.from}（经 ${t.label}）` });
+    }
+    for (const x of g.unresolvable) {
+      dp13Unknown.push({ expr: x.expr, from: `${x.from}（经 ${t.label}）` });
+    }
+  }
+
+  if (dp13ThirdParty.length) {
+    fail(
+      `DP13 有 ${dp13ThirdParty.length} 处第三方依赖出现在**没有 \`npm ci\` 的 job** 里跑的脚本上：` +
+        dp13ThirdParty.map((x) => `「${x.spec}」（${x.from}）`).join("、") +
+        ` —— 那个 job 里**没有 node_modules** ⇒ 这条 require 会直接抛 ` +
+        `"Cannot find module" ⇒ 部署后的线上核查**整个跑不起来**（站点已经发上去了，核查却崩了）。`
+    );
+  }
+  if (dp13Unknown.length) {
+    fail(
+      `DP13 有 ${dp13Unknown.length} 处 require 的参数不是字面量，无法静态判定它是不是第三方依赖：` +
+        dp13Unknown.map((x) => `（${x.from}：${x.expr}）`).join("、") +
+        ` —— **「判不了」不等于「没有」** ⇒ 那个 job 里没有 node_modules，` +
+        `静态判不出来就必须当成「可能有」来报。`
+    );
+  }
+}
+
 /* ---------------- 汇总 ---------------- */
 if (problems.length) {
   console.error("发布落点门禁未通过：\n");
@@ -1023,3 +1242,8 @@ if (dbSummary) {
       `—— 钉住的 SHA 有人替它往前推（告警通道在 SHA 钉法下会静默，靠版本更新这条通道补）。`
   );
 }
+console.log(
+  `  · 没有 \`npm ci\` 的 job 里执行的 node 脚本共 ${dp13Checked.length} 个` +
+    (dp13Checked.length ? `（${dp13Checked.join("、")}）` : "") +
+    `—— 那些 job 里没有 node_modules ⇒ 它们的 require 链必须只含内置模块与仓内相对路径。`
+);
