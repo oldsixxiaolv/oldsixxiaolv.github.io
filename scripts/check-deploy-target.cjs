@@ -92,15 +92,25 @@
  *      `# generated-at: <ISO>`（每次构建都不同，由 eleventy.config.js 的
  *      buildStamp filter 在**构建那一刻**生成）⇒ 线上 robots.txt 的这一行
  *      与产物一致 ⇒ **线上跑的就是这次部署的内容**。
- *      三个子判据各自一条红因：
+ *      五个子判据各自一条红因：
  *        ① **放行条件必须是「构建标记相等」** —— 等待步骤的 run 块里必须
- *           同时出现 `generated-at`（标记键）、`_site/robots.txt`（产物侧）
- *           与**两次以上** `robots.txt`（产物侧 + 线上侧都要取）；
+ *           同时出现 `generated-at`（标记键）、`_site/robots.txt`（产物侧），
+ *           **且必须有一侧不是从产物取的**（⚠️ 独立复核抓到的**高危假绿**：
+ *           只比较「产物 vs 产物」的恒等式**根本不去线上取**，却能骗过
+ *           前两条 ⇒ 等待步骤看着在等、其实没等）；
  *        ② **收尾必须判红退出** —— 等待步骤的**最后一条非空命令**必须是
  *           `exit 1` ⇒ 它的结局只有两种：标记相等（成功）或预算耗尽（失败）。
  *           ⚠️ 不得静默继续：静默继续 ⇒ 旧站点的路由与 canonical 恰好一致时，
  *           核查门禁会**全绿** ⇒ 「这次部署没生效」变成**假绿**；
- *        ③ **等待步骤必须在核查步骤之前** —— 顺序反了 ⇒ 核查照样跑在旧内容上。
+ *           ⚠️ **成功出口也必须存在**（只有 `exit 1` ⇒ 每次都走满等待预算才判红
+ *           ⇒ 「部署没生效」这个结论会被脚本自身的错误伪装出来）；
+ *        ③ **等待步骤必须在核查步骤之前** —— 顺序反了 ⇒ 核查照样跑在旧内容上；
+ *        ④ **核查 job 里必须真的跑 `check-live-site.cjs`**（豁免登记里写着它是
+ *           唯一自动调用点，而那只是一段理由文字 ⇒ 删掉那一步没有任何门禁会发现
+ *           ⇒ 部署后的线上核查**静默停摆**）；
+ *        ⑤ **等待步骤与核查步骤必须无条件执行、且失败不能被吞** —— 带 `if:`
+ *           ⇒ 这一步可能**永远不执行**；带 `continue-on-error: true` ⇒ 它**失败
+ *           也不会让 job 失败** ⇒ 两格都名存实亡（正是「把报警通道弄静默」那一族）。
  *      ⚠️ DP14 是**静态**的：它判的是「等待步骤的写法对不对」，
  *        **不能**证明 CDN 那一刻真的切过去了（那一格由 CI 实跑给出结论）。
  *
@@ -1021,6 +1031,12 @@ function parseDependabot(text) {
  * ⚠️ **必须处理 YAML 的块标量**（`run: |`）：部署工作流里
  *   「等站点起来」那一步就是块标量 ⇒ 只看 `run:` 那一行会把它的内容整段漏掉
  *   （漏掉 ⇒ 那个 job 看起来「没有 node 调用」⇒ 判据空转）。
+ *
+ * ⚠️ 每一步还带出两个**决定「它会不会跑、失败了算不算数」**的键：
+ *   `if:`（条件）与 `continue-on-error:`（吞不吞失败）。
+ *   独立复核抓到的高危假绿就靠它们现形：一个带 `if: false` 的核查步骤
+ *   **永远不执行**，而门禁若只认「这一步的 run 里提到了那个脚本」⇒ 判绿。
+ *   ⇒ 这两个键必须**按步骤块**归属（不能扫整份工作流，否则别处的 `if:` 连坐）。
  */
 function workflowRunSteps(text) {
   const lines = text.split("\n");
@@ -1030,6 +1046,23 @@ function workflowRunSteps(text) {
   const base = indentOf(lines[jobsIdx]);
   const steps = [];
   let job = null;
+  /* 步骤标记（`- name:` / `- uses:` / `- run:` 那一行的 `-`）。 */
+  const STEP_MARK_RE = /^[ \t]*-[ \t]/;
+  /** 一个步骤块（[from, to)）里的 `if:` 与 `continue-on-error:`。 */
+  const stepGuardOf = (from, to) => {
+    let ifCond = null;
+    let continueOnError = null;
+    for (let k = from; k < to; k++) {
+      const mIf = /^[ \t]*if:[ \t]*(.*)$/.exec(lines[k]);
+      if (mIf) {
+        ifCond = (ifCond === null ? "" : ifCond + " ") + mIf[1].trim();
+        continue;
+      }
+      const mCo = /^[ \t]*continue-on-error:[ \t]*(.*)$/.exec(lines[k]);
+      if (mCo) continueOnError = mCo[1].trim().toLowerCase();
+    }
+    return { ifCond, continueOnError };
+  };
   for (let i = jobsIdx + 1; i < lines.length; i++) {
     const line = lines[i];
     if (!line.trim()) continue;
@@ -1045,10 +1078,13 @@ function workflowRunSteps(text) {
     const rm = /^[ \t]*run:[ \t]*([|>][-+]?)?[ \t]*(.*)$/.exec(line);
     if (!rm || !job) continue;
     let cmd = rm[2] || "";
+    /* 这一步的 `run:` 块结束于哪一行（块标量才有；单行就是它自己）。 */
+    let end = i;
     if (rm[1]) {
       /* 块标量：收集后续缩进更大的行直到出块 */
       const body = [];
-      for (let j = i + 1; j < lines.length; j++) {
+      let j = i + 1;
+      for (; j < lines.length; j++) {
         const bl = lines[j];
         if (!bl.trim()) {
           body.push("");
@@ -1058,8 +1094,21 @@ function workflowRunSteps(text) {
         body.push(bl.trim());
       }
       cmd = body.join("\n");
+      end = j - 1;
     }
-    steps.push({ job, lineNo: i + 1, cmd });
+    /* 步骤块的范围：从本步骤的 `- ` 标记，到下一个 `- ` 标记（或 job 末尾）。 */
+    let start = i;
+    while (start > jobsIdx && !STEP_MARK_RE.test(lines[start])) start--;
+    let stop = end + 1;
+    while (stop < lines.length && !STEP_MARK_RE.test(lines[stop])) stop++;
+    const g = stepGuardOf(start, stop);
+    steps.push({
+      job,
+      lineNo: i + 1,
+      cmd,
+      ifCond: g.ifCond,
+      continueOnError: g.continueOnError,
+    });
   }
   return steps;
 }
@@ -1234,13 +1283,18 @@ if (wfText !== null) {
   /* 「按构建标记放行」的等待步骤的判据：
    *   ① 出现 `generated-at`（构建标记的键）；
    *   ② 出现 `_site/robots.txt`（**产物侧**：标记要从本次部署的产物里取）；
-   *   ③ `robots.txt` 至少出现两次（**线上侧**也要取 —— 只出现一次就说明
-   *      只看了产物、没去线上取，判据就是空的）。
+   *   ③ **必须有一侧不是从产物取的** —— 去掉所有 `_site/robots.txt` 之后
+   *      还得剩下 `robots.txt`。
+   *      ⚠️ 这一条是补**独立复核抓到的那个高危假绿**的：前两条只数「字样」，
+   *      于是「产物 vs 产物」的恒等比较（`got=$(sed … _site/robots.txt)`，
+   *      **根本不去线上取**）也能骗过它们 ⇒ 等待步骤看着在等、其实没等。
    */
-  const isStampWait = (cmd) =>
-    cmd.includes("generated-at") &&
-    cmd.includes("_site/robots.txt") &&
-    (cmd.match(/robots\.txt/g) || []).length >= 2;
+  const isStampWait = (cmd) => {
+    if (!cmd.includes("generated-at")) return false;
+    if (!cmd.includes("_site/robots.txt")) return false;
+    const outsideArtifact = cmd.split("_site/robots.txt").join("");
+    return outsideArtifact.includes("robots.txt");
+  };
 
   const wait = checkJob
     ? runSteps.find((s) => s.job === checkJob && s !== checkStep && isStampWait(s.cmd)) || null
@@ -1260,6 +1314,34 @@ if (wfText !== null) {
     );
   } else {
     dp14CheckStep = checkStep;
+    /* ⚠️ **这两步的「会不会跑 / 失败算不算数」要独立判，且合成一条红因** ——
+     *   · 不能挂在「等待步骤已找到」那个分支里：等待步骤坏掉时，
+     *     这两条事实就跟着一起不报了（⇒ 报出来的原因不完整 ⇒ 排查要多绕一圈）。
+     *   · 独立复核抓到的高危假绿之二就落在这里：`if: false` 的核查步骤
+     *     **永远不执行**，而门禁若只认「run 里提到了那个脚本」⇒ 判绿。
+     *   · 两条事实各合成**一条**红因（自测框架要求「一个片段只认领一个调用点」）。 */
+    const guardIf = [];
+    const guardCo = [];
+    if (checkStep.ifCond !== null) guardIf.push(`核查步骤（${checkStep.ifCond}）`);
+    if (checkStep.continueOnError === "true") guardCo.push("核查步骤");
+    if (wait) {
+      if (wait.ifCond !== null) guardIf.push(`等待步骤（${wait.ifCond}）`);
+      if (wait.continueOnError === "true") guardCo.push("等待步骤");
+    }
+    if (guardIf.length) {
+      fail(
+        `DP14 有步骤带了一个 if: 条件（${guardIf.join("、")}）—— ` +
+          `它可能**永远不执行** ⇒ 「等这次部署的内容」与「跑线上核查」` +
+          `这两格都名存实亡 ⇒ 必须无条件执行。`
+      );
+    }
+    if (guardCo.length) {
+      fail(
+        `DP14 有步骤带了一个 continue-on-error: true（${guardCo.join("、")}）—— ` +
+          `它**失败也不会让 job 失败** ⇒ 这一格出问题时没人知道` +
+          `（核查崩了、等待超时了，都会被吞掉 ⇒ 报出来的是绿灯）。`
+      );
+    }
     if (!wait) {
       fail(
         `DP14 核查 job「${checkJob}」里没有按构建标记放行的等待步骤 —— ` +
@@ -1272,12 +1354,23 @@ if (wfText !== null) {
     } else {
       dp14WaitStep = wait;
       const lastLine = (wait.cmd.split("\n").filter((l) => l.trim()).pop() || "").trim();
-      if (!/^exit\s+1$/.test(lastLine)) {
+      /* ⚠️ 允许行尾注释（`exit 1 # 预算耗尽`）—— 独立复核实测过：
+       *   不允许的话，那**完全合法**的写法会被误判红（假红）。 */
+      if (!/^exit\s+1\b/.test(lastLine)) {
         fail(
           `DP14 等待步骤的收尾不是失败退出（最后一条命令是「${lastLine || "（空）"}」）—— ` +
             `这一步的结局应当只有两种：构建标记相等（成功）或等待预算耗尽（失败）。` +
             `**不得静默继续**：静默继续 ⇒ 旧站点的路由与 canonical 恰好一致时，` +
             `核查门禁会**全绿** ⇒ 「这次部署没生效」变成**假绿**（比假红更难发现）。`
+        );
+      }
+      /* ⚠️ **成功出口也必须存在**：只有 `exit 1` 的等待步骤 = 每次都超时
+       *   ⇒ CI 恒红（而且红因指向「部署没生效」，实际是脚本自己写错了）。 */
+      if (!/(^|[\s;&|])exit\s+0\b/.test(wait.cmd)) {
+        fail(
+          `DP14 等待步骤没有成功出口（整段里找不到 exit 0）—— ` +
+            `只有失败出口 ⇒ 每次部署都会走满等待预算才判红 ⇒ ` +
+            `「部署没生效」这个结论会被一个**脚本自身的错误**伪装出来。`
         );
       }
       if (checkStep && wait.lineNo > checkStep.lineNo) {

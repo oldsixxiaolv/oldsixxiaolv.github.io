@@ -66,6 +66,9 @@ const CAUSES = [
   { id: "DP14b", crit: "DP14", frag: "等待步骤的收尾不是失败退出" },
   { id: "DP14c", crit: "DP14", frag: "排在核查步骤" },
   { id: "DP14d", crit: "DP14", frag: "没有跑线上核查" },
+  { id: "DP14e", crit: "DP14", frag: "没有成功出口" },
+  { id: "DP14f", crit: "DP14", frag: "带了一个 if: 条件" },
+  { id: "DP14g", crit: "DP14", frag: "带了一个 continue-on-error" },
 ];
 /** 静态判据清单（门禁里应当且仅应当有这些判据）。 */
 const CRITERIA = [
@@ -547,6 +550,41 @@ const MUT = {
       ""
     );
   },
+  /**
+   * 等待步骤拿「产物 vs 产物」比（**根本不去线上取**）⇒ DP14a
+   * —— 独立复核抓到的**高危假绿**：恒等比较恒为真 ⇒ 看着在等、其实没等。
+   */
+  waitComparesArtifactToItself: (s) => {
+    s.workflow = replaceOnce(
+      s.workflow,
+      "          got=$(curl -s --max-time 15 \"$url/robots.txt\" | sed -n 's/^# generated-at: //p' | head -n 1 || true)",
+      "          got=$(sed -n 's/^# generated-at: //p' _site/robots.txt | head -n 1 || true)"
+    );
+  },
+  /** 等待步骤只有失败出口（没有 `exit 0`）⇒ DP14e（每次都走满预算才判红）。 */
+  waitNoSuccessExit: (s) => {
+    s.workflow = replaceOnce(
+      s.workflow,
+      "          if [ -n \"$got\" ] && [ \"$got\" = \"$want\" ]; then exit 0; fi\n",
+      ""
+    );
+  },
+  /** 核查步骤带 `if: false` ⇒ DP14f（这一步永远不执行 ⇒ 核查名存实亡）。 */
+  liveCheckNeverRuns: (s) => {
+    s.workflow = replaceOnce(
+      s.workflow,
+      "      - name: Check the live site against the deployed artifact\n        run: node scripts/check-live-site.cjs\n",
+      "      - name: Check the live site against the deployed artifact\n        if: false\n        run: node scripts/check-live-site.cjs\n"
+    );
+  },
+  /** 核查步骤带 `continue-on-error: true` ⇒ DP14g（它失败也不会让 job 失败）。 */
+  liveCheckSwallowsFailure: (s) => {
+    s.workflow = replaceOnce(
+      s.workflow,
+      "      - name: Check the live site against the deployed artifact\n        run: node scripts/check-live-site.cjs\n",
+      "      - name: Check the live site against the deployed artifact\n        continue-on-error: true\n        run: node scripts/check-live-site.cjs\n"
+    );
+  },
 };
 
 /** 注入档：expect=null 表示期望判绿，否则期望判红且判据集合**恰为** expect。 */
@@ -588,6 +626,10 @@ const CASES = [
   { id: "N45", label: "等待步骤的收尾不判红退出（静默继续 ⇒ 假绿）", mutate: MUT.waitStepSilentTimeout, expect: ["DP14"] },
   { id: "N46", label: "等待步骤排在核查步骤之后（顺序反了 ⇒ 等于没等）", mutate: MUT.waitStepAfterCheck, expect: ["DP14"] },
   { id: "N47", label: "核查步骤整个被删掉（线上核查静默停摆）", mutate: MUT.liveCheckRemoved, expect: ["DP14"] },
+  { id: "N49", label: "等待步骤拿产物跟产物比（不去线上取 ⇒ 恒等 ⇒ 假绿）", mutate: MUT.waitComparesArtifactToItself, expect: ["DP14"] },
+  { id: "N50", label: "等待步骤只有失败出口（没有 exit 0）", mutate: MUT.waitNoSuccessExit, expect: ["DP14"] },
+  { id: "N51", label: "核查步骤带 if: false（这一步永远不执行）", mutate: MUT.liveCheckNeverRuns, expect: ["DP14"] },
+  { id: "N52", label: "核查步骤带 continue-on-error: true（失败被吞）", mutate: MUT.liveCheckSwallowsFailure, expect: ["DP14"] },
 ];
 
 /* ========== 四、判据级负对照 ========== */
