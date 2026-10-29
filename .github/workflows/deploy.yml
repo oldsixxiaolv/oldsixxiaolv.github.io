@@ -190,8 +190,10 @@ jobs:
   verify-live:
     needs: deploy
     runs-on: ubuntu-latest
-    # 核查 job 同样要上限：它要等站点生效（最多 120s）再跑核查门禁。
-    timeout-minutes: 15
+    # 核查 job 同样要上限：它要**等这次部署的内容在 CDN 上生效**（最多 600s
+    # = 实测的 cache-control: max-age=600）再跑核查门禁。
+    # 20 分钟 = 600s 等待 + checkout/setup-node/下载产物/门禁本身的余量。
+    timeout-minutes: 20
     # 只读代码、只读线上站点 ⇒ 不需要任何写权限（D100）。
     permissions:
       contents: read
@@ -220,18 +222,51 @@ jobs:
             exit 1
           fi
 
-      # 部署完到域名真正生效有一段传播延迟。先等站点起来，再让门禁去判。
-      # 这里**不**自己判红：真红不真红由门禁给结论，这一步只负责"别在还没生效时去查"。
-      - name: Wait until the site responds
+      # 部署完到域名真正生效有一段传播延迟（Pages 走 CDN 边缘节点）。
+      # ⚠️ **等的是「这一次部署的内容」，不是「站点有响应」**（D124）。
+      #   原先这一步只探测 HTTP 状态码 ⇒ **旧部署也返回 200** ⇒ 循环第 1 次探测
+      #   就退出 ⇒ 它**根本没等到新版本生效** ⇒ 核查门禁拿**旧内容**与**新产物**
+      #   逐项比（L1 路由 / L2 canonical / L4 sitemap 路径集 / L6 feed）⇒
+      #   **一次完全健康的部署可能让 CI 变红**（假红）。
+      #   假红的代价不是"多报一次"，而是**训练人忽略 CI** ⇒ 整条门禁链失去价值。
+      #
+      # 怎么判「新版本已生效」：**比构建标记，不比状态码**。
+      #   产物 `_site/robots.txt` 有一行 `# generated-at: <ISO>` ——
+      #   每次构建都不同（eleventy.config.js 的 buildStamp filter 在构建那一刻生成）
+      #   ⇒ 线上 robots.txt 的这一行与产物一致 ⇒ **线上跑的就是这次部署的内容**。
+      #   ⚠️ 旧部署的 robots.txt 用的是**旧标签**（`# 生成时间：`）⇒ 取不到标记 ⇒
+      #      不等于产物 ⇒ 继续等（**这就是它能认出旧版本的原因**）。
+      #
+      # ⚠️ **等待预算为什么是 600 秒**（先量再改）：
+      #   实测线上响应头 `cache-control: max-age=600`（2026-10-29 场次）⇒
+      #   CDN 最长可能把**旧内容**留 10 分钟；而**查询串与 `Cache-Control: no-cache`
+      #   都绕不过它**（实测 age 继续上涨 ⇒ 仍是同一份缓存副本）⇒ 只能等。
+      #   ⇒ 预算取满这个 TTL（600s）⇒ 预算耗尽还没切过去，那就不是「再等等」的
+      #     问题，而是**这次部署真的没生效** ⇒ 判红退出（不得静默继续：
+      #     静默继续 ⇒ 旧站点的路由与 canonical 恰好一致时，核查门禁会**全绿**
+      #     ⇒ 「这次部署没生效」变成假绿）。
+      - name: Wait until the deployed build is live
         run: |
           url=$(node -e "console.log(require('./src/_data/site.js').url)")
-          for i in $(seq 1 12); do
-            code=$(curl -s -o /dev/null -w '%{http_code}' "$url/" || true)
-            if [ "$code" = "200" ]; then echo "站点已上线（第 $i 次探测，HTTP $code）"; exit 0; fi
-            echo "第 $i 次探测 HTTP $code，等 10s 再试"
-            sleep 10
+          want=$(grep -m1 '^# generated-at: ' _site/robots.txt | sed 's/^# generated-at: //')
+          if [ -z "$want" ]; then
+            echo "::error::产物 _site/robots.txt 里没有 '# generated-at:' 标记 —— 判不出线上是不是这次部署的内容（判据锚点丢了）"
+            exit 1
+          fi
+          deadline=$(( $(date +%s) + 600 ))
+          attempt=0
+          while [ "$(date +%s)" -lt "$deadline" ]; do
+            attempt=$((attempt + 1))
+            got=$(curl -s --max-time 15 "$url/robots.txt" | grep -m1 '^# generated-at: ' | sed 's/^# generated-at: //')
+            if [ -n "$got" ] && [ "$got" = "$want" ]; then
+              echo "线上已在跑这次部署的内容（构建标记 $want，第 $attempt 次探测）"
+              exit 0
+            fi
+            echo "第 $attempt 次探测：线上构建标记「${got:-取不到}」≠ 本次部署「$want」，等 15s 再试"
+            sleep 15
           done
-          echo "::warning::站点在 120s 内没有正常响应，仍继续跑核查门禁（判红与否由门禁给结论）"
+          echo "::error::线上在 600s 内没有切到这次部署的内容（线上构建标记「${got:-取不到}」/ 本次部署「$want」）—— 要么这次部署没生效，要么 CDN 还在发旧版（实测 cache-control: max-age=600，且查询串与 no-cache 请求头都绕不过它）"
+          exit 1
 
       - name: Check the live site against the deployed artifact
         run: node scripts/check-live-site.cjs

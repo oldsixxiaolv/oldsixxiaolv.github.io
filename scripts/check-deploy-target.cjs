@@ -81,6 +81,28 @@
  *      ⚠️ 块标量（`run: |`）必须一起读：部署工作流里「等站点起来」那一步
  *      就是块标量 ⇒ 只看 `run:` 那一行会把它的内容整段漏掉（漏掉 ⇒ 那个 job
  *      看起来「没有 node 调用」⇒ 判据空转）。
+ *   DP14 **「等站点起来」必须等的是「这次部署的内容」，不是「站点有响应」** ——
+ *      部署完到域名真正生效有一段传播延迟（Pages 走 CDN 边缘）。
+ *      ⚠️ **只探测 HTTP 状态码是不够的**：**旧部署也返回 200** ⇒ 等待循环
+ *      第 1 次探测就退出 ⇒ 它**根本没等到新版本生效** ⇒ 核查门禁拿**旧内容**
+ *      与**新产物**逐项比（L1 路由 / L2 canonical / L4 sitemap 路径集 / L6 feed）
+ *      ⇒ **一次完全健康的部署可能让 CI 变红**（假红）。
+ *      假红的代价不是「多报一次」，而是**训练人忽略 CI** ⇒ 整条门禁链失去价值。
+ *      ⇒ 判据锚在**构建标记**上：产物 `_site/robots.txt` 里有一行
+ *      `# generated-at: <ISO>`（每次构建都不同，由 eleventy.config.js 的
+ *      buildStamp filter 在**构建那一刻**生成）⇒ 线上 robots.txt 的这一行
+ *      与产物一致 ⇒ **线上跑的就是这次部署的内容**。
+ *      三个子判据各自一条红因：
+ *        ① **放行条件必须是「构建标记相等」** —— 等待步骤的 run 块里必须
+ *           同时出现 `generated-at`（标记键）、`_site/robots.txt`（产物侧）
+ *           与**两次以上** `robots.txt`（产物侧 + 线上侧都要取）；
+ *        ② **收尾必须判红退出** —— 等待步骤的**最后一条非空命令**必须是
+ *           `exit 1` ⇒ 它的结局只有两种：标记相等（成功）或预算耗尽（失败）。
+ *           ⚠️ 不得静默继续：静默继续 ⇒ 旧站点的路由与 canonical 恰好一致时，
+ *           核查门禁会**全绿** ⇒ 「这次部署没生效」变成**假绿**；
+ *        ③ **等待步骤必须在核查步骤之前** —— 顺序反了 ⇒ 核查照样跑在旧内容上。
+ *      ⚠️ DP14 是**静态**的：它判的是「等待步骤的写法对不对」，
+ *        **不能**证明 CDN 那一刻真的切过去了（那一格由 CI 实跑给出结论）。
  *
  * ⚠️ 为什么只扫 README.md 与 docs/DEPLOY.md（**历史记录不扫**）：
  *   docs/IMPROVEMENT-LOG.md、docs/DEFECT-BACKLOG.md、docs/ROADMAP.md 是**历史记录** ——
@@ -1194,6 +1216,81 @@ if (wfText !== null) {
   }
 }
 
+/* ---------------- DP14：「等站点起来」必须等的是这次部署的内容 ---------------- */
+
+/** DP14 查到的两个步骤（供汇总文案用）。 */
+let dp14WaitStep = null;
+let dp14CheckStep = null;
+
+if (wfText !== null) {
+  const runSteps = workflowRunSteps(wfText);
+  const jobList = workflowJobs(wfText);
+
+  /* 跑线上核查的那一步 —— 它的 job 就是「核查 job」。 */
+  const checkSteps = runSteps.filter((s) => /check-live-site\.cjs/.test(s.cmd));
+  const checkStep = checkSteps.length ? checkSteps[0] : null;
+  const checkJob = checkStep ? checkStep.job : null;
+
+  /* 「按构建标记放行」的等待步骤的判据：
+   *   ① 出现 `generated-at`（构建标记的键）；
+   *   ② 出现 `_site/robots.txt`（**产物侧**：标记要从本次部署的产物里取）；
+   *   ③ `robots.txt` 至少出现两次（**线上侧**也要取 —— 只出现一次就说明
+   *      只看了产物、没去线上取，判据就是空的）。
+   */
+  const isStampWait = (cmd) =>
+    cmd.includes("generated-at") &&
+    cmd.includes("_site/robots.txt") &&
+    (cmd.match(/robots\.txt/g) || []).length >= 2;
+
+  const wait = checkJob
+    ? runSteps.find((s) => s.job === checkJob && s !== checkStep && isStampWait(s.cmd)) || null
+    : null;
+
+  if (jobList.length === 0) {
+    /* ⚠️ **前提不在场 ⇒ 本条不判**（不是判绿，也不是判红）：
+     *   工作流里一个 job 都没有 ⇒「核查 job」这一格**根本不存在**，
+     *   「线上核查有没有被调用」这件事**判不了** ⇒ 那是 **DP9b**（读不到任何 job）
+     *   负责的事。**「判不了」与「没有」必须分开。** */
+  } else if (!checkJob) {
+    fail(
+      `DP14 部署工作流里没有跑线上核查（check-live-site.cjs）的那一步 —— ` +
+        `「部署后的线上核查」这一格**没人负责**了：豁免登记里写着它的唯一自动调用点` +
+        `是 verify-live job，而把这一步删掉**没有任何门禁会发现** ⇒ 核查静默停摆` +
+        `（本地门禁只查本地产物 ⇒ 「线上对不对」又变成没人看的事）。`
+    );
+  } else {
+    dp14CheckStep = checkStep;
+    if (!wait) {
+      fail(
+        `DP14 核查 job「${checkJob}」里没有按构建标记放行的等待步骤 —— ` +
+          `只探测 HTTP 状态码是不够的：**旧部署也返回 200** ⇒ 等待循环第 1 次探测就退出` +
+          `⇒ 它等到的不是「这次部署的内容」而是「站点还在」⇒ 核查门禁拿**旧内容**与` +
+          `**新产物**逐项比 ⇒ **一次完全健康的部署可能让 CI 变红**（假红）。` +
+          `判据锚在构建标记上：产物 _site/robots.txt 的 \`# generated-at:\` 行` +
+          `（每次构建都不同）＝线上 robots.txt 的同一行 ⇒ 线上跑的就是这次部署的内容。`
+      );
+    } else {
+      dp14WaitStep = wait;
+      const lastLine = (wait.cmd.split("\n").filter((l) => l.trim()).pop() || "").trim();
+      if (!/^exit\s+1$/.test(lastLine)) {
+        fail(
+          `DP14 等待步骤的收尾不是失败退出（最后一条命令是「${lastLine || "（空）"}」）—— ` +
+            `这一步的结局应当只有两种：构建标记相等（成功）或等待预算耗尽（失败）。` +
+            `**不得静默继续**：静默继续 ⇒ 旧站点的路由与 canonical 恰好一致时，` +
+            `核查门禁会**全绿** ⇒ 「这次部署没生效」变成**假绿**（比假红更难发现）。`
+        );
+      }
+      if (checkStep && wait.lineNo > checkStep.lineNo) {
+        fail(
+          `DP14 等待步骤排在核查步骤**之后**（等待在第 ${wait.lineNo} 行、` +
+            `核查在第 ${checkStep.lineNo} 行）—— 顺序反了 ⇒ 核查照样跑在旧内容上` +
+            `⇒ 等于没等。`
+        );
+      }
+    }
+  }
+}
+
 /* ---------------- 汇总 ---------------- */
 if (problems.length) {
   console.error("发布落点门禁未通过：\n");
@@ -1247,3 +1344,11 @@ console.log(
     (dp13Checked.length ? `（${dp13Checked.join("、")}）` : "") +
     `—— 那些 job 里没有 node_modules ⇒ 它们的 require 链必须只含内置模块与仓内相对路径。`
 );
+if (dp14WaitStep && dp14CheckStep) {
+  console.log(
+    `  · 部署后的线上核查跑在**这次部署的内容**上：` +
+      `等待步骤按**构建标记**放行（第 ${dp14WaitStep.lineNo} 行）→ ` +
+      `核查步骤在它之后（第 ${dp14CheckStep.lineNo} 行，${dp14CheckStep.job} job）` +
+      `—— 只等 HTTP 200 是不够的（旧部署也返回 200 ⇒ 等到的是旧版本）。`
+  );
+}

@@ -62,11 +62,15 @@ const CAUSES = [
   { id: "DP12e", crit: "DP12", frag: "的 directory 不是 /" },
   { id: "DP13a", crit: "DP13", frag: "第三方依赖出现在" },
   { id: "DP13b", crit: "DP13", frag: "无法静态判定它是不是第三方依赖" },
+  { id: "DP14a", crit: "DP14", frag: "没有按构建标记放行的等待步骤" },
+  { id: "DP14b", crit: "DP14", frag: "等待步骤的收尾不是失败退出" },
+  { id: "DP14c", crit: "DP14", frag: "排在核查步骤" },
+  { id: "DP14d", crit: "DP14", frag: "没有跑线上核查" },
 ];
 /** 静态判据清单（门禁里应当且仅应当有这些判据）。 */
 const CRITERIA = [
   "DP1", "DP2", "DP3", "DP4", "DP5", "DP6", "DP7", "DP8", "DP9", "DP10", "DP11",
-  "DP12", "DP13",
+  "DP12", "DP13", "DP14",
 ];
 
 /* ========== 工具 ========== */
@@ -184,14 +188,18 @@ const WORKFLOW_YML = [
   "",
   "  verify-live:",
   "    runs-on: ubuntu-latest",
-  "    timeout-minutes: 15",
+  "    timeout-minutes: 20",
   "    permissions:",
   "      contents: read",
   "    steps:",
-  "      - name: Wait until the site responds",
+  "      - name: Wait until the deployed build is live",
   "        run: |",
   "          url=$(node -e \"console.log(require('./src/_data/site.js').url)\")",
-  "          echo \"$url\"",
+  "          want=$(grep -m1 '^# generated-at: ' _site/robots.txt | sed 's/^# generated-at: //')",
+  "          got=$(curl -s --max-time 15 \"$url/robots.txt\" | grep -m1 '^# generated-at: ' | sed 's/^# generated-at: //')",
+  "          if [ -n \"$got\" ] && [ \"$got\" = \"$want\" ]; then exit 0; fi",
+  "          echo \"::error::线上在 600s 内没有切到这次部署的内容\"",
+  "          exit 1",
   "      - name: Check the live site against the deployed artifact",
   "        run: node scripts/check-live-site.cjs",
   "",
@@ -473,6 +481,72 @@ const MUT = {
   liveScriptDynamicRequire: (s) => {
     s.liveSiteCjs = `const name = "fs";\nconst mod = require(name);\n${s.liveSiteCjs}`;
   },
+  /**
+   * 等待步骤改成「只探测 HTTP 状态码」⇒ DP14a
+   * （旧部署也返回 200 ⇒ 等到的是旧版本，不是这次部署的内容）。
+   * ⚠️ 这一档**保留**收尾的 `exit 1` ⇒ 只触发 DP14a，红因归属才纯净。
+   */
+  waitStepStatusOnly: (s) => {
+    s.workflow = replaceOnce(
+      s.workflow,
+      "      - name: Wait until the deployed build is live\n",
+      "      - name: Wait until the site responds\n"
+    );
+    s.workflow = replaceOnce(
+      s.workflow,
+      "          want=$(grep -m1 '^# generated-at: ' _site/robots.txt | sed 's/^# generated-at: //')\n",
+      ""
+    );
+    s.workflow = replaceOnce(
+      s.workflow,
+      "          got=$(curl -s --max-time 15 \"$url/robots.txt\" | grep -m1 '^# generated-at: ' | sed 's/^# generated-at: //')\n",
+      "          code=$(curl -s -o /dev/null -w '%{http_code}' \"$url/\" || true)\n"
+    );
+    s.workflow = replaceOnce(
+      s.workflow,
+      "          if [ -n \"$got\" ] && [ \"$got\" = \"$want\" ]; then exit 0; fi\n",
+      "          if [ \"$code\" = \"200\" ]; then exit 0; fi\n"
+    );
+  },
+  /**
+   * 等待步骤的收尾不判红退出 ⇒ DP14b
+   * （静默继续 ⇒ 旧站点的路由与 canonical 恰好一致时，核查门禁会全绿 ⇒ 假绿）。
+   */
+  waitStepSilentTimeout: (s) => {
+    s.workflow = replaceOnce(
+      s.workflow,
+      "          echo \"::error::线上在 600s 内没有切到这次部署的内容\"\n          exit 1\n",
+      "          echo \"::warning::线上在 600s 内没有切到这次部署的内容\"\n"
+    );
+  },
+  /** 等待步骤被挪到核查步骤**之后** ⇒ DP14c（顺序反了 ⇒ 等于没等）。 */
+  waitStepAfterCheck: (s) => {
+    const waitStep = [
+      "      - name: Wait until the deployed build is live",
+      "        run: |",
+      "          url=$(node -e \"console.log(require('./src/_data/site.js').url)\")",
+      "          want=$(grep -m1 '^# generated-at: ' _site/robots.txt | sed 's/^# generated-at: //')",
+      "          got=$(curl -s --max-time 15 \"$url/robots.txt\" | grep -m1 '^# generated-at: ' | sed 's/^# generated-at: //')",
+      "          if [ -n \"$got\" ] && [ \"$got\" = \"$want\" ]; then exit 0; fi",
+      "          echo \"::error::线上在 600s 内没有切到这次部署的内容\"",
+      "          exit 1",
+      "",
+    ].join("\n");
+    s.workflow = replaceOnce(s.workflow, waitStep, "");
+    s.workflow = replaceOnce(
+      s.workflow,
+      "      - name: Check the live site against the deployed artifact\n        run: node scripts/check-live-site.cjs\n",
+      "      - name: Check the live site against the deployed artifact\n        run: node scripts/check-live-site.cjs\n" + waitStep
+    );
+  },
+  /** 核查步骤整个被删掉 ⇒ DP14d（线上核查静默停摆，没有任何门禁会发现）。 */
+  liveCheckRemoved: (s) => {
+    s.workflow = replaceOnce(
+      s.workflow,
+      "      - name: Check the live site against the deployed artifact\n        run: node scripts/check-live-site.cjs\n",
+      ""
+    );
+  },
 };
 
 /** 注入档：expect=null 表示期望判绿，否则期望判红且判据集合**恰为** expect。 */
@@ -510,6 +584,10 @@ const CASES = [
   { id: "N40", label: "线上核查脚本引入第三方依赖（那个 job 里没有 node_modules）", mutate: MUT.liveScriptThirdParty, expect: ["DP13"] },
   { id: "N42", label: "站点数据文件引入第三方依赖（node -e 那一步就会崩）", mutate: MUT.siteJsThirdParty, expect: ["DP13"] },
   { id: "N43", label: "require 的参数不是字面量（判不了 ⇒ 必须当成可能有）", mutate: MUT.liveScriptDynamicRequire, expect: ["DP13"] },
+  { id: "N44", label: "等待步骤只探测 HTTP 状态码（旧部署也 200 ⇒ 等到的是旧版本）", mutate: MUT.waitStepStatusOnly, expect: ["DP14"] },
+  { id: "N45", label: "等待步骤的收尾不判红退出（静默继续 ⇒ 假绿）", mutate: MUT.waitStepSilentTimeout, expect: ["DP14"] },
+  { id: "N46", label: "等待步骤排在核查步骤之后（顺序反了 ⇒ 等于没等）", mutate: MUT.waitStepAfterCheck, expect: ["DP14"] },
+  { id: "N47", label: "核查步骤整个被删掉（线上核查静默停摆）", mutate: MUT.liveCheckRemoved, expect: ["DP14"] },
 ];
 
 /* ========== 四、判据级负对照 ========== */
@@ -526,6 +604,7 @@ const NEG_CASES = [
   { id: "N33", crit: "DP11", case: "N29", label: "卸掉 DP11" },
   { id: "N38", crit: "DP12", case: "N34", label: "卸掉 DP12" },
   { id: "N41", crit: "DP13", case: "N40", label: "卸掉 DP13" },
+  { id: "N48", crit: "DP14", case: "N44", label: "卸掉 DP14" },
 ];
 
 /** 在门禁副本里卸掉某条判据：给它每一条 fail() 调用**同行**加 `if (false) ` 前缀。 */
