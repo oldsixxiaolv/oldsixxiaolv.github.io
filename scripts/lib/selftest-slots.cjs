@@ -63,6 +63,10 @@ const SLOTS = {
     "AT0", "AT1", "AT2", "AT3", "AT4", "AT5", "AT6", "AT7",
     "AT8", "AT9", "AT10", "AT11", "AT12", "AT13", "AT14"
   ],
+  "test-artifact-hygiene.cjs": [
+    "HY0", "HY1", "HY2", "HY3", "HY4", "HY5", "HY6", "HY7",
+    "HY8", "HY9", "HY10", "HY11", "HY12"
+  ],
   "test-artifact-metadata.cjs": [
     "G0", "G1", "G2", "G3", "M1a", "M1b", "M2a", "M3a",
     "M3b", "M4a", "M5a", "M6a", "M7a", "M8a", "N-M1", "N-M2",
