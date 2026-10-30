@@ -40,6 +40,7 @@ src/content/blog/<slug>/cover.svg     ← 可选封面（同一目录）
 | `tags` | 追加集合名 `"blog"` |
 | `prev` / `next` | 按发布日期排的上一篇 / 下一篇（用于详情页底部的翻页条） |
 | `structuredType` | `BlogPosting` —— 这一族页面在结构化数据里自称的作品实体类型（2026-10-23 起） |
+| `eleventyExcludeFromCollections` | `draft` 为真值时为 `true`（草稿不进任何集合 ⇒ sitemap / feed / 列表页都看不到它），否则为 `false`（详见 §2.7） |
 
 ⇒ front matter 里**再写** `layout` / `permalink` 不是"更保险"，是**覆盖**它们，会把版式与 URL 弄坏。
 ⇒ `structuredType` 同理是**站点的事**（这一族页面的实体类型一样），不是每篇文章各写一遍的事；
@@ -253,6 +254,36 @@ cover: cover.svg          # ✅ 只写文件名，与 index.md 同目录
 **从不看 `src/blog.njk`** ⇒ 列表页这一族一度零看守。
 ⇒ 现在补上的只是**博客列表页这一族**；**其它单页模板**（`src/index.njk`、`src/about.njk` 等，
 它们的 `description` 走 `eleventyComputed`）**还没有被任何判据覆盖** —— 那是另一条待办。
+
+### 2.7 `draft`：标了它，这篇就不会被发布（但别当成保密手段）
+
+| 字段 | 必需 | 类型 | 模板怎么用 | 写错会怎样 |
+|---|---|---|---|---|
+| `draft` | 可选 | 布尔 `true` / `false` | 标了 `true` ⇒ **这篇不发布**：页面不写进 `_site/`、不进任何集合 ⇒ `sitemap.xml`、`feed.xml`、`/blog/` 列表页里都看不到它 | 写成别的类型（字符串 / 数字）⇒ **一律按草稿处理**（宁可少发）；写成 `false` 或不写 ⇒ 照常发布 |
+
+⚠️ **为什么单开一节**（2026-10-29 实测，不是假想）：
+**Eleventy 3 完全不认识 `draft` 这个字段**（上游源码里 `draft` 零命中，上游只认 `permalink: false`）
+⇒ 写 `draft: true` 原本**照常发布**：页面写进产物、正文进产物、`sitemap.xml` 2 处、
+`feed.xml` 2 处（**连标题都进了订阅源**）、`/blog/` 列表页 2 处 —— 全链**零提示**。
+⇒ 现在 `src/eleventy-draft.cjs` 把它接上了（三个内容目录各接两处：
+`permalink` 侧不写盘 ＋ `eleventyExcludeFromCollections` 侧不进集合）。
+⇒ 门禁 **DL1–DL3** 守着这个接线（见 `scripts/check-draft-leak.cjs`）。
+
+⚠️ **它挡得住什么、挡不住什么**（这一条比字段本身更重要）：
+- **挡得住**：被搜索引擎收录、进 RSS 订阅源、在 `/blog/` 列表页上出现、猜到 URL 直接访问。
+- **挡不住**：⚠️ **源码面** —— 本站**发布仓就是源码仓**，而它是 **PUBLIC**
+  ⇒ 草稿的**正文在 GitHub 上人人可读**（`src/content/blog/<slug>/index.md`），
+  **git 历史里更是删不掉**。
+  ⇒ **产物面抑制 ≠ 保密**。**真要保密，草稿就不能放进这个仓**（写在仓外）。
+
+⇒ **写文章时**：还没写完的稿子，**先写在仓外**（本地未跟踪目录，或另一个私有仓），
+等写好了再挪进来。要在仓内留一份草稿也可以 —— 它不会上线，但 GitHub 上看得到。
+
+⚠️ **`draft` 只管博客文章，管不到论文**：
+论文条目来自 `src/_data/site.js` 的 `publications`（**手写的数据常量**，不是集合），
+`feed.xml`、`publications.bib`、`publications.ris`、`/papers/` 列表页都从它取数据
+⇒ **一篇在 `site.js` 里登记的论文必然进这些出口**，与它有没有 `draft` 标记无关。
+⇒ 论文要撤下，改的是 `site.js` 里的登记（删条目 / 撤资源），**不是** front matter。
 
 ---
 
