@@ -131,6 +131,10 @@ const SLOTS = {
     "AUD0", "AUD1", "AUD2", "AUD3", "AUD4", "AUD5", "AUD6", "AUD7",
     "AUD8", "AUD9", "AUD10"
   ],
+  "test-draft-leak.cjs": [
+    "DL0", "DL1", "DL2", "DL3", "DL4", "DL5", "DL6", "DL7",
+    "DL8", "DL9"
+  ],
   "test-design-components.cjs": [
     "DCXR0", "DCXR1", "DCXR2", "DCXR3", "DCXR4", "DCXR5", "DCXR6", "DCXR7",
     "DCXR8", "DCXR9", "DCXR10", "DCXR11", "DCXR12", "DCXR13", "DCXR14",
