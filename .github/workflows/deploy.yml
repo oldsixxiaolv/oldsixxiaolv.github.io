@@ -192,6 +192,9 @@ jobs:
   #   比较基准取**刚部署上去的那份产物**（github-pages artifact），而不是本地重跑一遍
   #   —— 比"发出去的字节"与"在线上的字节"才是这道门禁真正要守的不变式。
   verify-live:
+    # ⚠️ **needs: deploy 是这条不变式的全部依托**（D130 起由发布落点门禁的 DP18 守着）：
+    #   核查必须跑在**这次部署之后** —— 挪到 build job 之前 ⇒ 等待步骤等满 600 秒才判红
+    #   ⇒ build job 失败 ⇒ deploy job 被跳过 ⇒ **站点从此不再更新**。
     needs: deploy
     runs-on: ubuntu-latest
     # 核查 job 同样要上限：它要**等这次部署的内容在 CDN 上生效**（最多 600s

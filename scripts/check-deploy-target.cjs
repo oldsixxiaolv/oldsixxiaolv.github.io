@@ -226,6 +226,26 @@
  *        ② **写法读不出来** —— `${{ ... }}` 之类静态判不出 ⇒ fail closed。
  *      ⚠️ **扫描面是 `.github/workflows/` 下的全部工作流**（与 DP6 / DP15 / DP16 同一口径）。
  *
+ *   DP18 **线上核查必须在依赖链上晚于执行部署的那个 job** ——
+ *      豁免登记（`scripts/check-gates-wired.cjs` 的 EXEMPT）里写明：
+ *      「它的正确位置是**部署之后**：deploy.yml 的 verify-live job（needs: deploy）
+ *      是唯一的自动调用点」—— 但那句话**此前没有任何门禁守着**。
+ *      ⚠️ **这一格此前零门禁覆盖**（2026-10-29 18:30 场次隔离探针实测坐实）：
+ *        把核查步骤（等待 + 核查）整体挪进 **build job** ⇒ 门禁**零红因、exit 0**，
+ *        而且它还**正向确认**「部署后的线上核查跑在这次部署的内容上」—— **一句假话**。
+ *        把 verify-live 的 `needs: deploy` 改成 `needs: build` ⇒ 同样零红因。
+ *      ⇒ 危害不是「多报一次」：核查挪到部署之前 ⇒ 等待步骤等满 600 秒才判红 ⇒
+ *        **build job 失败 ⇒ deploy job 被跳过 ⇒ 站点从此不再更新**；
+ *        而红因写的是「线上没切到这次部署的内容」⇒ **把工作流写错误报成 CDN 问题**。
+ *      判据：跑 `check-live-site.cjs` 的那个 job，其 `needs:`（直接或间接）必须包含
+ *      执行 Pages 部署的那个 job（认它靠步骤里用了 `actions/deploy-pages`，**不靠 job 名字** ——
+ *      与 DP16 同一口径，两处共用同一个识别函数）。
+ *      两条红因各自一条：
+ *        ① **needs 依赖链里没有执行部署的那个 job**（含「核查与部署挤在同一个 job 里」）；
+ *        ② **needs 依赖链读不出来** ⇒ fail closed（判不了 ≠ 没有）。
+ *      ⚠️ **前提不在场就不判**：认不出部署 job ⇒ DP16 报；认不出核查 job ⇒ DP14 报
+ *        —— **同一件事只让一条判据说话**。
+ *
  * ⚠️ 为什么只扫 README.md 与 docs/DEPLOY.md（**历史记录不扫**）：
  *   docs/IMPROVEMENT-LOG.md、docs/DEFECT-BACKLOG.md、docs/ROADMAP.md 是**历史记录** ——
  *   它们会**原样保留**当时的错误写法（缺陷条目里必须写着当时那条错的命令，
@@ -1465,6 +1485,15 @@ function workflowRunSteps(text) {
   return steps;
 }
 
+/**
+ * 跑线上核查的那一步（认它靠步骤的命令里出现了 check-live-site.cjs）。
+ * DP14 与 DP18 共用这一处识别 —— **同一件事只认一处**。
+ */
+function liveCheckStepOf(runSteps) {
+  const checkSteps = runSteps.filter((s) => /check-live-site\.cjs/.test(s.cmd));
+  return checkSteps.length ? checkSteps[0] : null;
+}
+
 /** 一条 run 命令里会执行的 node：脚本文件与内联代码。 */
 function nodeInvocations(cmd) {
   const out = [];
@@ -1628,8 +1657,7 @@ if (wfText !== null) {
   const jobList = workflowJobs(wfText);
 
   /* 跑线上核查的那一步 —— 它的 job 就是「核查 job」。 */
-  const checkSteps = runSteps.filter((s) => /check-live-site\.cjs/.test(s.cmd));
-  const checkStep = checkSteps.length ? checkSteps[0] : null;
+  const checkStep = liveCheckStepOf(runSteps);
   const checkJob = checkStep ? checkStep.job : null;
 
   /* 「按构建标记放行」的等待步骤的判据：
@@ -1903,6 +1931,17 @@ function workflowJobPermissions(text) {
   return out;
 }
 
+/**
+ * 「有资格持写权限的 job」= 步骤里用了 actions/deploy-pages 的那些。
+ * DP16 与 DP18 共用这一处识别 —— **同一件事只认一处**。
+ * ⚠️ **不靠 job 名字**：改 job 名字不该让门禁失效，挪走动作也不该让权限悄悄放宽。
+ */
+function deployJobNames(jobList) {
+  return jobList
+    .filter((j) => j.uses.some((u) => u.startsWith(`${DEPLOY_ACTION}@`)))
+    .map((j) => j.name);
+}
+
 /* DP16 查到的量（供汇总文案用；判红时不需要）。 */
 let dp16Jobs = 0;
 let dp16WriteJobs = [];
@@ -1910,10 +1949,7 @@ let dp16WriteJobs = [];
 for (const wfFile of workflowFiles) {
   const text = fs.readFileSync(path.join(workflowDir, wfFile.name), "utf8");
   const jobList = workflowJobPermissions(text);
-  /* 「有资格持写权限的 job」= 步骤里用了 actions/deploy-pages 的那个。 */
-  const deployJobs = jobList
-    .filter((j) => j.uses.some((u) => u.startsWith(`${DEPLOY_ACTION}@`)))
-    .map((j) => j.name);
+  const deployJobs = deployJobNames(jobList);
   const deploySet = new Set(deployJobs);
   for (const job of jobList) {
     if (!job.perms) continue;
@@ -2113,6 +2149,161 @@ for (const wfFile of workflowFiles) {
   }
 }
 
+/* ---------------- DP18：线上核查必须在依赖链上晚于执行部署的那个 job ---------------- */
+
+/**
+ * 工作流里每个 job 的 `needs:` 依赖。
+ *
+ * 返回 Map<jobName, { state, deps, lineNo }>：
+ *   state = "ok"（读到了依赖列表）/ "none"（没写 needs ⇒ 无依赖）/ "unreadable"（写法读不出来）
+ *
+ * ⚠️ **认四种形状**（官方 workflow-syntax 里都合法）：
+ *   ① 标量：     `needs: build`
+ *   ② 流式数组： `needs: [build, other]`
+ *   ③ 块式列表： `needs:` 下一层缩进列 `- build`
+ *   ④ 块式映射： `needs:` 下一层缩进列 `build:`（带 outputs 的那种写法）
+ *   读不懂的（例如 `needs: ${{ ... }}`）⇒ state = "unreadable" ⇒ **fail closed**。
+ */
+function jobNeeds(text) {
+  const lines = text.split("\n");
+  const jobsIdx = lines.findIndex((l) => /^jobs[ \t]*:/.test(l));
+  const out = new Map();
+  if (jobsIdx < 0) return out;
+  const base = indentOfLine(lines[jobsIdx]);
+  let cur = null;
+  for (let i = jobsIdx + 1; i < lines.length; i++) {
+    const line = lines[i];
+    if (!line.trim()) continue;
+    const ind = indentOfLine(line);
+    if (ind <= base) break; // 出了 jobs 段
+    if (ind === base + 2) {
+      const m = /^[ \t]+([A-Za-z0-9_-]+)[ \t]*:/.exec(line);
+      if (m) {
+        cur = m[1];
+        out.set(cur, { state: "none", deps: [], lineNo: i + 1 });
+        continue;
+      }
+    }
+    if (!cur || ind !== base + 4) continue;
+    const m = /^[ \t]+needs[ \t]*:[ \t]*(.*)$/.exec(line);
+    if (!m) continue;
+    const inline = stripYamlComment(m[1]).trim();
+    const info = { state: "ok", deps: [], lineNo: i + 1 };
+    if (inline) {
+      if (inline.startsWith("[")) {
+        info.deps = inline
+          .slice(1, -1)
+          .split(",")
+          .map((x) => x.trim().replace(/^["']|["']$/g, ""))
+          .filter(Boolean);
+      } else if (inline.startsWith("{")) {
+        info.state = "unreadable";
+      } else {
+        const v = inline.replace(/^["']|["']$/g, "").trim();
+        if (!v || v.includes("${{")) info.state = "unreadable";
+        else info.deps = [v];
+      }
+    } else {
+      /* 块式：needs: 下一层缩进列出的条目（列表或带 outputs 的映射）。
+       * ⚠️ **注释行必须先滤掉**：它们不参与「首层缩进」的判定
+       *   （否则一条缩进不同的注释会把首层判定带偏）。 */
+      const block = [];
+      for (let j = i + 1; j < lines.length; j++) {
+        const l = lines[j];
+        if (!l.trim()) continue;
+        if (/^[ \t]*#/.test(l)) continue; // 注释行
+        if (indentOfLine(l) <= base + 4) break;
+        block.push(l);
+      }
+      if (!block.length) {
+        info.state = "none"; // needs: 后面是空的 ⇒ 无依赖
+      } else {
+        const minIndent = Math.min(...block.map(indentOfLine));
+        for (const l of block) {
+          if (indentOfLine(l) !== minIndent) continue;
+          const lm = /^[ \t]*-[ \t]*(.*)$/.exec(l);
+          if (lm) {
+            const v = lm[1].trim().replace(/^["']|["']$/g, "");
+            if (!v || v.includes("${{")) info.state = "unreadable";
+            else info.deps.push(v);
+            continue;
+          }
+          const km = /^[ \t]*([A-Za-z0-9_.-]+)[ \t]*:/.exec(l);
+          if (km) {
+            info.deps.push(km[1]);
+            continue;
+          }
+          info.state = "unreadable";
+        }
+      }
+    }
+    out.set(cur, info);
+  }
+  return out;
+}
+
+/**
+ * 一个 job 的 needs 依赖链（传递闭包）。
+ * 返回 { chain: Set<string>, unreadable: boolean }。
+ */
+function needsChainOf(needsMap, startJob) {
+  const chain = new Set();
+  const seen = new Set();
+  let unreadable = false;
+  const stack = [startJob];
+  while (stack.length) {
+    const j = stack.pop();
+    if (seen.has(j)) continue;
+    seen.add(j);
+    const info = needsMap.get(j);
+    if (!info) continue; // 链上出现未知 job ⇒ 它没有已声明的依赖
+    if (info.state === "unreadable") {
+      unreadable = true;
+      continue;
+    }
+    for (const d of info.deps) {
+      chain.add(d);
+      stack.push(d);
+    }
+  }
+  return { chain, unreadable };
+}
+
+/* DP18 查到的量（供汇总文案用）。 */
+let dp18DeployJobs = [];
+let dp18CheckJob = null;
+
+if (wfText !== null) {
+  dp18DeployJobs = deployJobNames(workflowJobPermissions(wfText));
+  const dp18CheckStep = liveCheckStepOf(workflowRunSteps(wfText));
+  dp18CheckJob = dp18CheckStep ? dp18CheckStep.job : null;
+
+  /* ⚠️ **前提不在场 ⇒ 本条不判**（不是判绿，也不是判红）：
+   *   · 认不出「执行部署的 job」⇒ 由 **DP16** 报（那个 job 的写权限没了归属）；
+   *   · 认不出「核查 job」⇒ 由 **DP14** 报（线上核查没人跑）。
+   *   ⇒ **同一件事只让一条判据说话。 */
+  if (dp18DeployJobs.length && dp18CheckJob) {
+    const { chain, unreadable } = needsChainOf(jobNeeds(wfText), dp18CheckJob);
+    if (unreadable) {
+      fail(
+        `DP18 线上核查所在 job 的 needs 依赖链读不出来 —— ` +
+          `判不了它排在部署之后还是之前 ⇒ **「判不了」不等于「没有」** ⇒ fail closed。`
+      );
+    } else if (!dp18DeployJobs.some((d) => chain.has(d))) {
+      fail(
+        `DP18 线上核查所在 job「${dp18CheckJob}」的 needs 依赖链里没有执行部署的那个 job` +
+          `（${dp18DeployJobs.join("、")}）—— 「部署后的线上核查」这一格的位置被写坏了：` +
+          `核查必须**在这次部署之后**跑（豁免登记里写明的理由：build 跑在 deploy 之前，` +
+          `此时线上还是上一次部署，把它放进 build 等于每次都对着旧站点判红，` +
+          `把「部署还没发生」误报成「代码坏了」）。` +
+          `⚠️ 后果不是「多报一次」：核查挪到部署之前 ⇒ 等待步骤等满 600 秒才判红 ⇒ ` +
+          `**build job 失败 ⇒ deploy job 被跳过 ⇒ 站点从此不再更新**；` +
+          `而红因写的是「线上没切到这次部署的内容」⇒ **把工作流写错误报成 CDN 问题**。`
+      );
+    }
+  }
+}
+
 /* ---------------- 汇总 ---------------- */
 if (problems.length) {
   console.error("发布落点门禁未通过：\n");
@@ -2190,3 +2381,10 @@ console.log(
   `  · checkout 的凭据：核了 ${dp17Checkouts} 处 actions/checkout 步骤，` +
     `全部显式 persist-credentials: false —— 凭据不留在工作区，仓内代码与依赖脚本读不走它。`
 );
+if (dp18CheckJob && dp18DeployJobs.length) {
+  const { chain } = needsChainOf(jobNeeds(wfText), dp18CheckJob);
+  console.log(
+    `  · 线上核查排在**这次部署之后**：核查 job「${dp18CheckJob}」的 needs 依赖链含` +
+      `执行部署的 job「${dp18DeployJobs.join("、")}」（${[...chain].join(" → ") || "无"}）。`
+  );
+}

@@ -80,11 +80,13 @@ const CAUSES = [
   { id: "DP16c", crit: "DP16", frag: "job 级 permissions 的写法读不懂" },
   { id: "DP17a", crit: "DP17", frag: "把凭据留在了工作区" },
   { id: "DP17b", crit: "DP17", frag: "persist-credentials 的写法读不出来" },
+  { id: "DP18a", crit: "DP18", frag: "needs 依赖链里没有执行部署的那个 job" },
+  { id: "DP18b", crit: "DP18", frag: "needs 依赖链读不出来" },
 ];
 /** 静态判据清单（门禁里应当且仅应当有这些判据）。 */
 const CRITERIA = [
   "DP1", "DP2", "DP3", "DP4", "DP5", "DP6", "DP7", "DP8", "DP9", "DP10", "DP11",
-  "DP12", "DP13", "DP14", "DP15", "DP16", "DP17",
+  "DP12", "DP13", "DP14", "DP15", "DP16", "DP17", "DP18",
 ];
 
 /* ========== 工具 ========== */
@@ -217,6 +219,7 @@ const WORKFLOW_YML = [
   "        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5",
   "",
   "  verify-live:",
+  "    needs: deploy",
   "    runs-on: ubuntu-latest",
   "    timeout-minutes: 20",
   "    permissions:",
@@ -414,8 +417,8 @@ const MUT = {
   verifyLiveJobWrite: (s) => {
     s.workflow = replaceOnce(
       s.workflow,
-      "  verify-live:\n    runs-on: ubuntu-latest\n    timeout-minutes: 20\n    permissions:\n      contents: read",
-      "  verify-live:\n    runs-on: ubuntu-latest\n    timeout-minutes: 20\n    permissions:\n      contents: read\n      id-token: write"
+      "  verify-live:\n    needs: deploy\n    runs-on: ubuntu-latest\n    timeout-minutes: 20\n    permissions:\n      contents: read",
+      "  verify-live:\n    needs: deploy\n    runs-on: ubuntu-latest\n    timeout-minutes: 20\n    permissions:\n      contents: read\n      id-token: write"
     );
   },
   /** deploy job 拿到 pages/id-token 之外的写权限 ⇒ DP16（超出需要的写权限）。 */
@@ -844,6 +847,51 @@ const MUT = {
       "    timeout-minutes: ${{ matrix.minutes }}"
     );
   },
+  /** 核查 job 的 needs 改成 build（与部署 job 并行）⇒ DP18（核查没排在部署之后）。 */
+  liveCheckNeedsBuild: (s) => {
+    s.workflow = replaceOnce(s.workflow, "    needs: deploy\n", "    needs: build\n");
+  },
+  /**
+   * 把等待 + 核查两步整体挪进 build job（verify-live job 整个删掉）⇒ DP18。
+   * ⚠️ 这是**最严重的那一档**：核查排在部署之前 ⇒ 等待步骤等满 600 秒才判红 ⇒
+   *   build job 失败 ⇒ deploy job 被跳过 ⇒ 站点从此不再更新。
+   * ⚠️ 而 DP14 对这一档**完全无感**（等待与核查仍同处一个 job、顺序也对）——
+   *   这正是「同一件事只让一条判据说话」要靠 DP18 补上的那格。
+   */
+  liveCheckIntoBuildJob: (s) => {
+    const vStart = s.workflow.indexOf("  verify-live:\n");
+    if (vStart < 0) throw new Error("夹具里没有 verify-live job");
+    const vBlock = s.workflow.slice(vStart);
+    s.workflow = s.workflow.slice(0, vStart);
+    const wStart = vBlock.indexOf("      - name: Wait until the deployed build is live");
+    const cMarker = "        run: node scripts/check-live-site.cjs\n";
+    const cEnd = vBlock.indexOf(cMarker) + cMarker.length;
+    if (wStart < 0 || cEnd < cMarker.length) throw new Error("夹具里的核查步骤没找到");
+    const steps = vBlock.slice(wStart, cEnd);
+    const anchor = "\n  deploy:\n";
+    if (!s.workflow.includes(anchor)) throw new Error("夹具里没有 deploy job");
+    s.workflow = s.workflow.replace(anchor, "\n" + steps + anchor);
+  },
+  /** needs 写成读不懂的形状 ⇒ DP18（fail closed：判不了 ≠ 没有）。 */
+  liveCheckNeedsUnreadable: (s) => {
+    s.workflow = replaceOnce(
+      s.workflow,
+      "    needs: deploy\n",
+      "    needs: ${{ matrix.dep }}\n"
+    );
+  },
+  /**
+   * 必须判绿：核查 job **间接**依赖部署 job（verify-live → gate → deploy）
+   * —— 依赖链是传递闭包，不能只看直接依赖。
+   */
+  liveCheckIndirectNeeds: (s) => {
+    s.workflow = replaceOnce(
+      s.workflow,
+      "  verify-live:\n    needs: deploy\n",
+      "  gate:\n    needs: deploy\n    runs-on: ubuntu-latest\n    timeout-minutes: 5\n" +
+        "    steps:\n      - run: echo gate\n\n  verify-live:\n    needs: gate\n"
+    );
+  },
 };
 
 /** 注入档：expect=null 表示期望判绿，否则期望判红且判据集合**恰为** expect。 */
@@ -919,6 +967,10 @@ const CASES = [
   { id: "N79", label: "必须判绿：with 写成流式 {persist-credentials: false}（官方合法写法）", mutate: MUT.checkoutFlowWith, expect: null },
   { id: "N80", label: "timeout-minutes 写成 360（挡不住事的大数＝没有兜底）", mutate: MUT.timeoutTooBig, expect: ["DP9"] },
   { id: "N81", label: "timeout-minutes 的值读不出来（判不了 ⇒ 必须判红）", mutate: MUT.timeoutUnreadable, expect: ["DP9"] },
+  { id: "N84", label: "核查 job 的 needs 改成 build（与部署 job 并行 ⇒ 没排在部署之后）", mutate: MUT.liveCheckNeedsBuild, expect: ["DP18"] },
+  { id: "N85", label: "等待+核查两步整体挪进 build job（DP14 对这一档完全无感）", mutate: MUT.liveCheckIntoBuildJob, expect: ["DP18"] },
+  { id: "N86", label: "核查 job 的 needs 写成读不懂的形状（判不了 ⇒ 必须判红）", mutate: MUT.liveCheckNeedsUnreadable, expect: ["DP18"] },
+  { id: "N87", label: "必须判绿：核查 job 间接依赖部署 job（verify-live → gate → deploy）", mutate: MUT.liveCheckIndirectNeeds, expect: null },
 ];
 
 /* ========== 四、判据级负对照 ========== */
@@ -941,6 +993,7 @@ const NEG_CASES = [
   { id: "N71", crit: "DP6", case: "N61", label: "卸掉 DP6（顶层标量那档）" },
   { id: "N82", crit: "DP17", case: "N75", label: "卸掉 DP17" },
   { id: "N83", crit: "DP9", case: "N80", label: "卸掉 DP9（超时上限那档）" },
+  { id: "N88", crit: "DP18", case: "N84", label: "卸掉 DP18" },
 ];
 
 /** 在门禁副本里卸掉某条判据：给它每一条 fail() 调用**同行**加 `if (false) ` 前缀。 */
