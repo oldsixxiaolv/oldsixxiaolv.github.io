@@ -104,6 +104,56 @@ const SITE_TITLE = "Yihang Lyu";
 // 订阅源自己的后缀（"站点名 · 这个后缀" = 订阅源对外显示的名字）。
 const FEED_TITLE_SUFFIX = "Publications and notes";
 
+// ---------------------------------------------------------------------------
+// 草稿论文的过滤（2026-10-29 21:30 场次实测坐实，不是假想）
+//
+// 为什么要在这里过滤：`publications` 是**手写的数据**（不是集合），
+// 而论文的草稿标记在**内容文件**里（`src/content/papers/<slug>/paper.md` 的
+// `draft: true`）⇒ 两者分属不同来源 ⇒ **数据面看不到草稿**。
+// 实测：给 `publications` 加一条草稿论文 ⇒ `feed.xml` 里出现一条
+// `<link>.../papers/<slug>/</link>`，而那个页面被 permalink:false 压掉了
+// ⇒ **feed 里是一条指向 404 的坏链接**，同时标题与摘要进了订阅源。
+//
+// 口径：**以内容文件的草稿标记为准**（它是作者的原始意图），
+// 按 `pubKey` ↔ `key` 关联（两者本就是同一篇论文的两处写法）。
+// ⇒ 一篇论文标了草稿 ⇒ 它不进 feed / bib / ris / 列表页 / 首页。
+//
+// ⚠️ 读不出 front matter 时**当作没有草稿标记**（不误杀已发布的论文）。
+// ---------------------------------------------------------------------------
+const { isDraft, topLevelScalars } = require("../eleventy-draft.cjs");
+// ⚠️ 这里**不许** require 第三方包（如 gray-matter）：
+//   本文件被 scripts/check-live-site.cjs require，而那个脚本跑在部署工作流的
+//   `verify-live` job 里 —— **那个 job 没有 npm ci** ⇒ 没有 node_modules
+//   ⇒ site.js 一旦 require 第三方包，**线上核查整个跑不起来**
+//   （站点已经发上去了，核查却崩了）。发布落点门禁的 DP13 守这一条。
+//   ⇒ 用 src/eleventy-draft.cjs 里的零依赖顶层标量读取器；
+//      它与 YAML 解析器的一致性由草稿门禁（DL5）**交叉核对**。
+
+/** 内容目录里标了草稿的论文的 pubKey 集合。 */
+function draftPubKeys() {
+  const out = new Set();
+  const dir = require("path").join(__dirname, "..", "content", "papers");
+  let entries;
+  try {
+    entries = require("fs").readdirSync(dir, { withFileTypes: true });
+  } catch (e) {
+    return out;
+  }
+  for (const e of entries) {
+    if (e.name.startsWith("._") || e.name === ".DS_Store" || !e.isDirectory()) continue;
+    const f = require("path").join(dir, e.name, "paper.md");
+    try {
+      const data = topLevelScalars(require("fs").readFileSync(f, "utf8"));
+      if (data.pubKey && isDraft(data)) out.add(String(data.pubKey));
+    } catch (e) {
+      // 读不出 ⇒ 当作没有草稿标记。
+    }
+  }
+  return out;
+}
+
+const DRAFT_PUB_KEYS = draftPubKeys();
+
 module.exports = {
   title: SITE_TITLE,
   shortTitle: "MeteoHub",
@@ -807,3 +857,21 @@ module.exports = {
     { label: "Email", href: "mailto:lvyihang26@mails.ucas.ac.cn" },
   ],
 };
+
+// ---------------------------------------------------------------------------
+// 导出**已发布**的论文：草稿论文（内容文件里标了 draft）不进任何出口。
+// ⚠️ 为什么要在这里滤：`publications` 是**手写数据**、草稿标记在**内容文件**里
+//    ⇒ 两者分属不同来源，数据面自己看不到草稿（实测：草稿论文会进 feed，
+//    且 feed 里那条链接指向一个被 permalink:false 压掉、实际 404 的页面）。
+//    口径与理由见上面 draftPubKeys() 的注释。
+// ---------------------------------------------------------------------------
+const PUBLICATIONS_ALL = module.exports.publications;
+module.exports.publications = PUBLICATIONS_ALL.filter(
+  (p) => !DRAFT_PUB_KEYS.has(String(p && p.key))
+);
+// ⚠️ **仅供门禁核对用的原始记录**（过滤**前**的样子）。
+//    草稿抑制门禁（scripts/check-draft-leak.cjs 的 DL5）拿它来核对
+//    「内容侧标了草稿的论文有没有被漏进数据面」——
+//    只看过滤后的 publications 的话，**过滤坏了也看不出来**（门禁假绿）。
+//    ⇒ 这个字段**不给模板用**，模板只该看到过滤后的 publications。
+module.exports._publicationsAll = PUBLICATIONS_ALL;

@@ -133,7 +133,7 @@ const SLOTS = {
   ],
   "test-draft-leak.cjs": [
     "DL0", "DL1", "DL2", "DL3", "DL4", "DL5", "DL6", "DL7",
-    "DL8", "DL9"
+    "DL8", "DL9", "DL10", "DL11", "DL12", "DL13", "DL14", "DL15", "DL16"
   ],
   "test-design-components.cjs": [
     "DCXR0", "DCXR1", "DCXR2", "DCXR3", "DCXR4", "DCXR5", "DCXR6", "DCXR7",

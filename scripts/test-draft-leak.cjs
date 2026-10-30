@@ -25,7 +25,7 @@
  *   再用 SRC_DIR / CONTENT_DIR 环境变量把门禁指向夹具站。
  *   ⚠️ 全程不动仓库里的任何文件；跑完再自证真目录一个字节都没变。
  *
- * 档位（DL0–DL9）：
+ * 档位（DL0–DL16）：
  *   DL0  基线：三处都接上了两件套              → 判绿（证明这套判据不是空跑）
  *   DL1  blog 的数据文件漏接**集合侧**         → 判红，点名 DL1
  *   DL2  blog 的数据文件漏接 **permalink 侧**  → 判红，点名 DL1
@@ -37,11 +37,28 @@
  *   DL8  内容目录只剩两个（少一个）            → 判红，点名 DL3（扫描面被收窄 ⇒ 恒绿）
  *   DL9  **必须判绿**：三处都接上、但文章**不是**草稿（`draft` 缺席 / false）
  *        ⇒ 判绿（证明这套判据不把正常文章误伤）
+ *   DL10 **死调用**：真 permalink 改回普通写法、另留一个没人调的守卫调用
+ *        → 判红，点名 DL1（本轮自测当场抓到的假绿：纯文本匹配认不出死调用）
+ *   DL11 新增一个**没有同名数据文件**的内容目录 ⇒ 它的草稿照发而门禁假绿
+ *        → 判红，点名 DL4（扫描面完整性）
+ *   DL12 把 publications 的草稿过滤弄坏（草稿论文重新漏进 feed / bib / ris / 列表页）
+ *        → 判红，点名 DL5（数据面）
+ *   DL13 把构建配置里附件复制的草稿守卫删掉（草稿的 annotations.json / cover 照进产物）
+ *        → 判红，点名 DL6（附件面）
+ *   DL14 守卫接线被弄坏（permalink 守卫对草稿返回 true）→ 判红，点名 DL2
+ *   DL15 让零依赖的顶层标量读取器与 YAML 解析器**读数分叉**（`draft: "false"` 两边不同）
+ *        → 判红，点名 DL5（两份口径漂移 ⇒ 草稿过滤静默失效）
+ *   DL16 真源缺 `topLevelScalars` 导出 → 判红，点名 DL2
+ *        （「判不了 ≠ 没有」：门禁必须**报出判据**，不能自己 TypeError 崩掉 ——
+ *          崩掉虽然也是 exit 1，但红因归属就断了，自测会认不出是哪条判据红的）
  *
- * 另有两档**判据级负对照**（不是独立档位，而是对上面某档的重跑）：
- *   卸掉 DL1 ⇒ DL1 那两档必须转绿；
- *   卸掉 DL2 ⇒ DL4–DL7 那几档必须转绿；
- *   卸掉 DL3 ⇒ DL8 必须转绿。
+ * 另有八档**判据级负对照**（不是独立档位，而是对上面某档的重跑）：
+ *   卸掉 DL1 ⇒ DL1/DL2/DL3/DL10 那几档必须转绿；
+ *   卸掉 DL2 ⇒ DL4–DL7/DL14/DL16 那几档必须转绿；
+ *   卸掉 DL3 ⇒ DL8 必须转绿；
+ *   卸掉 DL4 ⇒ DL11 必须转绿；
+ *   卸掉 DL5 ⇒ DL12 **与 DL15** 两档都必须转绿（DL5 有两档注入 ⇒ 负对照也各来一档）；
+ *   卸掉 DL6 ⇒ DL13 必须转绿。
  *
  * 用法：node scripts/test-draft-leak.cjs
  */
@@ -80,16 +97,24 @@ if (!fs.existsSync(REAL_DRAFT_MODULE)) {
  */
 
 const CAUSES = [
-  { id: "DL1", crit: "DL1", frag: "没有接上草稿抑制的" },
+  { id: "DL1", crit: "DL1", frag: "的草稿抑制没接上" },
   { id: "DL2a", crit: "DL2", frag: "读不出草稿判定的唯一真源" },
   { id: "DL2b", crit: "DL2", frag: "草稿判定口径不对" },
   { id: "DL2c", crit: "DL2", frag: "草稿应当得到" },
-  { id: "DL2d", crit: "DL2", frag: "草稿抑制的 permalink 侧过宽" },
-  { id: "DL2e", crit: "DL2", frag: "草稿抑制的集合侧过宽" },
+  { id: "DL2d", crit: "DL2", frag: "非草稿的正常路径应当原样返回" },
+  { id: "DL2e", crit: "DL2", frag: "非草稿不应当被排除出集合" },
   { id: "DL3", crit: "DL3", frag: "本门禁几乎没比过任何东西" },
+  { id: "DL4", crit: "DL4", frag: "不在本门禁的扫描面里" },
+  { id: "DL5a", crit: "DL5", frag: "读不出站点数据里的 publications" },
+  { id: "DL5z", crit: "DL5", frag: "读数两处不一致" },
+  { id: "DL5b", crit: "DL5", frag: "没有导出过滤前的原始记录" },
+  { id: "DL5c", crit: "DL5", frag: "在内容侧找不到对应的 pubKey" },
+  { id: "DL5d", crit: "DL5", frag: "却仍然出现在导出的 publications 里" },
+  { id: "DL6a", crit: "DL6", frag: "读不到构建配置" },
+  { id: "DL6b", crit: "DL6", frag: "没有问过草稿状态" },
 ];
 
-const CRITERIA = ["DL1", "DL2", "DL3"];
+const CRITERIA = ["DL1", "DL2", "DL3", "DL4", "DL5", "DL6"];
 
 /* ---------- 工具 ---------- */
 
@@ -123,6 +148,37 @@ function buildFixture(id, sections = SECTIONS) {
   const src = path.join(root, "src");
   fs.mkdirSync(src, { recursive: true });
   fs.copyFileSync(REAL_DRAFT_MODULE, path.join(src, "eleventy-draft.cjs"));
+  // ⚠️ 夹具站必须**完整**：DL5 要读站点数据（src/_data/site.js）、
+  //    DL6 要读构建配置（eleventy.config.js）⇒ 少哪一个都会让那两格
+  //    在**每一档**都连带报错（红因不纯、且报错会打断矩阵）。
+  fs.mkdirSync(path.join(src, "_data"), { recursive: true });
+  fs.copyFileSync(
+    path.join(REAL_SRC, "_data", "site.js"),
+    path.join(src, "_data", "site.js")
+  );
+  fs.copyFileSync(path.join(ROOT, "eleventy.config.js"), path.join(root, "eleventy.config.js"));
+  // ⚠️ 数据文件与站点数据的**相对依赖**也得在位，否则 require 会失败 ——
+  //    数据文件 require("../../eleventy-helpers.cjs")（= src/eleventy-helpers.cjs），
+  //    site.js require("../../scripts/lib/identity.cjs")（= scripts/lib/identity.cjs）。
+  //    少任何一个 ⇒ DL1 / DL5 在**每一档**都连带报错（红因不纯、且会打断矩阵）。
+  fs.copyFileSync(
+    path.join(REAL_SRC, "eleventy-helpers.cjs"),
+    path.join(src, "eleventy-helpers.cjs")
+  );
+  fs.mkdirSync(path.join(root, "scripts", "lib"), { recursive: true });
+  fs.copyFileSync(
+    path.join(ROOT, "scripts", "lib", "identity.cjs"),
+    path.join(root, "scripts", "lib", "identity.cjs")
+  );
+  // site.js 要 require gray-matter（解析 front matter）⇒ 夹具得有 node_modules。
+  // 用**软链**指向仓库里那份（不复制几百 MB，也不联网）。
+  try {
+    fs.symlinkSync(path.join(ROOT, "node_modules"), path.join(root, "node_modules"), "dir");
+  } catch (e) {
+    // 软链建不了 ⇒ 那一格会在 DL5 连带报错（红因不纯）。让错误在这里暴露，
+    // 而不是伪装成「门禁判红」。
+    throw new Error(`夹具站建不出 node_modules 软链：${e.message}`);
+  }
   for (const s of sections) {
     const dir = path.join(src, "content", s);
     fs.mkdirSync(dir, { recursive: true });
@@ -130,6 +186,15 @@ function buildFixture(id, sections = SECTIONS) {
       path.join(REAL_SRC, "content", s, `${s}.11tydata.cjs`),
       path.join(dir, `${s}.11tydata.cjs`)
     );
+    // 论文内容页：DL5 要靠它的 pubKey 与数据里的 key 对上（只有 papers 有）。
+    if (s === "papers") {
+      const paperDir = path.join(dir, "trmm-thunderstorm-stages");
+      fs.mkdirSync(paperDir, { recursive: true });
+      fs.copyFileSync(
+        path.join(REAL_SRC, "content", "papers", "trmm-thunderstorm-stages", "paper.md"),
+        path.join(paperDir, "paper.md")
+      );
+    }
   }
   return { root, src, content: path.join(src, "content") };
 }
@@ -216,7 +281,47 @@ const INJECT = {
         )
     );
   },
+  /** 死调用：把真正的 permalink 改回普通写法，另留一个没人调用的守卫调用。 */
+  deadCall: (fx) => {
+    const f = path.join(fx.content, "blog", "blog.11tydata.cjs");
+    mutate(f, (t) =>
+      t.replace(
+        /permalink: \(data\) => draftGuards\.permalink\(`\/blog\/\$\{getSlugFromData\(data\)\}\/`, data\),/,
+        "permalink: (data) => `/blog/${getSlugFromData(data)}/`,\n  _draftGuardSmoke: (data) => draftGuards.permalink(`/blog/x/`, data),"
+      )
+    );
+  },
+  /** 守卫接线被弄坏（permalink 守卫对草稿返回 true 而不是 false）。 */
+  breakGuardWiring: (fx) => {
+    const f = path.join(fx.src, "eleventy-draft.cjs");
+    mutate(f, (t) =>
+      t.replace(
+        "return isDraft(data) ? false : normalPath;",
+        "return isDraft(data) ? true : normalPath;"
+      )
+    );
+  },
   /** 共享模块的判定口径反了。 */
+  /** 让零依赖的顶层标量读取器与 YAML 解析器口径不一致（两处口径漂移）。 */
+  driftParserScopes: (fx) => {
+    // ⚠️ 要制造的是**两个解析器对同一个文件的读数分叉**，不是改 isDraft 的判定。
+    //   改判定 ⇒ 两边共用同一份 isDraft ⇒ 仍相等 ⇒ 那一格恒绿。
+    //   ⇒ 这里改**顶层标量读取器**（site.js 实际用的那个）：它不剥 YAML 引号，
+    //      而 gray-matter 会剥 ⇒ 于是 `draft: "false"` 两边读数不同 ⇒ 判红。
+    const f = path.join(fx.src, "eleventy-draft.cjs");
+    // ⚠️ 锚点那一行**混着两种引号**（源码里就是 `v.startsWith('"')` 与 `v.startsWith("'")`）
+    //   ⇒ 用**模板字符串**装它：用普通引号装会当场语法错（自测文件自己都跑不起来）。
+    mutate(f, (t) =>
+      t.replace(
+        `    if (v.startsWith('"') || v.startsWith("'")) {`,
+        "    if (false) {"
+      )
+    );
+    // 让论文带一个**带引号**的 draft 值 —— 顶层读取器不剥引号 ⇒ 读成 ""false""，
+    // gray-matter 剥引号 ⇒ 读成 "false" ⇒ 两边分叉。
+    const paper = path.join(fx.content, "papers", "trmm-thunderstorm-stages", "paper.md");
+    mutate(paper, (t) => t.replace(/^---\r?\n/, '---\ndraft: "false"\n'));
+  },
   invertDecision: (fx) => {
     const f = path.join(fx.src, "eleventy-draft.cjs");
     mutate(f, (t) => t.replace("if (typeof v === \"boolean\") return v;", "if (typeof v === \"boolean\") return !v;"));
@@ -235,6 +340,16 @@ const INJECT = {
       t.replace("return isDraft(data) ? true : false;", "return true;")
     );
   },
+  /** 真源缺 `topLevelScalars` 导出 ⇒ 门禁必须**报出 DL2**，而不是自己崩掉。 */
+  dropScalarReader: (fx) => {
+    const f = path.join(fx.src, "eleventy-draft.cjs");
+    mutate(f, (t) =>
+      t.replace(
+        "module.exports = { isDraft, isDraftDir, topLevelScalars, draftGuards };",
+        "module.exports = { isDraft, isDraftDir, draftGuards };"
+      )
+    );
+  },
   /** 共享模块整个不在。 */
   dropModule: (fx) => {
     fs.unlinkSync(path.join(fx.src, "eleventy-draft.cjs"));
@@ -242,6 +357,43 @@ const INJECT = {
   /** 内容目录少一个（扫描面被收窄）。 */
   dropSection: (fx) => {
     fs.rmSync(path.join(fx.content, "portfolio"), { recursive: true, force: true });
+  },
+  /** 新增一个**没有同名数据文件**的内容目录（扫描面漏掉它 ⇒ 它的草稿照发）。 */
+  addUncoveredSection: (fx) => {
+    const dir = path.join(fx.content, "news");
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, "zz-news.md"),
+      "---\ntitle: \"News\"\npermalink: /news/zz/\ndraft: true\n---\n\nbody\n"
+    );
+  },
+  /** 把 publications 的草稿过滤弄坏（草稿论文重新漏进数据面）。 */
+  breakPublicationsFilter: (fx) => {
+    const f = path.join(fx.src, "_data", "site.js");
+    mutate(f, (t) =>
+      t.replace(
+        /module\.exports\.publications = PUBLICATIONS_ALL\.filter\(\s*\(p\) => !DRAFT_PUB_KEYS\.has\(String\(p && p\.key\)\)\s*\);/,
+        "module.exports.publications = PUBLICATIONS_ALL;"
+      )
+    );
+    // 内容侧补一篇标了草稿的论文，让过滤**本该**生效
+    const dir = path.join(fx.content, "papers", "zz-draft-paper");
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, "paper.md"),
+      "---\npubKey: trmm-stages\ndate: 2026-10-30\ndescription: \"d\"\ndraft: true\n---\n\nbody\n"
+    );
+  },
+  /** 把构建配置里附件复制的草稿守卫**两处都**删掉（只删一处 ⇒ DL6 仍绿 ⇒ 那是它自己的洞）。 */
+  dropAttachmentGuard: (fx) => {
+    const f = path.join(fx.root, "eleventy.config.js");
+    fs.copyFileSync(path.join(ROOT, "eleventy.config.js"), f);
+    mutate(f, (t) => {
+      const before = t;
+      const out = t.replace(/if \(isDraftDir\(contentDir\)\) continue;\n/g, "");
+      if (out === before) throw new Error("没能删掉附件复制守卫");
+      return out;
+    });
   },
 };
 
@@ -258,6 +410,13 @@ const CASES = [
   { id: "DL7", expect: "red", crit: "DL2", inject: "dropModule", note: "共享模块不在" },
   { id: "DL8", expect: "red", crit: "DL3", inject: "dropSection", note: "内容目录少一个" },
   { id: "DL9", expect: "green", note: "必须判绿：正常文章不受影响" },
+  { id: "DL10", expect: "red", crit: "DL1", inject: "deadCall", note: "死调用：真 permalink 改回普通写法、另留一个没人调的守卫调用" },
+  { id: "DL11", expect: "red", crit: "DL4", inject: "addUncoveredSection", note: "新增没有同名数据文件的内容目录（扫描面漏掉它）" },
+  { id: "DL12", expect: "red", crit: "DL5", inject: "breakPublicationsFilter", note: "publications 的草稿过滤被弄坏" },
+  { id: "DL13", expect: "red", crit: "DL6", inject: "dropAttachmentGuard", note: "附件复制不再问草稿状态" },
+  { id: "DL14", expect: "red", crit: "DL2", inject: "breakGuardWiring", note: "守卫接线被弄坏（对草稿返回 true）" },
+  { id: "DL15", expect: "red", crit: "DL5", inject: "driftParserScopes", note: "两份 front matter 口径漂移（零依赖读取器 vs YAML）" },
+  { id: "DL16", expect: "red", crit: "DL2", inject: "dropScalarReader", note: "真源缺 topLevelScalars 导出（判不了 ≠ 没有，且不许崩）" },
 ];
 
 /* ---------- 跑矩阵 ---------- */
@@ -318,8 +477,15 @@ for (const c of CASES) {
 
 const NEG_CASES = [
   { crit: "DL1", inject: "dropCollectionsSide" },
-  { crit: "DL2", inject: "invertDecision" },
+  { crit: "DL2", inject: "breakGuardWiring" },
+  { crit: "DL2", inject: "dropScalarReader" },
   { crit: "DL3", inject: "dropSection" },
+  { crit: "DL4", inject: "addUncoveredSection" },
+  { crit: "DL5", inject: "breakPublicationsFilter" },
+  // ⚠️ DL5 有**两档**注入（数据面过滤坏 / 两份解析器口径漂移）⇒ 负对照也**各来一档**：
+  //   只对其中一档做负对照 ⇒ 另一档的红可能来自别的判据，却看不出来。
+  { crit: "DL5", inject: "driftParserScopes" },
+  { crit: "DL6", inject: "dropAttachmentGuard" },
 ];
 
 for (const n of NEG_CASES) {

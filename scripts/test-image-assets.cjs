@@ -78,6 +78,10 @@ const ROOT = path.resolve(__dirname, "..");
 const GATE = path.join(__dirname, "check-image-assets.cjs");
 const SITE_JS = path.join(ROOT, "src", "_data", "site.js");
 const IDENTITY = path.join(ROOT, "scripts", "lib", "identity.cjs");
+// ⚠️ site.js 的**同层依赖**（D131 踩到）：它 require 了 `../eleventy-draft.cjs`
+//   （草稿判定的唯一真源）⇒ 沙箱里缺它 ⇒ site.js 加载即抛错 ⇒
+//   门禁读不到站点地址 ⇒ 报出与注入无关的假红。
+const DRAFT_MODULE = path.join(ROOT, "src", "eleventy-draft.cjs");
 
 /* 站点地址取自真源（不写死）：门禁判定"站内 / 外站"就是拿它当基准，
    写死就会在换域名那天**静默失效**。 */
@@ -283,6 +287,8 @@ function buildFixture(dir, { fakeSrc = MISSING } = {}) {
 function buildGateCopy(dir, { disable = [] }) {
   copyFile(SITE_JS, path.join(dir, "src", "_data", "site.js"));
   copyFile(IDENTITY, path.join(dir, "scripts", "lib", "identity.cjs"));
+  // ⚠️ 同层依赖也要带齐（D131）：site.js require 了 `../eleventy-draft.cjs`。
+  copyFile(DRAFT_MODULE, path.join(dir, "src", "eleventy-draft.cjs"));
   const original = fs.readFileSync(GATE, "utf8");
   let copy = original;
   for (const id of disable) {

@@ -56,6 +56,11 @@ const SANDBOX_FILES = [
   // 门禁副本启动时就要 require 它，缺了会崩在启动阶段 ⇒ 每一档都会"没有红因"。
   ["scripts", "lib", "path-case.cjs"],
   ["src", "_data", "site.js"],
+  // ⚠️ **site.js 的同层依赖也要带齐**（D131 踩到）：site.js 现在 require 了
+  //   `../eleventy-draft.cjs`（草稿判定的唯一真源）⇒ 沙箱里缺它 ⇒
+  //   require 直接抛错 ⇒ siteData 变成空 ⇒ 门禁 27 / 35 报出**与注入无关的假红**
+  //   （实测：92/95 档失败，红因全是「还有门禁 27,35」）。
+  ["src", "eleventy-draft.cjs"],
   ["src", "404.njk"],
   ["src", "robots.njk"],
 ];

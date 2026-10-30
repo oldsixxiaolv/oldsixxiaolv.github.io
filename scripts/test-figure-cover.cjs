@@ -67,6 +67,10 @@ const GATE = path.join(__dirname, "check-figure-cover.cjs");
 const SITE = path.join(ROOT, "_site");
 const SITE_JS = path.join(ROOT, "src", "_data", "site.js");
 const IDENTITY = path.join(ROOT, "scripts", "lib", "identity.cjs");
+// ⚠️ site.js 的**同层依赖**（D131 踩到）：它 require 了 `../eleventy-draft.cjs`
+//   （草稿判定的唯一真源）⇒ 沙箱里缺它 ⇒ site.js 加载即抛错 ⇒
+//   门禁读不到站点数据 ⇒ 报出与注入无关的假红。
+const DRAFT_MODULE = path.join(ROOT, "src", "eleventy-draft.cjs");
 const PAPERS = path.join(ROOT, "src", "content", "papers");
 const PKG = path.join(ROOT, "package.json");
 
@@ -234,6 +238,7 @@ function makeSandbox() {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "mh-figcover-"));
   copyFile(PAPER_HTML, path.join(tmp, "_site", "papers", SLUG, "index.html"));
   copyFile(SITE_JS, path.join(tmp, "src", "_data", "site.js"));
+  copyFile(DRAFT_MODULE, path.join(tmp, "src", "eleventy-draft.cjs"));
   copyFile(IDENTITY, path.join(tmp, "scripts", "lib", "identity.cjs"));
   copyFile(PAPER_MD, path.join(tmp, "src", "content", "papers", SLUG, "paper.md"));
   copyFile(PKG, path.join(tmp, "package.json"));

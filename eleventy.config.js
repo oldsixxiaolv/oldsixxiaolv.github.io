@@ -31,6 +31,9 @@ const { renderChartPanel } = require("./scripts/lib/chart-svg.cjs");
 // 构建期 CSS 注释剥除器（D37）：源文件保留注释（维护者的笔记），
 // 产物剥掉（访客的带宽）。理由与实现见该文件开头。
 const { stripProductCssComments } = require("./scripts/lib/css-comments.cjs");
+// 草稿判定（唯一真源 src/eleventy-draft.cjs）—— 构建期用的两件套与
+// 「附件该不该复制」用的判定必须同一套口径，否则两处会打架。
+const { isDraftDir } = require("./src/eleventy-draft.cjs");
 
 // ---------------------------------------------------------------------------
 // 输出目录：dev server 与生产构建必须写不同的目录
@@ -203,7 +206,32 @@ module.exports = function (eleventyConfig) {
 
   // 论文批注 / 论文正文里的附图（如 cover.svg / cover.png）原样拷贝到 _site/，
   // 让 paper-reader.js 在客户端能 fetch 到 annotations.json。
-  eleventyConfig.addPassthroughCopy("src/content/papers/**/annotations.json");
+  // ⚠️ **不能用 passthrough 的 glob 复制**：glob 不问这篇论文是不是草稿 ⇒
+  //   草稿论文的批注（作者对自己论文的批注，可能含**未发表结论**）会照样进产物。
+  //   实测：草稿论文的 annotations.json 会出现在
+  //   `_site/content/papers/<slug>/annotations.json`（内容可 grep 到）。
+  //   ⇒ 改成在 eleventy.after 钩子里按**发布状态**复制（与 copyCovers 同一套判定口径）。
+  const copyAnnotations = () => {
+    const papersRoot = path.join(__dirname, "src/content/papers");
+    if (!fs.existsSync(papersRoot)) return;
+    for (const slug of fs.readdirSync(papersRoot)) {
+      const contentDir = path.join(papersRoot, slug);
+      let st = null;
+      try {
+        st = fs.statSync(contentDir);
+      } catch (e) {
+        continue;
+      }
+      if (!st.isDirectory()) continue;
+      if (isDraftDir(contentDir)) continue; // 草稿的批注不进产物
+      const src = path.join(contentDir, "annotations.json");
+      if (!fs.existsSync(src)) continue;
+      // 落点与 passthrough 一致：_site/content/papers/<slug>/annotations.json
+      const dest = path.join(__dirname, OUT_DIR, "content/papers", slug, "annotations.json");
+      fs.mkdirSync(path.dirname(dest), { recursive: true });
+      fs.copyFileSync(src, dest);
+    }
+  };
   // Paper 封面图（og:image / twitter:image override 的素材）。Phase 2B.1 起 paper 页
   // front-matter 可指定 cover。src/content/ 是 11ty 模板输入区，但 11ty v3.1 passthrough
   // 对 src/content/ 子目录的 pass 有缺陷（assetGlobs 不递归 substring），用 eleventy.after
@@ -220,6 +248,10 @@ module.exports = function (eleventyConfig) {
       for (const slug of fs.readdirSync(srcRoot)) {
         const contentDir = path.join(srcRoot, slug);
         if (!fs.statSync(contentDir).isDirectory()) continue;
+        // ⚠️ **草稿的附件不进产物**（实测：草稿论文的 cover.png 照样被复制到
+        //   `_site/papers/<slug>/cover.png` ⇒ 未公开的结果图在草稿被压住后仍然上线）。
+        //   判定口径与构建时同一套（src/eleventy-draft.cjs 的 isDraftDir）。
+        if (isDraftDir(contentDir)) continue;
         for (const ext of ["svg", "png", "jpg", "jpeg", "webp"]) {
           const src = path.join(contentDir, `cover.${ext}`);
           const dest = path.join(destRoot, slug, `cover.${ext}`);
@@ -292,6 +324,9 @@ module.exports = function (eleventyConfig) {
     // 11ty v3.1 passthrough 对 src/content/ 子目录的图像处理有缺陷（pathPrefix 不会
     // 重新映射子目录），所以这里在 build 后手工 cp，保证 og:image / twitter:image 引用可达。
     copyCovers();
+    // 论文批注 annotations.json —— 按**发布状态**复制（草稿的不进产物）。
+    // ⚠️ 与 copyCovers 同一个判定口径（src/eleventy-draft.cjs 的 isDraftDir）。
+    copyAnnotations();
 
     // Phase 2B.7 · D37：剥掉产物里的 CSS 注释。
     // 源码里的 CSS 注释写得极密（记录取舍理由、实测数字、踩过的坑），

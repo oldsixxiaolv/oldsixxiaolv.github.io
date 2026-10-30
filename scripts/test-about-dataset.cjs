@@ -57,6 +57,10 @@ const SITE = path.join(ROOT, "_site");
 const ABOUT_MD = path.join(ROOT, "src", "content", "about.md");
 const SITE_JS = path.join(ROOT, "src", "_data", "site.js");
 const IDENTITY = path.join(ROOT, "scripts", "lib", "identity.cjs");
+// ⚠️ site.js 的**同层依赖**（D131 踩到）：它 require 了 `../eleventy-draft.cjs`
+//   （草稿判定的唯一真源）⇒ 沙箱里缺它 ⇒ site.js 加载即抛错 ⇒
+//   门禁读不到站点数据 ⇒ 报出与注入无关的假红。
+const DRAFT_MODULE = path.join(ROOT, "src", "eleventy-draft.cjs");
 
 const siteData = require(SITE_JS);
 const pub = siteData.publications.find((p) => p && p.software && p.software.doi);
@@ -118,6 +122,11 @@ function run(mutate) {
   fs.writeFileSync(path.join(siteDir, "index.html"), parts.home);
   fs.writeFileSync(path.join(repoDir, "src", "_data", "site.js"), parts.js);
   fs.writeFileSync(path.join(repoDir, "scripts", "lib", "identity.cjs"), fs.readFileSync(IDENTITY, "utf8"));
+  // ⚠️ 同层依赖也要带齐（D131）：site.js require 了 `../eleventy-draft.cjs`。
+  fs.writeFileSync(
+    path.join(repoDir, "src", "eleventy-draft.cjs"),
+    fs.readFileSync(DRAFT_MODULE, "utf8")
+  );
   fs.writeFileSync(mdPath, parts.md);
 
   const r = spawnSync(process.execPath, [GATE], {

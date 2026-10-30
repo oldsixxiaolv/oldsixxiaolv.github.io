@@ -112,4 +112,97 @@ const draftGuards = {
   },
 };
 
-module.exports = { isDraft, draftGuards };
+/**
+ * 这个**内容目录**是不是一篇草稿？
+ *
+ * ⚠️ 为什么需要它（2026-10-29 21:30 场次实测坐实，不是假想）：
+ *   两处**按文件复制**的逻辑（不是 Eleventy 的模板渲染路径）**看不见**上面两件套：
+ *     ① `eleventyConfig.addPassthroughCopy(...)` 复制论文的 annotations.json
+ *        —— glob 复制，**不问**这篇论文是不是草稿；
+ *     ② `copyCovers()`（eleventy.config.js 里的 eleventy.after 钩子）
+ *        —— 对每个内容目录无条件复制 `cover.{svg,png,jpg,jpeg,webp}`。
+ *   实测：给一篇**草稿**论文放上 annotations.json 与 cover.png ⇒
+ *   **两个文件都进了 `_site/`**（实测：`_site/content/papers/<slug>/annotations.json`
+ *   与 `_site/papers/<slug>/cover.png` 都在，且内容里的标记串能 grep 到）
+ *   ⇒ 批注（作者对自己论文的批注，可能含未发表结论）与封面图（可能是未公开的结果图）
+ *   **在草稿被压住之后仍然上线**。
+ *
+ * 口径：读**该内容目录里的模板文件**的 front matter（blog 是 index.md、
+ * papers 是 paper.md、portfolio 是 index.md）⇒ 用与构建时**同一套**判定口径
+ * （`isDraft`）⇒ 一处定义，两处使用。
+ *
+ * @param {string} contentDir 内容目录的绝对路径
+ * @returns {boolean} true = 这一篇是草稿（附件不该复制）
+ */
+function isDraftDir(contentDir) {
+  const fs = require("fs");
+  const path = require("path");
+  // 这个目录里**哪个**文件是模板？按各 section 的约定取第一个存在的。
+  for (const name of ["index.md", "paper.md"]) {
+    const f = path.join(contentDir, name);
+    try {
+      if (!fs.existsSync(f)) continue;
+      // ⚠️ 用零依赖的顶层标量读取器，**不**用 gray-matter：
+      //   本模块被 src/_data/site.js require ⇒ 它在 check-live-site.cjs 的
+      //   依赖链上 ⇒ 那里**没有 node_modules** ⇒ 第三方包会让线上核查崩掉
+      //   （发布落点门禁的 DP13 守这一条，本轮实测当场抓到）。
+      const data = topLevelScalars(fs.readFileSync(f, "utf8"));
+      // `draft` 读出来是**字符串**（顶层标量读取器不做类型转换）⇒
+      // isDraft 本身就认字符串形态（"true"/"yes"/"on" ⇒ 草稿；"false"/"no"/"off" ⇒ 不是），
+      // 这里**不**再额外转换（两处口径不许分叉）。
+      return isDraft(data);
+    } catch (e) {
+      // 读不出 ⇒ 当作**不是**草稿（不误删已发布内容的附件）。
+      return false;
+    }
+  }
+  return false;
+}
+
+
+/**
+ * 读一份 front matter 里的**顶层标量**（只认 `key: value` 这种顶格写法）。
+ *
+ * ⚠️ **为什么这里不用 gray-matter**（2026-10-29 21:30 场次实测踩到）：
+ *   `src/_data/site.js` 被 `scripts/check-live-site.cjs` require，而**那个脚本跑在
+ *   部署工作流的 `verify-live` job 里 —— 那个 job 没有 `npm ci` 步骤** ⇒
+ *   那里**没有 node_modules** ⇒ site.js 只要 require 了任何第三方包，
+ *   **线上核查整个跑不起来**（站点已经发上去了，核查却崩了）。
+ *   ⇒ site.js 的依赖链必须只有「Node 内置 ＋ 本地文件」。
+ *   发布落点门禁的 **DP13** 正是守这一条（它当场把这一处判红了）。
+ *
+ * ⚠️ **口径一致性怎么办**（这才是要紧的）：本函数**只读顶层标量**，
+ *   而站内的论文 front matter **全是顶层标量**（无嵌套 YAML，实测确认）。
+ *   ⇒ 对本站的写法，它与 YAML 解析器的结果一致；
+ *   而「**真的**一致」由草稿门禁（DL5，在**有 node_modules** 的环境里跑）
+ *   用 gray-matter **交叉核对**——两份口径不一致就判红。
+ *   ⇒ 不是「两份副本各自演化」，而是「一份实现 ＋ 一处强制对账」。
+ *
+ * @param {string} text 文件全文
+ * @returns {object} 顶层标量的键值表（值都是字符串）
+ */
+function topLevelScalars(text) {
+  const out = {};
+  if (typeof text !== "string") return out;
+  // front matter = 开头第一对 --- ... ---
+  const m = text.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+  if (!m) return out;
+  for (const line of m[1].split(/\r?\n/)) {
+    // 只认**顶格**的 `key: value`（缩进的行属于嵌套结构，一律不认）。
+    const kv = /^([A-Za-z_][A-Za-z0-9_.-]*):\s*(.*)$/.exec(line);
+    if (!kv) continue;
+    let v = kv[2].trim();
+    // 去掉行尾注释（值里没有 # 时不动它；有就按 YAML 的粗规则切）。
+    if (v.startsWith('"') || v.startsWith("'")) {
+      const q = v[0];
+      const end = v.indexOf(q, 1);
+      if (end > 0) v = v.slice(1, end);
+    } else if (v.includes(" #")) {
+      v = v.slice(0, v.indexOf(" #")).trim();
+    }
+    out[kv[1]] = v;
+  }
+  return out;
+}
+
+module.exports = { isDraft, isDraftDir, topLevelScalars, draftGuards };

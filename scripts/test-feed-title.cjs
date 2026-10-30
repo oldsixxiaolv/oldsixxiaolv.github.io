@@ -37,6 +37,10 @@ const REAL_SITE = path.join(ROOT, "_site");
 const REAL_SRC = path.join(ROOT, "src");
 const REAL_SITE_JS = path.join(REAL_SRC, "_data", "site.js");
 const REAL_IDENTITY = path.join(ROOT, "scripts", "lib", "identity.cjs");
+// ⚠️ site.js 的**同层依赖**（D131 踩到）：它 require 了 `../eleventy-draft.cjs`
+//   （草稿判定的唯一真源）⇒ 夹具里缺它 ⇒ site.js 加载即抛错 ⇒
+//   门禁读不到站点数据 ⇒ 报出与注入无关的假红。
+const REAL_DRAFT_MODULE = path.join(REAL_SRC, "eleventy-draft.cjs");
 
 /* 夹具站要带的文件类型：HTML 页面 + feed.xml + robots.txt（+ sitemap.xml）。 */
 const KEEP_EXT = new Set([".html", ".xml", ".txt"]);
@@ -81,6 +85,8 @@ function buildFixture(id) {
   fs.mkdirSync(path.join(root, "src", "_data"), { recursive: true });
   const siteJs = path.join(root, "src", "_data", "site.js");
   fs.copyFileSync(REAL_SITE_JS, siteJs);
+  // ⚠️ 同层依赖也要带齐（D131）：site.js require 了 `../eleventy-draft.cjs`。
+  fs.copyFileSync(REAL_DRAFT_MODULE, path.join(root, "src", "eleventy-draft.cjs"));
 
   const pkg = path.join(root, "package.json");
   fs.writeFileSync(
