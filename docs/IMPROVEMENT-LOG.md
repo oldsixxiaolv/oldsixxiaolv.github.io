@@ -33380,3 +33380,141 @@ exFAT 的 `._*` 资源叉过滤**只写一遍**。
 - 文档提交：`docs/IMPROVEMENT-LOG.md`（本节）、`docs/DEFECT-BACKLOG.md`（D129 行）、`docs/ROADMAP.md`（D129 条目）。
 - 验证：自测 **47/47 红因 · 17/17 判据全绿**；隔离克隆里整链 build **exit 0**。
 - ⚠️ **未 push** ⇒ 线上仍是 2026-10-16 的旧部署。
+
+## 2026-10-29 · 巡检轮次：给**「线上核查必须跑在这次部署之后」**装上看守 —— D130（那条不变式此前只写在理由文字里）
+
+### A. 本轮定位
+
+上一轮（D129）守的是**凭据不落在工作区**；本轮接着查**发布管线自己的次序**。
+
+起因是一句**已经写在源码里的话**：`scripts/check-gates-wired.cjs` 的豁免登记里明写着
+「它的正确位置是**部署之后**：.github/workflows/deploy.yml 的 verify-live job（needs: deploy）
+是唯一的自动调用点」—— 但那句话**没有任何门禁守着**。
+
+每轮只做 1–2 个改进点；本轮做 **1 个**。
+
+### B. 体检（2026-10-29 18:30 场次逐项实测）
+
+1. **仓库侧现状是好的**：verify-live job 确实 `needs: deploy`，等待步骤与核查步骤都在它里面。
+2. ⚠️ **用隔离探针**（夹具建在 /tmp、门禁经 `DPT_ROOT` 注入、仓内文件一个字节不动）坐实**一处零覆盖缺口**：
+   - 把**等待 + 核查**两步整体挪进 **build job** ⇒ 门禁 **exit 0、零红因**；
+     而且它还**正向确认**「部署后的线上核查跑在**这次部署的内容**上：等待步骤…核查步骤…（**build job**）」
+     —— **一句假话**（核查根本不在部署之后）。
+   - 把 verify-live 的 `needs: deploy` 改成 `needs: build` ⇒ 同样 **exit 0、零红因**。
+   ⇒ 与 D125 / D126 / D127 / D128 / D129 **同族**（当前没事 ≠ 有东西保证它继续没事）。
+3. **危害不是「多报一次」**：核查排在部署之前 ⇒ 等待步骤按构建标记等「线上切到这次部署」
+   ⇒ **等满 600 秒预算才 exit 1** ⇒ **build job 失败 ⇒ deploy job 被跳过**
+   （官方原文：「If a job fails or is skipped, all jobs that need it are skipped」）
+   ⇒ **站点从此不再更新**，而每次推送只是 CI 红一次；
+   ⚠️ 而红因写的是「线上在 600s 内没有切到这次部署的内容」
+   ⇒ **把工作流写错误报成 CDN 问题**（排查方向被引到错的地方）。
+4. **线上响应头复核（18:30）**：HSTS `max-age=31556952` ✔、`cache-control: max-age=600`、
+   `access-control-allow-origin: *`；**仍没有** CSP / X-Frame-Options / X-Content-Type-Options /
+   Referrer-Policy / Permissions-Policy ⇒ 与 D121 结论一致 ⇒ 仍属**待拍板 57**，**不代拍**；
+   `last-modified: Fri, 16 Oct 2026` ⇒ 仍是 2026-10-16 的旧部署 ⇒ 属**待部署 D6**，**不是缺陷**。
+
+### C. 改了什么
+
+1. **新判据 DP18 —— 「线上核查必须在依赖链上晚于执行部署的那个 job」**
+   （`scripts/check-deploy-target.cjs`）：
+   - 判据：跑 `check-live-site.cjs` 的那个 job，其 `needs:`（**直接或间接**，即传递闭包）
+     必须包含执行 Pages 部署的那个 job。
+   - **DP18a**：needs 依赖链里没有执行部署的那个 job（含「核查与部署挤在同一个 job 里」）⇒ 判红。
+   - **DP18b**：needs 依赖链**读不出来**（`${{ … }}` 之类）⇒ fail closed（**判不了 ≠ 没有**）。
+   - 新解析器 `jobNeeds()` / `needsChainOf()`：**认四种 needs 形状**（官方 workflow-syntax 里都合法）：
+     标量 `needs: build`、流式数组 `needs: [a, b]`、块式列表、块式映射（带 outputs）。
+   - ⚠️ **块里的注释行必须先滤掉** —— 否则一条缩进不同的注释会把「首层缩进」的判定带偏。
+2. **抽出两个共享识别函数**（⇒ 同一件事只认一处）：
+   - `deployJobNames()`：**DP16 与 DP18 共用**「哪个 job 在执行 Pages 部署」（靠步骤里用了
+     `actions/deploy-pages`，**不靠 job 名字**）。
+   - `liveCheckStepOf()`：**DP14 与 DP18 共用**「哪个 job 在跑线上核查」（靠步骤里出现了
+     `check-live-site.cjs`）。
+3. ⚠️ **前提不在场就不判**（不是判绿，也不是判红）：认不出部署 job ⇒ 由 **DP16** 报；
+   认不出核查 job ⇒ 由 **DP14** 报 ⇒ **同一件事只让一条判据说话**。
+4. **文档与登记**：`README.md`（门禁行补 DP18、自测行补两族新档；RD6 判据编号对账通过）、
+   `scripts/lib/selftest-slots.cjs`（登记 N84–N88）、
+   `.github/workflows/deploy.yml`（verify-live job 补注释「needs: deploy 是这条不变式的全部依托」）。
+5. ⚠️ **夹具与真仓不同构的一处订正**：此前夹具的 verify-live job **根本没有 `needs:` 行**
+   ⇒ 基线档与真仓不同构 ⇒ 已补 `needs: deploy`（并同步修 N63 的注入锚点）。
+
+### D. 决定性验证
+
+- **隔离探针前后对照**（同一份夹具、同一处注入）：
+
+  | 注入 | 改动前 | 改动后 |
+  |---|---|---|
+  | 等待+核查两步整体挪进 build job | exit 0、零红因 | exit 1，红因「needs 依赖链里没有执行部署的那个 job」 |
+  | verify-live 的 `needs:` 改成 build | exit 0、零红因 | exit 1，同上 |
+  | `needs:` 写成 `${{ … }}` | exit 0、零红因 | exit 1，红因「needs 依赖链读不出来」 |
+
+- **自测 89 档全过**：**49/49 红因 · 18/18 判据**（DP18a / DP18b 各至少一档判红；
+  N88 卸掉 DP18 ⇒ 对应夹具转绿；仓库真源指纹前后一致）。
+- **真仓正向确认**：「线上核查排在**这次部署之后**：核查 job「verify-live」的 needs 依赖链含
+  执行部署的 job「deploy」」。
+- **「必须判绿」对照**：N87（verify-live → gate → deploy 的**间接依赖**）判绿
+  ⇒ 依赖链是**传递闭包**，不会把合法的间接依赖误判成红。
+
+### E. 明确不做 / 不代拍
+
+- **不把 DP18 并进 DP14**（DP14 判的是「等待与核查两步的写法与先后」，
+  DP18 判的是「job 之间的依赖关系」）⇒ 两件事、两条判据。
+- **不判 `if: always()` 之类绕开依赖链的写法** ⇒ 判不出来 ⇒ 写在**诚实边界**里
+  （本仓工作流里没有这种写法，真出现时由 CI 实跑兜）。
+- **不判「GitHub 侧真的按这个顺序执行」** —— DP18 是**静态**的，那一格由 CI 实跑给出结论。
+- **不新增待拍板项**：本条是把**已经写明**的不变式变成可核对判据，不是取舍。
+- 待拍板 7 / 56 / 57 / 58 / 59 / 60 / 61 / 62 / 63 / 64 / 65 / 66 本轮**均不代拍**。
+
+### F. 外部学习（一条，有**官方原文**）＋ 线上头复核
+
+1. **GitHub Docs「Using jobs in a workflow」**
+   （`/en/actions/using-jobs/using-jobs-in-a-workflow`）：
+   - 「Use `jobs.<job_id>.needs` to identify any jobs that must complete successfully before this
+     job will run. It can be a string or array of strings. **If a job fails or is skipped, all jobs
+     that need it are skipped** unless the jobs use a conditional expression that causes the job to
+     continue. **If a run contains a series of jobs that need each other, a failure or skip applies
+     to all jobs in the dependency chain from the point of failure or skip onwards.**」
+     ⇒ 这两句正是 DP18 红因里「build 失败 ⇒ deploy 被跳过 ⇒ 站点不再更新」那段机理的**官方出处**
+     ⇒ 也解释了为什么「核查挪到 build」是**冻结站点**而不是「多报一次」。
+   - ⇒ 另一条被官方原文点明的边界：`always()` 之类的条件表达式可以让 job **无视**依赖失败照跑
+     ⇒ DP18 判不到这种写法 ⇒ 写进诚实边界（见 E）。
+2. **线上响应头复核（18:30 实测）**：与 D121 / D129 结论**完全一致**，无新问题
+   （HSTS 有、其余五个仍无 ⇒ 待拍板 57；`last-modified: 2026-10-16` ⇒ 待部署 D6，不是缺陷）。
+
+### G. 技能/插件盘点
+
+- **browser 面板（真实页面巡检）**：窄屏 / 对比度这两格已有**真实浏览器**门禁在跑
+  （`check:overflow` 七档宽度 ＋ `check:a11y`），面板给不出更强的证据 ⇒ 不落地。
+- **mcode-tools（多模态生成/理解）**：本轮产出是门禁代码与文档，无图像/音视频需求 ⇒ 不落地。
+- **rea（逆向分析）**：目标是 YAML 与 JS 源码，**不需要**反编译 ⇒ 不落地。
+⇒ **本轮没有值得落地的技能用法**（不为用而用）。
+
+### H. 本轮的方法论
+
+**「写在理由文字里的不变式」如果没有判据，它就只是一句愿望。**
+
+本轮的缺口就长这样：豁免登记的 `reason` 字段里**明写**着「核查的正确位置是部署之后
+（needs: deploy）」—— 这句话**看起来**像一道约束，实际上**没有产生任何约束力**：
+把核查挪进 build job，门禁一声不吭，还**正向确认**了一句假话。
+⇒ 推论：**凡是写成「必须 / 应当 / 不许」的不变式，都要能回答「谁守着它」** ——
+答不上来的，要么补判据，要么**把它降级成普通说明文字**（别让它看起来像有约束力）。
+
+**派生一条可复用的做法**：**「理由文字」是判据的候选池** ——
+门禁/脚本里的注释、豁免登记的 reason 字段、文档里的「应当」，
+这些是最便宜的不变式清单：它们已经写下来了，只是没人核对。
+⇒ 巡检时把这类文字**逐条捡起来问一遍「这一条现在由谁保证」**，
+比凭空找新的覆盖面更省力。
+
+⚠️ 另记一条**本轮坐实的教训**：**「正向确认」也会说假话** ——
+门禁在通过时打印的那句「部署后的线上核查跑在这次部署的内容上」，
+在核查被挪进 build job 之后**依然是绿的、依然照打** ⇒
+**正向确认必须与判据同源**（本轮把两处识别抽成同一个函数，正是为此）。
+
+### I. 本轮提交清单（只提交，**不 push**）
+
+- 代码提交：`scripts/check-deploy-target.cjs`（新判据 DP18 ＋ 两个共享识别函数）、
+  `scripts/test-deploy-target.cjs`（N84–N88 ＋ 夹具补 `needs: deploy` ＋ 修 N63 锚点）、
+  `scripts/lib/selftest-slots.cjs`（登记 N84–N88）、`README.md`（门禁行与自测行）、
+  `.github/workflows/deploy.yml`（verify-live job 的注释）。
+- 文档提交：`docs/IMPROVEMENT-LOG.md`（本节）、`docs/DEFECT-BACKLOG.md`（D130 行）、`docs/ROADMAP.md`（D130 条目）。
+- 验证：自测 **49/49 红因 · 18/18 判据全绿**；隔离克隆里整链 build **exit 0**。
+- ⚠️ **未 push** ⇒ 线上仍是 2026-10-16 的旧部署。
