@@ -82,11 +82,14 @@ const CAUSES = [
   { id: "DP17b", crit: "DP17", frag: "persist-credentials 的写法读不出来" },
   { id: "DP18a", crit: "DP18", frag: "needs 依赖链里没有执行部署的那个 job" },
   { id: "DP18b", crit: "DP18", frag: "needs 依赖链读不出来" },
+  { id: "DP19a", crit: "DP19", frag: "兜不住 build 链的最坏耗时" },
+  { id: "DP19b", crit: "DP19", frag: "数不出 build 链的段数" },
+  { id: "DP20", crit: "DP20", frag: "等待预算没有按线上实测的 CDN TTL 现算" },
 ];
 /** 静态判据清单（门禁里应当且仅应当有这些判据）。 */
 const CRITERIA = [
   "DP1", "DP2", "DP3", "DP4", "DP5", "DP6", "DP7", "DP8", "DP9", "DP10", "DP11",
-  "DP12", "DP13", "DP14", "DP15", "DP16", "DP17", "DP18",
+  "DP12", "DP13", "DP14", "DP15", "DP16", "DP17", "DP18", "DP19", "DP20",
 ];
 
 /* ========== 工具 ========== */
@@ -166,11 +169,32 @@ const DEPLOY_BASE = [
 ].join("\n");
 
 /**
+ * 夹具里的 package.json —— **DP19 要靠它数出 build 链的段数**
+ * （口径与真仓的 DS2 一致：按 `&&` 切段）。
+ * ⚠️ 段数决定 DP19 算出来的「最坏耗时下限」：真仓现在是 122 段 ⇒ 下限 31 分钟；
+ *   这里给 **40 段** ⇒ 下限 10 分钟 ⇒ 夹具里 build job 的 `timeout-minutes: 30`
+ *   仍然兜得住（基线档必须判绿），而「改小到 5 分钟」那一档会判红 ✓。
+ */
+const PKG_JSON = JSON.stringify(
+  {
+    name: "mh-deploytarget-fixture",
+    private: true,
+    scripts: {
+      build: Array.from({ length: 40 }, (_, i) => `npm run step${i + 1}`).join(" && "),
+    },
+  },
+  null,
+  2
+);
+
+/**
  * 夹具里的部署工作流 —— 与真仓同构：钉到 SHA 的 action、带行尾版本注释、
  * 顶层只读 permissions、concurrency（不杀在途）、每个 job 都有 timeout-minutes。
  * ⚠️ 这里写的 SHA 必须与门禁里的**基线表**一致，否则基线档（N0）会被 DP7 判红。
  * ⚠️ 三个 job（build / deploy / verify-live）与真仓同构 —— DP16 要靠
  *   「执行 Pages 部署的那个 job」来认谁有资格持写权限 ⇒ 夹具里必须真的有那个 job。
+ * ⚠️ 等待步骤里必须有「现读 max-age」的逻辑 ⇒ 否则基线档会被 DP20 判红
+ *   （DP20 守的就是「预算不许写死成常数」）。
  */
 const WORKFLOW_YML = [
   "name: Deploy MeteoHub",
@@ -221,7 +245,7 @@ const WORKFLOW_YML = [
   "  verify-live:",
   "    needs: deploy",
   "    runs-on: ubuntu-latest",
-  "    timeout-minutes: 20",
+  "    timeout-minutes: 25",
   "    permissions:",
   "      contents: read",
   "    steps:",
@@ -229,9 +253,15 @@ const WORKFLOW_YML = [
   "        run: |",
   "          url=$(node -e \"console.log(require('./src/_data/site.js').url)\")",
   "          want=$(sed -n 's/^# generated-at: //p' _site/robots.txt | head -n 1 || true)",
+  "          ttl=$(curl -sI --max-time 15 \"$url/robots.txt\" | tr -d '\\r' | grep -i '^cache-control:' | sed -n 's/.*max-age=\\([0-9][0-9]*\\).*/\\1/p' | head -n 1)",
+  "          case \"$ttl\" in ''|*[!0-9]*) ttl=600 ;; esac",
+  "          [ \"$ttl\" -lt 600 ] && ttl=600",
+  "          budget=$(( ttl + 120 ))",
+  "          [ \"$budget\" -gt 1200 ] && budget=1200",
+  "          deadline=$(( $(date +%s) + budget ))",
   "          got=$(curl -s --max-time 15 \"$url/robots.txt\" | sed -n 's/^# generated-at: //p' | head -n 1 || true)",
   "          if [ -n \"$got\" ] && [ \"$got\" = \"$want\" ]; then exit 0; fi",
-  "          echo \"::error::线上在 600s 内没有切到这次部署的内容\"",
+  "          echo \"::error::线上在 ${budget}s 内没有切到这次部署的内容\"",
   "          exit 1",
   "      - name: Check the live site against the deployed artifact",
   "        run: node scripts/check-live-site.cjs",
@@ -280,6 +310,8 @@ function buildFixture(mutate) {
     dependabot: DEPENDABOT_BASE,
     siteJs: SITE_JS,
     liveSiteCjs: LIVE_SITE_CJS,
+    /* package.json —— DP19 要靠它数出 build 链的段数（没有它 ⇒ DP19 判不了 ⇒ 判红）。 */
+    pkg: PKG_JSON,
     /* 额外的工作流文件（DP15 扫的是 .github/workflows/ 下的**全部**工作流，
        不只是 deploy.yml ⇒ 需要能放进第二份工作流来验）。 */
     extraWorkflows: [],
@@ -307,6 +339,9 @@ function buildFixture(mutate) {
   if (state.liveSiteCjs !== null) {
     fs.writeFileSync(path.join(dir, "scripts", "check-live-site.cjs"), state.liveSiteCjs);
   }
+  if (state.pkg !== null) {
+    fs.writeFileSync(path.join(dir, "package.json"), state.pkg);
+  }
   const quiet = { stdio: ["ignore", "ignore", "ignore"] };
   execFileSync("git", ["init", "-q"], { cwd: dir, ...quiet });
   if (state.remote !== null) {
@@ -329,6 +364,25 @@ const MUT = {
   remoteMissing: (s) => {
     s.readme = replaceOnce(s.readme, "git push origin main", "git push nosuchremote main");
     s.deploy = replaceOnce(s.deploy, "git push origin main", "git push nosuchremote main");
+  },
+  /** build job 的超时上限改到兜不住链长的地步 ⇒ DP19。 */
+  buildTimeoutTooSmall: (s) => {
+    s.workflow = replaceOnce(s.workflow, "    timeout-minutes: 30\n", "    timeout-minutes: 5\n");
+  },
+  /** 等待预算改回写死常数（不现读线上 TTL）⇒ DP20。 */
+  waitBudgetHardcoded: (s) => {
+    s.workflow = replaceOnce(
+      s.workflow,
+      "          ttl=$(curl -sI --max-time 15 \"$url/robots.txt\" | tr -d '\\r' | grep -i '^cache-control:' | sed -n 's/.*max-age=\\([0-9][0-9]*\\).*/\\1/p' | head -n 1)\n" +
+        "          case \"$ttl\" in ''|*[!0-9]*) ttl=600 ;; esac\n" +
+        "          [ \"$ttl\" -lt 600 ] && ttl=600\n" +
+        "          budget=$(( ttl + 120 ))\n",
+      "          budget=600\n"
+    );
+  },
+  /** package.json 读不出来 ⇒ DP19 判不了 ⇒ 判红（fail closed）。 */
+  pkgMissing: (s) => {
+    s.pkg = null;
   },
   /** 远端存在，但指向别的仓库 ⇒ DP2。 */
   remoteWrongRepo: (s) => {
@@ -417,8 +471,8 @@ const MUT = {
   verifyLiveJobWrite: (s) => {
     s.workflow = replaceOnce(
       s.workflow,
-      "  verify-live:\n    needs: deploy\n    runs-on: ubuntu-latest\n    timeout-minutes: 20\n    permissions:\n      contents: read",
-      "  verify-live:\n    needs: deploy\n    runs-on: ubuntu-latest\n    timeout-minutes: 20\n    permissions:\n      contents: read\n      id-token: write"
+      "  verify-live:\n    needs: deploy\n    runs-on: ubuntu-latest\n    timeout-minutes: 25\n    permissions:\n      contents: read",
+      "  verify-live:\n    needs: deploy\n    runs-on: ubuntu-latest\n    timeout-minutes: 25\n    permissions:\n      contents: read\n      id-token: write"
     );
   },
   /** deploy job 拿到 pages/id-token 之外的写权限 ⇒ DP16（超出需要的写权限）。 */
@@ -618,8 +672,8 @@ const MUT = {
   waitStepSilentTimeout: (s) => {
     s.workflow = replaceOnce(
       s.workflow,
-      "          echo \"::error::线上在 600s 内没有切到这次部署的内容\"\n          exit 1\n",
-      "          echo \"::warning::线上在 600s 内没有切到这次部署的内容\"\n"
+      "          echo \"::error::线上在 ${budget}s 内没有切到这次部署的内容\"\n          exit 1\n",
+      "          echo \"::warning::线上在 ${budget}s 内没有切到这次部署的内容\"\n"
     );
   },
   /** 等待步骤被挪到核查步骤**之后** ⇒ DP14c（顺序反了 ⇒ 等于没等）。 */
@@ -629,9 +683,15 @@ const MUT = {
       "        run: |",
       "          url=$(node -e \"console.log(require('./src/_data/site.js').url)\")",
       "          want=$(sed -n 's/^# generated-at: //p' _site/robots.txt | head -n 1 || true)",
+      "          ttl=$(curl -sI --max-time 15 \"$url/robots.txt\" | tr -d '\\r' | grep -i '^cache-control:' | sed -n 's/.*max-age=\\([0-9][0-9]*\\).*/\\1/p' | head -n 1)",
+      "          case \"$ttl\" in ''|*[!0-9]*) ttl=600 ;; esac",
+      "          [ \"$ttl\" -lt 600 ] && ttl=600",
+      "          budget=$(( ttl + 120 ))",
+      "          [ \"$budget\" -gt 1200 ] && budget=1200",
+      "          deadline=$(( $(date +%s) + budget ))",
       "          got=$(curl -s --max-time 15 \"$url/robots.txt\" | sed -n 's/^# generated-at: //p' | head -n 1 || true)",
       "          if [ -n \"$got\" ] && [ \"$got\" = \"$want\" ]; then exit 0; fi",
-      "          echo \"::error::线上在 600s 内没有切到这次部署的内容\"",
+      "          echo \"::error::线上在 ${budget}s 内没有切到这次部署的内容\"",
       "          exit 1",
       "",
     ].join("\n");
@@ -651,14 +711,37 @@ const MUT = {
     );
   },
   /**
-   * 等待步骤拿「产物 vs 产物」比（**根本不去线上取**）⇒ DP14a
+   * 等待步骤拿「产物 vs 产物」比构建标记（**标记不去线上取**）⇒ DP14a
    * —— 独立复核抓到的**高危假绿**：恒等比较恒为真 ⇒ 看着在等、其实没等。
+   * ⚠️ **只换「取构建标记」那一行**（取 TTL 的那行**保持原样**）：
+   *   两处都换的话，注入就同时破坏了 DP20 的事实（预算不再现读线上 TTL）
+   *   ⇒ 这一档会同时触发 {DP14, DP20} ⇒ **红因归属不纯**
+   *   （自测框架要求「一个注入只触发一条判据」，否则这一档判红时
+   *   分不清是 DP14 坏了还是 DP20 坏了）。
+   *   ⚠️ 正因为「取 TTL 的那行」**还在**（它也引用线上 robots.txt），
+   *   DP14 原先第 ③ 条（「还有一次去线上取 robots.txt」）**已经不够用了**
+   *   ⇒ 门禁这一轮同步收紧了第 ④ 条（构建标记必须有一条**不绑在产物上**的提取）。
    */
   waitComparesArtifactToItself: (s) => {
     s.workflow = replaceOnce(
       s.workflow,
       "          got=$(curl -s --max-time 15 \"$url/robots.txt\" | sed -n 's/^# generated-at: //p' | head -n 1 || true)",
       "          got=$(sed -n 's/^# generated-at: //p' _site/robots.txt | head -n 1 || true)"
+    );
+  },
+  /**
+   * 等待步骤把线上正文**先存进变量**、下一行再提取构建标记 ⇒ **必须判绿**。
+   * ⚠️ 这一档是 DP14 第 ④ 条收紧后的**假红清单**：
+   *   收紧后的判据判的是「提到 generated-at 的那一行**不含** _site/robots.txt」，
+   *   **没有**要求「同一行必须出现 robots.txt」——
+   *   因为「先取正文、再提取标记」是同样合法的写法（两行）⇒ 若按同行判就会假红。
+   */
+  waitStampFromVariable: (s) => {
+    s.workflow = replaceOnce(
+      s.workflow,
+      "          got=$(curl -s --max-time 15 \"$url/robots.txt\" | sed -n 's/^# generated-at: //p' | head -n 1 || true)",
+      "          live=$(curl -s --max-time 15 \"$url/robots.txt\")\n" +
+        "          got=$(printf '%s\\n' \"$live\" | sed -n 's/^# generated-at: //p' | head -n 1 || true)"
     );
   },
   /** 等待步骤只有失败出口（没有 `exit 0`）⇒ DP14e（每次都走满预算才判红）。 */
@@ -937,7 +1020,7 @@ const CASES = [
   { id: "N45", label: "等待步骤的收尾不判红退出（静默继续 ⇒ 假绿）", mutate: MUT.waitStepSilentTimeout, expect: ["DP14"] },
   { id: "N46", label: "等待步骤排在核查步骤之后（顺序反了 ⇒ 等于没等）", mutate: MUT.waitStepAfterCheck, expect: ["DP14"] },
   { id: "N47", label: "核查步骤整个被删掉（线上核查静默停摆）", mutate: MUT.liveCheckRemoved, expect: ["DP14"] },
-  { id: "N49", label: "等待步骤拿产物跟产物比（不去线上取 ⇒ 恒等 ⇒ 假绿）", mutate: MUT.waitComparesArtifactToItself, expect: ["DP14"] },
+  { id: "N49", label: "等待步骤拿产物跟产物比构建标记（标记不去线上取 ⇒ 恒等 ⇒ 假绿）", mutate: MUT.waitComparesArtifactToItself, expect: ["DP14"] },
   { id: "N50", label: "等待步骤只有失败出口（没有 exit 0）", mutate: MUT.waitNoSuccessExit, expect: ["DP14"] },
   { id: "N51", label: "核查步骤带 if: false（这一步永远不执行）", mutate: MUT.liveCheckNeverRuns, expect: ["DP14"] },
   { id: "N52", label: "核查步骤带 continue-on-error: true（失败被吞）", mutate: MUT.liveCheckSwallowsFailure, expect: ["DP14"] },
@@ -971,6 +1054,10 @@ const CASES = [
   { id: "N85", label: "等待+核查两步整体挪进 build job（DP14 对这一档完全无感）", mutate: MUT.liveCheckIntoBuildJob, expect: ["DP18"] },
   { id: "N86", label: "核查 job 的 needs 写成读不懂的形状（判不了 ⇒ 必须判红）", mutate: MUT.liveCheckNeedsUnreadable, expect: ["DP18"] },
   { id: "N87", label: "必须判绿：核查 job 间接依赖部署 job（verify-live → gate → deploy）", mutate: MUT.liveCheckIndirectNeeds, expect: null },
+  { id: "N89", label: "build job 的超时上限改到 5 分钟（兜不住链长自估的最坏耗时）", mutate: MUT.buildTimeoutTooSmall, expect: ["DP19"] },
+  { id: "N90", label: "等待预算改回写死常数（不现读线上 TTL）", mutate: MUT.waitBudgetHardcoded, expect: ["DP20"] },
+  { id: "N91", label: "package.json 读不出来（算不出链长 ⇒ 判不了 ⇒ 判红）", mutate: MUT.pkgMissing, expect: ["DP19"] },
+  { id: "N94", label: "必须判绿：等待步骤把线上正文先存进变量、再提取构建标记（两行写法）", mutate: MUT.waitStampFromVariable, expect: null },
 ];
 
 /* ========== 四、判据级负对照 ========== */
@@ -994,6 +1081,8 @@ const NEG_CASES = [
   { id: "N82", crit: "DP17", case: "N75", label: "卸掉 DP17" },
   { id: "N83", crit: "DP9", case: "N80", label: "卸掉 DP9（超时上限那档）" },
   { id: "N88", crit: "DP18", case: "N84", label: "卸掉 DP18" },
+  { id: "N92", crit: "DP19", case: "N89", label: "卸掉 DP19" },
+  { id: "N93", crit: "DP20", case: "N90", label: "卸掉 DP20" },
 ];
 
 /** 在门禁副本里卸掉某条判据：给它每一条 fail() 调用**同行**加 `if (false) ` 前缀。 */

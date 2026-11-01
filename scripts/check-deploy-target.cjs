@@ -118,6 +118,20 @@
  *           **且必须有一侧不是从产物取的**（⚠️ 独立复核抓到的**高危假绿**：
  *           只比较「产物 vs 产物」的恒等式**根本不去线上取**，却能骗过
  *           前两条 ⇒ 等待步骤看着在等、其实没等）；
+ *           ⚠️ **「有一侧不是从产物取的」还必须收紧成「构建标记本身不是从产物取的」**
+ *           （2026-11-01 场次补）：原来那一条只判「这一步里**别处**还有一次
+ *           去线上取 robots.txt」—— 而**取到的未必是构建标记**（例如取 TTL 的那一次）
+ *           ⇒ 「拿产物跟产物比」的恒等比较可以躲在**别处还有一次线上取数**的背后，
+ *           骗过它 ⇒ **高危假绿**。
+ *           ⚠️ 这**不是假想**：本轮新增的「现读线上 TTL」**恰好就是第二次线上取
+ *           robots.txt** ⇒ 等于**本轮自己给 DP14 造了一个新的假绿入口**
+ *           ⇒ 必须同步收紧（否则新判据 DP20 与老判据 DP14 互相打洞）。
+ *           收紧后的判法：**逐行**看提到 `generated-at` 的行 —— 只要**有一行**
+ *           提到 `generated-at` 且**那一行不含 `_site/robots.txt`**，就说明标记
+ *           是从**产物以外**提取的。
+ *           ⚠️ **不要求同一行同时出现 `robots.txt`**：把线上正文先存进变量、
+ *           下一行再提取标记，是同样合法的写法 ⇒ 按同行判会**假红**
+ *           （自测里有一档「必须判绿」专门守这一条）；
  *        ② **收尾必须判红退出** —— 等待步骤的**最后一条非空命令**必须是
  *           `exit 1` ⇒ 它的结局只有两种：标记相等（成功）或预算耗尽（失败）。
  *           ⚠️ 不得静默继续：静默继续 ⇒ 旧站点的路由与 canonical 恰好一致时，
@@ -1668,12 +1682,29 @@ if (wfText !== null) {
    *      ⚠️ 这一条是补**独立复核抓到的那个高危假绿**的：前两条只数「字样」，
    *      于是「产物 vs 产物」的恒等比较（`got=$(sed … _site/robots.txt)`，
    *      **根本不去线上取**）也能骗过它们 ⇒ 等待步骤看着在等、其实没等。
+   *   ④ **构建标记本身必须有一条「不绑在产物上」的提取**（2026-11-01 场次补）——
+   *      第 ③ 条只判「这一步里**别处**还有一次去线上取 robots.txt」，
+   *      而**取到的未必是构建标记** ⇒ 「产物 vs 产物」的恒等比较可以躲在
+   *      **别处还有一次线上取数**的背后骗过第 ③ 条。
+   *      ⚠️ 本轮新增的「现读线上 TTL」**恰好就是第二次线上取 robots.txt**
+   *      ⇒ 本轮自己给 DP14 造了一个新的假绿入口 ⇒ 必须同步收紧。
+   *      判法：**逐行**看提到 `generated-at` 的行 —— 只要**有一行**提到
+   *      `generated-at` 且**那一行不含 `_site/robots.txt`** ⇒ 标记是从产物以外
+   *      提取的。
+   *      ⚠️ **不要求同一行同时出现 `robots.txt`**：把线上正文先存进变量、下一行
+   *      再提取标记，是同样合法的写法 ⇒ 按同行判会**假红**。
    */
   const isStampWait = (cmd) => {
     if (!cmd.includes("generated-at")) return false;
     if (!cmd.includes("_site/robots.txt")) return false;
     const outsideArtifact = cmd.split("_site/robots.txt").join("");
-    return outsideArtifact.includes("robots.txt");
+    if (!outsideArtifact.includes("robots.txt")) return false;
+    /* ④ 构建标记必须有一条不绑在产物上的提取。 */
+    const liveStamp = cmd
+      .split("\n")
+      .filter((l) => l.includes("generated-at"))
+      .some((l) => !l.includes("_site/robots.txt"));
+    return liveStamp;
   };
 
   const wait = checkJob
@@ -1729,7 +1760,10 @@ if (wfText !== null) {
           `⇒ 它等到的不是「这次部署的内容」而是「站点还在」⇒ 核查门禁拿**旧内容**与` +
           `**新产物**逐项比 ⇒ **一次完全健康的部署可能让 CI 变红**（假红）。` +
           `判据锚在构建标记上：产物 _site/robots.txt 的 \`# generated-at:\` 行` +
-          `（每次构建都不同）＝线上 robots.txt 的同一行 ⇒ 线上跑的就是这次部署的内容。`
+          `（每次构建都不同）＝线上 robots.txt 的同一行 ⇒ 线上跑的就是这次部署的内容。` +
+          `⚠️ **「标记要从产物以外提取」也是硬条件**：只比较「产物 vs 产物」的恒等式` +
+          `（两边都读 _site/robots.txt）恒为真 ⇒ 等待步骤看着在等、其实没等` +
+          `⇒ 「这次部署没生效」变成**假绿**（比假红更难发现）。`
       );
     } else {
       dp14WaitStep = wait;
@@ -2304,6 +2338,127 @@ if (wfText !== null) {
   }
 }
 
+/* ---------------- DP19：build job 的超时上限必须兜得住「按链段数自估的最坏耗时」 ---------------- */
+
+/**
+ * 每段的最坏耗时（秒）—— **门禁自己持有这个数**。
+ *
+ * ⚠️ 为什么按「链段数 × 每段最坏耗时」自估，而**不**写死一个实测总秒数
+ *   （2026-11-01 场次实测坐实，不是假想）：
+ *   写死总秒数（例：2026-10-29 记的「实测 286 秒 ≈ 4.8 分钟」）⇒ 链每加一道门禁，
+ *   这个数就**过期** ⇒ 而**没有任何东西会提醒它过期** ⇒ 等它过期的那天，
+ *   超时上限已经兜不住链了 ⇒ job 被超时**杀掉** ⇒ **站点停更**
+ *   （而 push 本身是成功的 ⇒ 症状只有「站点停更」，极难归因到超时）。
+ *   ⇒ 改按**段数**自估：链变长 ⇒ 下限自动跟着涨 ⇒ **不需要任何人维护基线**。
+ *
+ * 15 秒/段的依据（2026-11-01 实测，隔离克隆 + 官方源 + **Node 22 ＝ CI 的运行时**）：
+ *   整链 **456 秒 ≈ 7.6 分钟**（npm ci 另计），链有 **122 段** ⇒ 平均 ≈ 3.7 秒/段。
+ *   ⇒ 15 秒/段 ＝ 平均的 4 倍余量 ⇒ 链整体慢 4 倍才需要重看这个上限。
+ *   ⚠️ 这仍是**估算**（不是保证）：门禁守的是「上限与链长成比例」这条不变式，
+ *      不是「这个上限一定够」⇒ 真跑慢到兜不住时，报红的是**这个 job 被杀了**
+ *      （症状：站点停更、workflow 显示 failed/cancelled）—— 那一刻要查的是
+ *      **链为什么变慢**，而不是继续加大上限（加大上限＝把刹车拆了）。
+ */
+const WORST_SECONDS_PER_SEGMENT = 15;
+
+/* DP19 查到的量（供汇总文案用）。 */
+let dp19Segments = 0;
+let dp19WorstMinutes = 0;
+let dp19BuildTimeout = null;
+
+if (wfText !== null) {
+  // 链段数：口径与 scripts/check-doc-snapshot.cjs 的 **DS2** 一致（按 && 切段）。
+  let segments = 0;
+  let segmentsErr = null;
+  try {
+    const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, "package.json"), "utf8"));
+    const cmd = (pkg.scripts && pkg.scripts.build) || "";
+    segments = cmd
+      .split("&&")
+      .map((s) => s.trim())
+      .filter(Boolean).length;
+    if (!segments) segmentsErr = "package.json 的 scripts.build 数不出任何段";
+  } catch (e) {
+    segmentsErr = `读不到或解析不了 package.json（${String((e && e.message) || e).split("\n")[0]}）`;
+  }
+  const buildJob = jobs.find((j) => j.name === "build");
+  if (segmentsErr) {
+    fail(
+      `DP19 数不出 build 链的段数 —— ${segmentsErr} —— ` +
+        `**「判不了」不等于「没有」**：算不出链有多长 ⇒ 就算不出「超时上限兜不兜得住」⇒ fail closed。`
+    );
+  } else if (!buildJob) {
+    // 认不出 build job ⇒ DP16 / DP9 那边会报它 ⇒ 这里不重复报（同一件事只让一条判据说话）。
+  } else {
+    const worstMinutes = Math.ceil((segments * WORST_SECONDS_PER_SEGMENT) / 60);
+    const v = Number(buildJob.timeout);
+    dp19Segments = segments;
+    dp19WorstMinutes = worstMinutes;
+    dp19BuildTimeout = buildJob.timeout;
+    if (!Number.isInteger(v) || v <= 0) {
+      // 值读不出来 ⇒ DP9 已经报过（「读不出来」是 DP9 的子判据）⇒ 这里不重复报。
+    } else if (v < worstMinutes) {
+      fail(
+        `DP19 build job 的 timeout-minutes（${v} 分钟）兜不住 build 链的最坏耗时` +
+          `（链 ${segments} 段 × 每段最坏 ${WORST_SECONDS_PER_SEGMENT} 秒 ⇒ 至少 ${worstMinutes} 分钟）—— ` +
+          `⚠️ 后果不是「多报一次」：**job 会被超时杀掉 ⇒ deploy job 被跳过 ⇒ 站点停更**；` +
+          `而 push 本身是成功的 ⇒ 症状只有「站点停更」，极难归因到超时。` +
+          `⇒ 要么把 timeout-minutes 提到 ${worstMinutes} 分钟以上（但别超过 60，` +
+          `DP9 守着那个刹车），要么**先查链为什么变慢**（加大上限＝把刹车拆了）。`
+      );
+    }
+  }
+}
+
+/* ---------------- DP20：「等站点起来」的预算必须按线上实测的 TTL 现算 ---------------- */
+
+/**
+ * ⚠️ 为什么这条必须存在（2026-11-01 场次）：
+ *   `verify-live` job 里那个等待步骤，原来把预算**写死成 600 秒**，
+ *   而 600 正是当时实测的线上 `cache-control: max-age` ⇒ **余量为零**。
+ *   ⇒ 只要 GitHub 把 TTL 调大一点（600 → 900），或某个边缘节点慢一点，
+ *   就会「预算耗尽还没切过去」⇒ 判红 ⇒ **而这次部署其实成功了**
+ *   ⇒ 一次**假红** ⇒ 假红的代价不是多报一次，而是**训练人忽略 CI**
+ *   ⇒ 整条门禁链失去价值（这正是 D124 那次要消灭的东西）。
+ *   ⇒ 修法（已落地）：每次运行**现读**线上响应头的 `max-age`，
+ *     预算取 `max(600, TTL + 120)` ⇒ TTL 变了不必改代码。
+ *
+ * 判法：工作流里那个等待步骤的脚本**必须**出现「读 max-age」的逻辑
+ *   （`cache-control` 与 `max-age` 两个锚点都要在）⇒ 写死 600 秒 ⇒ 判红。
+ *   ⚠️ 这是**文本形状**判定（弱），但它守的正是「别把预算改回常数」这一层；
+ *      而「预算取多少」这件事由**线上实测**决定（脚本自己读）⇒ 不由门禁猜。
+ */
+/* DP20 查到的量（供汇总文案用）。 */
+let dp20WaitBudgetDynamic = false;
+
+if (wfText !== null) {
+  /* 等待步骤的锚点用**语义**而不是步骤名：它必须处理「构建标记」（generated-at）
+   * 或持有 deadline ⇒ 改名、改写法都躲不掉（步骤名只是给人看的）。 */
+  const waitSteps = (workflowRunSteps(wfText) || []).filter((s) => {
+    const cmd = s.cmd || "";
+    return /generated-at/.test(cmd) || /deadline=/.test(cmd);
+  });
+  if (!waitSteps.length) {
+    // 认不出等待步骤 ⇒ DP14 会报「线上核查没人跑」⇒ 这里不重复报。
+  } else {
+    const script = waitSteps.map((s) => s.cmd).join("\n");
+    const hasCacheControl = /cache-control/i.test(script);
+    const hasMaxAge = /max-age/i.test(script);
+    dp20WaitBudgetDynamic = hasCacheControl && hasMaxAge;
+    if (!hasCacheControl || !hasMaxAge) {
+      fail(
+        `DP20 「等站点起来」的等待预算没有按线上实测的 CDN TTL 现算` +
+          `（工作流里读 cache-control=${hasCacheControl ? "有" : "无"}、` +
+          `max-age=${hasMaxAge ? "有" : "无"}）—— 预算写死成一个常数 ⇒ **余量为零**：` +
+          `CDN 的 max-age 一变（实测今天是 600 秒）就会「预算耗尽还没切过去」⇒ 判红，` +
+          `**而这次部署其实成功了** ⇒ 一次**假红** ⇒ 假红的代价是**训练人忽略 CI**，` +
+          `整条门禁链失去价值。⇒ 预算必须**现读**线上响应头的 max-age，` +
+          `取 \`max(600, TTL + 余量)\`。`
+      );
+    }
+  }
+}
+
 /* ---------------- 汇总 ---------------- */
 if (problems.length) {
   console.error("发布落点门禁未通过：\n");
@@ -2386,5 +2541,18 @@ if (dp18CheckJob && dp18DeployJobs.length) {
   console.log(
     `  · 线上核查排在**这次部署之后**：核查 job「${dp18CheckJob}」的 needs 依赖链含` +
       `执行部署的 job「${dp18DeployJobs.join("、")}」（${[...chain].join(" → ") || "无"}）。`
+  );
+}
+if (dp19Segments) {
+  console.log(
+    `  · build job 的超时上限：链 ${dp19Segments} 段 × 每段最坏 ${WORST_SECONDS_PER_SEGMENT} 秒` +
+      ` ⇒ 最坏耗时至少 ${dp19WorstMinutes} 分钟，而 build job 的 timeout-minutes = ` +
+      `${dp19BuildTimeout} 分钟（${dp19BuildTimeout >= dp19WorstMinutes ? "兜得住" : "**兜不住**"}）。`
+  );
+}
+if (dp20WaitBudgetDynamic) {
+  console.log(
+    `  · 「等站点起来」的等待预算：**现读**线上响应头的 cache-control max-age` +
+      `（不写死常数 ⇒ CDN 的 TTL 变了不必改代码 ⇒ 不会因为 TTL 变一次就假红）。`
   );
 }
