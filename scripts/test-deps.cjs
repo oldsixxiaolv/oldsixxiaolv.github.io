@@ -39,9 +39,10 @@ const CAUSES = [
   { id: "DEP4", crit: "DEP4", frag: "锁文件与 package.json 的声明不一致" },
   { id: "DEP5", crit: "DEP5", frag: "CI 用的 Node 版本与声明/依赖树的要求对不上" },
   { id: "DEP6", crit: "DEP6", frag: "CI 用的 Node 版本低于底线表" },
+  { id: "DEP7", crit: "DEP7", frag: "安装依赖时没有禁用第三方包的安装期脚本" },
 ];
 /** 静态判据清单（门禁里应当且仅应当有这些判据）。 */
-const CRITERIA = ["DEP1", "DEP2", "DEP3", "DEP4", "DEP5", "DEP6"];
+const CRITERIA = ["DEP1", "DEP2", "DEP3", "DEP4", "DEP5", "DEP6", "DEP7"];
 
 /* ========== 工具 ========== */
 
@@ -172,6 +173,14 @@ function fixtureState() {
       },
     },
     workflow: FIXTURE_WORKFLOW,
+    /* 仓库根的 .npmrc（真实存在的那份只有一行 `ignore-scripts=true` ＋ 上面一大段注释）。
+     * ⚠️ 夹具里也留一段注释：门禁必须**只**看生效的那几行（注释行不算），
+     * 否则「把 ignore-scripts 写进注释里」就会骗过它。 */
+    npmrc: [
+      "# 第三方依赖的安装期脚本一律不执行（见门禁 DEP7）。",
+      "ignore-scripts=true",
+      "",
+    ].join("\n"),
   };
 }
 
@@ -189,6 +198,9 @@ function buildFixture(mutate) {
   const wfDir = path.join(dir, ".github", "workflows");
   fs.mkdirSync(wfDir, { recursive: true });
   fs.writeFileSync(path.join(wfDir, "deploy.yml"), state.workflow);
+  /* ⚠️ `npmrc === null` ⇒ **不写这个文件**（模拟「文件根本不在」），
+   *   与「文件在但内容是空的」是**两档**（DA16 / DA17）：两条路都要判红。 */
+  if (state.npmrc !== null) fs.writeFileSync(path.join(dir, ".npmrc"), state.npmrc);
   return dir;
 }
 
@@ -249,6 +261,38 @@ const MUT = {
   missingNodeVersion: (s) => {
     s.workflow = s.workflow.replace(/^[ \t]*node-version:[^\n]*\n/m, "");
   },
+  /** 仓库根的 .npmrc 整个没了 ⇒ 只有 DEP7 应当红（第三方安装期脚本不再被禁用）。 */
+  npmrcMissing: (s) => {
+    s.npmrc = null;
+  },
+  /** .npmrc 文件在、但内容是空的 ⇒ 同样只有 DEP7 应当红
+   *  （⚠️ 这一档是本轮自测当场抓出的**假绿**：门禁曾因「读到空串」就跳过整段检查）。 */
+  npmrcEmpty: (s) => {
+    s.npmrc = "";
+  },
+  /** .npmrc 里 ignore-scripts 被写成了 false ⇒ 只有 DEP7 应当红。 */
+  npmrcIgnoreScriptsFalse: (s) => {
+    s.npmrc = "ignore-scripts=false\n";
+  },
+  /** ignore-scripts 只出现在**注释**里 ⇒ 门禁必须看不出来 ⇒ 只有 DEP7 应当红
+   *  （这档守的是「门禁只读生效的那几行」，否则注释就能把判据骗过去）。 */
+  npmrcOnlyInComment: (s) => {
+    s.npmrc = "# ignore-scripts=true\n";
+  },
+  /** 部署工作流的**注释**里提到这个开关 ⇒ 必须**仍绿**（否则本仓自己那段说明就会把门禁判红）。 */
+  workflowMentionsIgnoreScriptsInComment: (s) => {
+    s.workflow = s.workflow.replace(
+      "  verify-live:\n",
+      "  # 注意：工作流里不得用 --ignore-scripts=false 把它关掉（命令行优先于 .npmrc）。\n  verify-live:\n"
+    );
+  },
+  /** 部署工作流里用命令行把它关掉 ⇒ 只有 DEP7 应当红（命令行优先于 .npmrc）。 */
+  workflowOverridesIgnoreScripts: (s) => {
+    s.workflow = s.workflow.replace(
+      "          cache: npm\n",
+      "          cache: npm\n      - name: Install dependencies\n        run: npm ci --ignore-scripts=false\n"
+    );
+  },
 };
 
 /** 把工作流里**所有** `node-version: N` 改成 N。 */
@@ -288,6 +332,42 @@ const CASES = [
     mutate: MUT.missingNodeVersion,
     expect: ["DEP5"],
   },
+  {
+    id: "DA16",
+    label: "仓库根的 .npmrc 没了（第三方安装期脚本不再被禁用）",
+    mutate: MUT.npmrcMissing,
+    expect: ["DEP7"],
+  },
+  {
+    id: "DA17",
+    label: ".npmrc 文件在但内容是空的（同样没有那一项）",
+    mutate: MUT.npmrcEmpty,
+    expect: ["DEP7"],
+  },
+  {
+    id: "DA18",
+    label: ".npmrc 里 ignore-scripts 写成了 false（把执行权还给依赖）",
+    mutate: MUT.npmrcIgnoreScriptsFalse,
+    expect: ["DEP7"],
+  },
+  {
+    id: "DA19",
+    label: "ignore-scripts 只写在 .npmrc 的注释里（没生效）",
+    mutate: MUT.npmrcOnlyInComment,
+    expect: ["DEP7"],
+  },
+  {
+    id: "DA21",
+    label: "部署工作流用命令行把它关掉（命令行优先于 .npmrc）",
+    mutate: MUT.workflowOverridesIgnoreScripts,
+    expect: ["DEP7"],
+  },
+  {
+    id: "DA22",
+    label: "必须判绿：工作流的注释里提到这个开关（注释不是配置）",
+    mutate: MUT.workflowMentionsIgnoreScriptsInComment,
+    expect: null,
+  },
 ];
 
 /* ========== 四、判据级负对照 ========== */
@@ -299,6 +379,7 @@ const NEG_CASES = [
   { id: "DA8", crit: "DEP4", case: "DA4", label: "卸掉 DEP4" },
   { id: "DA14", crit: "DEP5", case: "DA10", label: "卸掉 DEP5" },
   { id: "DA15", crit: "DEP6", case: "DA9", label: "卸掉 DEP6" },
+  { id: "DA20", crit: "DEP7", case: "DA16", label: "卸掉 DEP7" },
 ];
 
 /** 在门禁副本里卸掉某条判据：给它每一条 fail() 调用**同行**加 `if (false) ` 前缀。 */

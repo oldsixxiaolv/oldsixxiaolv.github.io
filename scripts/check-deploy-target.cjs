@@ -2459,6 +2459,79 @@ if (wfText !== null) {
   }
 }
 
+/* ---------------- DP21：等待预算的上限必须小于该 job 的 timeout-minutes ---------------- */
+
+/**
+ * 等待预算的**上限**（秒）与 job 超时之间必须留出的余量（秒）。
+ *
+ * ⚠️ 为什么要有这条（2026-11-03 场次，源自 D132 留下的建议）：
+ *   预算是**现算**的（TTL + 120 秒），而 job 的 `timeout-minutes` 是**死的**
+ *   ⇒ 若 TTL 涨到「预算 ≥ job 上限」，**GitHub 会直接把这个 job 杀掉**
+ *   ⇒ 红因变成「job 超时」（一句看不懂的话），而**不是**
+ *     「线上在 X 秒内没有切到这次部署的内容」⇒ **失败方式变得不可读** ——
+ *   那正是 D124 那次要消灭的那类损失（假红与不可读的失败同样训练人忽略 CI）。
+ *   ⇒ 等待脚本里必须给预算一个**显式上限**，且它 + 余量 ≤ 该 job 的上限。
+ *
+ * ⚠️ 余量为什么是 60 秒：等待步骤**之前**还有 checkout / setup-node /
+ *   下载产物（≈ 1~2 分钟），**之后**还有核查门禁本身 ⇒ 上限必须比
+ *   「预算 + 准备时间」小 ⇒ 门禁这里只守「预算 + 1 分钟 ≤ job 上限」
+ *   这条**必要条件**（准备时间是实测值，不是常量 ⇒ 门禁不猜它）。
+ */
+const DP21_MIN_SLACK_SECONDS = 60;
+
+/* DP21 查到的量（供汇总文案用）。 */
+let dp21BudgetCap = null;
+let dp21JobTimeout = null;
+
+if (wfText !== null) {
+  /* 等待步骤的定位与 DP20 **同一处**（同一件事只认一处）。 */
+  const waitSteps22 = (workflowRunSteps(wfText) || []).filter((s) => {
+    const cmd = s.cmd || "";
+    return /generated-at/.test(cmd) || /deadline=/.test(cmd);
+  });
+  if (!waitSteps22.length) {
+    /* 认不出等待步骤 ⇒ DP14 / DP20 那边会报它 ⇒ 这里不重复报（同一件事只让一条判据说话）。 */
+  } else {
+    /* 预算上限的写法：`[ "$budget" -gt N ] && budget=N` ⇒ 取那个 N。 */
+    const capMatch = waitSteps22
+      .map((s) => s.cmd)
+      .join("\n")
+      .match(/["']?\$\{?budget\}?["']?\s*-gt\s*(\d+)/);
+    const cap = capMatch ? Number(capMatch[1]) : null;
+    /* 该 job 的 timeout-minutes（取等待步骤所在的那个 job）。 */
+    const jobOfWait = jobs.find((j) => j.name === waitSteps22[0].job);
+    const jobTimeoutMinutes = jobOfWait ? Number(jobOfWait.timeout) : null;
+
+    if (cap === null) {
+      fail(
+        `DP21 「等站点起来」的等待预算**没有上限**—— 预算是现算的（TTL + 余量），` +
+          `而 job 的 timeout-minutes 是死的 ⇒ TTL 一涨，预算就可能超过 job 上限，` +
+          `**这个 job 会被 GitHub 直接杀掉** ⇒ 红因变成「job 超时」而不是` +
+          `「线上没切到这次部署的内容」⇒ 失败方式不可读。` +
+          `⇒ 等待脚本里必须给预算一个显式上限（形如 ` +
+          `\`[ "$budget" -gt N ] && budget=N\`），且 N + ${DP21_MIN_SLACK_SECONDS} 秒 ≤ 该 job 的 timeout-minutes。`
+      );
+    } else if (jobOfWait && jobTimeoutMinutes === null) {
+      /* timeout-minutes 读不出来 ⇒ DP9 已经报过 ⇒ 这里不重复报。 */
+    } else if (jobTimeoutMinutes !== null) {
+      dp21BudgetCap = cap;
+      dp21JobTimeout = jobTimeoutMinutes;
+      const jobSeconds = jobTimeoutMinutes * 60;
+      if (cap + DP21_MIN_SLACK_SECONDS > jobSeconds) {
+        fail(
+          `DP21 「等站点起来」的等待预算上限（${cap} 秒）比该 job 的上限还大` +
+            `（job「${jobOfWait.name}」的 timeout-minutes = ${jobTimeoutMinutes} 分钟 ` +
+            `= ${jobSeconds} 秒）—— 预算跑满时 **job 会被 GitHub 杀掉** ⇒ ` +
+            `红因变成「job 超时」（一句看不懂的话），而不是「线上在 ${cap}s 内没有切到` +
+            `这次部署的内容」⇒ **失败方式不可读**。⇒ 预算上限 + ` +
+            `${DP21_MIN_SLACK_SECONDS} 秒余量必须小于 job 上限：` +
+            `要么把上限调小，要么把该 job 的 timeout-minutes 调大。`
+        );
+      }
+    }
+  }
+}
+
 /* ---------------- 汇总 ---------------- */
 if (problems.length) {
   console.error("发布落点门禁未通过：\n");
@@ -2554,5 +2627,12 @@ if (dp20WaitBudgetDynamic) {
   console.log(
     `  · 「等站点起来」的等待预算：**现读**线上响应头的 cache-control max-age` +
       `（不写死常数 ⇒ CDN 的 TTL 变了不必改代码 ⇒ 不会因为 TTL 变一次就假红）。`
+  );
+}
+if (dp21BudgetCap !== null) {
+  console.log(
+    `  · 等待预算的**上限** ${dp21BudgetCap} 秒 ＋ ${DP21_MIN_SLACK_SECONDS} 秒余量 ≤ ` +
+      `该 job 的 timeout-minutes（${dp21JobTimeout} 分钟）—— 预算跑满时是**脚本自己判红退出**，` +
+      `不是被 GitHub 杀掉 job ⇒ 红因始终读得懂。`
   );
 }

@@ -24,6 +24,23 @@
  *   DEP5 CI 运行时一致 —— CI 用的 Node 版本必须同时满足 package.json 的 `engines.node`
  *      与依赖树里各包的 `engines.node` 下限；各 setup-node 步骤必须写同一个版本。
  *   DEP6 CI 运行时底线 —— CI 用的 Node 不得低于「CI Node 底线表」。
+ *   DEP7 安装期脚本 —— 安装依赖时必须**禁用第三方包的安装期脚本**
+ *      （`install` / `preinstall` / `postinstall`）⇒ 由仓库根的 `.npmrc`
+ *      的 `ignore-scripts=true` 一处声明（本地与 CI 同一口径），
+ *      且部署工作流**不得**把它显式关掉。
+ *
+ * ⚠ 为什么要有 DEP7（一次具体的注入面，不是假想）：
+ *   npm 在装包时会执行依赖自己声明的 `install` / `preinstall` / `postinstall`
+ *   ⇒ 那是**任意代码执行**，而且发生在**能拿到 CI 凭据的机器上**。
+ *   本仓的具体注入面：build job 装完依赖后会把 `_site/` 上传成 Pages 产物
+ *   ⇒ 一个恶意的 postinstall 可以在上传**之前**改 `_site/` 里的任何文件
+ *   ⇒ **发布出去的站点带上了注入的脚本**，而门禁看不见
+ *   （门禁看的是「产物与源码是否对得上」，注入发生在**产物生成之后**）。
+ *   ⇒ 「**允许依赖做什么**」这件事应当由本仓决定，而不是由依赖的作者决定。
+ *   ⚠️ **今天零代价**（2026-11-03 实测）：整棵依赖树（130 个包）里
+ *   **0 个**带安装期脚本 ⇒ 关掉它不影响任何构建步骤；
+ *   将来若某个依赖真的需要它 ⇒ 它的安装会**响亮地失败**
+ *   ⇒ 那时要**显式**决定换依赖或开例外，**不许静默地把执行权还给依赖**。
  *
  * ⚠ 为什么要有 DEP5 / DEP6（一次具体的实测，不是假想）：
  *   2026-10-27 实测：**CI 的 `node-version` 从来没有任何门禁看守过** ——
@@ -198,6 +215,25 @@ function parseNodeVersion(raw) {
   return m ? m[1] : null;
 }
 
+/**
+ * 剥掉一行 YAML 的**行尾注释**（` # …`），引号内的 `#` 不算。
+ * 与 scripts/check-deploy-target.cjs 里的同名函数同一口径（两处各一份，
+ * 因为两个门禁不互相 require —— 共享模块要留给「真被两处用」的场合）。
+ */
+function stripYamlComment(s) {
+  let inS = false;
+  let inD = false;
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i];
+    if (c === "'" && !inD) inS = !inS;
+    else if (c === '"' && !inS) inD = !inD;
+    else if (c === "#" && !inS && !inD && (i === 0 || /\s/.test(s[i - 1]))) {
+      return s.slice(0, i);
+    }
+  }
+  return s;
+}
+
 /* ---------------- main：检查本体 ---------------- */
 
 function main() {
@@ -208,6 +244,7 @@ function main() {
   const dep4Reasons = [];
   const dep5Reasons = [];
   const dep6Reasons = [];
+  const dep7Reasons = [];
   /* ---------------- 读文件 ---------------- */
 
   let pkg = null;
@@ -467,6 +504,73 @@ function main() {
     );
   }
 
+  /* ---------------- DEP7：第三方包的安装期脚本必须禁用 ---------------- */
+
+  /* ① 仓库根的 .npmrc 必须声明 ignore-scripts=true（**一处**声明 ⇒ 本地与 CI 同一口径）。 */
+  const npmrcPath = path.join(ROOT, ".npmrc");
+  if (!fs.existsSync(npmrcPath)) {
+    dep7Reasons.push(
+      `读不到仓库根的 .npmrc（${npmrcPath}）—— 「第三方包的安装期脚本有没有被禁用」判不了`
+    );
+  } else {
+    let npmrcText = null;
+    try {
+      npmrcText = fs.readFileSync(npmrcPath, "utf8");
+    } catch (e) {
+      dep7Reasons.push(`仓库根的 .npmrc 读取失败：${e.message}`);
+    }
+    /* ⚠️ **空文件也算「没有这一项」** ⇒ 不能因为读到了空串就跳过检查
+     *   （那正是本轮自测 DA16 当场抓到的假绿：文件在、内容空 ⇒ 一律判绿）。 */
+    if (npmrcText !== null) {
+      /* 只看**生效**的那几行：空行与注释行（# / ; 开头）不算。 */
+      const active = npmrcText
+        .split("\n")
+        .map((l) => l.trim())
+        .filter((l) => l && !/^[#;]/.test(l));
+      const hit = active.find((l) => /^ignore-scripts\s*=/i.test(l));
+      if (!hit) {
+        dep7Reasons.push(
+          `仓库根的 .npmrc 里没有 ignore-scripts 这一项 —— npm 会照常执行第三方包的 ` +
+            `install / preinstall / postinstall（任意代码执行，且发生在能拿到 CI 凭据的机器上）`
+        );
+      } else if (!/^ignore-scripts\s*=\s*true$/i.test(hit)) {
+        dep7Reasons.push(
+          `仓库根的 .npmrc 里 ignore-scripts 写的是「${hit}」—— 它必须显式为 true` +
+            `（写成 false 等于把执行权还给依赖）`
+        );
+      }
+    }
+  }
+
+  /* ② 部署工作流里不得把它显式关掉（命令行参数**优先于** .npmrc）。
+   *   ⚠️ **注释不算**（与本文件 `ciNodeSteps` 同一口径）：工作流里的注释经常要**提到**
+   *      这个开关（写「工作流不得用 `--ignore-scripts=false` 把它关掉」）⇒
+   *      若不剥注释，本仓自己那段说明就会把门禁判红 ⇒ **假红**。
+   *      ⇒ 整行注释直接跳过；行尾注释（` # …`）也剥掉再判。 */
+  if (workflowText !== null) {
+    workflowText.split("\n").forEach((raw, i) => {
+      const line = stripYamlComment(raw);
+      if (!line.trim() || /^\s*#/.test(line)) return; // 整行注释
+      if (/--ignore-scripts\s*=\s*false/i.test(line)) {
+        dep7Reasons.push(
+          `部署工作流第 ${i + 1} 行出现 --ignore-scripts=false —— 命令行参数优先于 .npmrc，` +
+            `⇒ 这一行会把「第三方安装期脚本禁用」整个关掉`
+        );
+      }
+    });
+  }
+
+  if (dep7Reasons.length) {
+    fail(
+      `DEP7 安装依赖时没有禁用第三方包的安装期脚本（${dep7Reasons.length} 处）：` +
+        dep7Reasons.join("；") +
+        ` —— 装包时执行依赖自己的 install / preinstall / postinstall 是**任意代码执行**，` +
+        `而本仓的 build job 装完依赖就会把 _site/ 上传成 Pages 产物 ⇒ ` +
+        `一次注入就能改掉**发布出去的字节**，而门禁看不见（它比对的是产物与源码，` +
+        `注入发生在产物生成之后）`
+    );
+  }
+
   /* ---------------- 汇总 ---------------- */
   if (problems.length) {
     console.error("依赖体检门禁未通过：\n");
@@ -498,6 +602,10 @@ function main() {
     `  · 本门禁是**离线**的：它判不了「当前版本有没有已知漏洞」—— ` +
       `那需要联网取公告库，由 scripts/check-dep-audit.cjs（DA1）负责，` +
       `**不接进 build 链**（build 链保持零网络依赖）。`
+  );
+  console.log(
+    `  · 第三方包的**安装期脚本**已被禁用（仓库根 .npmrc 的 ignore-scripts=true，DEP7 守着）` +
+      `—— 装包时不再执行依赖自己的 install / preinstall / postinstall。`
   );
 
 }

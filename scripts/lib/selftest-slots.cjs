@@ -146,7 +146,8 @@ const SLOTS = {
   ],
   "test-deps.cjs": [
     "DA0", "DA1", "DA2", "DA3", "DA4", "DA5", "DA6", "DA7", "DA8",
-    "DA9", "DA10", "DA11", "DA12", "DA13", "DA14", "DA15"
+    "DA9", "DA10", "DA11", "DA12", "DA13", "DA14", "DA15",
+    "DA16", "DA17", "DA18", "DA19", "DA20", "DA21", "DA22"
   ],
   "test-deploy-target.cjs": [
     "N0", "N1", "N2", "N3", "N4", "N5", "N6", "N7", "N8", "N9",
@@ -159,7 +160,8 @@ const SLOTS = {
     "N69", "N70", "N71", "N72", "N73", "N74",
     "N75", "N76", "N77", "N78", "N79", "N80", "N81", "N82", "N83",
     "N84", "N85", "N86", "N87", "N88",
-    "N89", "N90", "N91", "N92", "N93", "N94"
+    "N89", "N90", "N91", "N92", "N93", "N94",
+    "N95", "N96", "N97"
   ],
   "test-doc-reality.cjs": [
     "DCR0", "DCR1", "DCR2", "DCR3", "DCR4", "DCR5", "DCR6", "DCR7",

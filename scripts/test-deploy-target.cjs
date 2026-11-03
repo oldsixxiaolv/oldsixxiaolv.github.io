@@ -85,11 +85,13 @@ const CAUSES = [
   { id: "DP19a", crit: "DP19", frag: "兜不住 build 链的最坏耗时" },
   { id: "DP19b", crit: "DP19", frag: "数不出 build 链的段数" },
   { id: "DP20", crit: "DP20", frag: "等待预算没有按线上实测的 CDN TTL 现算" },
+  { id: "DP21a", crit: "DP21", frag: "等待预算**没有上限**" },
+  { id: "DP21b", crit: "DP21", frag: "比该 job 的上限还大" },
 ];
 /** 静态判据清单（门禁里应当且仅应当有这些判据）。 */
 const CRITERIA = [
   "DP1", "DP2", "DP3", "DP4", "DP5", "DP6", "DP7", "DP8", "DP9", "DP10", "DP11",
-  "DP12", "DP13", "DP14", "DP15", "DP16", "DP17", "DP18", "DP19", "DP20",
+  "DP12", "DP13", "DP14", "DP15", "DP16", "DP17", "DP18", "DP19", "DP20", "DP21",
 ];
 
 /* ========== 工具 ========== */
@@ -383,6 +385,22 @@ const MUT = {
   /** package.json 读不出来 ⇒ DP19 判不了 ⇒ 判红（fail closed）。 */
   pkgMissing: (s) => {
     s.pkg = null;
+  },
+  /** 等待预算的上限被调到比该 job 的 timeout 还大 ⇒ DP21（预算跑满时 job 会被杀掉）。 */
+  waitBudgetCapTooBig: (s) => {
+    s.workflow = replaceOnce(
+      s.workflow,
+      "          [ \"$budget\" -gt 1200 ] && budget=1200\n",
+      "          [ \"$budget\" -gt 1500 ] && budget=1500\n"
+    );
+  },
+  /** 等待预算**根本没有上限** ⇒ DP21（TTL 一涨，预算就可能超过 job 上限）。 */
+  waitBudgetCapMissing: (s) => {
+    s.workflow = replaceOnce(
+      s.workflow,
+      "          [ \"$budget\" -gt 1200 ] && budget=1200\n",
+      ""
+    );
   },
   /** 远端存在，但指向别的仓库 ⇒ DP2。 */
   remoteWrongRepo: (s) => {
@@ -1058,6 +1076,8 @@ const CASES = [
   { id: "N90", label: "等待预算改回写死常数（不现读线上 TTL）", mutate: MUT.waitBudgetHardcoded, expect: ["DP20"] },
   { id: "N91", label: "package.json 读不出来（算不出链长 ⇒ 判不了 ⇒ 判红）", mutate: MUT.pkgMissing, expect: ["DP19"] },
   { id: "N94", label: "必须判绿：等待步骤把线上正文先存进变量、再提取构建标记（两行写法）", mutate: MUT.waitStampFromVariable, expect: null },
+  { id: "N95", label: "等待预算的上限被调到比该 job 的 timeout 还大（job 会被杀掉 ⇒ 红因不可读）", mutate: MUT.waitBudgetCapTooBig, expect: ["DP21"] },
+  { id: "N96", label: "等待预算没有上限（TTL 一涨，预算就可能超过 job 上限）", mutate: MUT.waitBudgetCapMissing, expect: ["DP21"] },
 ];
 
 /* ========== 四、判据级负对照 ========== */
@@ -1083,6 +1103,7 @@ const NEG_CASES = [
   { id: "N88", crit: "DP18", case: "N84", label: "卸掉 DP18" },
   { id: "N92", crit: "DP19", case: "N89", label: "卸掉 DP19" },
   { id: "N93", crit: "DP20", case: "N90", label: "卸掉 DP20" },
+  { id: "N97", crit: "DP21", case: "N95", label: "卸掉 DP21" },
 ];
 
 /** 在门禁副本里卸掉某条判据：给它每一条 fail() 调用**同行**加 `if (false) ` 前缀。 */
