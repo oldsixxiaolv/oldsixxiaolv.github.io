@@ -55,7 +55,7 @@
      balance 在这种结构下没有可均衡的余地，反而可能为了拉平行长去拆词。
      实测它会把 "Thunderstorms," 变成 "Thunderstorm" + "s,"。所以不用。 */
 }
-.home-hero__title em { color: var(--color-brand-500); font-style: normal; }
+.home-hero__title em { color: var(--color-brand-500); font-style: italic; }
 .home-hero__lede {
   max-width: 570px;
   margin: 0;
@@ -496,6 +496,15 @@
 @media (prefers-reduced-motion: no-preference) {
   .home-signal { transition: transform 700ms var(--ease-out); }
   .home-signal:hover { transform: rotate(0deg) translateY(-6px); }
+  .home-hero__actions .btn span,
+  .home-pub__link span {
+    display: inline-block;
+    transition: transform var(--dur-base) var(--ease-out);
+  }
+  .home-hero__actions .btn:hover span,
+  .home-pub__link:hover span {
+    transform: translate(2px, -2px);
+  }
 }
 @media (max-width: 820px) {
   .home-hero { grid-template-columns: 1fr; min-height: 0; gap: 40px; align-items: start; }

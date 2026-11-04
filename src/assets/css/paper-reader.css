@@ -298,7 +298,7 @@
   border-inline-start: 1px solid var(--border-subtle);
   background: transparent;
   color: var(--text-muted);
-  font: 500 12px/1 var(--font-sans-cn);
+  font: 500 12px/1 var(--font-body);
   cursor: pointer;
   transition: color var(--dur-base) var(--ease-out),
               background-color var(--dur-base) var(--ease-out);
@@ -334,7 +334,7 @@
 .annot-pane .paper-toc a { text-decoration: none; }
 .annot-pane__head h2 {
   margin: 0;
-  font-family: var(--font-sans-cn);
+  font-family: var(--font-body);
   font-size: 13px;                /* 字号收紧（lead #7） */
   font-weight: 500;
   color: var(--text-muted);       /* 去 accent 色（lead #9） */
@@ -356,7 +356,7 @@
   border-radius: 0;              /* 去圆角 */
   background: transparent;        /* 去 page 背景 */
   color: var(--text-primary);
-  font-family: var(--font-sans-cn);
+  font-family: var(--font-body);
   font-size: 13px;                /* 字号收紧 */
   transition: border-color var(--dur-base) var(--ease-out);
 }

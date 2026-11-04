@@ -133,6 +133,62 @@ function headings(sha) {
 }
 
 /**
+ * 一次 `git log -p` 重放出「每个提交里的节标题集合」—— LS2 用（2026-11-04）。
+ *
+ * 为什么：LS2 原先对触碰过日志的**每一个**提交调一次 headings(sha)（一个 git grep
+ * 子进程）。277 个提交 × ~34ms ≈ 9.3 秒，是本门禁的全部耗时，也是整条 build 链里
+ * 最慢的非自测步骤。这里改成**一个** git 进程：按提交顺序读日志文件的 diff，
+ * 只跟踪以 `## ` 开头的行，用**计数**（不是集合）维护每个标题当前在文件里出现几次
+ * —— 同一标题出现多份、删掉其中一份时它仍在，与 git grep 逐提交取的结果一致。
+ *
+ * 与逐提交 git grep **等价**的依据：
+ *   · 节标题行 = 文件里以 `## ` 开头的行（git grep -e "^## " 的口径）；diff 里
+ *     它就是 `+## …` / `-## …`（`+++` / `---` 文件头与 `@@` hunk 头都不以 `## ` 起头）；
+ *   · `-U0` 只省掉上下文行，增删行一行不少；`--no-renames` 让改名表现为删 + 增，
+ *     与「该提交里这个路径下的文件内容」口径一致；
+ *   · 文件在某提交被整个删掉（deleted file mode）⇒ 该提交记为 null，与 git grep
+ *     退出码 128（路径不存在）的处理一致。
+ * 提交列表仍以上面那条 `git log --format=%H -- LOG` 为准；replay 少了任何一个提交
+ * ⇒ 返回 null，调用方退回逐提交 git grep（行为与从前完全一致）。
+ */
+function replayHeadings(commitList) {
+  const r = git(["log", "-p", "-U0", "--no-renames", "--no-color", "--format=%x00%H", "--", LOG]);
+  if (!r.ok) return null;
+  // git log 输出是新 → 旧；按提交切块后反转成旧 → 新再重放。
+  const blocks = [];
+  for (const chunk of r.out.split("\0").slice(1)) {
+    const nl = chunk.indexOf("\n");
+    const sha = (nl < 0 ? chunk : chunk.slice(0, nl)).trim();
+    blocks.push({ sha, body: nl < 0 ? "" : chunk.slice(nl + 1) });
+  }
+  blocks.reverse();
+  if (blocks.length !== commitList.length || blocks.some((b, i) => b.sha !== commitList[i])) return null;
+  const counts = new Map();
+  const out = new Map();
+  for (const { sha, body } of blocks) {
+    let deleted = false;
+    for (const line of body.split("\n")) {
+      if (line.startsWith("deleted file mode")) deleted = true;
+      let sign = 0;
+      if (line.startsWith("+## ")) sign = 1;
+      else if (line.startsWith("-## ")) sign = -1;
+      else continue;
+      const key = line.slice(1);
+      counts.set(key, (counts.get(key) || 0) + sign);
+    }
+    if (deleted) {
+      counts.clear();
+      out.set(sha, null);
+      continue;
+    }
+    const set = new Set();
+    for (const [k, c] of counts) if (c > 0) set.add(k.trim());
+    out.set(sha, set);
+  }
+  return out;
+}
+
+/**
  * 找出"同一个标题出现多份"的节标题。
  * identity = 去掉首尾空白后的整行（与 LS2/LS4 的比较口径一致）。
  * 返回 [{ text, lines: [行号, ...] }]。
@@ -224,9 +280,10 @@ if (headSet === null) {
 const everSeen = new Map();
 const removedAt = new Map();
 {
+  const replayed = replayHeadings(commits);
   let prev = new Set();
   for (const sha of commits) {
-    const cur = headings(sha);
+    const cur = replayed ? replayed.get(sha) : headings(sha);
     if (cur === null) {
       // 日志文件在这个提交里不存在（被整个删掉）→ 之前的节都在这里丢失
       for (const h of prev) if (!removedAt.has(h)) removedAt.set(h, sha);

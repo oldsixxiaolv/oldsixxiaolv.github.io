@@ -118,9 +118,13 @@ html body .topbar__inner {
 .topbar__mark {
   flex-shrink: 0;
   color: var(--color-brand-500);
-  transition: color var(--dur-base) var(--ease-out);
+  transition: color var(--dur-base) var(--ease-out),
+              transform var(--dur-slow) var(--ease-out);
 }
-.topbar__brand:hover .topbar__mark { color: var(--color-brand-400); }
+.topbar__brand:hover .topbar__mark {
+  color: var(--color-brand-400);
+  transform: rotate(15deg) scale(1.06);
+}
 .topbar__brand:hover { text-decoration: none; }
 
 .topbar__nav {
@@ -130,7 +134,7 @@ html body .topbar__inner {
 }
 .topbar__link {
   position: relative;
-  font-family: var(--font-sans-cn);
+  font-family: var(--font-body);
   font-size: var(--fs-small);
   color: var(--text-muted);
   text-decoration: none;
@@ -251,7 +255,7 @@ html body .topbar__inner {
   padding: var(--space-4) 0;
   border-top: 1px solid var(--border-subtle);
   color: var(--text-muted);
-  font-family: var(--font-sans-cn);
+  font-family: var(--font-body);
   font-size: var(--fs-small);
 }
 .foot__inner {

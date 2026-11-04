@@ -246,22 +246,27 @@
 
 ```css
 /* Google Fonts 完整外链 */
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Serif+SC:wght@400;500;700&family=Source+Serif+4:wght@400;600&family=JetBrains+Mono:wght@400;500&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Source+Serif+4:ital,wght@0,400;0,600;1,400&family=JetBrains+Mono:wght@400;500&display=swap');
 
 :root {
   --font-serif-cn: 'Noto Serif SC', 'Noto Serif SC Fallback', 'Songti SC', 'STSong', serif;
-  --font-serif-en: 'Source Serif 4', 'Source Serif 4 Fallback', 'Source Han Serif SC', 'Noto Serif SC', serif;
+  --font-serif-en: 'Source Serif 4', 'Source Serif 4 Fallback', 'Apple Symbols', 'Segoe UI Symbol', serif;
   --font-sans-cn:  'PingFang SC', 'Microsoft YaHei', 'Hiragino Sans GB', sans-serif;
   --font-sans-en:  'Inter', system-ui, -apple-system, 'Helvetica Neue', sans-serif;
   --font-mono:     'JetBrains Mono', 'SF Mono', Menlo, Consolas, monospace;
 
-  --font-body:   var(--font-sans-cn), var(--font-sans-en);   /* UI/正文默认无衬线 */
-  --font-editorial: var(--font-serif-cn), var(--font-serif-en); /* 文章长文用衬线 */
+  --font-body:   var(--font-sans-en), var(--font-sans-cn);   /* UI/正文默认无衬线；拉丁在前（全站英文，见下方说明） */
+  --font-editorial: var(--font-serif-en), var(--font-serif-cn); /* 文章长文用衬线；拉丁在前 */
   --font-code:   var(--font-mono);
 }
 ```
 
 **长文（博客、论文精读）切换规则**：默认页面用 sans，进入 `article` 容器后切到 `editorial serif`，可读性显著提升。
+
+> **栈的顺序（2026-11-04 改）**：组合栈一律**拉丁字族在前、中文字族在后**。`font-family` 是逐字回落，
+> 中文字体自带拉丁字形 —— 排在前面时英文会被中文字体的拉丁字形渲染，Inter / Source Serif 4 根本轮不到。
+> 站点全站英文（产物中日韩字符为 0），所以 Noto Serif SC 的 webfont 外链也已撤下；中文字符万一出现，
+> 回落到本地的 `Noto Serif SC Fallback`（Songti SC）。组件里**不要**直接写 `var(--font-sans-cn)`，用 `var(--font-body)`。
 
 ### 3.2 字号阶梯（Type Scale）
 
@@ -718,12 +723,12 @@ hover / `:focus-visible` 时背景 `--bg-subtle`、边框 `--border-default`。
 
   /* —— Typography —— */
   --font-serif-cn: 'Noto Serif SC', 'Noto Serif SC Fallback', 'Songti SC', 'STSong', serif;
-  --font-serif-en: 'Source Serif 4', 'Source Serif 4 Fallback', 'Source Han Serif SC', 'Noto Serif SC', serif;
+  --font-serif-en: 'Source Serif 4', 'Source Serif 4 Fallback', 'Apple Symbols', 'Segoe UI Symbol', serif;
   --font-sans-cn:  'PingFang SC', 'Microsoft YaHei', 'Hiragino Sans GB', sans-serif;
   --font-sans-en:  'Inter', system-ui, -apple-system, 'Helvetica Neue', sans-serif;
   --font-mono:     'JetBrains Mono', 'SF Mono', Menlo, Consolas, monospace;
-  --font-body:     var(--font-sans-cn), var(--font-sans-en);
-  --font-editorial:var(--font-serif-cn), var(--font-serif-en);
+  --font-body:     var(--font-sans-en), var(--font-sans-cn);
+  --font-editorial:var(--font-serif-en), var(--font-serif-cn);
   --font-code:     var(--font-mono);
   --font-serif:    var(--font-editorial);  /* 历史写法：列表页 / 论文卡 / 精读页的标题用它 */
 

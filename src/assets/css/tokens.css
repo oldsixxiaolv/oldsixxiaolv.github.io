@@ -176,13 +176,23 @@
      走本地系统字体（Georgia / Songti SC）但通过 size-adjust 等 metric override 模拟
      webfont 的行高/字宽，避免 swap 时整页 layout shift。 */
   --font-serif-cn: 'Noto Serif SC', 'Noto Serif SC Fallback', 'Songti SC', 'STSong', serif;
-  --font-serif-en: 'Source Serif 4', 'Source Serif 4 Fallback', 'Source Han Serif SC', 'Noto Serif SC', serif;
+  --font-serif-en: 'Source Serif 4', 'Source Serif 4 Fallback', 'Apple Symbols', 'Segoe UI Symbol', serif;
   --font-sans-cn:  'PingFang SC', 'Microsoft YaHei', 'Hiragino Sans GB', sans-serif;
   --font-sans-en:  'Inter', system-ui, -apple-system, 'Helvetica Neue', sans-serif;
   --font-mono:     'JetBrains Mono', 'SF Mono', Menlo, Consolas, monospace;
 
-  --font-body:      var(--font-sans-cn), var(--font-sans-en);
-  --font-editorial: var(--font-serif-cn), var(--font-serif-en);
+  /* —— 组合栈：**拉丁字族在前，中文字族在后** ——
+     font-family 是**逐字回落**：浏览器对每个字符从左往右找第一个含这个字形的字体。
+     中文字体（PingFang SC / Noto Serif SC）自带全套拉丁字形，所以它们一旦排在前面，
+     英文就**永远轮不到** Inter / Source Serif 4 —— 2026-11-04 用 CDP 的
+     CSS.getPlatformFontsForNode 实测：首页 lede、按钮、/blog/ 的 h1、标签全部
+     由 Noto Serif SC 渲染拉丁字形，列表摘要由 PingFang SC 渲染，Inter 与
+     Source Serif 4 只在少数直接引用 -en 栈的地方出现；还连带出现了全角风格的
+     弯引号与连字符（论文页「“more convection…”」引号前后的大空隙）。
+     这套栈最初是给中文优先的站点写的；站点 2026-10-20 起全站英文（产物里中日韩字符
+     为 0），所以顺序要倒过来：拉丁字族在前，真遇到中文字符时再回落到中文字体。 */
+  --font-body:      var(--font-sans-en), var(--font-sans-cn);
+  --font-editorial: var(--font-serif-en), var(--font-serif-cn);
   --font-code:      var(--font-mono);
   /* --font-serif 是历史写法：_list.css / _paper.css / paper-reader.css 里的标题
      一律写 var(--font-serif)，但这个变量一直没在 tokens 里定义过。CSS 变量未定义

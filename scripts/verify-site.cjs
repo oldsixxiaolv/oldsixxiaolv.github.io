@@ -158,7 +158,7 @@ const { degradeOrThrow } = require("./lib/git-error.cjs");
 // 与 eleventy.config.js 的 lastCommitTime filter **同一个函数**（D34 起），
 // 两边不可能再对不上（原先各查各的：构建侧取"页面自己的源文件"，
 // 门禁侧也取"页面自己的源文件" —— 口径一致但**一起错**）。
-const { expectedLastmod } = require("./lib/page-deps.cjs");
+const { expectedLastmod, commitTimeOf: closureCommitTimeOf, REPO_ROOT: DEPS_ROOT } = require("./lib/page-deps.cjs");
 
 /* 逐字路径解析（大小写敏感）—— 见 scripts/lib/path-case.cjs 的文件头：
  *   `fs.existsSync` 的大小写行为**取决于文件系统**（macOS 不敏感、CI 的 ubuntu 敏感）
@@ -1701,12 +1701,13 @@ const GIT_ROOT = GIT_TOP ? path.resolve(GIT_TOP) : REPO;
 const inGitRepo = GIT_TOP !== null;
 const isShallow = gitOut(["rev-parse", "--is-shallow-repository"]);
 // 某个源文件最后一次提交的时间，统一成 UTC ISO（与模板产出的格式一致）
-const gitCommitTime = (rel) => {
-  const out = gitOut(["log", "-1", "--format=%cI", "--", rel]);
-  if (!out) return null;
-  const d = new Date(out);
-  return isNaN(d.getTime()) ? null : d.toISOString();
-};
+// ⚠️ 走 page-deps.cjs 的 commitTimeOf（一次 git log 建好的全仓索引，2026-11-04）：
+//   规则 C 要遍历 src/ 下每个文件，原先每个文件起一个 `git log -1` 子进程 ——
+//   本门禁一遍 102 次 ≈ 4 秒（几乎是全部耗时），自测跑它 ~95 遍 ⇒ 100 秒。
+//   索引与逐文件查询逐字等价（等价条件与退回逐文件的分支见 page-deps.cjs），
+//   降级 / 抛错判据仍是 git-error.cjs 那一份。rel 是相对 GIT_ROOT 的，
+//   换成 page-deps 的基准（它自己的 REPO_ROOT，同一个 METEO_REPO_ROOT 注入缝）。
+const gitCommitTime = (rel) => closureCommitTimeOf(path.relative(DEPS_ROOT, path.join(GIT_ROOT, rel)));
 
 // src 下所有源文件各自的最后提交时间（规则 C 的集合比对用）
 const srcCommitTimes = new Set();

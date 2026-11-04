@@ -43,7 +43,7 @@ Esc 取消高亮。完整交互规范见 `docs/papers-interaction.md`。
 ## 设计语言
 
 「流场蓝 × 暖橙赭石」的冷暖对照：蓝主调（流场蓝 + sage 数据绿）作理性背景，
-赭石橙（accent-400）作强调与温度感。字体走 Noto Serif SC + Source Serif 4 + Inter，
+赭石橙（accent-400）作强调与温度感。字体走 Source Serif 4 + Inter + JetBrains Mono（拉丁字族在前，中文回落本地宋体），
 长文进 `<article>` 自动切衬线，UI 用无衬线。
 完整规范（颜色 token / 字号阶梯 / 间距 / 圆角阴影）见 `docs/design-system.md`。
 

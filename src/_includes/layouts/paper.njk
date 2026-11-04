@@ -153,11 +153,13 @@ layout: layouts/base.njk
       {%- for a in pub.authorList -%}
         {%- if not loop.first %}, {% endif -%}
         {%- set isMe = (a.name == site.author.nameAsPublished) -%}
+        {%- if isMe %}<strong>{% endif -%}
         {%- if a.orcid -%}
           <a href="https://orcid.org/{{ a.orcid }}" rel="noopener noreferrer">{{ a.name }}</a>
         {%- else -%}
           {{ a.name }}
         {%- endif -%}
+        {%- if isMe %}</strong>{% endif -%}
       {%- endfor -%}
     </p>
 

@@ -59,14 +59,18 @@ const fail = (m) => problems.push(m);
 /**
  * 从 HTML 里抽出所有 URL 形态的取值。
  * 取 href / src / srcset 三个属性：站内资源引用就落在这三个里。
- * （srcset 的取值是 "url 300w, url 600w" 这种逗号分隔 + 描述符的组合。）
+ * （srcset 的取值是 "url 300w, url 600w" 这种逗号分隔 + 描述符的组合；
+ *   ⚠️ 只有属性名是 srcset 时才按逗号切分 —— href/src 里带逗号的查询串
+ *   （如 Google Fonts CSS2 API 的 `ital,wght@0,400;0,600;1,400`）是单个 URL，
+ *   按逗号切会把后半截切成无协议碎片并误判为相对站内 URL。）
  */
 function extractUrls(html) {
   const out = [];
-  for (const m of html.matchAll(/(?:href|src|srcset)\s*=\s*"([^"]*)"/g)) {
-    const raw = m[1].trim();
+  for (const m of html.matchAll(/\b(href|src|srcset)\s*=\s*"([^"]*)"/gi)) {
+    const attr = m[1].toLowerCase();
+    const raw = m[2].trim();
     if (!raw) continue;
-    if (raw.includes(",")) {
+    if (attr === "srcset") {
       // srcset：逗号分隔，每段的第一段才是 URL
       for (const part of raw.split(",")) {
         const u = part.trim().split(/\s+/)[0];

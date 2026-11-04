@@ -123,12 +123,94 @@ function hasHistory() {
   return gitTop() !== null && !gitIsShallow();
 }
 
+/* —— 一次 git log 建好的「路径 → 最后一次提交时间」索引 ——
+   为什么要有它（2026-11-04 实测）：commitTimeOf 原先**每个文件**起一个
+   `git log -1 -- <file>` 子进程。verify-site.cjs 跑一遍要 102 次（门禁 18 的
+   规则 C 要遍历 src/ 下每个文件），在 exFAT 盘上合计约 4.0 秒 = 那道门禁的
+   几乎全部耗时；它的自测要把门禁跑 ~95 遍 ⇒ 单这一份自测 100 秒，
+   占整条 build 链（串行约 375 秒）的 27%。
+   一次 `git log --name-only` 全仓只要 ~0.5 秒，结果与逐文件查询**逐字相同**，
+   前提是下面三条，任一不满足就**退回逐文件查询**（行为与从前完全一致）：
+     1. 历史是线性的（没有合并提交）—— 有合并时 `git log -- <path>` 会做
+        历史简化（TREESAME 剪枝），与「全量日志里第一次出现」不再等价；
+     2. 路径没有被 git 引号转义（core.quotepath=off 之后只有含控制字符 /
+        双引号的路径才会被转义）—— 出现转义路径时，查不到的键改走逐文件；
+     3. 降级语义不变：git 不可用 / 没有历史 ⇒ degradeOrThrow 返回 null
+        （与逐文件查询同一套判据），判不出来 ⇒ 照样抛。
+   `--no-renames`：逐文件的 `git log -- <path>` 不跟踪改名（没有 --follow），
+   改名提交对新旧两个路径都算「动过」；全量日志关掉改名检测才会把新旧路径
+   都列出来，两边口径一致。
+   键一律是「相对 git 顶层、正斜杠」的路径（git log --name-only 的输出口径）。 */
+let commitIndexCache; // undefined = 还没建；null = 不可用（走逐文件）
+function commitIndex() {
+  if (commitIndexCache !== undefined) return commitIndexCache;
+  commitIndexCache = null;
+  if (!hasHistory()) return null;
+  let out;
+  try {
+    out = execFileSync(
+      "git",
+      ["-c", "core.quotepath=off", "log", "--no-renames", "--format=%x00%cI%x00%P", "--name-only", "HEAD"],
+      { cwd: REPO_ROOT, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], maxBuffer: 256 * 1024 * 1024 }
+    );
+  } catch (e) {
+    degradeOrThrow(e);
+    return null;
+  }
+  const map = new Map();
+  let current = null;
+  let quoted = false;
+  for (const line of out.split("\n")) {
+    if (line.startsWith("\0")) {
+      const [, iso, parents] = line.split("\0");
+      if ((parents || "").trim().split(/\s+/).filter(Boolean).length > 1) return null; // 合并提交 ⇒ 不等价
+      const d = new Date(iso);
+      current = isNaN(d.getTime()) ? null : d.toISOString();
+      continue;
+    }
+    if (!line) continue;
+    if (line.startsWith('"')) {
+      quoted = true;
+      continue;
+    }
+    if (current && !map.has(line)) map.set(line, current);
+  }
+  commitIndexCache = { map, quoted };
+  return commitIndexCache;
+}
+
 const commitTimeCache = new Map();
+/* 索引键：相对 git 顶层。⚠️ 两边都要先取 realpath —— git 给出的顶层是**真实路径**
+   （临时目录在 macOS 上是 /private/var/…），而 REPO_ROOT 可能是软链形态（/var/…），
+   直接 path.relative 会得到 "../../private/…" 这种键 ⇒ 静默查不到 ⇒ 少报时间戳。
+   算出来的键跑出了仓库（以 .. 开头）就返回 null，调用方退回逐文件查询。 */
+let realTopCache;
+let realRootCache;
+function indexKeyOf(rel) {
+  const top = gitTop();
+  if (!top) return null;
+  try {
+    if (realTopCache === undefined) realTopCache = fs.realpathSync(top);
+    if (realRootCache === undefined) realRootCache = fs.realpathSync(REPO_ROOT);
+  } catch (_) {
+    return null;
+  }
+  const key = path.relative(realTopCache, path.resolve(realRootCache, rel));
+  if (!key || key.startsWith("..") || path.isAbsolute(key)) return null;
+  return key.split(path.sep).join("/");
+}
 /** 某个仓库相对路径最后一次提交的时间（UTC ISO）；null = 没有这个时间。 */
 function commitTimeOf(rel) {
   if (commitTimeCache.has(rel)) return commitTimeCache.get(rel);
   let t = null;
   if (hasHistory()) {
+    const idx = commitIndex();
+    const key = indexKeyOf(rel);
+    if (idx && key && (idx.map.has(key) || !idx.quoted)) {
+      t = idx.map.get(key) || null;
+      commitTimeCache.set(rel, t);
+      return t;
+    }
     try {
       const out = execFileSync("git", ["log", "-1", "--format=%cI", "--", rel], {
         cwd: REPO_ROOT,
@@ -251,7 +333,7 @@ function dataFileMap() {
   const dir = path.join(REPO_ROOT, DATA_DIR);
   if (fs.existsSync(dir)) {
     for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
-      if (!e.isFile()) continue;
+      if (!e.isFile() || e.name.startsWith("._")) continue;
       const name = e.name.replace(/\.[^.]+$/, "");
       if (!map.has(name)) map.set(name, `${DATA_DIR}/${e.name}`);
     }

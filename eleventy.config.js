@@ -50,7 +50,23 @@ const { isDraftDir } = require("./src/eleventy-draft.cjs");
 // 判定只看 `--serve`，不看 NODE_ENV：NODE_ENV=production + --serve 仍然
 // 需要根路径预览（只是 CSS 用生产版），产物同样不能进 _site/。
 const IS_SERVE_MODE = process.argv.includes("--serve");
-const OUT_DIR = IS_SERVE_MODE ? "_site_dev" : "_site";
+// 命令行显式给了 `--output`（`--output=dir` 或 `--output dir`）时以它为准。
+// ⚠️ 此前这里无视 --output：Eleventy 把页面写到 --output 指定的目录，而本文件的
+//    cleanOutputDir() 与 eleventy.after 钩子（components.css / 封面 / 批注）仍然认
+//    写死的 _site ⇒ `npx eleventy --output=/tmp/x` 会**清空 _site**（正在跑的
+//    build 链随即在 check:site 读不到 _site/about/index.html 而崩），
+//    同时 /tmp/x 里缺 components.css，整站头部无样式。2026-11-04 实测踩中。
+function outputFromArgv(argv) {
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    if (a.startsWith("--output=")) return a.slice("--output=".length);
+    if (a === "--output" && argv[i + 1] && !argv[i + 1].startsWith("-")) return argv[i + 1];
+  }
+  return null;
+}
+const OUT_DIR = outputFromArgv(process.argv) || (IS_SERVE_MODE ? "_site_dev" : "_site");
+// 所有钩子统一用这一个绝对路径（OUT_DIR 可能是绝对路径，path.join 会把它拼坏）。
+const OUT_ABS = path.resolve(__dirname, OUT_DIR);
 
 // macOS Finder 会在 patch/write 时自动产生 ._<name> 资源叉备份，
 // 11ty 会把它当成模板加载并 SyntaxError。
@@ -88,7 +104,15 @@ stripMacResourceForks(path.join(__dirname, "src"));
  * 产物目录是纯可再生的，删干净最省心。
  */
 function cleanOutputDir(dirName) {
-  const dir = path.join(__dirname, dirName);
+  const dir = path.resolve(__dirname, dirName);
+  // 输出目录现在可由 --output 指定 ⇒ 必须防住「把仓库自己当产物目录清空」：
+  // 仓库根、仓库根的任一祖先目录、仓库内的 src/ 一律拒绝清理。
+  const rel = path.relative(dir, __dirname);
+  const isRepoOrAncestor = rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel));
+  const isSrc = dir === path.join(__dirname, "src") || dir.startsWith(path.join(__dirname, "src") + path.sep);
+  if (isRepoOrAncestor || isSrc) {
+    throw new Error(`[eleventy.config] 拒绝把 ${dir} 当作输出目录清空（它是仓库根 / 仓库的祖先 / src）`);
+  }
   if (!fs.existsSync(dir)) return;
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
     fs.rmSync(path.join(dir, entry.name), { recursive: true, force: true });
@@ -227,7 +251,7 @@ module.exports = function (eleventyConfig) {
       const src = path.join(contentDir, "annotations.json");
       if (!fs.existsSync(src)) continue;
       // 落点与 passthrough 一致：_site/content/papers/<slug>/annotations.json
-      const dest = path.join(__dirname, OUT_DIR, "content/papers", slug, "annotations.json");
+      const dest = path.join(OUT_ABS, "content/papers", slug, "annotations.json");
       fs.mkdirSync(path.dirname(dest), { recursive: true });
       fs.copyFileSync(src, dest);
     }
@@ -243,7 +267,7 @@ module.exports = function (eleventyConfig) {
     // 早先这里只处理 papers，blog / portfolio 的封面永远进不了 _site。
     for (const section of ["papers", "blog", "portfolio"]) {
       const srcRoot = path.join(__dirname, "src/content", section);
-      const destRoot = path.join(__dirname, OUT_DIR, section);
+      const destRoot = path.join(OUT_ABS, section);
       if (!fs.existsSync(srcRoot)) continue;
       for (const slug of fs.readdirSync(srcRoot)) {
         const contentDir = path.join(srcRoot, slug);
@@ -282,7 +306,7 @@ module.exports = function (eleventyConfig) {
 
   eleventyConfig.on("eleventy.after", () => {
     const compDir = path.join(__dirname, "src/assets/css/components");
-    const outFile = path.join(__dirname, OUT_DIR, "assets/css/components.css");
+    const outFile = path.join(OUT_ABS, "assets/css/components.css");
     const order = ["_nav", "_button", "_badge", "_card", "_list", "_paper", "_misc"];
 
     let body;
@@ -340,7 +364,7 @@ module.exports = function (eleventyConfig) {
     // 这一步只动产物目录（_site / _site_dev），语义零变化（只删注释）。
     // ⚠️ 必须在写完 components.css 之后跑 —— components.css 是这里生成的，
     //    早一步会剥不到它。
-    stripProductCssComments(path.join(__dirname, OUT_DIR));
+    stripProductCssComments(OUT_ABS);
 
     // 构建产物 _site/ 里同样会长出 ._*，而且拦不住：上面开头的 stripMacResourceForks
     // 只清了 src/，这些副本是 passthrough copy 过程中在 exFAT 目标盘上被重新生成的
@@ -355,7 +379,7 @@ module.exports = function (eleventyConfig) {
     //    实测剥 CSS 注释那一步写回 6 个 HTML + 16 个 CSS，当场生成 22 个 ._*。
     //    所以清叉动作是「本钩子里最后写盘的那一步」：先写完（含剥注释），
     //    再统一清一遍；顺序反了就是「清完又生」。
-    stripMacResourceForks(path.join(__dirname, OUT_DIR));
+    stripMacResourceForks(OUT_ABS);
   });
 
   /* ---------- 2. 监视：build 后页面刷新 ---------- */

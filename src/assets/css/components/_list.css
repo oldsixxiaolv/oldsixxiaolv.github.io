@@ -63,7 +63,7 @@
   margin: 0 0 var(--space-2);
 }
 .list-page__lede {
-  font-family: var(--font-sans-cn);
+  font-family: var(--font-body);
   font-size: 15px;
   color: var(--text-muted);
   margin: 0;
@@ -140,7 +140,7 @@
   text-decoration-color: var(--text-secondary);
 }
 .list__meta {
-  font-family: var(--font-sans-cn);
+  font-family: var(--font-body);
   font-size: 13px;
   color: var(--text-muted);
   margin: 4px 0 0;
@@ -246,7 +246,7 @@
 
 /* ---------- Excerpt · 列表页的第三层信息 ---------- */
 .list__excerpt {
-  font-family: var(--font-sans-cn);
+  font-family: var(--font-body);
   font-size: var(--fs-small);
   line-height: 1.6;
   color: var(--text-secondary);
@@ -315,7 +315,7 @@
   /* 单行 meta：detail.njk 里是 <p> + 内联 <span>（"2026-09-12 · 8 分钟 · tag"），
      保持普通流排版。这里绝不能再出现 display:grid —— 那正是旧块把它渲染成
      auto-fit 网格 + 上下细线的原因，已随旧块删除。 */
-  font-family: var(--font-sans-cn);
+  font-family: var(--font-body);
   font-size: 13px;
   color: var(--text-muted);
   margin: 0;
@@ -375,7 +375,7 @@
   gap: 4px;
   text-decoration: none;
   color: var(--text-muted);
-  font-family: var(--font-sans-cn);
+  font-family: var(--font-body);
   font-size: var(--fs-small);
 }
 .detail__pager-link:hover { color: var(--text-primary); text-decoration: none; }
@@ -387,7 +387,7 @@
 }
 .detail__back {
   margin-top: var(--space-5);
-  font-family: var(--font-sans-cn);
+  font-family: var(--font-body);
   font-size: var(--fs-small);
   color: var(--text-muted);
 }
