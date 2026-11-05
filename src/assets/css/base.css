@@ -40,6 +40,8 @@ html {
 }
 
 body {
+  position: relative;
+  isolation: isolate;
   min-height: 100vh;
   line-height: 1.7;
   font-family: var(--font-editorial);
@@ -56,6 +58,38 @@ body {
   /* Chrome 122+ / Safari 18+ / Firefox 待落地；现代浏览器其实已默认处理
      CJK ↔ Latin 之间的间距，这里显式声明以便未来行为变化时保持一致。 */
   text-autospace: normal;
+}
+
+/* —— 全站天气图等压流场背景（Global Synoptic Isobar Field & Ambient Glow）——
+   挂在 body::before（position: fixed; inset: 0; z-index: -1; pointer-events: none）：
+   1. 覆盖全站所有页面（Home / Papers / Blog / About / 论文与博客详情页），
+      切换任意导航栏目都保持统一的个人气象站视觉识别；
+   2. 双心椭圆等压线环（repeating-radial-gradient）+ 经纬网格细线（repeating-linear-gradient）
+      + 流场蓝（--color-brand-400）与暖赭（--color-accent-400）双源柔光；
+   3. 浓度显式提亮（等压环 16%–18%、经纬网格 50%–58%、双源柔光 20%–24%），
+      肉眼清晰可辨而正文仍稳守 WCAG AA 对比度；
+   4. position: fixed; inset: 0 严格锁在视口内，零横向溢出。 */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background-image:
+    radial-gradient(ellipse 64% 58% at 16% 20%, color-mix(in srgb, var(--color-brand-400) 24%, transparent), transparent 72%),
+    radial-gradient(ellipse 58% 54% at 84% 76%, color-mix(in srgb, var(--color-accent-400) 20%, transparent), transparent 72%),
+    radial-gradient(ellipse 46% 42% at 78% 14%, color-mix(in srgb, var(--color-brand-300) 15%, transparent), transparent 68%),
+    repeating-radial-gradient(ellipse 118% 78% at 14% 22%, transparent 0 42px, color-mix(in srgb, var(--color-brand-500) 18%, transparent) 42px 43.5px),
+    repeating-radial-gradient(ellipse 108% 72% at 86% 78%, transparent 0 54px, color-mix(in srgb, var(--color-accent-500) 16%, transparent) 54px 55.5px),
+    repeating-linear-gradient(90deg, transparent 0 87px, color-mix(in srgb, var(--border-default) 58%, transparent) 87px 88px),
+    repeating-linear-gradient(0deg, transparent 0 87px, color-mix(in srgb, var(--border-default) 50%, transparent) 87px 88px);
+  -webkit-mask-image: radial-gradient(ellipse 98% 94% at 50% 48%, #000 52%, rgba(0, 0, 0, 0.55) 82%, transparent 100%);
+  mask-image: radial-gradient(ellipse 98% 94% at 50% 48%, #000 52%, rgba(0, 0, 0, 0.55) 82%, transparent 100%);
+}
+@media print {
+  body::before {
+    display: none !important;
+  }
 }
 
 img, picture, svg, video, canvas {

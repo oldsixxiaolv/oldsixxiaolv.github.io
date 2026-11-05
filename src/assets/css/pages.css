@@ -29,10 +29,9 @@
   min-height: min(560px, calc(100vh - 160px));
   padding-bottom: clamp(32px, 4vw, 56px);
 }
-/* —— 首屏天气图等压流场背景（Synoptic Isobar Field & Ambient Glow）——
-   用双心椭圆等压线环（repeating-radial-gradient）叠加经纬网格细线与流场蓝/暖赭双源柔光，
-   四周通过径向遮罩（mask-image）自然融进纸面底色 --bg-page，不留矩形硬边；
-   水平方向锁在 .home-hero 自身宽度内（inset-inline: 0），杜绝任何视口下的横向溢出。 */
+/* —— 首屏局部聚焦光晕（叠在 base.css 全站等压流场背景之上）——
+   全站级等压线环与经纬网格已提升至 base.css 的 body::before（覆盖 Home / Papers / Blog / About 全部页面）；
+   首屏 .home-hero::before 在主标题与人像/贴纸背后再补一层局部流场蓝与暖赭聚焦光晕，强化主视觉纵深。 */
 .home-hero::before {
   content: "";
   position: absolute;
@@ -40,14 +39,10 @@
   z-index: -1;
   pointer-events: none;
   background-image:
-    radial-gradient(ellipse 56% 62% at 22% 32%, color-mix(in srgb, var(--color-brand-400) 15%, transparent), transparent 72%),
-    radial-gradient(ellipse 46% 52% at 78% 66%, color-mix(in srgb, var(--color-accent-400) 13%, transparent), transparent 70%),
-    repeating-radial-gradient(ellipse 130% 84% at 16% 26%, transparent 0 44px, color-mix(in srgb, var(--color-brand-500) 8%, transparent) 44px 45px),
-    repeating-radial-gradient(ellipse 115% 78% at 86% 74%, transparent 0 56px, color-mix(in srgb, var(--color-accent-500) 7%, transparent) 56px 57px),
-    repeating-linear-gradient(90deg, transparent 0 95px, color-mix(in srgb, var(--border-default) 32%, transparent) 95px 96px),
-    repeating-linear-gradient(0deg, transparent 0 95px, color-mix(in srgb, var(--border-default) 26%, transparent) 95px 96px);
-  -webkit-mask-image: radial-gradient(ellipse 92% 86% at 50% 46%, #000 28%, transparent 82%);
-  mask-image: radial-gradient(ellipse 92% 86% at 50% 46%, #000 28%, transparent 82%);
+    radial-gradient(ellipse 56% 62% at 22% 32%, color-mix(in srgb, var(--color-brand-400) 18%, transparent), transparent 72%),
+    radial-gradient(ellipse 46% 52% at 78% 66%, color-mix(in srgb, var(--color-accent-400) 16%, transparent), transparent 70%);
+  -webkit-mask-image: radial-gradient(ellipse 92% 86% at 50% 46%, #000 32%, transparent 85%);
+  mask-image: radial-gradient(ellipse 92% 86% at 50% 46%, #000 32%, transparent 85%);
 }
 /* 字号必须跟**左栏实际宽度**走，不能跟视口走。
    原因：这是一个两栏网格（minmax(0,1.14fr) + 人像栏 + 最多 140px 的 gap），
