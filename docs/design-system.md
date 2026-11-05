@@ -607,11 +607,11 @@ hover / `:focus-visible` 时背景 `--bg-subtle`、边框 `--border-default`；h
 
 ```css
 :root {
-  --ease-out: cubic-bezier(.16,.84,.44,1);
-  --ease-in-out: cubic-bezier(.65,.05,.36,1);
-  --dur-fast:   120ms;
-  --dur-base:   200ms;
-  --dur-slow:   320ms;
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+  --dur-fast:   140ms;
+  --dur-base:   180ms;
+  --dur-slow:   260ms;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -742,9 +742,9 @@ hover / `:focus-visible` 时背景 `--bg-subtle`、边框 `--border-default`；h
   --measure: 72ch;
 
   /* —— Motion —— */
-  --ease-out: cubic-bezier(.16,.84,.44,1);
-  --ease-in-out: cubic-bezier(.65,.05,.36,1);
-  --dur-fast: 120ms; --dur-base: 200ms; --dur-slow: 320ms;
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+  --dur-fast: 140ms; --dur-base: 180ms; --dur-slow: 260ms;
 }
 ```
 

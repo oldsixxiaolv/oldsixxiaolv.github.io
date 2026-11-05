@@ -28,15 +28,13 @@
 @media (prefers-reduced-motion: no-preference) {
   .paper-body h2[id],
   .paper-body h3[id] {
-    transition: opacity 500ms var(--ease-out), transform 500ms var(--ease-out), background-color var(--dur-base) var(--ease-out);
+    transition: background-color var(--dur-base) var(--ease-out);
   }
-  .paper-body h2[id], .paper-body h3[id] { animation: reader-section-in linear both; animation-timeline: view(); animation-range: entry 0% cover 20%; }
   .annot-item {
-    transition: opacity 500ms var(--ease-out), background-color var(--dur-base) var(--ease-out),
+    transition: opacity var(--dur-base) var(--ease-out), background-color var(--dur-base) var(--ease-out),
                 border-color var(--dur-base) var(--ease-out), color var(--dur-base) var(--ease-out);
   }
 }
-@keyframes reader-section-in { from { opacity: .5; transform: translateY(10px); } to { opacity: 1; transform: none; } }
 
 
 /* 三栏：TOC (左侧) · paper 正文 (中) · annot-pane (右侧) */
@@ -301,10 +299,14 @@
   font: 500 12px/1 var(--font-body);
   cursor: pointer;
   transition: color var(--dur-base) var(--ease-out),
-              background-color var(--dur-base) var(--ease-out);
+              background-color var(--dur-base) var(--ease-out),
+              transform var(--dur-fast) var(--ease-out);
 }
 .annot-filter:first-child { border-inline-start: 0; }
-.annot-filter:hover { color: var(--text-primary); background: var(--bg-muted); }
+.annot-filter:active { transform: scale(0.97); }
+@media (hover: hover) and (pointer: fine) {
+  .annot-filter:hover { color: var(--text-primary); background: var(--bg-muted); }
+}
 .annot-filter:focus-visible {
   outline: none;
   box-shadow: var(--shadow-focus);
@@ -577,7 +579,9 @@
     background: var(--bg-surface);
     color: var(--color-brand-500);
     font-weight: 600;
+    transition: transform var(--dur-fast) var(--ease-out);
   }
+  .annot-toggle:active { transform: scale(0.97); }
   .annot-pane {
     position: fixed;
     inset: auto 0 0;
@@ -591,7 +595,8 @@
     transition: transform var(--dur-slow) var(--ease-out);
   }
   .paper-reader-wrap.is-pane-open .annot-pane { transform: translateY(0); }
-  .annot-close { display: inline-flex; min-height: 36px; padding: 0 var(--space-3); border: 1px solid var(--border-default); background: transparent; color: var(--text-secondary); }
+  .annot-close { display: inline-flex; min-height: 36px; padding: 0 var(--space-3); border: 1px solid var(--border-default); background: transparent; color: var(--text-secondary); transition: transform var(--dur-fast) var(--ease-out); }
+  .annot-close:active { transform: scale(0.97); }
   .annot-pane__head { padding-top: var(--space-2); }
   .annot-pane__head h2 { flex: 1; }
   .paper-reader-wrap.is-pane-open::after { content: ""; position: fixed; inset: 0; z-index: 19; background: rgb(0 0 0 / 28%); }

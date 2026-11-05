@@ -26,19 +26,31 @@
 /* 悬停态：底色换成 brand 淡染（--bg-subtle），边框加一档；
    hover 额外叠加上浮阴影 --shadow-2（不写在 :focus-visible 上，免得冲掉全局双色焦点环 --shadow-focus）。
    亮色是 #eaf3ff 淡蓝，暗色是 #1a2336 深蓝，都不抢正文的对比度。 */
-.card:hover,
+.card:hover {
+  text-decoration: none;
+}
 .card:focus-visible {
   background: var(--bg-subtle);
   border-color: var(--border-default);
   color: inherit;
   text-decoration: none;
 }
-.card:hover {
-  box-shadow: var(--shadow-2);
+@media (hover: hover) and (pointer: fine) {
+  .card:hover {
+    background: var(--bg-subtle);
+    border-color: var(--border-default);
+    color: inherit;
+    box-shadow: var(--shadow-2);
+  }
 }
 @media (prefers-reduced-motion: no-preference) {
-  .card:hover {
-    transform: translateY(-2px);
+  @media (hover: hover) and (pointer: fine) {
+    .card:hover {
+      transform: translateY(-2px);
+    }
+  }
+  .card:active {
+    transform: scale(0.99);
   }
 }
 
@@ -56,9 +68,13 @@
   transform-origin: top;
   transition: transform var(--dur-base) var(--ease-out);
 }
-.card:hover::before,
 .card:focus-visible::before {
   transform: scaleY(1);
+}
+@media (hover: hover) and (pointer: fine) {
+  .card:hover::before {
+    transform: scaleY(1);
+  }
 }
 
 /* ---------- Cover media ----------
@@ -118,7 +134,11 @@
 }
 :root[data-theme="dark"] .card__media::after { opacity: .3; }
 /* 悬停时极轻微的推近：只做"活着"的提示，不做缩放特效。 */
-.card:hover .card__img,
 .card:focus-visible .card__img {
-  transform: scale(1.04);
+  transform: scale(1.03);
+}
+@media (hover: hover) and (pointer: fine) {
+  .card:hover .card__img {
+    transform: scale(1.03);
+  }
 }

@@ -56,12 +56,19 @@
   border-radius: var(--radius-md);
   color: var(--text-secondary);
   transition: background-color var(--dur-base) var(--ease-out),
-              color var(--dur-base) var(--ease-out);
+              color var(--dur-base) var(--ease-out),
+              transform var(--dur-fast) var(--ease-out);
 }
 
-.theme-toggle:hover {
-  background: var(--bg-muted);
-  color: var(--text-primary);
+.theme-toggle:active {
+  transform: scale(0.95);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .theme-toggle:hover {
+    background: var(--bg-muted);
+    color: var(--text-primary);
+  }
 }
 
 .theme-toggle svg {
@@ -108,6 +115,7 @@ html body .topbar__inner {
   letter-spacing: 0.01em;
   color: var(--text-primary);
   text-decoration: none;
+  transition: transform var(--dur-fast) var(--ease-out);
 }
 /* expand touch hit-area vertically: 16px top/bottom padding visual + brand visual height ~24px */
 .topbar__brand::before {
@@ -121,11 +129,14 @@ html body .topbar__inner {
   transition: color var(--dur-base) var(--ease-out),
               transform var(--dur-slow) var(--ease-out);
 }
-.topbar__brand:hover .topbar__mark {
-  color: var(--color-brand-400);
-  transform: rotate(15deg) scale(1.06);
-}
 .topbar__brand:hover { text-decoration: none; }
+.topbar__brand:active { transform: scale(0.97); }
+@media (hover: hover) and (pointer: fine) {
+  .topbar__brand:hover .topbar__mark {
+    color: var(--color-brand-400);
+    transform: rotate(15deg) scale(1.06);
+  }
+}
 
 .topbar__nav {
   display: flex;
@@ -161,8 +172,11 @@ html body .topbar__inner {
   opacity: 0;
   transition: opacity var(--dur-base) var(--ease-out);
 }
-.topbar__link:hover { color: var(--text-primary); text-decoration: none; }
-.topbar__link:hover::after { opacity: .45; }
+.topbar__link:hover { text-decoration: none; }
+@media (hover: hover) and (pointer: fine) {
+  .topbar__link:hover { color: var(--text-primary); }
+  .topbar__link:hover::after { opacity: .45; }
+}
 .topbar__link[aria-current="page"] { color: var(--text-primary); font-weight: 500; }
 .topbar__link[aria-current="page"]::after {
   bottom: -7px;
@@ -213,7 +227,9 @@ html body .topbar__inner {
   height: 28px;
   border-radius: var(--radius-md);
   color: var(--text-muted);
-  transition: color var(--dur-base) var(--ease-out);
+  transition: color var(--dur-base) var(--ease-out),
+              background-color var(--dur-base) var(--ease-out),
+              transform var(--dur-fast) var(--ease-out);
 }
 /* expand touch hit-area to 44×44 (28 + 8 each side) */
 .topbar__theme::before {
@@ -221,10 +237,29 @@ html body .topbar__inner {
   position: absolute;
   inset: -8px;
 }
-.topbar__theme:hover { color: var(--text-primary); background: var(--bg-muted); }
+.topbar__theme:active { transform: scale(0.95); }
+@media (hover: hover) and (pointer: fine) {
+  .topbar__theme:hover { color: var(--text-primary); background: var(--bg-muted); }
+}
 .topbar__theme .icon-moon { display: none; }
 [data-theme="dark"] .topbar__theme .icon-sun { display: none; }
 [data-theme="dark"] .topbar__theme .icon-moon { display: block; }
+@media (prefers-reduced-motion: no-preference) {
+  .topbar__theme svg,
+  .theme-toggle svg {
+    animation: theme-icon-in var(--dur-base) var(--ease-out);
+  }
+  @keyframes theme-icon-in {
+    from {
+      opacity: 0;
+      transform: scale(0.75) rotate(-20deg);
+    }
+    to {
+      opacity: 1;
+      transform: scale(1) rotate(0deg);
+    }
+  }
+}
 
 /* —— 滚动后 topbar 加深 + 底部流光阅读进度条 ——
    纯 CSS 滚动时间线（不动 JS）：一旦离开页面顶部，底部分隔线从 subtle 升到

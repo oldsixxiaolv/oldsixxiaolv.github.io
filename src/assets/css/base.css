@@ -18,6 +18,7 @@ html {
   text-size-adjust: 100%;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  -webkit-tap-highlight-color: transparent;
   scroll-behavior: smooth;
   /* —— 滚动定位要让开吸顶顶栏 ——
      站内所有「滚动定位」都是把目标滚到视口**顶**：跳转链接 #main、
@@ -85,11 +86,17 @@ input, button, textarea, select {
   color: inherit;
 }
 
+a, button, input, select, textarea, summary, [role="button"] {
+  touch-action: manipulation;
+}
+
 button {
   background: none;
   border: 0;
   padding: 0;
   cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 a {
@@ -305,9 +312,9 @@ th {
 /* —— Reveal-on-scroll progressive enhancement —— */
 .motion-ready .reveal {
   opacity: 0;
-  transform: translateY(18px);
-  transition: opacity 700ms var(--ease-out) var(--reveal-delay, 0ms),
-              transform 700ms var(--ease-out) var(--reveal-delay, 0ms);
+  transform: translateY(8px);
+  transition: opacity var(--dur-slow) var(--ease-out) var(--reveal-delay, 0ms),
+              transform var(--dur-slow) var(--ease-out) var(--reveal-delay, 0ms);
 }
 .motion-ready .reveal.is-visible {
   opacity: 1;

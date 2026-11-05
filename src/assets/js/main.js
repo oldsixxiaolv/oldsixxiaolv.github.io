@@ -9,7 +9,7 @@ import "./theme.js";
   // Keep the static page visible until the enhancement is ready.
   document.documentElement.classList.add("motion-ready");
   nodes.forEach((node) => {
-    const delay = Number(node.dataset.revealDelay || 0);
+    const delay = Math.min(Number(node.dataset.revealDelay || 0), 160);
     node.style.setProperty("--reveal-delay", `${delay}ms`);
     node.classList.add("reveal");
   });
@@ -25,9 +25,16 @@ import "./theme.js";
       entry.target.classList.add("is-visible");
       instance.unobserve(entry.target);
     });
-  }, { threshold: 0.12, rootMargin: "0px 0px -8%" });
+  }, { threshold: 0.08, rootMargin: "0px 0px -4%" });
 
-  nodes.forEach((node) => observer.observe(node));
+  const vh = window.innerHeight || document.documentElement.clientHeight;
+  nodes.forEach((node) => {
+    if (node.getBoundingClientRect().top < vh * 0.95) {
+      requestAnimationFrame(() => node.classList.add("is-visible"));
+    } else {
+      observer.observe(node);
+    }
+  });
 })();
 
 /* Copy-to-clipboard for [data-copy-target] blocks.
@@ -53,14 +60,16 @@ import "./theme.js";
     return sel ? btn.querySelector(sel) || document.querySelector(sel) : null;
   };
 
-  const flash = (btn, msg) => {
+  const flash = (btn, msg, ok) => {
     const original = btn.dataset.copyLabel || btn.textContent;
     btn.dataset.copyLabel = original;
     btn.textContent = msg;
     btn.disabled = true;
+    if (ok) btn.classList.add("is-copied");
     setTimeout(() => {
       btn.textContent = original;
       btn.disabled = false;
+      btn.classList.remove("is-copied");
     }, 1800);
   };
 
@@ -84,9 +93,9 @@ import "./theme.js";
           document.execCommand("copy");
           document.body.removeChild(ta);
         }
-        flash(btn, "Copied");
+        flash(btn, "Copied", true);
       } catch (err) {
-        flash(btn, "Copy failed");
+        flash(btn, "Copy failed", false);
       }
     });
   });

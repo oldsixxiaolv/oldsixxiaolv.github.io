@@ -21,9 +21,10 @@
  *   the canvas they inherit that variable for free, and they can be positioned
  *   with plain percentages of the canvas box.
  *
- * Motion: the cursor and the dot move without animation under
- *   prefers-reduced-motion: reduce — the transition lives in CSS, inside a
- *   no-preference media query, so nothing has to be checked here.
+ * Motion: cursor and dot coordinates snap 1:1 with pointer scrubbing and
+ *   keyboard arrow navigation (no layout-triggering left/top/height transition);
+ *   only the dot's composite-only transform scale is transitioned inside a
+ *   prefers-reduced-motion: no-preference CSS block.
  *
  * Public API:
  *   initHomeChart(root) — 唯一入口。root 默认 document；
