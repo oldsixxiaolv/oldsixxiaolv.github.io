@@ -139,7 +139,7 @@
     "gray-matter": "^4.0.3",
     "js-yaml": "^4.3.2",
     "luxon": "^3.4.0",
-    "markdown-it": "^14.3.3",
+    "markdown-it": "^15.0.3",
     "nunjucks": "^3.2.4"
   }
 }
