@@ -15,7 +15,7 @@ const fs = require('fs');
 const { assertPagesOk } = require('./lib/page-check.cjs');
 const { TOOL_PAGES, toolUrl } = require('./lib/site-routes.cjs');
 
-const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+const CHROME = process.env.CHROME_PATH || path.join(path.sep, 'Applications', 'Google Chrome.app', 'Contents', 'MacOS', 'Google Chrome');
 const OUT    = path.resolve(__dirname, '../docs/screenshots');
 const OUT_METRICS = path.resolve(__dirname, '../docs/lighthouse');
 

@@ -33,7 +33,7 @@ async function setup(page, scheme, cond) {
   await assertPagesOk([{ label: 'paper-detail', url }]);
 
   const browser = await puppeteer.launch({
-    executablePath: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+    executablePath: process.env.CHROME_PATH || path.join(path.sep, 'Applications', 'Google Chrome.app', 'Contents', 'MacOS', 'Google Chrome'),
     headless: 'new',
     args: ['--no-sandbox', '--disable-setuid-sandbox'],
   });
