@@ -60,37 +60,12 @@ body {
   text-autospace: normal;
 }
 
-/* —— 全站天气图等压流场背景（Global Synoptic Isobar Field & Ambient Glow）——
-   挂在 body::before（position: fixed; inset: 0; z-index: -1; pointer-events: none）：
-   1. 覆盖全站所有页面（Home / Papers / Blog / About / 论文与博客详情页），
-      切换任意导航栏目都保持统一的个人气象站视觉识别；
-   2. 双心椭圆等压线环（repeating-radial-gradient）+ 经纬网格细线（repeating-linear-gradient）
-      + 流场蓝（--color-brand-400）与暖赭（--color-accent-400）双源柔光；
-   3. 浓度显式提亮（等压环 16%–18%、经纬网格 50%–58%、双源柔光 20%–24%），
-      肉眼清晰可辨而正文仍稳守 WCAG AA 对比度；
-   4. position: fixed; inset: 0 严格锁在视口内，零横向溢出。 */
-body::before {
-  content: "";
-  position: fixed;
-  inset: 0;
-  z-index: -1;
-  pointer-events: none;
-  background-image:
-    radial-gradient(ellipse 64% 58% at 16% 20%, color-mix(in srgb, var(--color-brand-400) 9%, transparent), transparent 72%),
-    radial-gradient(ellipse 58% 54% at 84% 76%, color-mix(in srgb, var(--color-accent-400) 8%, transparent), transparent 72%),
-    radial-gradient(ellipse 46% 42% at 78% 14%, color-mix(in srgb, var(--color-brand-300) 6%, transparent), transparent 68%),
-    repeating-radial-gradient(ellipse 118% 78% at 14% 22%, transparent 0 42px, color-mix(in srgb, var(--color-brand-500) 6.5%, transparent) 42px 43px),
-    repeating-radial-gradient(ellipse 108% 72% at 86% 78%, transparent 0 54px, color-mix(in srgb, var(--color-accent-500) 5.5%, transparent) 54px 55px),
-    repeating-linear-gradient(90deg, transparent 0 87px, color-mix(in srgb, var(--border-default) 22%, transparent) 87px 88px),
-    repeating-linear-gradient(0deg, transparent 0 87px, color-mix(in srgb, var(--border-default) 18%, transparent) 87px 88px);
-  -webkit-mask-image: radial-gradient(ellipse 92% 88% at 50% 46%, #000 32%, rgba(0, 0, 0, 0.38) 74%, transparent 96%);
-  mask-image: radial-gradient(ellipse 92% 88% at 50% 46%, #000 32%, rgba(0, 0, 0, 0.38) 74%, transparent 96%);
-}
-@media print {
-  body::before {
-    display: none !important;
-  }
-}
+/* —— 全站背景隔离容器 ——
+   实际的全站积雨云闪电背景图（body::before）与可读性渐变遮罩（body::after）
+   声明在外部样式表 layout.css 中（使 url("../img/cumulonimbus-lightning.jpg")
+   始终相对 /assets/css/layout.css 解析，不受页面目录深度影响）。
+   这里在 body 上建立独立层叠上下文（isolation: isolate），保证 z-index: -2 / -1
+   的背景层稳定衬在所有页面内容之后。 */
 
 img, picture, svg, video, canvas {
   display: block;

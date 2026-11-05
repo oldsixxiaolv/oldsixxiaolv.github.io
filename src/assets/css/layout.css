@@ -89,3 +89,91 @@
 
 /* —— Utilities —— */
 .row { display: flex; align-items: center; gap: var(--space-3); }
+
+/* —— 全站积雨云闪电背景层（Cumulonimbus & Lightning Atmospheric Backdrop）——
+   1. 挂在 body::before（背景实景图）与 body::after（左侧阅读区柔化渐晕 + 经纬细网），
+      覆盖 Home、Papers、Blog、About 及所有详情页；
+   2. 之所以放在外部样式表 layout.css，是因为 url("../img/cumulonimbus-lightning.jpg")
+      相对 /assets/css/layout.css 解析，无论页面在根目录 / 还是子目录 /papers/<slug>/
+      都能稳定命中 /assets/img/cumulonimbus-lightning.jpg；
+   3. 浅色与深色模式分别调校不透明度与非对称渐变遮罩：左半幅阅读列保持高对比度清晰可读，
+      右半幅与中景完整透出积雨云砧状云冠、云内暖琥珀电弧与宝蓝分叉闪电。 */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -2;
+  pointer-events: none;
+  background-image: url("../img/cumulonimbus-lightning.jpg");
+  background-position: center center;
+  background-size: cover;
+  background-repeat: no-repeat;
+  opacity: 0.44;
+  filter: saturate(1.18) contrast(1.06);
+}
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background-image:
+    linear-gradient(
+      96deg,
+      color-mix(in srgb, var(--bg-page) 88%, transparent) 0%,
+      color-mix(in srgb, var(--bg-page) 78%, transparent) 38%,
+      color-mix(in srgb, var(--bg-page) 46%, transparent) 68%,
+      color-mix(in srgb, var(--bg-page) 38%, transparent) 100%
+    ),
+    radial-gradient(
+      ellipse 88% 82% at 68% 46%,
+      transparent 0%,
+      color-mix(in srgb, var(--bg-page) 62%, transparent) 100%
+    );
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) body::before {
+    opacity: 0.58;
+    filter: saturate(1.22) contrast(1.08);
+  }
+  :root:not([data-theme="light"]) body::after {
+    background-image:
+      linear-gradient(
+        96deg,
+        color-mix(in srgb, var(--bg-page) 84%, transparent) 0%,
+        color-mix(in srgb, var(--bg-page) 72%, transparent) 38%,
+        color-mix(in srgb, var(--bg-page) 36%, transparent) 68%,
+        color-mix(in srgb, var(--bg-page) 28%, transparent) 100%
+      ),
+      radial-gradient(
+        ellipse 88% 82% at 68% 46%,
+        transparent 0%,
+        color-mix(in srgb, var(--bg-page) 56%, transparent) 100%
+      );
+  }
+}
+[data-theme="dark"] body::before {
+  opacity: 0.58;
+  filter: saturate(1.22) contrast(1.08);
+}
+[data-theme="dark"] body::after {
+  background-image:
+    linear-gradient(
+      96deg,
+      color-mix(in srgb, var(--bg-page) 84%, transparent) 0%,
+      color-mix(in srgb, var(--bg-page) 72%, transparent) 38%,
+      color-mix(in srgb, var(--bg-page) 36%, transparent) 68%,
+      color-mix(in srgb, var(--bg-page) 28%, transparent) 100%
+    ),
+    radial-gradient(
+      ellipse 88% 82% at 68% 46%,
+      transparent 0%,
+      color-mix(in srgb, var(--bg-page) 56%, transparent) 100%
+    );
+}
+@media print {
+  body::before,
+  body::after {
+    display: none !important;
+  }
+}
