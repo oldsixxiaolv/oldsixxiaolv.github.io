@@ -39,8 +39,8 @@
   z-index: -1;
   pointer-events: none;
   background-image:
-    radial-gradient(ellipse 56% 62% at 22% 32%, color-mix(in srgb, var(--color-brand-400) 18%, transparent), transparent 72%),
-    radial-gradient(ellipse 46% 52% at 78% 66%, color-mix(in srgb, var(--color-accent-400) 16%, transparent), transparent 70%);
+    radial-gradient(ellipse 56% 62% at 22% 32%, color-mix(in srgb, var(--color-brand-400) 6%, transparent), transparent 72%),
+    radial-gradient(ellipse 46% 52% at 78% 66%, color-mix(in srgb, var(--color-accent-400) 5%, transparent), transparent 70%);
   -webkit-mask-image: radial-gradient(ellipse 92% 86% at 50% 46%, #000 32%, transparent 85%);
   mask-image: radial-gradient(ellipse 92% 86% at 50% 46%, #000 32%, transparent 85%);
 }
