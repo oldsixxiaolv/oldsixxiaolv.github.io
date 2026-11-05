@@ -252,8 +252,14 @@ jobs:
           path: _site
 
       # 下载结果的目录层级必须对，否则后面会拿空目录当"期望值"，门禁会假绿。
+      # upload-pages-artifact 会把 _site 打包成 artifact.tar 上传，download-artifact
+      # 下载下来后需先解包，再校验 _site/index.html 在场。
       - name: Assert the deployed artifact landed at _site/
         run: |
+          if [ -f _site/artifact.tar ]; then
+            tar -xf _site/artifact.tar -C _site
+            rm -f _site/artifact.tar
+          fi
           if [ ! -f _site/index.html ]; then
             echo "::error::_site/index.html 不存在 —— 下载到的部署产物层级不对，核查门禁会拿空目录当期望值（假绿）"
             exit 1
