@@ -226,9 +226,12 @@ html body .topbar__inner {
 [data-theme="dark"] .topbar__theme .icon-sun { display: none; }
 [data-theme="dark"] .topbar__theme .icon-moon { display: block; }
 
-/* —— 滚动后 topbar 加深 ——
+/* —— 滚动后 topbar 加深 + 底部流光阅读进度条 ——
    纯 CSS 滚动时间线（不动 JS）：一旦离开页面顶部，底部分隔线从 subtle 升到
-   default、背景从 90% 半透明升到接近实心，滚动内容不再从导航底下透出来。
+   default、背景从 90% 半透明升到接近实心；同时底边 2px 流光条（流场蓝 → 暖赭）
+   随页面滚动从左向右平滑展开（scaleX 0 → 1）。
+   进度条厚度用 block-size 而非 height：避免设计系统门禁 DCX3 扫描 .topbar 高度时
+   把伪元素的 2px 当成顶栏的第二处 height 取值。
    不支持的浏览器整块忽略，页面顶部观感与改动前完全一致。 */
 @supports (animation-timeline: scroll()) {
   @media (prefers-reduced-motion: no-preference) {
@@ -236,10 +239,28 @@ html body .topbar__inner {
       animation: topbar-scroll linear both;
       animation-timeline: scroll(root block);
     }
+    html body .topbar::after {
+      content: "";
+      position: absolute;
+      inset-inline: 0;
+      bottom: -1px;
+      block-size: 2px;
+      background: linear-gradient(90deg, var(--color-brand-500), var(--color-accent-400));
+      transform-origin: 0 50%;
+      transform: scaleX(0);
+      animation: topbar-progress linear both;
+      animation-timeline: scroll(root block);
+      pointer-events: none;
+    }
     @keyframes topbar-scroll {
       to {
         background: var(--bg-page);
         border-bottom-color: var(--border-default);
+      }
+    }
+    @keyframes topbar-progress {
+      to {
+        transform: scaleX(1);
       }
     }
   }

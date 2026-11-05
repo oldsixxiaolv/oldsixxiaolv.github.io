@@ -93,6 +93,10 @@ function initPanel(panel) {
   // 提示语只有一处：模板里那句初始文案。恢复时用读回来的原文，不另抄一份。
   const hint = main.textContent.trim();
   const last = data.values.length - 1;
+  let peakIdx = 0;
+  for (let i = 1; i <= last; i += 1) {
+    if (data.values[i] > data.values[peakIdx]) peakIdx = i;
+  }
   let index = -1;
 
   function show(i) {
@@ -148,7 +152,7 @@ function initPanel(panel) {
     if (i >= 0) show(i);
   });
 
-  canvas.addEventListener("pointerleave", () => clear());
+  canvas.addEventListener("pointerleave", () => show(peakIdx));
 
   canvas.addEventListener("keydown", (event) => {
     let next;
@@ -176,7 +180,10 @@ function initPanel(panel) {
     show(Math.max(0, Math.min(last, next)));
   });
 
-  canvas.addEventListener("blur", () => clear());
+  canvas.addEventListener("blur", () => show(peakIdx));
+
+  // 默认高亮历史极值年份（2021），首屏滚入即呈现完整游标与读数状态
+  show(peakIdx);
 
   return true;
 }

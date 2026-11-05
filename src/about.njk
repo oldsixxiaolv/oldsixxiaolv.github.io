@@ -78,9 +78,12 @@ editPaths:
      <img> 上的 width/height 属性负责首屏前的比例预留，这条是换图后的兜底。 */
   aspect-ratio: 4 / 5;
   object-fit: cover;
-  border: 1px solid var(--border-subtle);
+  border: 1px solid var(--border-default);
   border-radius: var(--radius-lg);
   background: var(--bg-muted);
+  box-shadow: var(--shadow-2);
+  outline: 1px solid color-mix(in srgb, var(--bg-page) 52%, transparent);
+  outline-offset: -6px;
 }
 .about-eyebrow {
   margin: 0 0 var(--space-2);
@@ -169,7 +172,9 @@ editPaths:
   padding: var(--space-3);
   background: var(--bg-surface);
   border: 1px solid var(--border-subtle);
+  border-inline-start: 2px solid var(--color-brand-400);
   border-radius: var(--radius-md);
+  box-shadow: var(--shadow-1);
 }
 .about-affil b {
   display: block;
@@ -275,7 +280,9 @@ editPaths:
   padding: var(--space-4);
   background: var(--bg-surface);
   border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-md);
+  border-top: 2px solid color-mix(in srgb, var(--color-brand-400) 55%, var(--border-subtle));
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-1);
   list-style: none;
 }
 .about-output li + li { margin-top: var(--space-4); padding-top: var(--space-4); border-top: 1px solid var(--border-subtle); }

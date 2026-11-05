@@ -489,8 +489,8 @@ CS8：门禁**从产物自身判模式** —— `components.css` 含 `@import ur
 ### 6.2 卡片（Card）
 
 `.card` 是**外壳**：背景 `--bg-surface`、边框 `--border-subtle`、圆角 `--radius-lg`；
-hover / `:focus-visible` 时背景 `--bg-subtle`、边框 `--border-default`。
-卡片**本身没有内边距，也没有阴影** —— 内容区的留白由列表那一层负责。
+hover / `:focus-visible` 时背景 `--bg-subtle`、边框 `--border-default`；hover 时加阴影 `--shadow-2`（在 `prefers-reduced-motion: no-preference` 下轻微上浮 `translateY(-2px)`）。
+卡片**本身没有内边距** —— 内容区的留白由列表那一层负责。
 
 | 变体 | 用途 |
 |---|---|

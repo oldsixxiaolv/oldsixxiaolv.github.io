@@ -151,6 +151,12 @@ function renderChartPanel(data, panel) {
       `data-chart="${esc(JSON.stringify(chartData))}">`
   );
   out.push(`<desc id="${id}-desc">${esc(describe(panel, years))}</desc>`);
+  out.push(
+    `<defs><linearGradient id="${id}-grad" x1="0" y1="0" x2="0" y2="1">` +
+      `<stop offset="0%" stop-color="var(--chart-stroke, var(--color-brand-500))" stop-opacity="0.22" />` +
+      `<stop offset="100%" stop-color="var(--chart-stroke, var(--color-brand-500))" stop-opacity="0" />` +
+      `</linearGradient></defs>`
+  );
 
   // 网格线 + y 轴刻度
   for (const t of sc.ticks) {
@@ -175,8 +181,11 @@ function renderChartPanel(data, panel) {
   // y 轴含义
   out.push(`<text x="2" y="13">${esc(panel.axis)}</text>`);
 
-  // 逐年序列（细线）
+  // 逐年序列（面积渐变衬底 + 细线）
   const pts = vals.map((v, i) => `${x(years[i]).toFixed(1)},${y(v).toFixed(1)}`).join(" ");
+  out.push(
+    `<polygon points="${x(y0).toFixed(1)},${PLOT.bottom} ${pts} ${x(y1).toFixed(1)},${PLOT.bottom}" fill="url(#${id}-grad)" />`
+  );
   out.push(`<polyline points="${pts}" />`);
 
   // 十年平均（粗线 + 点）；点画在那一段的**中点**上
