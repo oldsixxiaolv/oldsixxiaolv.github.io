@@ -636,15 +636,15 @@
 /* 两个面板的图形色：按顺序取，不给面板写死类名（理由见上） */
 .chart__panels > div:nth-of-type(1) { --chart-stroke: var(--color-brand-500); }
 .chart__panels > div:nth-of-type(2) { --chart-stroke: var(--color-accent-500); }
-/* SVG 底部对齐：两个面板的标题行数不一定相同（A 的标题会折行、B 不会），
-   靠 margin-block-start:auto 把两个图推到底部，两条绘图区才在同一条基线上。
-   网格默认 align-items:stretch，两个 .chart__panel 等高，所以底对齐 = 绘图区对齐。 */
-.chart svg { display: block; width: 100%; height: auto; margin-block-start: auto; }
-.chart svg text { fill: var(--text-secondary); font-size: 11px; font-family: var(--font-mono); }
-.chart svg line { stroke: var(--border-default); stroke-width: 1; }
-.chart svg polyline { fill: none; stroke: var(--chart-stroke, var(--color-brand-500)); stroke-width: 1.25; }
-.chart svg path { fill: none; stroke: var(--chart-stroke, var(--color-brand-500)); stroke-width: 2.25; }
-.chart svg circle { fill: var(--chart-stroke, var(--color-brand-500)); }
+/* SVG 底部对齐与精确作用域：选择器必须收紧到 .chart__canvas > svg，不能写宽泛的 .chart svg ——
+   图注 .chart__caption 内含 DOI 链接，学术浏览器插件（如 easyScholar）会在 DOI 链接后注入
+   22×22 的内联 <svg> 图标；若写 .chart svg { width: 100% }，会把图注里的插件小图标撑满整张卡片宽度。 */
+.chart__canvas > svg { display: block; width: 100%; height: auto; margin-block-start: auto; }
+.chart__canvas > svg text { fill: var(--text-secondary); font-size: 11px; font-family: var(--font-mono); }
+.chart__canvas > svg line { stroke: var(--border-default); stroke-width: 1; }
+.chart__canvas > svg polyline { fill: none; stroke: var(--chart-stroke, var(--color-brand-500)); stroke-width: 1.25; }
+.chart__canvas > svg path { fill: none; stroke: var(--chart-stroke, var(--color-brand-500)); stroke-width: 2.25; }
+.chart__canvas > svg circle { fill: var(--chart-stroke, var(--color-brand-500)); }
 .chart__caption { margin-top: var(--space-5); padding-top: var(--space-4); border-top: 1px solid var(--border-default); max-inline-size: 80ch; color: var(--text-secondary); font-size: 13px; line-height: 1.75;
   /* base.css 有一条全局 `figcaption { text-align: center }`（为博客正文里的
      居中图注写的）。这里是一段多行英文说明，居中会让折行后的末行悬在中间、

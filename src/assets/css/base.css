@@ -72,6 +72,14 @@ img, picture, svg, video, canvas {
   max-width: 100%;
 }
 
+/* 兼容学术浏览器扩展（如 easyScholar 在 DOI 链接旁注入的无类名 <svg>/<img> 小图标），
+   保持行内对齐，避免被上面的 svg { display: block } 独占一行。 */
+a > svg:not([class]),
+a > img:not([class]) {
+  display: inline-block;
+  vertical-align: middle;
+}
+
 input, button, textarea, select {
   font: inherit;
   color: inherit;
